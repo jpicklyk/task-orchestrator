@@ -1,0 +1,6 @@
+@echo off
+echo Building the application with Gradle...
+call gradlew clean jar
+
+echo Building Docker image...
+docker build -t mcp-task-orchestrator .
