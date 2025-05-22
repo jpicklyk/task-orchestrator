@@ -50,7 +50,6 @@ MCP_TRANSPORT=stdio DATABASE_PATH=data/tasks.db java -jar build/libs/mcp-task-or
 | `MCP_TRANSPORT`      | Transport type (stdio)             | stdio                 |
 | `DATABASE_PATH`      | Path to SQLite database file       | data/tasks.db         |
 | `MCP_SERVER_NAME`    | Server name for MCP information    | mcp-task-orchestrator |
-| `MCP_SERVER_VERSION` | Server version for MCP information | 0.1.0                 |
 | `MCP_DEBUG`          | Enable debug mode                  | false                 |
 
 ## Troubleshooting MCP Connection Issues
@@ -70,25 +69,8 @@ MCP_DEBUG=true java -jar build/libs/mcp-task-orchestrator-0.1.0.jar
 ```
 
 This will create detailed logs in the `logs` directory:
-
-- `mcp-input-{timestamp}.log` - Shows all incoming messages
-- `mcp-output-{timestamp}.log` - Shows all outgoing messages
 - `task-orchestrator.log` - General application logs
 
-#### Common Causes and Fixes
-
-1. **Stack Traces in Standard Output**
-   - **Problem**: Java exceptions are being printed to `System.out` which mixes with the JSON-RPC messages.
-   - **Fix**: All error logging now goes to `System.err` or dedicated log files, keeping `System.out` clean for JSON-RPC
-     communication.
-
-2. **Improper Message Framing**
-   - **Problem**: Messages aren't properly formatted with Content-Length headers.
-   - **Fix**: Added proper message framing with headers in the `JsonRpcMessageHandler`.
-
-3. **Uncaught Exceptions**
-   - **Problem**: Exceptions in message processing weren't properly caught and handled.
-   - **Fix**: Added comprehensive exception handling in all message processing code.
 
 ### Testing Connection
 
