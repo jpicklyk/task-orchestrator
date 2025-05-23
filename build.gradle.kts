@@ -4,13 +4,37 @@ plugins {
     application
 }
 
-group = "io.github.jpicklyk"
-version = "0.1.0"
+// Define a base version (manually maintained)
+val baseVersion = "0.5"
 
-// Set the archive name explicitly to match Dockerfile expectation
-tasks.jar {
-    archiveBaseName.set("mcp-task-orchestrator")
+// Define release qualifier (empty for stable releases)
+// Examples: "", "alpha-01", "beta-02", "rc-01"
+val qualifier = "alpha-01"
+
+
+// Calculate build number from Git
+fun calculateBuildNumberFromGit(): Int {
+    // Option 1: Use Git commit count
+    val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+        .redirectErrorStream(true)
+        .start()
+    process.waitFor(10, TimeUnit.SECONDS)
+    val gitCount = process.inputStream.bufferedReader().readLine()?.trim()?.toIntOrNull() ?: 0
+    return gitCount
 }
+
+// Construct the full version
+val buildNumber = calculateBuildNumberFromGit()
+
+val fullVersion = if (qualifier.isNotEmpty()) {
+    "$baseVersion.$buildNumber-$qualifier"
+} else {
+    "$baseVersion.$buildNumber"
+}
+
+version = fullVersion
+group = "io.github.jpicklyk"
+
 
 repositories {
     mavenCentral()
@@ -57,8 +81,71 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// Ensure the version is printed during build
+tasks.build {
+    dependsOn("printVersion")
+}
+
+// Set the archive name explicitly to match Dockerfile expectation
+tasks.jar {
+    archiveBaseName.set("mcp-task-orchestrator")
+}
+
+// Add a task to generate version information for runtime use
+tasks.register("generateVersionInfo") {
+    val outputDir = layout.buildDirectory.dir("generated/source/version")
+    val versionFile = outputDir.get().file("VersionInfo.kt")
+
+    inputs.property("version", version)
+    inputs.property("qualifier", qualifier)
+    outputs.file(versionFile)
+
+    doLast {
+        outputDir.get().asFile.mkdirs()
+        versionFile.asFile.writeText(
+            """
+            // Generated file - do not modify!
+            // Created from build.gradle.kts
+            object VersionInfo {
+                const val VERSION = "$fullVersion"
+                const val MAJOR_VERSION = "${baseVersion.split(".")[0]}"
+                const val MINOR_VERSION = "${baseVersion.split(".").getOrElse(1) { "0" }}"
+                const val BUILD_NUMBER = "$buildNumber"
+                const val QUALIFIER = "${qualifier.ifEmpty { "" }}"
+                
+                // Convenience functions
+                fun isPreRelease(): Boolean = QUALIFIER.isNotEmpty()
+                fun isAlphaRelease(): Boolean = QUALIFIER.startsWith("alpha")
+                fun isBetaRelease(): Boolean = QUALIFIER.startsWith("beta")
+                fun isRcRelease(): Boolean = QUALIFIER.startsWith("rc")
+            }
+        """.trimIndent()
+        )
+    }
+}
+
+
+// Log version information during build
+tasks.register("printVersion") {
+    doLast {
+        println("Project Version: $fullVersion")
+        println("  - Major: ${baseVersion.split(".")[0]}")
+        println("  - Minor: ${baseVersion.split(".").getOrElse(1) { "0" }}")
+        println("  - Build: $buildNumber")
+        println("  - Qualifier: ${qualifier.ifEmpty { "none" }}")
+    }
+}
+
 kotlin {
     jvmToolchain(23)
+    sourceSets.main {
+        kotlin.srcDir(layout.buildDirectory.dir("generated/source/version"))
+    }
+}
+
+// Make sure the version info is generated before compilation
+tasks.compileKotlin {
+    dependsOn("generateVersionInfo")
 }
 
 application {
@@ -68,7 +155,8 @@ application {
 tasks.jar {
     manifest {
         attributes(
-            "Main-Class" to "MainKt"
+            "Main-Class" to "MainKt",
+            "Implementation-Version" to fullVersion
         )
     }
 
