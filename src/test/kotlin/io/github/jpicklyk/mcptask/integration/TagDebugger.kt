@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.infrastructure.database.repository
+package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.infrastructure.database.schema.EntityTagsTable
