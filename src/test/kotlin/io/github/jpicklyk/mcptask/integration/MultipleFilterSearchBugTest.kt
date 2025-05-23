@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.infrastructure.database.repository
+package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
@@ -6,6 +6,9 @@ import io.github.jpicklyk.mcptask.domain.repository.ProjectRepository
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.domain.repository.TaskRepository
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteFeatureRepository
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteProjectRepository
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteTaskRepository
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals

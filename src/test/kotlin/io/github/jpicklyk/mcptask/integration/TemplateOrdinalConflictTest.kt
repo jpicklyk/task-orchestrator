@@ -1,8 +1,10 @@
-package io.github.jpicklyk.mcptask.infrastructure.database.repository
+package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteSectionRepository
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteTemplateRepository
 import io.github.jpicklyk.mcptask.infrastructure.database.schema.FeaturesTable
 import io.github.jpicklyk.mcptask.infrastructure.database.schema.TaskTable
 import io.github.jpicklyk.mcptask.infrastructure.database.schema.TemplateSectionsTable

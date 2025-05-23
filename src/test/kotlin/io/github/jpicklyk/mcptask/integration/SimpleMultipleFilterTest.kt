@@ -1,10 +1,11 @@
-package io.github.jpicklyk.mcptask.infrastructure.database.repository
+package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.TaskRepository
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteTaskRepository
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertTrue
