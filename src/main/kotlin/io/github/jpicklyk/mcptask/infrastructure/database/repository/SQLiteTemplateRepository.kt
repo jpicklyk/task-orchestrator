@@ -454,6 +454,31 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
                 return@withContext Result.Success(emptyList())
             }
 
+            // Get existing sections for the entity to check for duplicates
+            val existingSectionsResult = sectionRepository.getSectionsForEntity(entityType, entityId)
+            val existingSections = when (existingSectionsResult) {
+                is Result.Success -> existingSectionsResult.data
+                is Result.Error -> return@withContext Result.Error(existingSectionsResult.error)
+            }
+
+            // Create a set of existing section titles for quick duplicate detection
+            val existingSectionTitles = existingSections.map { it.title }.toSet()
+
+            // Filter out template sections that would create duplicates
+            val duplicateTitles = sections.filter { templateSection ->
+                existingSectionTitles.contains(templateSection.title)
+            }.map { it.title }
+
+            // If there are duplicates, return an error indicating the issue
+            if (duplicateTitles.isNotEmpty()) {
+                return@withContext Result.Error(
+                    RepositoryError.ValidationError(
+                        "Template '${template.name}' cannot be applied: sections with titles [${duplicateTitles.joinToString(", ")}] already exist. " +
+                                "Remove existing sections with these titles or use a different template to avoid duplicates."
+                    )
+                )
+            }
+
             // Get the current maximum ordinal for the entity to avoid conflicts
             val maxOrdinalResult = sectionRepository.getMaxOrdinal(entityType, entityId)
             val currentMaxOrdinal = when (maxOrdinalResult) {
@@ -504,6 +529,17 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
                 is Result.Error -> return@withContext Result.Error(maxOrdinalResult.error)
             }
 
+            // Get existing sections for the entity to check for duplicates across all templates
+            val existingSectionsResult = sectionRepository.getSectionsForEntity(entityType, entityId)
+            val existingSections = when (existingSectionsResult) {
+                is Result.Success -> existingSectionsResult.data
+                is Result.Error -> return@withContext Result.Error(existingSectionsResult.error)
+            }
+
+            // Track titles across all templates being applied to detect duplicates within the request
+            val allTemplateSectionTitles = mutableSetOf<String>()
+            val existingSectionTitles = existingSections.map { it.title }.toSet()
+
             // Process each template sequentially to maintain ordinal consistency
             val result = mutableMapOf<UUID, List<TemplateSection>>()
             val errors = mutableListOf<Pair<UUID, String>>()
@@ -553,6 +589,31 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
                     result[templateId] = emptyList()
                     continue
                 }
+
+                // Check for duplicate section titles with existing sections and within this batch
+                val duplicateWithExisting = sections.filter { templateSection ->
+                    existingSectionTitles.contains(templateSection.title)
+                }.map { it.title }
+                
+                val duplicateWithinBatch = sections.filter { templateSection ->
+                    allTemplateSectionTitles.contains(templateSection.title)
+                }.map { it.title }
+
+                // Combine all duplicates
+                val allDuplicates = (duplicateWithExisting + duplicateWithinBatch).distinct()
+
+                if (allDuplicates.isNotEmpty()) {
+                    errors.add(
+                        Pair(
+                            templateId,
+                            "Template '${template.name}' has sections with duplicate titles [${allDuplicates.joinToString(", ")}]"
+                        )
+                    )
+                    continue
+                }
+
+                // Add this template's section titles to the batch tracker
+                allTemplateSectionTitles.addAll(sections.map { it.title })
 
                 // Calculate ordinal offset: start after the current highest ordinal
                 val ordinalOffset = currentMaxOrdinal + 1
