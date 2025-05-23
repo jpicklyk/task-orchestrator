@@ -3,14 +3,20 @@ import io.github.jpicklyk.mcptask.interfaces.mcp.McpServer
 import org.slf4j.LoggerFactory
 import kotlin.system.exitProcess
 
-private const val applicationVersion = "0.3.15"
-
 /**
  * Entry point for the MCP Task Orchestrator application.
  */
+@Suppress("unused")
 fun main(args: Array<String>) {
     val logger = LoggerFactory.getLogger("Main")
-    logger.info("Starting MCP Task Orchestrator v$applicationVersion")
+    // Use the version from the generated VersionInfo class
+    val versionSuffix = if (VersionInfo.QUALIFIER.isNotEmpty()) {
+        " (${VersionInfo.QUALIFIER})"
+    } else {
+        ""
+    }
+
+    logger.info("Starting MCP Task Orchestrator v${VersionInfo.VERSION}$versionSuffix\n")
 
     // Log environment information for debugging
     logger.info("Java version: ${System.getProperty("java.version")}")
@@ -30,7 +36,7 @@ fun main(args: Array<String>) {
 
         
         // Create and run the MCP server
-        val mcpServer = McpServer(applicationVersion)
+        val mcpServer = McpServer(VersionInfo.VERSION)
         mcpServer.run()
     } catch (e: Exception) {
         logger.error("Error in MCP Task Orchestrator", e)
