@@ -292,24 +292,54 @@ object TemplateMgtGuidance {
                             
                             ## Template Combination Patterns
                             
-                            ### Complementary Templates
+                            ### Category-Based Combinations
                             
-                            Combine templates that address different aspects:
+                            The new template system is organized into three categories that work well together:
                             
-                            - **Implementation Strategy** + **Testing Plan**: Together provide both the implementation approach and testing requirements
-                            - **Project Context** + **Feature Context**: Combines project-level and feature-specific information
-                            - **Requirements** + **Code Structure**: Pair requirements with technical implementation details
+                            **AI Workflow Instructions** (for process guidance):
+                            - Local Git Branching Workflow
+                            - GitHub PR Workflow  
+                            - Task Implementation Workflow
+                            - Bug Investigation Workflow
+                            
+                            **Documentation Properties** (for capturing information):
+                            - Technical Approach
+                            - Requirements Specification
+                            - Context & Background
+                            
+                            **Process & Quality** (for standards and completion):
+                            - Testing Strategy
+                            - Definition of Done
+                            
+                            ### Recommended Combinations
+                            
+                            Combine templates from different categories for comprehensive coverage:
+                            
+                            - **Development Task**: Technical Approach + Task Implementation Workflow + Testing Strategy
+                            - **Bug Fix**: Bug Investigation Workflow + Technical Approach + Definition of Done
+                            - **Feature Planning**: Requirements Specification + Context & Background + Testing Strategy
+                            - **Complex Implementation**: Technical Approach + Local Git Branching Workflow + GitHub PR Workflow + Definition of Done
                             
                             ### Template Sequence Optimization
                             
-                            Consider the logical ordering of templates:
+                            Consider the logical ordering of templates based on categories:
                             
-                            1. Start with context-setting templates (Project Context, Feature Context)
-                            2. Follow with requirement templates (Requirements, User Stories)
-                            3. Add implementation templates (Implementation Strategy, Architecture)
-                            4. Finish with testing/validation templates (Testing Plan, Acceptance Criteria)
+                            1. **Start with Context**: Context & Background, Requirements Specification
+                            2. **Add Technical Detail**: Technical Approach for implementation guidance
+                            3. **Include Process Guidance**: Task Implementation Workflow, Bug Investigation Workflow
+                            4. **Add Git Workflow**: Local Git Branching Workflow, GitHub PR Workflow
+                            5. **Ensure Quality**: Testing Strategy, Definition of Done
                             
-                            This creates a natural flow of information from context to requirements to implementation to validation.
+                            This creates a natural flow from context ? requirements ? implementation ? process ? quality.
+                            
+                            ### Focused Template Design
+                            
+                            The new template system follows a modular, focused approach:
+                            
+                            - **Small and Focused**: Each template addresses a specific aspect (3-4 sections each)
+                            - **Composable**: Templates can be mixed and matched based on needs
+                            - **Category-Specific**: Clear separation between workflow, documentation, and quality concerns
+                            - **AI-Optimized**: Workflow templates include specific MCP tool references and step-by-step guidance
                             
                             ## Context Efficiency Techniques
                             
@@ -374,7 +404,43 @@ object TemplateMgtGuidance {
                             
                             These examples show how to use the template integration features in common workflows.
                             
-                            ## Workflow 1: Creating a New Task with Templates
+                            ## Workflow 1: Creating a Development Task with Category-Based Templates
+                            
+                            ```json
+                            // Step 1: List available templates by category
+                            {
+                              "targetEntityType": "TASK"
+                            }
+                            
+                            // Step 2: Create task with templates from multiple categories
+                            {
+                              "title": "Implement User Authentication API",
+                              "description": "Create secure API endpoints for user authentication",
+                              "priority": "high",
+                              "complexity": 8,
+                              "tags": "task-type-feature,authentication,api,security",
+                              "templateIds": [
+                                "technical-approach-template-id",
+                                "task-implementation-workflow-template-id", 
+                                "testing-strategy-template-id"
+                              ]
+                            }
+                            
+                            // Step 3: View created task with sections from all categories
+                            {
+                              "id": "new-task-id",
+                              "includeSections": true
+                            }
+                            
+                            // Step 4: Update specific sections with task details
+                            {
+                              "id": "architecture-section-id",
+                              "oldText": "[Describe the overall system design]",
+                              "newText": "Authentication will use OAuth 2.0 with JWT tokens, integrating with our existing user management system..."
+                            }
+                            ```
+                            
+                            ## Workflow 2: Creating a Bug Fix Task with Workflow Templates
                             
                             ```json
                             // Step 1: List available templates to find appropriate ones
@@ -404,7 +470,38 @@ object TemplateMgtGuidance {
                             }
                             ```
                             
-                            ## Workflow 2: Creating a Complex Task with Multiple Templates
+                            ## Workflow 2: Creating a Bug Fix Task with Workflow Templates
+                            
+                            ```json
+                            // Step 1: Create bug fix task with investigation workflow
+                            {
+                              "title": "Fix Authentication Session Timeout Issue",
+                              "description": "Users are being logged out unexpectedly during long sessions",
+                              "priority": "high",
+                              "complexity": 6,
+                              "tags": "task-type-bug,authentication,session,urgent",
+                              "templateIds": [
+                                "bug-investigation-workflow-template-id",
+                                "local-git-branching-workflow-template-id",
+                                "github-pr-workflow-template-id"
+                              ]
+                            }
+                            
+                            // Step 2: Update investigation section with specific details
+                            {
+                              "id": "investigation-section-id",
+                              "oldText": "[Detailed description of the actual behavior or issue observed]",
+                              "newText": "Users report being logged out after 10-15 minutes of activity, even though session timeout is configured for 30 minutes. Error logs show 'Invalid token' errors before logout."
+                            }
+                            
+                            // Step 3: View the task with all workflow guidance
+                            {
+                              "id": "bug-task-id",
+                              "includeSections": true
+                            }
+                            ```
+                            
+                            ## Workflow 3: Creating a Complex Task with Multiple Templates
                             
                             ```json
                             // Step 1: Create the task with multiple templates directly
@@ -427,7 +524,33 @@ object TemplateMgtGuidance {
                             }
                             ```
                             
-                            ## Workflow 3: Creating a Feature with Templates and Associated Tasks
+                            ## Workflow 3: Creating a Complex Task with Multiple Templates
+                            
+                            ```json
+                            // Step 1: Create comprehensive task with templates from all categories
+                            {
+                              "title": "Implement OAuth 2.0 Authentication System",
+                              "description": "Create complete OAuth authentication with social login",
+                              "priority": "high",
+                              "complexity": 9,
+                              "tags": "task-type-feature,oauth,authentication,social-login,complex",
+                              "templateIds": [
+                                "requirements-specification-template-id",
+                                "technical-approach-template-id",
+                                "task-implementation-workflow-template-id",
+                                "testing-strategy-template-id", 
+                                "definition-of-done-template-id"
+                              ]
+                            }
+                            
+                            // Step 2: View the task with comprehensive documentation structure
+                            {
+                              "id": "complex-task-id",
+                              "includeSections": true
+                            }
+                            ```
+                            
+                            ## Workflow 4: Creating a Feature with Documentation Templates
                             
                             ```json
                             // Step 1: Create a feature with templates
@@ -467,7 +590,59 @@ object TemplateMgtGuidance {
                             }
                             ```
                             
-                            ## Workflow 4: Updating Templates for Consistent Documentation
+                            ## Workflow 4: Creating a Feature with Documentation Templates
+                            
+                            ```json
+                            // Step 1: Create feature with documentation-focused templates
+                            {
+                              "name": "User Management System",
+                              "summary": "Complete user management with registration, profiles, and permissions",
+                              "status": "planning",
+                              "priority": "high",
+                              "templateIds": [
+                                "context-background-template-id",
+                                "requirements-specification-template-id",
+                                "technical-approach-template-id"
+                              ]
+                            }
+                            
+                            // Step 2: Create implementation tasks with workflow templates
+                            {
+                              "title": "User Registration Implementation",
+                              "description": "Implement user registration with email verification",
+                              "priority": "high",
+                              "complexity": 6,
+                              "tags": "task-type-feature,user-registration,email-verification",
+                              "featureId": "user-management-feature-id",
+                              "templateIds": [
+                                "task-implementation-workflow-template-id",
+                                "local-git-branching-workflow-template-id"
+                              ]
+                            }
+                            
+                            // Step 3: Create another task with different workflow focus
+                            {
+                              "title": "User Profile Management",
+                              "description": "Implement user profile editing and avatar upload",
+                              "priority": "medium",
+                              "complexity": 5,
+                              "tags": "task-type-feature,user-profile,avatar-upload",
+                              "featureId": "user-management-feature-id",
+                              "templateIds": [
+                                "task-implementation-workflow-template-id",
+                                "testing-strategy-template-id"
+                              ]
+                            }
+                            
+                            // Step 4: Get feature with associated tasks
+                            {
+                              "id": "user-management-feature-id",
+                              "includeTasks": true,
+                              "includeSections": true
+                            }
+                            ```
+                            
+                            ## Workflow 5: Updating Templates for Consistent Documentation
                             
                             ```json
                             // Step 1: Create a new template for consistent documentation
@@ -505,7 +680,43 @@ object TemplateMgtGuidance {
                             }
                             ```
                             
-                            These workflows demonstrate how to effectively use template integration features for different scenarios. They can be adjusted based on specific project needs and template availability.
+                            These workflows demonstrate how to effectively use the new focused, composable template system for different scenarios. The key principles are:
+                            
+                            1. **Category-Based Selection**: Choose templates from different categories based on your needs
+                            2. **Workflow + Documentation**: Combine process guidance (workflows) with information capture (documentation)
+                            3. **Quality Assurance**: Include quality templates (Testing Strategy, Definition of Done) for important work
+                            4. **Progressive Enhancement**: Start with basic templates and add more as complexity increases
+                            
+                            The new template system provides flexibility while maintaining consistency and reducing cognitive overhead through focused, purpose-built templates.
+                            
+                            ## Filtering Tasks by Type
+                            
+                            Using the task type tagging convention, you can easily filter tasks:
+                            
+                            ```json
+                            // Find all bug tasks
+                            {
+                              "tag": "task-type-bug"
+                            }
+                            
+                            // Find all feature tasks  
+                            {
+                              "tag": "task-type-feature"
+                            }
+                            
+                            // Find all enhancement tasks
+                            {
+                              "tag": "task-type-enhancement"
+                            }
+                            
+                            // Find urgent bugs
+                            {
+                              "tag": "task-type-bug",
+                              "priority": "high"
+                            }
+                            ```
+                            
+                            This makes it clear in `get_task_overview` and search results which tasks are bugs versus features or other work types.
                             """.trimIndent()
                         )
                     )

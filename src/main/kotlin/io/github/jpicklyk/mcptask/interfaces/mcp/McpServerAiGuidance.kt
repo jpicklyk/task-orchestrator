@@ -60,16 +60,54 @@ object McpServerAiGuidance {
                             
                             Templates provide consistent documentation patterns that can be applied to tasks and features. Available templates include:
                             
-                            - Code Review and Analysis
-                            - Feature Context 
-                            - Implementation Progress
-                            - Implementation Strategy
-                            - Project Context
-                            - Related Classes
-                            - Task Implementation
-                            - Bug Report Template
+                            **AI Workflow Instructions:**
+                            - Local Git Branching Workflow
+                            - GitHub PR Workflow  
+                            - Task Implementation Workflow
+                            - Bug Investigation Workflow
+                            
+                            **Documentation Properties:**
+                            - Technical Approach
+                            - Requirements Specification
+                            - Context & Background
+                            
+                            **Process & Quality:**
+                            - Testing Strategy
+                            - Definition of Done
                             
                             ## Common Workflows
+                            
+                            ### Task Type Tagging Convention
+                            
+                            To improve organization and filtering, use standardized task type tags:
+                            
+                            - **Bug Tasks**: Include "task-type-bug" tag for issues, defects, and fixes
+                            - **Feature Tasks**: Include "task-type-feature" tag for new functionality
+                            - **Enhancement Tasks**: Include "task-type-enhancement" tag for improvements to existing features
+                            - **Research Tasks**: Include "task-type-research" tag for investigation and analysis work
+                            - **Maintenance Tasks**: Include "task-type-maintenance" tag for refactoring, updates, and technical debt
+                            
+                            Example bug task:
+                            ```json
+                            {
+                              "title": "Fix authentication session timeout issue",
+                              "description": "Users are being logged out unexpectedly",
+                              "tags": "task-type-bug,authentication,urgent",
+                              "templateIds": ["bug-investigation-workflow-template-id"]
+                            }
+                            ```
+                            
+                            Example feature task:
+                            ```json
+                            {
+                              "title": "Implement user profile editing",
+                              "description": "Allow users to update their profile information",
+                              "tags": "task-type-feature,user-management,profile",
+                              "templateIds": ["task-implementation-workflow-template-id"]
+                            }
+                            ```
+                            
+                            This tagging convention allows easy filtering using `search_tasks` with the `tag` parameter.
                             
                             1. **Creating a new task with templates**:
                                - Use `create_task` with the `templateIds` parameter to create a task with one or more templates
@@ -307,31 +345,40 @@ object McpServerAiGuidance {
                             
                             ## Available Templates
                             
-                            The system includes several built-in templates:
+                            The system includes focused, composable templates organized into three categories:
                             
-                            1. **Code Review and Analysis** - For reviewing code quality, identifying issues, and suggesting improvements
-                               - Sections: Code Quality, Issues, Recommendations, Performance Considerations
+                            ### AI Workflow Instructions
                             
-                            2. **Feature Context** - For defining feature scope, requirements, and approach
-                               - Sections: Overview, Requirements, Constraints, Implementation Approach
+                            1. **Local Git Branching Workflow** - Step-by-step guide for git operations and branch management
+                               - Sections: Branch Creation Process, Implementation Steps, Testing & Verification, Commit Preparation
                             
-                            3. **Implementation Progress** - For tracking implementation status and milestones
-                               - Sections: Status Summary, Completed Items, Pending Items, Blockers
+                            2. **GitHub PR Workflow** - GitHub pull request creation and management using MCP tools
+                               - Sections: Pre-Push Validation & Sync, Branch Push & PR Creation, Review Management & Updates, PR Approval & Merge Process
                             
-                            4. **Implementation Strategy** - For planning implementation details and architecture
-                               - Sections: Architecture, Components, Data Flow, Testing Strategy
+                            3. **Task Implementation Workflow** - Systematic approach for implementing individual tasks
+                               - Sections: Implementation Analysis, Step-by-Step Implementation, Testing & Validation
                             
-                            5. **Project Context** - For high-level project information and goals
-                               - Sections: Project Overview, Goals, Timeline, Stakeholders
+                            4. **Bug Investigation Workflow** - Structured debugging and bug resolution process
+                               - Sections: Investigation Process, Root Cause Analysis, Fix Implementation & Verification
                             
-                            6. **Related Classes** - For mapping code relationships and dependencies
-                               - Sections: Class Diagram, Dependencies, Interface Definitions
+                            ### Documentation Properties
                             
-                            7. **Task Implementation** - For defining specific implementation steps
-                               - Sections: Implementation Steps, Technical Notes, Testing Requirements
-                               
-                            8. **Bug Report Template** - For structured bug reporting
-                               - Sections: Bug Description, Reproduction Steps, Expected vs. Actual Behavior
+                            5. **Technical Approach** - Document technical solution approach and architecture decisions
+                               - Sections: Architecture Overview, Key Dependencies, Implementation Strategy
+                            
+                            6. **Requirements Specification** - Capture detailed functional and non-functional requirements
+                               - Sections: Must-Have Requirements, Nice-to-Have Features, Constraints & Limitations
+                            
+                            7. **Context & Background** - Provide necessary context and background information
+                               - Sections: Business Context, User Needs & Goals, Related Work & Dependencies
+                            
+                            ### Process & Quality
+                            
+                            8. **Testing Strategy** - Define comprehensive testing approach and quality validation
+                               - Sections: Test Case Definitions, Acceptance Criteria, Quality Gates
+                            
+                            9. **Definition of Done** - Clear completion criteria and handoff requirements
+                               - Sections: Completion Criteria, Quality Checklist, Handoff Requirements
                             
                             ## Using Templates
                             
@@ -353,7 +400,7 @@ object McpServerAiGuidance {
                             {
                               "title": "Implement Authentication",
                               "description": "Create secure authentication system",
-                              "templateIds": ["550e8400-e29b-41d4-a716-446655440000"]
+                              "templateIds": ["template-uuid-here"]
                             }
                             ```
                             
@@ -361,7 +408,7 @@ object McpServerAiGuidance {
                             {
                               "name": "User Management",
                               "summary": "Complete user management module",
-                              "templateIds": ["661e8511-f30c-41d4-a716-557788990000"]
+                              "templateIds": ["template-uuid-here"]
                             }
                             ```
                             
@@ -372,8 +419,8 @@ object McpServerAiGuidance {
                               "title": "Implement Security Features",
                               "description": "Implement authentication and authorization",
                               "templateIds": [
-                                "550e8400-e29b-41d4-a716-446655440000", 
-                                "661e8511-f30c-41d4-a716-557788990000"
+                                "template-uuid-1", 
+                                "template-uuid-2"
                               ]
                             }
                             ```
@@ -384,9 +431,9 @@ object McpServerAiGuidance {
                             
                             ```json
                             {
-                              "templateIds": ["550e8400-e29b-41d4-a716-446655440000"],
+                              "templateIds": ["template-uuid-here"],
                               "entityType": "TASK",
-                              "entityId": "661f9511-f30c-52e5-b827-557766551111"
+                              "entityId": "task-uuid-here"
                             }
                             ```
                             
@@ -395,11 +442,11 @@ object McpServerAiGuidance {
                             ```json
                             {
                               "templateIds": [
-                                "550e8400-e29b-41d4-a716-446655440000",
-                                "661e8511-f30c-41d4-a716-557788990000"
+                                "template-uuid-1",
+                                "template-uuid-2"
                               ],
                               "entityType": "TASK",
-                              "entityId": "661f9511-f30c-52e5-b827-557766551111",
+                              "entityId": "task-uuid-here",
                               "continueOnError": true
                             }
                             ```
@@ -433,7 +480,7 @@ object McpServerAiGuidance {
                             
                             ```json
                             {
-                              "id": "550e8400-e29b-41d4-a716-446655440000"
+                              "id": "template-uuid-here"
                             }
                             ```
                             
@@ -443,11 +490,17 @@ object McpServerAiGuidance {
                             
                             1. Apply templates when creating tasks or features for maximum efficiency
                             2. Choose the most appropriate template for the task type
-                            3. Customize template content but maintain the section structure
-                            4. Consider creating custom templates for recurring documentation patterns
-                            5. For context-efficient updates, use partial update tools rather than full content replacement
-                            6. When applying multiple templates, use `continueOnError: true` to ensure all valid templates are applied
-                            7. Use template combinations that complement each other (e.g., implementation + testing)
+                            3. **Use Task Type Tags**: Include appropriate task type tags for better organization:
+                               - "task-type-bug" for bug fixes and issues
+                               - "task-type-feature" for new functionality  
+                               - "task-type-enhancement" for improvements
+                               - "task-type-research" for investigation work
+                               - "task-type-maintenance" for technical debt and refactoring
+                            4. Customize template content but maintain the section structure
+                            5. Consider creating custom templates for recurring documentation patterns
+                            6. For context-efficient updates, use partial update tools rather than full content replacement
+                            7. When applying multiple templates, use `continueOnError: true` to ensure all valid templates are applied
+                            8. Use template combinations that complement each other (e.g., implementation + testing)
                             
                             Templates provide a starting point - always customize the content for the specific context while maintaining consistent structure.
                             """.trimIndent()
@@ -484,7 +537,8 @@ object McpServerAiGuidance {
                               "description": "Create API endpoints for user registration, login, and password reset",
                               "priority": "high",
                               "complexity": 7,
-                              "templateIds": ["550e8400-e29b-41d4-a716-446655440000"]
+                              "tags": "task-type-feature,authentication,api,security",
+                              "templateIds": ["template-uuid-here"]
                             }
                             ```
                             
@@ -492,13 +546,14 @@ object McpServerAiGuidance {
                             
                             ```json
                             {
-                              "title": "Implement Authentication API",
-                              "description": "Create API endpoints for user registration, login, and password reset",
-                              "priority": "high",
-                              "complexity": 7,
+                              "title": "Fix Session Management Bug",
+                              "description": "Resolve issue where sessions expire too quickly",
+                              "priority": "high", 
+                              "complexity": 6,
+                              "tags": "task-type-bug,session,authentication,urgent",
                               "templateIds": [
-                                "550e8400-e29b-41d4-a716-446655440000",
-                                "661e8511-f30c-41d4-a716-557788990000"
+                                "template-uuid-1",
+                                "template-uuid-2"
                               ]
                             }
                             ```
@@ -523,14 +578,14 @@ object McpServerAiGuidance {
                               "success": true,
                               "message": "Task created successfully with 3 sections from templates",
                               "data": {
-                                "id": "772f9622-g41d-52e5-b827-668899101111",
+                                "id": "task-uuid-here",
                                 "title": "Implement Authentication API",
                                 "status": "pending",
                                 "priority": "high",
                                 "complexity": 7,
                                 "appliedTemplates": [
                                   {
-                                    "templateId": "550e8400-e29b-41d4-a716-446655440000",
+                                    "templateId": "template-uuid-here",
                                     "sectionsCreated": 3
                                   }
                                 ],
@@ -552,7 +607,7 @@ object McpServerAiGuidance {
                               "name": "Authentication System",
                               "summary": "Complete authentication system with social login",
                               "status": "planning",
-                              "templateIds": ["661e8511-f30c-41d4-a716-557788990000"]
+                              "templateIds": ["template-uuid-here"]
                             }
                             ```
                             
@@ -564,8 +619,8 @@ object McpServerAiGuidance {
                               "summary": "Complete authentication system with social login",
                               "status": "planning",
                               "templateIds": [
-                                "661e8511-f30c-41d4-a716-557788990000",
-                                "772f9622-g41d-52e5-b827-668899101111"
+                                "template-uuid-1",
+                                "template-uuid-2"
                               ]
                             }
                             ```
@@ -579,11 +634,11 @@ object McpServerAiGuidance {
                             ```json
                             {
                               "templateIds": [
-                                "550e8400-e29b-41d4-a716-446655440000",
-                                "661e8511-f30c-41d4-a716-557788990000"
+                                "template-uuid-1",
+                                "template-uuid-2"
                               ],
                               "entityType": "TASK",
-                              "entityId": "772f9622-g41d-52e5-b827-668899101111",
+                              "entityId": "task-uuid-here",
                               "continueOnError": true
                             }
                             ```
@@ -602,14 +657,14 @@ object McpServerAiGuidance {
                               "message": "2 of 2 templates applied successfully, created 7 sections",
                               "data": {
                                 "entityType": "TASK",
-                                "entityId": "772f9622-g41d-52e5-b827-668899101111",
+                                "entityId": "task-uuid-here",
                                 "appliedTemplates": [
                                   {
-                                    "templateId": "550e8400-e29b-41d4-a716-446655440000",
+                                    "templateId": "template-uuid-1",
                                     "sectionsCreated": 3
                                   },
                                   {
-                                    "templateId": "661e8511-f30c-41d4-a716-557788990000",
+                                    "templateId": "template-uuid-2",
                                     "sectionsCreated": 4
                                   }
                                 ],
@@ -622,13 +677,18 @@ object McpServerAiGuidance {
                             
                             1. **Create with Templates**: When creating new tasks or features, use templates directly in the creation call rather than applying after creation
                             
-                            2. **Template Combinations**: For complex documentation, apply multiple complementary templates rather than creating one massive template
+                            2. **Template Categories**: Choose templates based on your needs:
+                               - **AI Workflow Instructions** for step-by-step process guidance
+                               - **Documentation Properties** for capturing requirements and technical details  
+                               - **Process & Quality** for ensuring completion standards
                             
-                            3. **Use `continueOnError`**: When applying multiple templates, use `continueOnError: true` to ensure all valid templates are applied even if some fail
+                            3. **Template Combinations**: For complex documentation, apply multiple complementary templates rather than creating one massive template
                             
-                            4. **Check Template Compatibility**: Ensure templates are designed for the correct entity type (TASK or FEATURE)
+                            4. **Use `continueOnError`**: When applying multiple templates, use `continueOnError: true` to ensure all valid templates are applied even if some fail
                             
-                            5. **Customize After Creation**: After applying templates, customize the generated sections to fit the specific task or feature requirements
+                            5. **Check Template Compatibility**: Ensure templates are designed for the correct entity type (TASK or FEATURE)
+                            
+                            6. **Customize After Creation**: After applying templates, customize the generated sections to fit the specific task or feature requirements
                             """.trimIndent()
                         )
                     )
