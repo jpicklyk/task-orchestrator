@@ -50,7 +50,18 @@ class TemplateInitializerImpl(
             "Project Context",
             "Related Classes and Components",
             "Task Implementation",
-            "Bug Report Template"
+            "Bug Report Template",
+            // New workflow templates
+            "Local Git Branching Workflow",
+            "GitHub PR Workflow",
+            "Task Implementation Workflow",
+            "Bug Investigation Workflow",
+            // New documentation and quality templates
+            "Technical Approach",
+            "Requirements Specification",
+            "Context & Background",
+            "Testing Strategy",
+            "Definition of Done"
         )
 
         var initializedCount = 0
@@ -68,14 +79,17 @@ class TemplateInitializerImpl(
      */
     override fun initializeTemplate(templateName: String): Boolean {
         return when (templateName) {
-            "Code Review and Analysis" -> createCodeReviewTemplate()
-            "Feature Context" -> createFeatureContextTemplate()
-            "Implementation Progress" -> createImplementationProgressTemplate()
-            "Implementation and Usage Strategy" -> createImplementationStrategyTemplate()
-            "Project Context" -> createProjectContextTemplate()
-            "Related Classes and Components" -> createRelatedClassesTemplate()
-            "Task Implementation" -> createTaskImplementationTemplate()
-            "Bug Report Template" -> createBugReportTemplate()
+            // Workflow templates
+            "Local Git Branching Workflow" -> createLocalGitBranchingWorkflowTemplate()
+            "GitHub PR Workflow" -> createGitHubPRWorkflowTemplate()
+            "Task Implementation Workflow" -> createTaskImplementationWorkflowTemplate()
+            "Bug Investigation Workflow" -> createBugInvestigationWorkflowTemplate()
+            // New documentation and quality templates
+            "Technical Approach" -> createTechnicalApproachTemplate()
+            "Requirements Specification" -> createRequirementsSpecificationTemplate()
+            "Context & Background" -> createContextBackgroundTemplate()
+            "Testing Strategy" -> createTestingStrategyTemplate()
+            "Definition of Done" -> createDefinitionOfDoneTemplate()
             else -> {
                 logger.warn("Unknown template name: $templateName")
                 false
@@ -119,105 +133,118 @@ class TemplateInitializerImpl(
     }
 
     /**
-     * Creates the Code Review and Analysis template.
+     * Creates the Local Git Branching Workflow template.
      */
-    private fun createCodeReviewTemplate(): Boolean {
+    private fun createLocalGitBranchingWorkflowTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.CodeReviewTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Code Review and Analysis")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.LocalGitBranchingWorkflowTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Local Git Branching Workflow")
         } catch (e: Exception) {
-            logger.error("Failed to create Code Review and Analysis template", e)
+            logger.error("Failed to create Local Git Branching Workflow template", e)
             return false
         }
     }
 
     /**
-     * Creates the Feature Context template.
+     * Creates the GitHub PR Workflow template.
      */
-    private fun createFeatureContextTemplate(): Boolean {
+    private fun createGitHubPRWorkflowTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.FeatureContextTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Feature Context")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.GitHubPRWorkflowTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "GitHub PR Workflow")
         } catch (e: Exception) {
-            logger.error("Failed to create Feature Context template", e)
+            logger.error("Failed to create GitHub PR Workflow template", e)
             return false
         }
     }
 
     /**
-     * Creates the Implementation Progress template.
+     * Creates the Task Implementation Workflow template.
      */
-    private fun createImplementationProgressTemplate(): Boolean {
+    private fun createTaskImplementationWorkflowTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.ImplementationProgressTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Implementation Progress")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.TaskImplementationWorkflowTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Task Implementation Workflow")
         } catch (e: Exception) {
-            logger.error("Failed to create Implementation Progress template", e)
+            logger.error("Failed to create Task Implementation Workflow template", e)
             return false
         }
     }
 
     /**
-     * Creates the Implementation and Usage Strategy template.
+     * Creates the Bug Investigation Workflow template.
      */
-    private fun createImplementationStrategyTemplate(): Boolean {
+    private fun createBugInvestigationWorkflowTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.ImplementationStrategyTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Implementation and Usage Strategy")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.BugInvestigationWorkflowTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Bug Investigation Workflow")
         } catch (e: Exception) {
-            logger.error("Failed to create Implementation and Usage Strategy template", e)
+            logger.error("Failed to create Bug Investigation Workflow template", e)
             return false
         }
     }
 
     /**
-     * Creates the Project Context template.
+     * Creates the Technical Approach template.
      */
-    private fun createProjectContextTemplate(): Boolean {
+    private fun createTechnicalApproachTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.ProjectContextTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Project Context")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.TechnicalApproachTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Technical Approach")
         } catch (e: Exception) {
-            logger.error("Failed to create Project Context template", e)
+            logger.error("Failed to create Technical Approach template", e)
             return false
         }
     }
 
     /**
-     * Creates the Related Classes and Components template.
+     * Creates the Requirements Specification template.
      */
-    private fun createRelatedClassesTemplate(): Boolean {
+    private fun createRequirementsSpecificationTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.RelatedClassesTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Related Classes and Components")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.RequirementsSpecificationTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Requirements Specification")
         } catch (e: Exception) {
-            logger.error("Failed to create Related Classes and Components template", e)
+            logger.error("Failed to create Requirements Specification template", e)
             return false
         }
     }
 
     /**
-     * Creates the Task Implementation template.
+     * Creates the Context & Background template.
      */
-    private fun createTaskImplementationTemplate(): Boolean {
+    private fun createContextBackgroundTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.TaskImplementationTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Task Implementation")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.ContextBackgroundTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Context & Background")
         } catch (e: Exception) {
-            logger.error("Failed to create Task Implementation template", e)
+            logger.error("Failed to create Context & Background template", e)
             return false
         }
     }
 
     /**
-     * Creates the Bug Report template.
+     * Creates the Testing Strategy template.
      */
-    private fun createBugReportTemplate(): Boolean {
+    private fun createTestingStrategyTemplate(): Boolean {
         try {
-            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.BugReportTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Bug Report Template")
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.TestingStrategyTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Testing Strategy")
         } catch (e: Exception) {
-            logger.error("Failed to create Bug Report Template", e)
+            logger.error("Failed to create Testing Strategy template", e)
+            return false
+        }
+    }
+
+    /**
+     * Creates the Definition of Done template.
+     */
+    private fun createDefinitionOfDoneTemplate(): Boolean {
+        try {
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.DefinitionOfDoneTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Definition of Done")
+        } catch (e: Exception) {
+            logger.error("Failed to create Definition of Done template", e)
             return false
         }
     }
