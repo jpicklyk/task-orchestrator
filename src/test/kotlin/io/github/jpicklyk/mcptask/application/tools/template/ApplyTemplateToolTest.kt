@@ -652,4 +652,216 @@ class ApplyTemplateToolTest {
         val error = resultObj["error"] as JsonObject
         assertEquals(ErrorCodes.DATABASE_ERROR, (error["code"] as JsonPrimitive).content)
     }
+
+    @Test
+    fun `test template application with ordinal conflict resolution`() = runBlocking {
+        // This test verifies that when applying templates to entities with existing sections,
+        // the response shows the correct ordinal values where sections were actually placed
+
+        // Create template sections that will be placed after existing sections (starting at ordinal 7)
+        val sectionsWithCorrectOrdinals = listOf(
+            TemplateSection(
+                id = testSectionId1,
+                templateId = testTemplateId1,
+                title = "Requirements",
+                usageDescription = "Key requirements for this task",
+                contentSample = "List all requirements here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 7, // Should be placed after existing sections (0-6)
+                isRequired = true,
+                tags = listOf("requirements")
+            ),
+            TemplateSection(
+                id = testSectionId2,
+                templateId = testTemplateId1,
+                title = "Implementation Notes",
+                usageDescription = "Technical details for implementation",
+                contentSample = "Describe implementation approach here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 8, // Next available ordinal
+                isRequired = false,
+                tags = listOf("implementation")
+            ),
+            TemplateSection(
+                id = testSectionId3,
+                templateId = testTemplateId1,
+                title = "Testing Strategy",
+                usageDescription = "How this task should be tested",
+                contentSample = "Describe testing approach here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 9, // Next available ordinal
+                isRequired = false,
+                tags = listOf("testing")
+            )
+        )
+
+        // Setup mock to return sections with adjusted ordinals (simulating ordinal conflict resolution)
+        coEvery {
+            mockTemplateRepository.applyTemplate(testTemplateId1, EntityType.TASK, testTaskId)
+        } returns Result.Success(sectionsWithCorrectOrdinals)
+
+        val params = JsonObject(
+            mapOf(
+                "templateIds" to JsonArray(listOf(JsonPrimitive(testTemplateId1.toString()))),
+                "entityType" to JsonPrimitive("TASK"),
+                "entityId" to JsonPrimitive(testTaskId.toString())
+            )
+        )
+
+        val result = tool.execute(params, context)
+
+        // Check that the result is a success response
+        val resultObj = result as JsonObject
+        assertEquals(true, (resultObj["success"] as JsonPrimitive).content.toBoolean())
+        assertEquals(
+            "Template applied successfully, created 3 sections",
+            (resultObj["message"] as JsonPrimitive).content
+        )
+
+        // Check the returned data
+        val data = resultObj["data"] as JsonObject
+        val sections = data["sections"] as JsonArray
+        assertEquals(3, sections.size)
+
+        // Verify that the response shows the correct ordinal values (7, 8, 9)
+        // This tests the fix for the bug where responses showed incorrect ordinals (0, 1, 2)
+        val section1 = sections[0] as JsonObject
+        assertEquals(testSectionId1.toString(), (section1["id"] as JsonPrimitive).content)
+        assertEquals("Requirements", (section1["title"] as JsonPrimitive).content)
+        assertEquals(
+            7,
+            (section1["ordinal"] as JsonPrimitive).content.toInt()
+        ) // Should show actual placement, not template ordinal
+
+        val section2 = sections[1] as JsonObject
+        assertEquals(testSectionId2.toString(), (section2["id"] as JsonPrimitive).content)
+        assertEquals("Implementation Notes", (section2["title"] as JsonPrimitive).content)
+        assertEquals(
+            8,
+            (section2["ordinal"] as JsonPrimitive).content.toInt()
+        ) // Should show actual placement, not template ordinal
+
+        val section3 = sections[2] as JsonObject
+        assertEquals(testSectionId3.toString(), (section3["id"] as JsonPrimitive).content)
+        assertEquals("Testing Strategy", (section3["title"] as JsonPrimitive).content)
+        assertEquals(
+            9,
+            (section3["ordinal"] as JsonPrimitive).content.toInt()
+        ) // Should show actual placement, not template ordinal
+    }
+
+    @Test
+    fun `test multiple template application with ordinal conflict resolution`() = runBlocking {
+        // This test verifies ordinal conflict resolution works correctly for multiple templates
+
+        // First template sections starting at ordinal 5
+        val template1SectionsWithCorrectOrdinals = listOf(
+            TemplateSection(
+                id = testSectionId1,
+                templateId = testTemplateId1,
+                title = "Requirements",
+                usageDescription = "Key requirements for this task",
+                contentSample = "List all requirements here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 5, // Placed after existing sections
+                isRequired = true,
+                tags = listOf("requirements")
+            ),
+            TemplateSection(
+                id = testSectionId2,
+                templateId = testTemplateId1,
+                title = "Implementation Notes",
+                usageDescription = "Technical details for implementation",
+                contentSample = "Describe implementation approach here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 6, // Next ordinal
+                isRequired = false,
+                tags = listOf("implementation")
+            )
+        )
+
+        // Second template sections starting at ordinal 7 (after first template)
+        val template2SectionsWithCorrectOrdinals = listOf(
+            TemplateSection(
+                id = testSectionId4,
+                templateId = testTemplateId2,
+                title = "Design Documentation",
+                usageDescription = "Design details for this task",
+                contentSample = "Describe design approach here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 7, // Placed after first template sections
+                isRequired = true,
+                tags = listOf("design")
+            ),
+            TemplateSection(
+                id = testSectionId5,
+                templateId = testTemplateId2,
+                title = "Related Tasks",
+                usageDescription = "List of related tasks",
+                contentSample = "List related tasks here...",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 8, // Next ordinal
+                isRequired = false,
+                tags = listOf("related")
+            )
+        )
+
+        // Setup mock to return sections with correct ordinals for multiple template application
+        coEvery {
+            mockTemplateRepository.applyMultipleTemplates(
+                listOf(testTemplateId1, testTemplateId2),
+                EntityType.TASK,
+                testTaskId
+            )
+        } returns Result.Success(
+            mapOf(
+                testTemplateId1 to template1SectionsWithCorrectOrdinals,
+                testTemplateId2 to template2SectionsWithCorrectOrdinals
+            )
+        )
+
+        val params = JsonObject(
+            mapOf(
+                "templateIds" to JsonArray(
+                    listOf(
+                        JsonPrimitive(testTemplateId1.toString()),
+                        JsonPrimitive(testTemplateId2.toString())
+                    )
+                ),
+                "entityType" to JsonPrimitive("TASK"),
+                "entityId" to JsonPrimitive(testTaskId.toString())
+            )
+        )
+
+        val result = tool.execute(params, context)
+
+        // Check that the result is a success response
+        val resultObj = result as JsonObject
+        assertEquals(true, (resultObj["success"] as JsonPrimitive).content.toBoolean())
+
+        // Check the returned data
+        val data = resultObj["data"] as JsonObject
+        val appliedTemplates = data["appliedTemplates"] as JsonArray
+        assertEquals(2, appliedTemplates.size)
+
+        // Verify first template ordinals (5, 6)
+        val template1Data = appliedTemplates[0] as JsonObject
+        val template1Sections = template1Data["sections"] as JsonArray
+
+        val template1Section1 = template1Sections[0] as JsonObject
+        assertEquals(5, (template1Section1["ordinal"] as JsonPrimitive).content.toInt())
+
+        val template1Section2 = template1Sections[1] as JsonObject
+        assertEquals(6, (template1Section2["ordinal"] as JsonPrimitive).content.toInt())
+
+        // Verify second template ordinals (7, 8)
+        val template2Data = appliedTemplates[1] as JsonObject
+        val template2Sections = template2Data["sections"] as JsonArray
+
+        val template2Section1 = template2Sections[0] as JsonObject
+        assertEquals(7, (template2Section1["ordinal"] as JsonPrimitive).content.toInt())
+
+        val template2Section2 = template2Sections[1] as JsonObject
+        assertEquals(8, (template2Section2["ordinal"] as JsonPrimitive).content.toInt())
+    }
 }
