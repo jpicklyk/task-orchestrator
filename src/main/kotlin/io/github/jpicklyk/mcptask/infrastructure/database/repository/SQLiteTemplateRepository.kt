@@ -498,7 +498,11 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
 
                 // Add the section
                 when (val result = sectionRepository.addSection(entityType, entityId, section)) {
-                    is Result.Success -> createdSections.add(templateSection)
+                    is Result.Success -> {
+                        // Create a TemplateSection with the actual ordinal that was assigned
+                        val adjustedTemplateSection = templateSection.copy(ordinal = section.ordinal)
+                        createdSections.add(adjustedTemplateSection)
+                    }
                     is Result.Error -> {
                         // Return error on first failure to maintain consistency
                         return@withContext Result.Error(result.error)
@@ -506,7 +510,7 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
                 }
             }
 
-            Result.Success(sections)
+            Result.Success(createdSections)
         } catch (e: Exception) {
             Result.Error(RepositoryError.DatabaseError("Failed to apply template: ${e.message}", e))
         }
@@ -629,7 +633,9 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
                     // Add the section
                     when (val addResult = sectionRepository.addSection(entityType, entityId, section)) {
                         is Result.Success -> {
-                            createdSections.add(templateSection)
+                            // Create a TemplateSection with the actual ordinal that was assigned
+                            val adjustedTemplateSection = templateSection.copy(ordinal = section.ordinal)
+                            createdSections.add(adjustedTemplateSection)
                             templateSectionCount++
                         }
 
@@ -646,7 +652,7 @@ class SQLiteTemplateRepository(private val sectionRepository: SectionRepository)
                 }
 
                 if (createdSections.isNotEmpty()) {
-                    result[templateId] = sections
+                    result[templateId] = createdSections
                     // Update current max ordinal for the next template
                     currentMaxOrdinal += templateSectionCount
                 }
