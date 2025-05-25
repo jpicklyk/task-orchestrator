@@ -428,4 +428,99 @@ class GetProjectToolTest {
         assertEquals(500, summary!!.length)
         assertTrue(summary.endsWith("..."))
     }
+
+    @Test
+    fun `test execute with includeTasks should only return tasks with valid project relationships`() = runBlocking {
+        val projectId = UUID.randomUUID()
+        val now = Instant.now()
+
+        val project = Project(
+            id = projectId,
+            name = "Test Project",
+            summary = "This is a test project",
+            status = ProjectStatus.IN_DEVELOPMENT,
+            createdAt = now,
+            modifiedAt = now
+        )
+
+        // Create a task that belongs to the project
+        val projectTask = Task(
+            id = UUID.randomUUID(),
+            title = "Project Task",
+            summary = "This task belongs to the project",
+            status = TaskStatus.IN_PROGRESS,
+            priority = Priority.HIGH,
+            complexity = 5,
+            projectId = projectId // This task has the correct projectId
+        )
+
+        // Create orphaned tasks that should NOT be returned
+        val orphanedTask1 = Task(
+            id = UUID.randomUUID(),
+            title = "Orphaned Task 1",
+            summary = "This task has no project relationship",
+            status = TaskStatus.PENDING,
+            priority = Priority.LOW,
+            complexity = 3,
+            projectId = null, // No project relationship
+            featureId = null  // No feature relationship
+        )
+
+        val orphanedTask2 = Task(
+            id = UUID.randomUUID(),
+            title = "Orphaned Task 2",
+            summary = "This task belongs to a different project",
+            status = TaskStatus.PENDING,
+            priority = Priority.MEDIUM,
+            complexity = 4,
+            projectId = UUID.randomUUID() // Different project
+        )
+
+        coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
+
+        // FIXED BEHAVIOR: The implementation should only return tasks with proper project relationships
+        // The orphaned tasks should be filtered out by the repository implementation
+        coEvery {
+            mockTaskRepository.findByFilters(
+                projectId = projectId,
+                status = null,
+                priority = null,
+                tags = null,
+                textQuery = null,
+                limit = 20
+            )
+        } returns Result.Success(listOf(projectTask)) // Only tasks with valid project relationships
+
+        val params = buildJsonObject {
+            put("id", projectId.toString())
+            put("includeTasks", true)
+        }
+
+        val result = getProjectTool.execute(params, executionContext)
+
+        // Verify result
+        assertTrue(result is JsonObject)
+        assertEquals(true, result.jsonObject["success"]?.jsonPrimitive?.boolean)
+
+        // THIS IS THE BUG: The response should only include tasks with valid project relationships
+        val data = result.jsonObject["data"]?.jsonObject
+        assertNotNull(data)
+        val tasks = data!!["tasks"]?.jsonObject
+        assertNotNull(tasks)
+
+        val items = tasks!!["items"]?.jsonArray
+        assertNotNull(items)
+
+        // BUG: Currently returns 3 tasks (including orphaned ones)
+        // EXPECTED: Should only return 1 task (the one with correct projectId)
+        assertEquals(1, items!!.size, "Should only return tasks with valid project relationships")
+
+        val taskObj = items[0].jsonObject
+        assertEquals(projectTask.id.toString(), taskObj["id"]?.jsonPrimitive?.content, "Should return the project task")
+        assertEquals("Project Task", taskObj["title"]?.jsonPrimitive?.content)
+
+        // Verify the correct task metadata
+        assertEquals(1, tasks["total"]?.jsonPrimitive?.int, "Total should only count valid project tasks")
+        assertEquals(1, tasks["included"]?.jsonPrimitive?.int, "Included should only count valid project tasks")
+    }
 }

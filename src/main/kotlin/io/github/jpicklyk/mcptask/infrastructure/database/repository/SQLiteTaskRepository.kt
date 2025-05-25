@@ -391,5 +391,101 @@ class SQLiteTaskRepository(
         }
     }
 
+    //======================================
+    // Override base class to handle projectId filtering
+    //======================================
+
+    override suspend fun findByFilters(
+        projectId: UUID?,
+        status: TaskStatus?,
+        priority: Priority?,
+        tags: List<String>?,
+        textQuery: String?,
+        limit: Int,
+    ): Result<List<Task>> = withContext(Dispatchers.IO) {
+        try {
+            val tasks = transaction {
+                // Start with a base query
+                var query = TaskTable.selectAll()
+
+                // Apply project filter: tasks belong to project if they have direct projectId 
+                // OR if they belong to a feature that belongs to the project
+                if (projectId != null) {
+                    // Get feature IDs that belong to this project
+                    val projectFeatureIds = FeaturesTable
+                        .selectAll().where { FeaturesTable.projectId eq projectId }
+                        .map { it[FeaturesTable.id].value }
+
+                    // Include tasks that either:
+                    // 1. Have direct projectId relationship, OR
+                    // 2. Have featureId in features that belong to the project
+                    query = query.where {
+                        (TaskTable.projectId eq projectId) or (TaskTable.featureId inList projectFeatureIds)
+                    }
+                }
+
+                // Apply status filter
+                if (status != null) {
+                    query = query.andWhere { TaskTable.status eq status }
+                }
+
+                // Apply priority filter
+                if (priority != null) {
+                    query = query.andWhere { TaskTable.priority eq priority }
+                }
+
+                // Apply text search filter
+                if (!textQuery.isNullOrBlank()) {
+                    // Split the query into individual words and create LIKE conditions for each
+                    val searchTerms = textQuery.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
+                    searchTerms.forEach { term ->
+                        // Use case-insensitive LIKE by using LOWER() function on both sides
+                        query = query.andWhere {
+                            TaskTable.searchVector.lowerCase() like "%${term.lowercase()}%"
+                        }
+                    }
+                }
+
+                // Apply tag filtering if specified
+                val entityIds = if (!tags.isNullOrEmpty()) {
+                    // Get entity IDs that have any of the specified tags
+                    EntityTagsTable
+                        .selectAll().where {
+                            (EntityTagsTable.entityType eq entityType.name) and (EntityTagsTable.tag inList tags)
+                        }
+                        .map { it[EntityTagsTable.entityId] }
+                        .distinct()
+                } else {
+                    null
+                }
+
+                if (entityIds != null) {
+                    if (entityIds.isEmpty()) {
+                        return@transaction emptyList()
+                    }
+                    query = query.andWhere { TaskTable.id inList entityIds }
+                }
+
+                // Apply ordering and pagination
+                query = query.orderBy(TaskTable.modifiedAt, SortOrder.DESC)
+                query = query.limit(limit)
+
+                // Execute the query and map results
+                val tasks = query.map { row -> mapRowToEntity(row) }.toList()
+
+                // Load tasks with tags
+                loadEntitiesWithTags(tasks)
+            }
+
+            Result.Success(tasks)
+        } catch (e: Exception) {
+            Result.Error(
+                RepositoryError.DatabaseError(
+                    "Failed to find tasks by filters: ${e.message}",
+                    e
+                )
+            )
+        }
+    }
 
 }
