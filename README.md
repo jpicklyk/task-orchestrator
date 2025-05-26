@@ -9,7 +9,7 @@ The MCP Task Orchestrator enables AI assistants to create, update, retrieve, and
 while maintaining context efficiency and optimizing token usage. It features sophisticated task organization,
 template-driven documentation, and automated workflows to improve project management for AI-assisted development.
 
-## ?? Pre-Release Status
+## Pre-Release Status
 
 **Current Version: Pre-1.0.0 (Development)**
 
@@ -26,8 +26,8 @@ To track releases and updates:
 
 ### Core Functionality
 
-- **Hierarchical Organization**: Projects ? Features ? Tasks with flexible relationships
-- **Template System**: 17 built-in templates organized into 3 categories:
+- **Hierarchical Organization**: Projects, Features, Tasks with flexible relationships
+- **Template System**: 9 built-in templates organized into 3 categories:
     - **AI Workflow Instructions**: Git workflows, PR management, task implementation, bug investigation
     - **Documentation Properties**: Technical approach, requirements, context & background
     - **Process & Quality**: Testing strategy, definition of done
@@ -134,7 +134,7 @@ MCP_TRANSPORT=stdio DATABASE_PATH=data/tasks.db java -jar build/libs/mcp-task-or
 
 ## Template System
 
-The MCP Task Orchestrator includes a comprehensive template system with 17 built-in templates:
+The MCP Task Orchestrator includes a comprehensive template system with 9 built-in templates:
 
 ### AI Workflow Instructions
 
