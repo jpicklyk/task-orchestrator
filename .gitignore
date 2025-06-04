@@ -52,3 +52,4 @@ bin/
 
 ### Docs folder ###
 /docs/
+/.claude/settings.local.json
