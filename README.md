@@ -241,15 +241,80 @@ For advanced debugging, you can:
 
 ## Available MCP Tools
 
-The server provides comprehensive tools for task management:
+The server provides **34 comprehensive MCP tools** organized into 5 main categories for complete task and project
+management. All tools are designed for context efficiency and support progressive loading of related data.
 
-- **Project Management**: create_project, get_project, update_project, delete_project, search_projects
-- **Feature Management**: create_feature, get_feature, update_feature, delete_feature, search_features
-- **Task Management**: create_task, get_task, update_task, delete_task, search_tasks, get_task_overview
-- **Section Management**: add_section, get_sections, update_section, delete_section, bulk_create_sections
-- **Template Management**: list_templates, apply_template, create_template, get_template
+### Task Management Tools (6 tools)
 
-All tools are designed for context efficiency and support progressive loading of related data.
+Task management tools provide core functionality for creating, updating, and organizing individual work items. Tasks are
+the primary work units in the system and can exist independently or be associated with features and projects. These
+tools support comprehensive metadata including status tracking, priority levels, complexity scoring, and flexible
+tagging systems.
+
+- `create_task` - Create new tasks with comprehensive metadata and optional template application
+- `update_task` - Modify existing tasks with validation and relationship preservation
+- `get_task` - Retrieve individual task details with optional related entity inclusion
+- `delete_task` - Remove tasks with proper dependency cleanup
+- `search_tasks` - Find tasks using flexible filtering by status, priority, tags, and text queries
+- `get_task_overview` - Get hierarchical overview of all tasks organized by features, with token-efficient summaries
+
+### Feature Management Tools (5 tools)
+
+Feature management tools enable grouping of related tasks into cohesive functional units. Features represent major
+functionality areas and provide organizational structure for complex projects. They support status tracking, priority
+management, and can contain multiple tasks while maintaining clear hierarchical relationships.
+
+- `create_feature` - Create new features with metadata and automatic task association capabilities
+- `update_feature` - Modify existing features while preserving task relationships
+- `get_feature` - Retrieve feature details with optional task listings and progressive loading
+- `delete_feature` - Remove features with configurable task handling (cascade or orphan)
+- `search_features` - Find features using comprehensive filtering and text search capabilities
+
+### Project Management Tools (5 tools)
+
+Project management tools provide top-level organizational containers for large-scale work coordination. Projects can
+encompass multiple features and tasks, offering the highest level of organizational structure. These tools support
+complex relationship management and provide comprehensive views of project scope and progress.
+
+- `create_project` - Create new projects with comprehensive metadata and organizational structure
+- `get_project` - Retrieve project details with configurable inclusion of features, tasks, and sections
+- `update_project` - Modify existing projects with relationship preservation and validation
+- `delete_project` - Remove projects with configurable cascade behavior for contained entities
+- `search_projects` - Find projects using advanced filtering, tagging, and full-text search capabilities
+
+### Section Management Tools (9 tools)
+
+Section management tools provide structured content capabilities for detailed documentation and information
+organization. Sections can be attached to any entity (projects, features, tasks) and support multiple content formats
+including markdown, plain text, and structured data. These tools enable rich documentation workflows and content
+organization.
+
+- `add_section` - Add structured content sections to any entity with flexible formatting options
+- `get_sections` - Retrieve sections for entities with ordering and filtering capabilities
+- `update_section` - Modify existing sections with content validation and format preservation
+- `delete_section` - Remove sections with proper cleanup and ordering adjustment
+- `bulk_update_sections` - Efficiently update multiple sections in a single operation
+- `bulk_create_sections` - Create multiple sections simultaneously with proper ordering
+- `bulk_delete_sections` - Remove multiple sections with batch processing efficiency
+- `update_section_text` - Update only section text content for focused editing workflows
+- `update_section_metadata` - Update section metadata (title, format, ordering) without content changes
+- `reorder_sections` - Change section ordering and organization within entities
+
+### Template Management Tools (9 tools)
+
+Template management tools provide powerful workflow automation and standardization capabilities. The system includes 9
+built-in templates organized into AI workflow instructions, documentation properties, and process & quality categories.
+Templates can be applied to any entity to create structured, consistent documentation and workflow guidance.
+
+- `create_template` - Create new custom templates with sections and metadata
+- `get_template` - Retrieve template details including sections and usage information
+- `apply_template` - Apply templates to entities with customizable section creation
+- `list_templates` - List available templates with filtering and categorization
+- `add_template_section` - Add new sections to existing templates
+- `update_template_metadata` - Modify template information and categorization
+- `delete_template` - Remove custom templates (built-in templates cannot be deleted)
+- `enable_template` - Enable templates for use in entity creation and application
+- `disable_template` - Disable templates to prevent usage while preserving definition
 
 ## Data Model
 
