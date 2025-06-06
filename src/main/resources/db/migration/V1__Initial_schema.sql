@@ -99,3 +99,19 @@ CREATE INDEX IF NOT EXISTS idx_tasks_feature_id ON tasks(feature_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
 CREATE INDEX IF NOT EXISTS idx_tasks_complexity ON tasks(complexity);
+
+CREATE TABLE IF NOT EXISTS dependencies (
+    id VARCHAR(36) PRIMARY KEY,
+    from_task_id VARCHAR(36) NOT NULL,
+    to_task_id VARCHAR(36) NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('BLOCKS', 'IS_BLOCKED_BY', 'RELATES_TO')),
+    created_at TIMESTAMP NOT NULL,
+    FOREIGN KEY (from_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE(from_task_id, to_task_id, type)
+);
+
+-- Create indexes for dependencies table
+CREATE INDEX IF NOT EXISTS idx_dependencies_from_task ON dependencies(from_task_id);
+CREATE INDEX IF NOT EXISTS idx_dependencies_to_task ON dependencies(to_task_id);
+CREATE INDEX IF NOT EXISTS idx_dependencies_type ON dependencies(type);
