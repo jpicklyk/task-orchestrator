@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.application.service.TemplateInitializer
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.application.tools.dependency.*
 import io.github.jpicklyk.mcptask.application.tools.feature.*
 import io.github.jpicklyk.mcptask.application.tools.project.*
 import io.github.jpicklyk.mcptask.application.tools.section.*
@@ -194,6 +195,11 @@ class McpServer(
             DeleteTaskTool(),
             SearchTasksTool(),
             GetTaskOverviewTool(),
+
+            // Dependency management tools
+            CreateDependencyTool(),
+            GetTaskDependenciesTool(),
+            DeleteDependencyTool(),
 
             // Feature management tools
             CreateFeatureTool(),

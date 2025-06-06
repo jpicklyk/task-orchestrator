@@ -41,4 +41,11 @@ interface RepositoryProvider {
      * @return The TemplateRepository implementation
      */
     fun templateRepository(): TemplateRepository
+
+    /**
+     * Provides access to the DependencyRepository.
+     *
+     * @return The DependencyRepository implementation
+     */
+    fun dependencyRepository(): DependencyRepository
 }

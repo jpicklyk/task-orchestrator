@@ -52,7 +52,7 @@ class GetTaskTool : BaseToolDefinition() {
         |-----------|------|----------|---------|-------------|
         | id | UUID string | Yes | - | The unique ID of the task to retrieve (e.g., '550e8400-e29b-41d4-a716-446655440000') |
         | includeSubtasks | boolean | No | false | Whether to include subtasks in the response (experimental feature) |
-        | includeDependencies | boolean | No | false | Whether to include dependencies in the response (experimental feature) |
+        | includeDependencies | boolean | No | false | Whether to include dependency information (incoming and outgoing dependencies with counts) |
         | includeFeature | boolean | No | false | Whether to include feature information if the task belongs to a feature |
         | includeSections | boolean | No | false | Whether to include sections (detailed content blocks) that contain the full content of the task. Set to true when you need the complete task context beyond the basic summary. |
         | summaryView | boolean | No | false | Whether to return a summarized view for context efficiency (truncates text fields) |
@@ -173,7 +173,7 @@ class GetTaskTool : BaseToolDefinition() {
                 "includeDependencies" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("boolean"),
-                        "description" to JsonPrimitive("Whether to include dependencies in the response (experimental feature)"),
+                        "description" to JsonPrimitive("Whether to include dependency information (incoming and outgoing dependencies with counts)"),
                         "default" to JsonPrimitive(false)
                     )
                 ),
@@ -227,6 +227,7 @@ class GetTaskTool : BaseToolDefinition() {
             val summaryView = optionalBoolean(params, "summaryView")
             val includeFeature = optionalBoolean(params, "includeFeature")
             val includeSections = optionalBoolean(params, "includeSections")
+            val includeDependencies = optionalBoolean(params, "includeDependencies")
 
             // Get a task from repository
             val taskResult = context.taskRepository().getById(taskId)
@@ -320,6 +321,58 @@ class GetTaskTool : BaseToolDefinition() {
                             } catch (e: Exception) {
                                 logger.error("Error retrieving sections", e)
                                 put("sections", buildJsonArray {})
+                            }
+                        }
+
+                        // Include dependencies if requested
+                        if (includeDependencies) {
+                            try {
+                                val allDependencies = context.dependencyRepository().findByTaskId(taskId)
+                                
+                                // Separate incoming and outgoing dependencies
+                                val incomingDependencies = allDependencies.filter { it.toTaskId == taskId }
+                                val outgoingDependencies = allDependencies.filter { it.fromTaskId == taskId }
+                                
+                                put("dependencies", buildJsonObject {
+                                    put("incoming", buildJsonArray {
+                                        incomingDependencies.forEach { dependency ->
+                                            add(buildJsonObject {
+                                                put("id", dependency.id.toString())
+                                                put("fromTaskId", dependency.fromTaskId.toString())
+                                                put("toTaskId", dependency.toTaskId.toString())
+                                                put("type", dependency.type.name)
+                                                put("createdAt", dependency.createdAt.toString())
+                                            })
+                                        }
+                                    })
+                                    put("outgoing", buildJsonArray {
+                                        outgoingDependencies.forEach { dependency ->
+                                            add(buildJsonObject {
+                                                put("id", dependency.id.toString())
+                                                put("fromTaskId", dependency.fromTaskId.toString())
+                                                put("toTaskId", dependency.toTaskId.toString())
+                                                put("type", dependency.type.name)
+                                                put("createdAt", dependency.createdAt.toString())
+                                            })
+                                        }
+                                    })
+                                    put("counts", buildJsonObject {
+                                        put("total", allDependencies.size)
+                                        put("incoming", incomingDependencies.size)
+                                        put("outgoing", outgoingDependencies.size)
+                                    })
+                                })
+                            } catch (e: Exception) {
+                                logger.error("Error retrieving dependencies", e)
+                                put("dependencies", buildJsonObject {
+                                    put("incoming", buildJsonArray {})
+                                    put("outgoing", buildJsonArray {})
+                                    put("counts", buildJsonObject {
+                                        put("total", 0)
+                                        put("incoming", 0)
+                                        put("outgoing", 0)
+                                    })
+                                })
                             }
                         }
                     }

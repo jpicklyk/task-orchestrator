@@ -46,4 +46,11 @@ class ToolExecutionContext(
      * @return The ProjectRepository
      */
     fun projectRepository(): ProjectRepository = repositoryProvider.projectRepository()
+
+    /**
+     * Gets the DependencyRepository instance.
+     *
+     * @return The DependencyRepository
+     */
+    fun dependencyRepository(): DependencyRepository = repositoryProvider.dependencyRepository()
 }

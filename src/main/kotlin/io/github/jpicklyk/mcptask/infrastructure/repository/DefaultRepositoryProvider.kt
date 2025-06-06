@@ -28,6 +28,10 @@ class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : 
         SQLiteTemplateRepository(sectionRepository)
     }
 
+    private val dependencyRepository: SQLiteDependencyRepository by lazy {
+        SQLiteDependencyRepository(databaseManager)
+    }
+
     override fun projectRepository(): ProjectRepository = projectRepository
     
     override fun taskRepository(): TaskRepository = taskRepository
@@ -37,4 +41,6 @@ class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : 
     override fun sectionRepository(): SectionRepository = sectionRepository
 
     override fun templateRepository(): TemplateRepository = templateRepository
+
+    override fun dependencyRepository(): DependencyRepository = dependencyRepository
 }
