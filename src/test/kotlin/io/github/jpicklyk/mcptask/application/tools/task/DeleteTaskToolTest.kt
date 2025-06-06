@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Section
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
+import io.github.jpicklyk.mcptask.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.domain.repository.SectionRepository
@@ -30,6 +31,7 @@ class DeleteTaskToolTest {
     private lateinit var mockContext: ToolExecutionContext
     private lateinit var mockTaskRepository: TaskRepository
     private lateinit var mockSectionRepository: SectionRepository
+    private lateinit var mockDependencyRepository: DependencyRepository
     private val validTaskId = UUID.randomUUID()
 
     @BeforeEach
@@ -37,11 +39,13 @@ class DeleteTaskToolTest {
         // Create a mock repository provider and repositories
         mockTaskRepository = mockk<TaskRepository>()
         mockSectionRepository = mockk<SectionRepository>()
+        mockDependencyRepository = mockk<DependencyRepository>()
         val mockRepositoryProvider = mockk<RepositoryProvider>()
 
         // Configure the repository provider to return the mock repositories
         every { mockRepositoryProvider.taskRepository() } returns mockTaskRepository
         every { mockRepositoryProvider.sectionRepository() } returns mockSectionRepository
+        every { mockRepositoryProvider.dependencyRepository() } returns mockDependencyRepository
 
         // Create a sample task for the mock response
         val mockTask = Task(
@@ -64,6 +68,10 @@ class DeleteTaskToolTest {
         // Mock section repository to return empty sections
         coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
         coEvery { mockSectionRepository.deleteSection(any()) } returns Result.Success(true)
+
+        // Mock dependency repository to return no dependencies by default
+        every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+        every { mockDependencyRepository.deleteByTaskId(any()) } returns 0
 
         // Create the execution context with the mock repository provider
         mockContext = ToolExecutionContext(mockRepositoryProvider)
@@ -138,6 +146,8 @@ class DeleteTaskToolTest {
         assertNotNull(data, "Data object should not be null")
         assertEquals(validTaskId.toString(), data!!["id"]?.jsonPrimitive?.content)
         assertTrue(data["deleted"]?.jsonPrimitive?.boolean == true, "Deleted flag should be true")
+        assertEquals(0, data["sectionsDeleted"]?.jsonPrimitive?.int, "Should show 0 sections were deleted")
+        assertEquals(0, data["dependenciesDeleted"]?.jsonPrimitive?.int, "Should show 0 dependencies were deleted")
 
         assertTrue(responseObj["error"] is JsonNull, "Error should be null")
         assertNotNull(responseObj["metadata"], "Metadata should not be null")
@@ -216,6 +226,10 @@ class DeleteTaskToolTest {
         assertEquals(
             2, data!!["sectionsDeleted"]?.jsonPrimitive?.int,
             "Should show 2 sections were deleted"
+        )
+        assertEquals(
+            0, data["dependenciesDeleted"]?.jsonPrimitive?.int,
+            "Should show 0 dependencies were deleted"
         )
     }
 

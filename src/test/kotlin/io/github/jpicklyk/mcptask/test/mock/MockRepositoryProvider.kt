@@ -11,7 +11,8 @@ class MockRepositoryProvider(
     private val taskRepository: TaskRepository = MockTaskRepository(),
     private val featureRepository: FeatureRepository = MockFeatureRepository(),
     private val sectionRepository: SectionRepository = MockSectionRepository(),
-    private val templateRepository: TemplateRepository = MockTemplateRepository()
+    private val templateRepository: TemplateRepository = MockTemplateRepository(),
+    private val dependencyRepository: DependencyRepository = MockDependencyRepository()
 ) : RepositoryProvider {
 
     override fun projectRepository(): ProjectRepository = projectRepository
@@ -23,4 +24,6 @@ class MockRepositoryProvider(
     override fun sectionRepository(): SectionRepository = sectionRepository
 
     override fun templateRepository(): TemplateRepository = templateRepository
+
+    override fun dependencyRepository(): DependencyRepository = dependencyRepository
 }
