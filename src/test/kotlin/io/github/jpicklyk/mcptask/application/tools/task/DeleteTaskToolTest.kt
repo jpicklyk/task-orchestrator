@@ -3,10 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
-import io.github.jpicklyk.mcptask.domain.model.EntityType
-import io.github.jpicklyk.mcptask.domain.model.Section
-import io.github.jpicklyk.mcptask.domain.model.Task
-import io.github.jpicklyk.mcptask.domain.model.TaskStatus
+import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -23,6 +20,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.time.Instant
 import java.util.*
 
 class DeleteTaskToolTest {
@@ -33,6 +31,9 @@ class DeleteTaskToolTest {
     private lateinit var mockSectionRepository: SectionRepository
     private lateinit var mockDependencyRepository: DependencyRepository
     private val validTaskId = UUID.randomUUID()
+    private val relatedTask1Id = UUID.randomUUID()
+    private val relatedTask2Id = UUID.randomUUID()
+    private val relatedTask3Id = UUID.randomUUID()
 
     @BeforeEach
     fun setup() {
@@ -323,5 +324,152 @@ class DeleteTaskToolTest {
             0, data!!["sectionsDeleted"]?.jsonPrimitive?.int,
             "Should show 0 sections were deleted"
         )
+    }
+
+    // ========================================
+    // Dependency Feature Tests
+    // ========================================
+
+    @Test
+    fun `execute with task that has dependencies should fail without force parameter`() = runBlocking {
+        // Create test dependencies
+        val incomingDep = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = validTaskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+
+        val outgoingDep = Dependency(
+            fromTaskId = validTaskId,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.RELATES_TO,
+            createdAt = Instant.now()
+        )
+
+        // Mock dependency repository to return dependencies
+        every { mockDependencyRepository.findByTaskId(validTaskId) } returns listOf(incomingDep, outgoingDep)
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId.toString()),
+                "force" to JsonPrimitive(false)
+            )
+        )
+
+        val response = tool.execute(params, mockContext)
+        assertTrue(response is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = response as JsonObject
+        assertEquals(false, responseObj["success"]?.jsonPrimitive?.boolean, "Success should be false")
+        assertTrue(
+            responseObj["message"]?.jsonPrimitive?.content?.contains("Cannot delete task with existing dependencies") ?: false,
+            "Message should indicate dependency conflict"
+        )
+
+        val error = responseObj["error"]?.jsonObject
+        assertNotNull(error, "Error object should not be null")
+        assertEquals(
+            ErrorCodes.VALIDATION_ERROR, error!!["code"]?.jsonPrimitive?.content,
+            "Error code should be VALIDATION_ERROR"
+        )
+
+        // Verify dependency information is included in error
+        val additionalData = error["additionalData"]?.jsonObject
+        assertNotNull(additionalData, "Additional data should contain dependency information")
+        assertEquals(2, additionalData!!["totalDependencies"]?.jsonPrimitive?.int, "Should show 2 total dependencies")
+        assertEquals(1, additionalData["incomingDependencies"]?.jsonPrimitive?.int, "Should show 1 incoming dependency")
+        assertEquals(1, additionalData["outgoingDependencies"]?.jsonPrimitive?.int, "Should show 1 outgoing dependency")
+        assertEquals(2, additionalData["affectedTasks"]?.jsonPrimitive?.int, "Should show 2 affected tasks")
+    }
+
+    @Test
+    fun `execute with force parameter should delete task and all dependencies`() = runBlocking {
+        // Create test dependencies
+        val incomingDep1 = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = validTaskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+
+        val incomingDep2 = Dependency(
+            fromTaskId = relatedTask2Id,
+            toTaskId = validTaskId,
+            type = DependencyType.IS_BLOCKED_BY,
+            createdAt = Instant.now()
+        )
+
+        val outgoingDep = Dependency(
+            fromTaskId = validTaskId,
+            toTaskId = relatedTask3Id,
+            type = DependencyType.RELATES_TO,
+            createdAt = Instant.now()
+        )
+
+        val allDependencies = listOf(incomingDep1, incomingDep2, outgoingDep)
+
+        // Mock dependency repository
+        every { mockDependencyRepository.findByTaskId(validTaskId) } returns allDependencies
+        every { mockDependencyRepository.deleteByTaskId(validTaskId) } returns 3
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId.toString()),
+                "force" to JsonPrimitive(true)
+            )
+        )
+
+        val response = tool.execute(params, mockContext)
+        assertTrue(response is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = response as JsonObject
+        assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Success should be true")
+        assertTrue(
+            responseObj["message"]?.jsonPrimitive?.content?.contains("Task deleted successfully with 3 dependencies") ?: false,
+            "Message should mention deleted dependencies"
+        )
+
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data, "Data object should not be null")
+        assertEquals(validTaskId.toString(), data!!["id"]?.jsonPrimitive?.content)
+        assertTrue(data["deleted"]?.jsonPrimitive?.boolean == true, "Deleted flag should be true")
+        assertEquals(3, data["dependenciesDeleted"]?.jsonPrimitive?.int, "Should show 3 dependencies were deleted")
+
+        // Verify broken dependency warnings are included
+        assertTrue(data["warningsBrokenDependencies"]?.jsonPrimitive?.boolean == true, "Should warn about broken dependencies")
+        val brokenChains = data["brokenDependencyChains"]?.jsonObject
+        assertNotNull(brokenChains, "Broken dependency chains info should be present")
+        assertEquals(2, brokenChains!!["incomingDependencies"]?.jsonPrimitive?.int, "Should show 2 incoming dependencies")
+        assertEquals(1, brokenChains["outgoingDependencies"]?.jsonPrimitive?.int, "Should show 1 outgoing dependency")
+        assertEquals(3, brokenChains["affectedTasks"]?.jsonPrimitive?.int, "Should show 3 affected tasks")
+    }
+
+    @Test
+    fun `execute with no dependencies should not include broken dependency warnings`() = runBlocking {
+        // Mock dependency repository to return no dependencies
+        every { mockDependencyRepository.findByTaskId(validTaskId) } returns emptyList()
+        every { mockDependencyRepository.deleteByTaskId(validTaskId) } returns 0
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId.toString()),
+                "force" to JsonPrimitive(true)
+            )
+        )
+
+        val response = tool.execute(params, mockContext)
+        assertTrue(response is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = response as JsonObject
+        assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Success should be true")
+
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data, "Data object should not be null")
+        assertEquals(0, data!!["dependenciesDeleted"]?.jsonPrimitive?.int, "Should show 0 dependencies were deleted")
+
+        // Should not include broken dependency warnings when there are no dependencies
+        assertFalse(data.containsKey("warningsBrokenDependencies"), "Should not have broken dependency warnings")
+        assertFalse(data.containsKey("brokenDependencyChains"), "Should not have broken dependency chains info")
     }
 }
