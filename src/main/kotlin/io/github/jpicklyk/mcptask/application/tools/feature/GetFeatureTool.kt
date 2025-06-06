@@ -53,6 +53,7 @@ class GetFeatureTool : BaseToolDefinition() {
         | includeTasks | boolean | No | false | Whether to include basic task information in the response. Set to true when you need to see all tasks associated with this feature. |
         | maxTaskCount | integer | No | 10 | Maximum number of tasks to include (1-100) |
         | includeTaskCounts | boolean | No | false | Whether to include task statistics grouped by status |
+        | includeTaskDependencies | boolean | No | false | Whether to include dependency information for tasks when includeTasks is true |
         | includeSections | boolean | No | false | Whether to include sections (detailed content blocks) that contain the full content of the feature. Set to true when you need the complete feature context beyond the basic summary. |
         | summaryView | boolean | No | false | Whether to return a summarized view for context efficiency (truncates text fields) |
         | maxsummaryLength | integer | No | 500 | Maximum length for summary before truncation when in summary view |
@@ -98,13 +99,26 @@ class GetFeatureTool : BaseToolDefinition() {
                   "title": "Implement User API",
                   "status": "in-progress",
                   "priority": "high",
-                  "complexity": 7
+                  "complexity": 7,
+                  "dependencies": {
+                    "counts": {
+                      "total": 3,
+                      "incoming": 1,
+                      "outgoing": 2
+                    }
+                  }
                 },
                 // More tasks...
               ],
               "total": 15,
               "included": 10,
-              "hasMore": true
+              "hasMore": true,
+              "dependencyStatistics": {
+                "totalDependencies": 25,
+                "totalIncomingDependencies": 12,
+                "totalOutgoingDependencies": 13,
+                "tasksWithDependencies": 8
+              }
             }
           }
         }
@@ -153,7 +167,16 @@ class GetFeatureTool : BaseToolDefinition() {
            }
            ```
            
-        5. Get summarized feature information (for context efficiency):
+        5. Get feature with tasks and their dependency information:
+           ```json
+           {
+             "id": "661e8511-f30c-41d4-a716-557788990000",
+             "includeTasks": true,
+             "includeTaskDependencies": true
+           }
+           ```
+           
+        6. Get summarized feature information (for context efficiency):
            ```json
            {
              "id": "661e8511-f30c-41d4-a716-557788990000",
@@ -206,6 +229,13 @@ class GetFeatureTool : BaseToolDefinition() {
                         "default" to JsonPrimitive(false)
                     )
                 ),
+                "includeTaskDependencies" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Whether to include dependency information for tasks when includeTasks is true"),
+                        "default" to JsonPrimitive(false)
+                    )
+                ),
                 "maxsummaryLength" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("integer"),
@@ -254,6 +284,7 @@ class GetFeatureTool : BaseToolDefinition() {
             val includeTasks = optionalBoolean(params, "includeTasks", false)
             val maxTaskCount = optionalInt(params, "maxTaskCount", 10)!!
             val includeTaskCounts = optionalBoolean(params, "includeTaskCounts", false)
+            val includeTaskDependencies = optionalBoolean(params, "includeTaskDependencies", false)
             val includeSections = optionalBoolean(params, "includeSections", false)
             val summaryView = optionalBoolean(params, "summaryView", false)
             val maxSummaryLength = optionalInt(params, "maxsummaryLength", 500)!!
@@ -367,6 +398,11 @@ class GetFeatureTool : BaseToolDefinition() {
                                 val tasks = tasksResult.data
                                 val tasksToInclude = tasks.take(maxTaskCount)
 
+                                // Calculate overall dependency statistics for the feature
+                                var totalDependencies = 0
+                                var totalIncomingDependencies = 0
+                                var totalOutgoingDependencies = 0
+
                                 put("tasks", buildJsonObject {
                                     put("items", buildJsonArray {
                                         tasksToInclude.forEach { task ->
@@ -376,12 +412,59 @@ class GetFeatureTool : BaseToolDefinition() {
                                                 put("status", task.status.name.lowercase())
                                                 put("priority", task.priority.name.lowercase())
                                                 put("complexity", task.complexity)
+                                                
+                                                // Include dependency information if requested
+                                                if (includeTaskDependencies) {
+                                                    try {
+                                                        val allDependencies = context.dependencyRepository().findByTaskId(task.id)
+                                                        val incomingDependencies = allDependencies.filter { it.toTaskId == task.id }
+                                                        val outgoingDependencies = allDependencies.filter { it.fromTaskId == task.id }
+                                                        
+                                                        // Add to overall feature statistics
+                                                        totalDependencies += allDependencies.size
+                                                        totalIncomingDependencies += incomingDependencies.size
+                                                        totalOutgoingDependencies += outgoingDependencies.size
+                                                        
+                                                        put("dependencies", buildJsonObject {
+                                                            put("counts", buildJsonObject {
+                                                                put("total", allDependencies.size)
+                                                                put("incoming", incomingDependencies.size)
+                                                                put("outgoing", outgoingDependencies.size)
+                                                            })
+                                                        })
+                                                    } catch (e: Exception) {
+                                                        logger.error("Error retrieving dependencies for task ${task.id}", e)
+                                                        put("dependencies", buildJsonObject {
+                                                            put("counts", buildJsonObject {
+                                                                put("total", 0)
+                                                                put("incoming", 0)
+                                                                put("outgoing", 0)
+                                                            })
+                                                        })
+                                                    }
+                                                }
                                             })
                                         }
                                     })
                                     put("total", tasks.size)
                                     put("included", tasksToInclude.size)
                                     put("hasMore", tasks.size > maxTaskCount)
+                                    
+                                    // Include overall dependency statistics for the feature if requested
+                                    if (includeTaskDependencies) {
+                                        put("dependencyStatistics", buildJsonObject {
+                                            put("totalDependencies", totalDependencies)
+                                            put("totalIncomingDependencies", totalIncomingDependencies)
+                                            put("totalOutgoingDependencies", totalOutgoingDependencies)
+                                            put("tasksWithDependencies", tasksToInclude.count { task ->
+                                                try {
+                                                    context.dependencyRepository().findByTaskId(task.id).isNotEmpty()
+                                                } catch (e: Exception) {
+                                                    false
+                                                }
+                                            })
+                                        })
+                                    }
                                 })
                             } else {
                                 put("tasks", buildJsonObject {
@@ -389,6 +472,14 @@ class GetFeatureTool : BaseToolDefinition() {
                                     put("total", 0)
                                     put("included", 0)
                                     put("hasMore", false)
+                                    if (includeTaskDependencies) {
+                                        put("dependencyStatistics", buildJsonObject {
+                                            put("totalDependencies", 0)
+                                            put("totalIncomingDependencies", 0)
+                                            put("totalOutgoingDependencies", 0)
+                                            put("tasksWithDependencies", 0)
+                                        })
+                                    }
                                 })
                             }
                         }
