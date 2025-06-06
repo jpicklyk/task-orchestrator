@@ -458,17 +458,13 @@ class GetTaskDependenciesToolTest {
         val dependencies = data!!["dependencies"]?.jsonObject
         assertNotNull(dependencies, "Dependencies object should not be null")
 
-        // NOTE: The current implementation has a bug where type filters are not applied 
-        // to the incoming/outgoing arrays when direction="all" (the default).
-        // The type filter is only applied to the filtering logic, but the incoming/outgoing
-        // arrays are built from the original unfiltered dependencies.
-        // So this test verifies the actual (buggy) behavior.
+        // After the fix: type filters are applied consistently to incoming/outgoing arrays
         val incoming = dependencies!!["incoming"]?.jsonArray
         val outgoing = dependencies["outgoing"]?.jsonArray
         assertNotNull(incoming, "Incoming array should not be null")
         assertNotNull(outgoing, "Outgoing array should not be null")
-        assertEquals(1, incoming!!.size, "Should have 1 incoming dependency (unfiltered)")
-        assertEquals(1, outgoing!!.size, "Should have 1 outgoing dependency (unfiltered)")
+        assertEquals(1, incoming!!.size, "Should have 1 incoming BLOCKS dependency")
+        assertEquals(0, outgoing!!.size, "Should have 0 outgoing BLOCKS dependencies")
 
         // Verify the type filter is recorded in filters
         val filters = data["filters"]?.jsonObject
@@ -478,10 +474,6 @@ class GetTaskDependenciesToolTest {
         // The incoming dependency should be BLOCKS type
         val incomingDep = incoming[0].jsonObject
         assertEquals("BLOCKS", incomingDep["type"]?.jsonPrimitive?.content)
-        
-        // The outgoing dependency should be RELATES_TO type (showing the bug)
-        val outgoingDep = outgoing[0].jsonObject
-        assertEquals("RELATES_TO", outgoingDep["type"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -517,14 +509,13 @@ class GetTaskDependenciesToolTest {
         assertNotNull(incoming, "Incoming array should not be null")
         assertEquals(1, incoming!!.size, "Should have 1 incoming dependency")
 
-        // NOTE: The current implementation has a bug where includeTaskInfo is not applied 
-        // to the incoming/outgoing arrays when direction="all" (the default).
-        // The includeTaskInfo is only applied when building dependencyObjects (line 214),
-        // but not when building the incoming/outgoing arrays (lines 251-272).
-        // So this test verifies the actual (buggy) behavior.
+        // After the fix: includeTaskInfo is applied consistently to incoming/outgoing arrays
         val incomingDep = incoming[0].jsonObject
         val relatedTask = incomingDep["relatedTask"]?.jsonObject
-        assertNull(relatedTask, "Related task info should NOT be included in incoming/outgoing arrays (bug)")
+        assertNotNull(relatedTask, "Related task info should be included in incoming/outgoing arrays")
+        assertEquals(relatedTask1Id.toString(), relatedTask!!["id"]?.jsonPrimitive?.content)
+        assertEquals("Related Task 1", relatedTask["title"]?.jsonPrimitive?.content)
+        assertEquals("IN_PROGRESS", relatedTask["status"]?.jsonPrimitive?.content)
 
         val filters = data["filters"]?.jsonObject
         assertNotNull(filters, "Filters object should not be null")
@@ -730,5 +721,175 @@ class GetTaskDependenciesToolTest {
         assertEquals("all", filters!!["direction"]?.jsonPrimitive?.content, "Default direction should be all")
         assertEquals("all", filters["type"]?.jsonPrimitive?.content, "Default type should be all")
         assertEquals(false, filters["includeTaskInfo"]?.jsonPrimitive?.boolean, "Default includeTaskInfo should be false")
+    }
+
+    @Test
+    fun `type filter should apply consistently to all response structures`() = runBlocking {
+        // Create mixed dependency types
+        val blocksDep1 = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+        
+        val blocksDep2 = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+        
+        val relatedDep = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask3Id,
+            type = DependencyType.RELATES_TO,
+            createdAt = Instant.now()
+        )
+        
+        mockDependencyRepository.addDependencies(listOf(blocksDep1, blocksDep2, relatedDep))
+
+        // Test direction="all" with type filter
+        val allParams = JsonObject(
+            mapOf(
+                "taskId" to JsonPrimitive(testTaskId.toString()),
+                "direction" to JsonPrimitive("all"),
+                "type" to JsonPrimitive("BLOCKS")
+            )
+        )
+
+        val allResponse = tool.execute(allParams, mockContext)
+        val allData = (allResponse as JsonObject)["data"]?.jsonObject!!
+        val allDeps = allData["dependencies"]?.jsonObject!!
+        val allIncoming = allDeps["incoming"]?.jsonArray!!
+        val allOutgoing = allDeps["outgoing"]?.jsonArray!!
+
+        // Test direction="incoming" with type filter
+        val incomingParams = JsonObject(
+            mapOf(
+                "taskId" to JsonPrimitive(testTaskId.toString()),
+                "direction" to JsonPrimitive("incoming"),
+                "type" to JsonPrimitive("BLOCKS")
+            )
+        )
+
+        val incomingResponse = tool.execute(incomingParams, mockContext)
+        val incomingData = (incomingResponse as JsonObject)["data"]?.jsonObject!!
+        val incomingDeps = incomingData["dependencies"]?.jsonArray!!
+
+        // Both should return same incoming BLOCKS dependencies
+        assertEquals(allIncoming.size, incomingDeps.size, "Incoming BLOCKS count should be consistent")
+        assertEquals(1, allIncoming.size, "Should have 1 incoming BLOCKS dependency")
+        assertEquals(1, allOutgoing.size, "Should have 1 outgoing BLOCKS dependency")
+        
+        // Verify all returned dependencies are BLOCKS type
+        allIncoming.forEach { dep ->
+            assertEquals("BLOCKS", dep.jsonObject["type"]?.jsonPrimitive?.content)
+        }
+        allOutgoing.forEach { dep ->
+            assertEquals("BLOCKS", dep.jsonObject["type"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun `includeTaskInfo should work with all direction combinations`() = runBlocking {
+        // Create test dependency
+        val testDependency = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+
+        mockDependencyRepository.addDependency(testDependency)
+
+        // Test direction="all" with includeTaskInfo
+        val allParams = JsonObject(
+            mapOf(
+                "taskId" to JsonPrimitive(testTaskId.toString()),
+                "direction" to JsonPrimitive("all"),
+                "includeTaskInfo" to JsonPrimitive(true)
+            )
+        )
+
+        val allResponse = tool.execute(allParams, mockContext)
+        val allData = (allResponse as JsonObject)["data"]?.jsonObject!!
+        val allDeps = allData["dependencies"]?.jsonObject!!
+        val allIncoming = allDeps["incoming"]?.jsonArray!!
+
+        // Test direction="incoming" with includeTaskInfo
+        val incomingParams = JsonObject(
+            mapOf(
+                "taskId" to JsonPrimitive(testTaskId.toString()),
+                "direction" to JsonPrimitive("incoming"),
+                "includeTaskInfo" to JsonPrimitive(true)
+            )
+        )
+
+        val incomingResponse = tool.execute(incomingParams, mockContext)
+        val incomingData = (incomingResponse as JsonObject)["data"]?.jsonObject!!
+        val incomingDeps = incomingData["dependencies"]?.jsonArray!!
+
+        // Both should include task info consistently
+        assertEquals(1, allIncoming.size, "Should have 1 incoming dependency")
+        assertEquals(1, incomingDeps.size, "Should have 1 incoming dependency")
+        
+        val allRelatedTask = allIncoming[0].jsonObject["relatedTask"]?.jsonObject
+        val incomingRelatedTask = incomingDeps[0].jsonObject["relatedTask"]?.jsonObject
+        
+        assertNotNull(allRelatedTask, "Task info should be included in direction=all")
+        assertNotNull(incomingRelatedTask, "Task info should be included in direction=incoming")
+        assertEquals(allRelatedTask!!["id"]?.jsonPrimitive?.content, 
+                     incomingRelatedTask!!["id"]?.jsonPrimitive?.content,
+                     "Task info should be consistent")
+    }
+
+    @Test 
+    fun `counts should reflect filtered results not raw dependencies`() = runBlocking {
+        // Create dependencies of mixed types
+        val blocksDep = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+        
+        val relatedDep1 = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.RELATES_TO,
+            createdAt = Instant.now()
+        )
+        
+        val relatedDep2 = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask3Id,
+            type = DependencyType.RELATES_TO,
+            createdAt = Instant.now()
+        )
+        
+        mockDependencyRepository.addDependencies(listOf(blocksDep, relatedDep1, relatedDep2))
+
+        // Apply BLOCKS type filter
+        val params = JsonObject(
+            mapOf(
+                "taskId" to JsonPrimitive(testTaskId.toString()),
+                "type" to JsonPrimitive("BLOCKS")
+            )
+        )
+
+        val response = tool.execute(params, mockContext)
+        val data = (response as JsonObject)["data"]?.jsonObject!!
+        val counts = data["counts"]?.jsonObject!!
+
+        // Counts should reflect filtered results (only BLOCKS dependencies)
+        assertEquals(1, counts["total"]?.jsonPrimitive?.int, "Total should be filtered count")
+        assertEquals(1, counts["incoming"]?.jsonPrimitive?.int, "Incoming should be filtered count")
+        assertEquals(0, counts["outgoing"]?.jsonPrimitive?.int, "Outgoing should be filtered count")
+        
+        val byType = counts["byType"]?.jsonObject!!
+        assertEquals(1, byType["BLOCKS"]?.jsonPrimitive?.int, "Should count only BLOCKS dependencies")
+        assertEquals(0, byType["IS_BLOCKED_BY"]?.jsonPrimitive?.int, "Should not count filtered out types")
+        assertEquals(0, byType["RELATES_TO"]?.jsonPrimitive?.int, "Should not count filtered out types")
     }
 }

@@ -147,6 +147,39 @@ class GetTaskDependenciesTool : BaseToolDefinition() {
         }
     }
 
+    /**
+     * Helper function to build dependency objects with consistent filtering and enrichment.
+     */
+    private suspend fun buildDependencyObject(
+        dependency: io.github.jpicklyk.mcptask.domain.model.Dependency,
+        includeTaskInfo: Boolean,
+        currentTaskId: UUID,
+        context: ToolExecutionContext
+    ): JsonObject {
+        val baseObj = mutableMapOf<String, JsonElement>(
+            "id" to JsonPrimitive(dependency.id.toString()),
+            "fromTaskId" to JsonPrimitive(dependency.fromTaskId.toString()),
+            "toTaskId" to JsonPrimitive(dependency.toTaskId.toString()),
+            "type" to JsonPrimitive(dependency.type.name),
+            "createdAt" to JsonPrimitive(dependency.createdAt.toString())
+        )
+
+        if (includeTaskInfo) {
+            val relatedTaskId = if (dependency.fromTaskId == currentTaskId) 
+                dependency.toTaskId else dependency.fromTaskId
+            val relatedTaskResult = context.taskRepository().getById(relatedTaskId)
+            if (relatedTaskResult is Result.Success) {
+                baseObj["relatedTask"] = JsonObject(mapOf(
+                    "id" to JsonPrimitive(relatedTaskResult.data.id.toString()),
+                    "title" to JsonPrimitive(relatedTaskResult.data.title),
+                    "status" to JsonPrimitive(relatedTaskResult.data.status.name)
+                ))
+            }
+        }
+
+        return JsonObject(baseObj)
+    }
+
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing get_task_dependencies tool")
 
@@ -202,74 +235,54 @@ class GetTaskDependenciesTool : BaseToolDefinition() {
 
             // Build dependency objects
             val dependencyObjects = finalDependencies.map { dependency ->
-                val baseObj = mutableMapOf<String, JsonElement>(
-                    "id" to JsonPrimitive(dependency.id.toString()),
-                    "fromTaskId" to JsonPrimitive(dependency.fromTaskId.toString()),
-                    "toTaskId" to JsonPrimitive(dependency.toTaskId.toString()),
-                    "type" to JsonPrimitive(dependency.type.name),
-                    "createdAt" to JsonPrimitive(dependency.createdAt.toString())
-                )
-
-                // Add task info if requested
-                if (includeTaskInfo) {
-                    val relatedTaskId = if (dependency.fromTaskId == taskId) dependency.toTaskId else dependency.fromTaskId
-                    val relatedTaskResult = context.taskRepository().getById(relatedTaskId)
-                    if (relatedTaskResult is Result.Success) {
-                        baseObj["relatedTask"] = JsonObject(
-                            mapOf(
-                                "id" to JsonPrimitive(relatedTaskResult.data.id.toString()),
-                                "title" to JsonPrimitive(relatedTaskResult.data.title),
-                                "status" to JsonPrimitive(relatedTaskResult.data.status.name)
-                            )
-                        )
-                    }
-                }
-
-                JsonObject(baseObj)
+                buildDependencyObject(dependency, includeTaskInfo, taskId, context)
             }
 
-            // Calculate counts
+            // Apply type filtering consistently to incoming/outgoing dependencies for direction="all"
+            val filteredIncoming = if (typeFilter != "all") {
+                val targetType = DependencyType.fromString(typeFilter)
+                incomingDependencies.filter { it.type == targetType }
+            } else {
+                incomingDependencies
+            }
+            
+            val filteredOutgoing = if (typeFilter != "all") {
+                val targetType = DependencyType.fromString(typeFilter)
+                outgoingDependencies.filter { it.type == targetType }
+            } else {
+                outgoingDependencies
+            }
+
+            // Calculate counts based on filtered results
             val counts = JsonObject(
                 mapOf(
-                    "total" to JsonPrimitive(allDependencies.size),
-                    "incoming" to JsonPrimitive(incomingDependencies.size),
-                    "outgoing" to JsonPrimitive(outgoingDependencies.size),
+                    "total" to JsonPrimitive(finalDependencies.size),
+                    "incoming" to JsonPrimitive(filteredIncoming.size),
+                    "outgoing" to JsonPrimitive(filteredOutgoing.size),
                     "byType" to JsonObject(
                         mapOf(
-                            "BLOCKS" to JsonPrimitive(allDependencies.count { it.type == DependencyType.BLOCKS }),
-                            "IS_BLOCKED_BY" to JsonPrimitive(allDependencies.count { it.type == DependencyType.IS_BLOCKED_BY }),
-                            "RELATES_TO" to JsonPrimitive(allDependencies.count { it.type == DependencyType.RELATES_TO })
+                            "BLOCKS" to JsonPrimitive(finalDependencies.count { it.type == DependencyType.BLOCKS }),
+                            "IS_BLOCKED_BY" to JsonPrimitive(finalDependencies.count { it.type == DependencyType.IS_BLOCKED_BY }),
+                            "RELATES_TO" to JsonPrimitive(finalDependencies.count { it.type == DependencyType.RELATES_TO })
                         )
                     )
                 )
             )
 
-            // Organize dependencies by direction for comprehensive view
+            // Organize dependencies by direction with consistent filtering and enrichment
             val dependenciesData = if (direction == "all") {
+                // Build enriched dependency objects for incoming/outgoing with filters applied
+                val processedIncoming = filteredIncoming.map { 
+                    buildDependencyObject(it, includeTaskInfo, taskId, context) 
+                }
+                val processedOutgoing = filteredOutgoing.map { 
+                    buildDependencyObject(it, includeTaskInfo, taskId, context) 
+                }
+                
                 JsonObject(
                     mapOf(
-                        "incoming" to JsonArray(incomingDependencies.map { dependency ->
-                            JsonObject(
-                                mapOf(
-                                    "id" to JsonPrimitive(dependency.id.toString()),
-                                    "fromTaskId" to JsonPrimitive(dependency.fromTaskId.toString()),
-                                    "toTaskId" to JsonPrimitive(dependency.toTaskId.toString()),
-                                    "type" to JsonPrimitive(dependency.type.name),
-                                    "createdAt" to JsonPrimitive(dependency.createdAt.toString())
-                                )
-                            )
-                        }),
-                        "outgoing" to JsonArray(outgoingDependencies.map { dependency ->
-                            JsonObject(
-                                mapOf(
-                                    "id" to JsonPrimitive(dependency.id.toString()),
-                                    "fromTaskId" to JsonPrimitive(dependency.fromTaskId.toString()),
-                                    "toTaskId" to JsonPrimitive(dependency.toTaskId.toString()),
-                                    "type" to JsonPrimitive(dependency.type.name),
-                                    "createdAt" to JsonPrimitive(dependency.createdAt.toString())
-                                )
-                            )
-                        })
+                        "incoming" to JsonArray(processedIncoming),
+                        "outgoing" to JsonArray(processedOutgoing)
                     )
                 )
             } else {
