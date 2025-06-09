@@ -85,11 +85,12 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
     /**
      * Checks if adding a dependency from fromTaskId to toTaskId would create a cycle.
      * A cycle exists if there's already a path from toTaskId back to fromTaskId.
+     * Note: This method should be called within a transaction context.
      */
-    override fun hasCyclicDependency(fromTaskId: UUID, toTaskId: UUID): Boolean = transaction(databaseManager.getDatabase()) {
+    override fun hasCyclicDependency(fromTaskId: UUID, toTaskId: UUID): Boolean {
         // If they're the same task, it's definitely a cycle
         if (fromTaskId == toTaskId) {
-            return@transaction true
+            return true
         }
 
         // Use depth-first search to check for cycles
@@ -111,7 +112,8 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             visiting.add(currentTaskId)
 
             // Check all the tasks that this task depends on (outgoing edges)
-            val dependencies = findByFromTaskId(currentTaskId)
+            val dependencies = DependenciesTable.selectAll().where { DependenciesTable.fromTaskId eq currentTaskId }
+                .map { it.toDependency() }
             for (dependency in dependencies) {
                 // If the dependency type is BLOCKS or RELATES_TO, follow it
                 if (dependency.type != DependencyType.IS_BLOCKED_BY) {
@@ -128,7 +130,8 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             }
 
             // Also check for IS_BLOCKED_BY in the reverse direction
-            val reverseDependencies = findByToTaskId(currentTaskId)
+            val reverseDependencies = DependenciesTable.selectAll().where { DependenciesTable.toTaskId eq currentTaskId }
+                .map { it.toDependency() }
             for (dependency in reverseDependencies) {
                 if (dependency.type == DependencyType.IS_BLOCKED_BY) {
                     // If we reach the original fromTaskId, we found a cycle
@@ -151,7 +154,7 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         }
 
         // Start DFS from the toTaskId
-        hasCycle(toTaskId)
+        return hasCycle(toTaskId)
     }
 
     private fun ResultRow.toDependency(): Dependency {
