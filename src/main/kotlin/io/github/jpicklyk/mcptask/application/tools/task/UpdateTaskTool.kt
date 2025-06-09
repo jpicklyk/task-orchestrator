@@ -3,7 +3,9 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -18,7 +20,10 @@ import java.util.*
 /**
  * MCP tool for updating an existing task with the specified properties.
  */
-class UpdateTaskTool : BaseToolDefinition() {
+class UpdateTaskTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "update_task"
@@ -146,7 +151,7 @@ class UpdateTaskTool : BaseToolDefinition() {
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_task tool")
 
         try {
@@ -156,26 +161,13 @@ class UpdateTaskTool : BaseToolDefinition() {
 
             // Get an existing task from repository
             val existingTaskResult = context.taskRepository().getById(taskId)
-
-            // Check if a task exists
-            if (existingTaskResult is Result.Error) {
-                if (existingTaskResult.error is RepositoryError.NotFound) {
-                    return errorResponse(
-                        message = "Task not found",
-                        code = ErrorCodes.RESOURCE_NOT_FOUND,
-                        details = "No task exists with ID $taskId"
-                    )
-                } else {
-                    return errorResponse(
-                        message = "Failed to retrieve task",
-                        code = ErrorCodes.DATABASE_ERROR,
-                        details = existingTaskResult.error.toString()
-                    )
-                }
+            val existingTask = when (existingTaskResult) {
+                is Result.Success -> existingTaskResult.data
+                is Result.Error -> return handleRepositoryResult(
+                    existingTaskResult,
+                    "Failed to retrieve task"
+                ) { JsonNull }
             }
-
-            // Get existing task
-            val existingTask = (existingTaskResult as Result.Success).data
 
             // Extract update parameters
             val title = optionalString(params, "title") ?: existingTask.title
@@ -214,50 +206,32 @@ class UpdateTaskTool : BaseToolDefinition() {
             val updateResult = context.taskRepository().update(updatedTask)
 
             // Return standardized response
-            return when (updateResult) {
-                is Result.Success -> {
-                    val updatedTaskData = updateResult.data
+            return handleRepositoryResult(updateResult, "Task updated successfully") { updatedTaskData ->
+                buildJsonObject {
+                    put("id", updatedTaskData.id.toString())
+                    put("title", updatedTaskData.title)
+                    put("summary", updatedTaskData.summary)
+                    put("status", updatedTaskData.status.name.lowercase())
+                    put("priority", updatedTaskData.priority.name.lowercase())
+                    put("complexity", updatedTaskData.complexity)
+                    put("createdAt", updatedTaskData.createdAt.toString())
+                    put("modifiedAt", updatedTaskData.modifiedAt.toString())
 
-                    val data = buildJsonObject {
-                        put("id", updatedTaskData.id.toString())
-                        put("title", updatedTaskData.title)
-                        put("summary", updatedTaskData.summary)
-                        put("status", updatedTaskData.status.name.lowercase())
-                        put("priority", updatedTaskData.priority.name.lowercase())
-                        put("complexity", updatedTaskData.complexity)
-                        put("createdAt", updatedTaskData.createdAt.toString())
-                        put("modifiedAt", updatedTaskData.modifiedAt.toString())
-
-                        if (updatedTaskData.featureId != null) {
-                            put("featureId", updatedTaskData.featureId.toString())
-                        } else {
-                            put("featureId", JsonNull)
-                        }
-
-                        put("tags", buildJsonArray {
-                            updatedTaskData.tags.forEach { add(it) }
-                        })
+                    if (updatedTaskData.featureId != null) {
+                        put("featureId", updatedTaskData.featureId.toString())
+                    } else {
+                        put("featureId", JsonNull)
                     }
 
-                    successResponse(data, "Task updated successfully")
-                }
-
-                is Result.Error -> {
-                    errorResponse(
-                        message = "Failed to update task",
-                        code = ErrorCodes.DATABASE_ERROR,
-                        details = updateResult.error.toString()
-                    )
+                    put("tags", buildJsonArray {
+                        updatedTaskData.tags.forEach { add(it) }
+                    })
                 }
             }
         } catch (e: Exception) {
             // Handle unexpected exceptions
             logger.error("Error updating task", e)
-            return errorResponse(
-                message = "Failed to update task",
-                code = ErrorCodes.INTERNAL_ERROR,
-                details = e.message ?: "Unknown error"
-            )
+            throw e // Let SimpleLockAwareToolDefinition handle the error formatting
         }
     }
 

@@ -2,7 +2,9 @@ package io.github.jpicklyk.mcptask.application.tools.section
 
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.domain.model.ContentFormat
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Section
@@ -29,7 +31,10 @@ import java.util.*
  * - delete_section: To remove a section
  * - bulk_create_sections: To create multiple sections at once
  */
-class AddSectionTool : BaseToolDefinition() {
+class AddSectionTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
     override val name = "add_section"
     override val description = """Adds a section to a task, feature, or project.
@@ -265,7 +270,7 @@ class AddSectionTool : BaseToolDefinition() {
         required = listOf("entityType", "entityId", "title", "usageDescription", "content", "ordinal")
     )
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         try {
             // Parse parameters
             val paramsObj = params as? JsonObject ?: return errorResponse("Parameters must be a JSON object")
@@ -410,34 +415,23 @@ class AddSectionTool : BaseToolDefinition() {
             // Add the section to the repository
             val result = context.sectionRepository().addSection(entityType, entityId, section)
 
-            return when (result) {
-                is Result.Success -> {
-                    val addedSection = result.data
-                    successResponse(
-                        message = "Section added successfully",
-                        data = buildJsonObject {
-                            put("section", buildJsonObject {
-                                put("id", addedSection.id.toString())
-                                put("entityType", addedSection.entityType.name)
-                                put("entityId", addedSection.entityId.toString())
-                                put("title", addedSection.title)
-                                put("contentFormat", addedSection.contentFormat.name)
-                                put("ordinal", addedSection.ordinal)
-                                put("createdAt", addedSection.createdAt.toString())
-                            })
-                        }
-                    )
+            return handleRepositoryResult(result, "Section added successfully") { addedSection ->
+                buildJsonObject {
+                    put("section", buildJsonObject {
+                        put("id", addedSection.id.toString())
+                        put("entityType", addedSection.entityType.name)
+                        put("entityId", addedSection.entityId.toString())
+                        put("title", addedSection.title)
+                        put("contentFormat", addedSection.contentFormat.name)
+                        put("ordinal", addedSection.ordinal)
+                        put("createdAt", addedSection.createdAt.toString())
+                    })
                 }
-
-                is Result.Error -> handleRepositoryError(result.error, "section")
             }
 
         } catch (e: Exception) {
             logger.error("Error adding section: ${e.message}", e)
-            return errorResponse(
-                message = "Failed to add section: ${e.message}",
-                code = ErrorCodes.INTERNAL_ERROR
-            )
+            throw e // Let SimpleLockAwareToolDefinition handle the error formatting
         }
     }
 

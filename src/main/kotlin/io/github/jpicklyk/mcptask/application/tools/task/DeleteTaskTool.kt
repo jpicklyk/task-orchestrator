@@ -3,7 +3,9 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -19,7 +21,10 @@ import java.util.*
  * breaking dependency chains. By default, it prevents deletion of tasks with dependencies
  * unless the 'force' parameter is used.
  */
-class DeleteTaskTool : BaseToolDefinition() {
+class DeleteTaskTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "delete_task"
@@ -83,7 +88,7 @@ class DeleteTaskTool : BaseToolDefinition() {
         // Optional boolean parameters don't need validation as they default to false/true
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing delete_task tool")
 
         try {
@@ -95,23 +100,12 @@ class DeleteTaskTool : BaseToolDefinition() {
 
             // Verify task exists before attempting to delete
             val getResult = context.taskRepository().getById(taskId)
-
-            if (getResult is Result.Error) {
-                if (getResult.error is RepositoryError.NotFound) {
-                    // Task not found, return standardized error response
-                    return errorResponse(
-                        message = "Task not found",
-                        code = ErrorCodes.RESOURCE_NOT_FOUND,
-                        details = "No task exists with ID $taskId"
-                    )
-                } else {
-                    // Other database error
-                    return errorResponse(
-                        message = "Failed to retrieve task",
-                        code = ErrorCodes.DATABASE_ERROR,
-                        details = getResult.error.toString()
-                    )
-                }
+            when (getResult) {
+                is Result.Success -> { /* Task exists, continue */ }
+                is Result.Error -> return handleRepositoryResult(
+                    getResult,
+                    "Failed to retrieve task"
+                ) { JsonNull }
             }
 
             // Check for dependencies and handle them appropriately
@@ -167,50 +161,34 @@ class DeleteTaskTool : BaseToolDefinition() {
             val deleteResult = context.taskRepository().delete(taskId)
 
             // Return standardized response
-            return when (deleteResult) {
-                is Result.Success -> {
-                    val data = buildJsonObject {
-                        put("id", taskId.toString())
-                        put("deleted", true)
-                        put("sectionsDeleted", sectionsDeletedCount)
-                        put("dependenciesDeleted", dependenciesDeletedCount)
-                        if (dependencies.isNotEmpty() && force) {
-                            put("warningsBrokenDependencies", true)
-                            put("brokenDependencyChains", buildJsonObject {
-                                put("incomingDependencies", incomingDependencies.size)
-                                put("outgoingDependencies", outgoingDependencies.size)
-                                put("affectedTasks", dependencies.map { 
-                                    if (it.fromTaskId == taskId) it.toTaskId else it.fromTaskId 
-                                }.distinct().size)
-                            })
-                        }
-                    }
+            val message = if (dependenciesDeletedCount > 0) {
+                "Task deleted successfully with $dependenciesDeletedCount dependencies and $sectionsDeletedCount sections"
+            } else {
+                "Task deleted successfully"
+            }
 
-                    val message = if (dependenciesDeletedCount > 0) {
-                        "Task deleted successfully with $dependenciesDeletedCount dependencies and $sectionsDeletedCount sections"
-                    } else {
-                        "Task deleted successfully"
+            return handleRepositoryResult(deleteResult, message) { _ ->
+                buildJsonObject {
+                    put("id", taskId.toString())
+                    put("deleted", true)
+                    put("sectionsDeleted", sectionsDeletedCount)
+                    put("dependenciesDeleted", dependenciesDeletedCount)
+                    if (dependencies.isNotEmpty() && force) {
+                        put("warningsBrokenDependencies", true)
+                        put("brokenDependencyChains", buildJsonObject {
+                            put("incomingDependencies", incomingDependencies.size)
+                            put("outgoingDependencies", outgoingDependencies.size)
+                            put("affectedTasks", dependencies.map { 
+                                if (it.fromTaskId == taskId) it.toTaskId else it.fromTaskId 
+                            }.distinct().size)
+                        })
                     }
-                    
-                    successResponse(data, message)
-                }
-
-                is Result.Error -> {
-                    errorResponse(
-                        message = "Failed to delete task",
-                        code = ErrorCodes.DATABASE_ERROR,
-                        details = deleteResult.error.toString()
-                    )
                 }
             }
         } catch (e: Exception) {
             // Handle unexpected exceptions
             logger.error("Error deleting task", e)
-            return errorResponse(
-                message = "Failed to delete task",
-                code = ErrorCodes.INTERNAL_ERROR,
-                details = e.message ?: "Unknown error"
-            )
+            throw e // Let SimpleLockAwareToolDefinition handle the error formatting
         }
     }
 }

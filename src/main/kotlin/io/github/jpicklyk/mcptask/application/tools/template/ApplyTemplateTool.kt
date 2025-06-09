@@ -3,7 +3,9 @@ package io.github.jpicklyk.mcptask.application.tools.template
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -19,7 +21,10 @@ import java.util.*
  * standardized documentation patterns to be applied to tasks and features. It supports
  * applying a single template or multiple templates in one operation.
  */
-class ApplyTemplateTool : BaseToolDefinition() {
+class ApplyTemplateTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TEMPLATE_MANAGEMENT
 
     override val name: String = "apply_template"
@@ -198,7 +203,7 @@ class ApplyTemplateTool : BaseToolDefinition() {
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing apply_template tool")
 
         try {

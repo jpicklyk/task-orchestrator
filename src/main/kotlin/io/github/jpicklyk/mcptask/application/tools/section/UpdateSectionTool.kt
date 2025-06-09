@@ -3,7 +3,9 @@ package io.github.jpicklyk.mcptask.application.tools.section
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.domain.model.ContentFormat
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -16,7 +18,10 @@ import java.util.*
 /**
  * Tool for updating an existing section.
  */
-class UpdateSectionTool : BaseToolDefinition() {
+class UpdateSectionTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category = ToolCategory.TASK_MANAGEMENT
     override val name = "update_section"
     override val description = "Updates an existing section by its ID"
@@ -120,7 +125,7 @@ class UpdateSectionTool : BaseToolDefinition() {
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_section tool")
 
         try {

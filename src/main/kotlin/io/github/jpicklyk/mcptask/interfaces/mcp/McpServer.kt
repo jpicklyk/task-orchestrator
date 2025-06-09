@@ -190,9 +190,9 @@ class McpServer(
         return listOf(
             // Task management tools
             CreateTaskTool(),
-            UpdateTaskTool(),
+            UpdateTaskTool(null, null),
             GetTaskTool(),
-            DeleteTaskTool(),
+            DeleteTaskTool(null, null),
             SearchTasksTool(),
             GetTaskOverviewTool(),
 
@@ -216,9 +216,9 @@ class McpServer(
             SearchProjectsTool(),
 
             // Section management tools
-            AddSectionTool(),
+            AddSectionTool(null, null),
             GetSectionsTool(),
-            UpdateSectionTool(),
+            UpdateSectionTool(null, null),
             DeleteSectionTool(),
             BulkUpdateSectionsTool(),
             BulkCreateSectionsTool(),
@@ -231,7 +231,7 @@ class McpServer(
             // Template management tools
             CreateTemplateTool(),
             GetTemplateTool(),
-            ApplyTemplateTool(),
+            ApplyTemplateTool(null, null),
             ListTemplatesTool(),
             AddTemplateSectionTool(),
             UpdateTemplateMetadataTool(),
