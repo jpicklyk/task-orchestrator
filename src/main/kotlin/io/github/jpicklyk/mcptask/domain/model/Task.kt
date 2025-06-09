@@ -39,6 +39,15 @@ data class Task(
     /** When the task was last modified */
     val modifiedAt: Instant = Instant.now(),
     
+    /** Optimistic concurrency version */
+    val version: Long = 1,
+    
+    /** Session that last modified this task */
+    val lastModifiedBy: String? = null,
+    
+    /** Current lock state for quick reference */
+    val lockStatus: TaskLockStatus = TaskLockStatus.UNLOCKED,
+    
     /** Optional tags for categorization */
     val tags: List<String> = emptyList()
 ) {

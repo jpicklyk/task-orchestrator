@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.infrastructure.database.schema
 
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
+import io.github.jpicklyk.mcptask.domain.model.TaskLockStatus
 import org.jetbrains.exposed.v1.core.dao.id.UUIDTable
 import org.jetbrains.exposed.v1.javatime.timestamp
 
@@ -27,6 +28,11 @@ object TaskTable : UUIDTable("tasks") {
     val createdAt = timestamp("created_at")
     val modifiedAt = timestamp("modified_at")
     
+    // Locking system fields
+    val version = long("version").default(1)
+    val lastModifiedBy = text("last_modified_by").nullable()
+    val lockStatus = enumerationByName("lock_status", 20, TaskLockStatus::class).default(TaskLockStatus.UNLOCKED)
+    
     // Search optimization
     val searchVector = text("search_vector").nullable()
     
@@ -38,5 +44,8 @@ object TaskTable : UUIDTable("tasks") {
         index(isUnique = false, featureId)
         index(isUnique = false, status)
         index(isUnique = false, priority)
+        index(isUnique = false, version)
+        index(isUnique = false, lockStatus)
+        index(isUnique = false, lastModifiedBy)
     }
 }
