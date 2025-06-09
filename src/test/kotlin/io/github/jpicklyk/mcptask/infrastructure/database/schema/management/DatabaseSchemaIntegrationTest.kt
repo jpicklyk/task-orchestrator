@@ -42,7 +42,7 @@ class DatabaseSchemaIntegrationTest {
         // Verify tables were created
         val tableNames = listOf(
             "projects", "features", "tasks", "templates",
-            "entity_tags", "sections", "template_sections"
+            "entity_tags", "sections", "template_sections", "dependencies"
         )
 
         // Verify that all tables exist

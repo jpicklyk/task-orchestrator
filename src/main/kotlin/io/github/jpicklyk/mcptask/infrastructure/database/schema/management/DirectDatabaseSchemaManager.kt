@@ -21,7 +21,8 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
         EntityTagsTable,
         SectionsTable,
         TemplateSectionsTable,
-        TaskTable
+        TaskTable,
+        DependenciesTable
     )
 
     override fun updateSchema(): Boolean {
@@ -88,6 +89,7 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
                 logger.info("Creating tables with multiple dependencies...")
                 try {
                     SchemaUtils.create(TaskTable)
+                    SchemaUtils.create(DependenciesTable)  // depends on TaskTable
                     logger.info("Tables with multiple dependencies created successfully")
                     true
                 } catch (e: Exception) {

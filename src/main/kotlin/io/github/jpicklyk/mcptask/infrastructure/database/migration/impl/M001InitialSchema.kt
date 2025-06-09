@@ -24,7 +24,8 @@ class M001InitialSchema : Migration {
         EntityTagsTable,
         SectionsTable,
         TemplateSectionsTable,
-        TaskTable
+        TaskTable,
+        DependenciesTable
     )
 
     override fun up(database: Database) {
@@ -52,6 +53,7 @@ class M001InitialSchema : Migration {
             transaction(database) {
                 logger.info("Creating tables with multiple dependencies...")
                 SchemaUtils.create(TaskTable)  // depends on ProjectsTable and FeaturesTable
+                SchemaUtils.create(DependenciesTable)  // depends on TaskTable
             }
 
             logger.info("All tables created successfully")

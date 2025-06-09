@@ -5,7 +5,7 @@ plugins {
 }
 
 // Define a base version (manually maintained)
-val baseVersion = "0.5"
+val baseVersion = "1.0"
 
 // Define release qualifier (empty for stable releases)
 // Examples: "", "alpha-01", "beta-02", "rc-01"
