@@ -109,48 +109,6 @@ object McpServerAiGuidance {
                             
                             This tagging convention allows easy filtering using `search_tasks` with the `tag` parameter.
                             
-                            ## Dependency Management
-                            
-                            The system supports comprehensive task dependency tracking with three relationship types that enable effective workflow coordination and execution planning.
-                            
-                            ### Dependency Types
-                            
-                            - **BLOCKS**: The source task blocks the target task from completion. Use this when a task must be finished before another can start.
-                            - **IS_BLOCKED_BY**: The source task is blocked by the target task. This is the inverse of BLOCKS and represents waiting dependencies.
-                            - **RELATES_TO**: General relationship without strict dependency. Use for tasks that are related but don't have execution constraints.
-                            
-                            ### Available Dependency Tools
-                            
-                            - **`create_dependency`** - Create task dependencies with comprehensive validation and cycle detection
-                              - Validates that both tasks exist before creating the relationship
-                              - Automatically detects and prevents circular dependency chains
-                              - Supports all three dependency types with proper relationship modeling
-                            
-                            - **`get_task_dependencies`** - Retrieve dependencies with advanced filtering capabilities
-                              - Filter by direction: incoming (dependencies on this task) or outgoing (tasks this depends on)
-                              - Filter by dependency type (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
-                              - Option to include full task information for dependent tasks
-                              - Supports pagination for large dependency sets
-                            
-                            - **`delete_dependency`** - Remove dependencies with flexible deletion options
-                              - Delete by specific dependency ID for precise removal
-                              - Delete by task relationship (from/to task IDs) for workflow updates
-                              - Bulk deletion options for removing all dependencies of a specific task
-                            
-                            ### Dependency Best Practices
-                            
-                            1. **Model Execution Order**: Use BLOCKS/IS_BLOCKED_BY relationships to represent workflow execution sequences
-                            2. **Avoid Circular Dependencies**: The system prevents cycles, but plan dependencies to avoid complex circular scenarios
-                            3. **Use Appropriate Types**: Choose RELATES_TO for loose coupling, BLOCKS for strict execution order
-                            4. **Consider Impact on Deletion**: Tasks with dependencies may require careful handling during deletion
-                            5. **Filter Efficiently**: Use direction and type filters in `get_task_dependencies` to focus on relevant relationships
-                            
-                            ### Dependency Integration with Task Management
-                            
-                            - **Task Deletion**: Use cascade options in `delete_task` to handle dependent tasks appropriately
-                            - **Task Planning**: Use `get_task_dependencies` to understand execution prerequisites and planning constraints
-                            - **Workflow Coordination**: Leverage dependency relationships for task prioritization and scheduling
-                            
                             1. **Creating a new task with templates**:
                                - Use `create_task` with the `templateIds` parameter to create a task with one or more templates
                                - Example: 
@@ -275,22 +233,12 @@ object McpServerAiGuidance {
                             - Contains multiple Template Sections that get copied when applied
                             - Enables consistent documentation structure
                             
-                            ### Dependency
-                            - Represents relationships between tasks affecting execution order and workflow coordination
-                            - Has properties like fromTaskId, toTaskId, type, createdAt, and modifiedAt
-                            - Supports three relationship types: BLOCKS, IS_BLOCKED_BY, RELATES_TO
-                            - Includes comprehensive cycle detection to prevent circular dependencies
-                            - Can be queried by task ID with direction and type filtering for efficient workflow analysis
-                            - Enables modeling of complex task execution sequences and prerequisite relationships
-                            
                             ## Entity Relationships
                             
                             - A Feature can have many Tasks (one-to-many)
                             - A Task can belong to at most one Feature (many-to-one)
                             - Both Tasks and Features can have multiple Sections (one-to-many)
                             - Templates define patterns of Sections for Tasks or Features
-                            - Tasks can have many Dependencies to other Tasks (many-to-many)
-                            - Dependencies create directed relationships with cycle detection to maintain data integrity
                             
                             ## Context-Efficient Design
                             
@@ -360,19 +308,6 @@ object McpServerAiGuidance {
                             - Use `update_template_metadata` and `update_section_metadata` for metadata-only changes
                             - Use `reorder_sections` for structural reorganization without content transmission
                             
-                            ### 5. Efficient Dependency Querying
-                            
-                            Dependency operations support filtering to minimize context usage:
-                            
-                            - Use `direction` parameter in `get_task_dependencies` to focus on relevant relationships:
-                              - `incoming` for tasks that depend on this task
-                              - `outgoing` for tasks this task depends on
-                              - `both` only when you need complete dependency context
-                            - Use `type` parameter to filter by relationship type (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
-                            - Use `includeTaskInfo=false` when you only need dependency IDs and types
-                            - Use `includeTaskInfo=true` only when you need full task details for planning
-                            - Apply pagination with `limit` and `offset` for tasks with many dependencies
-                            
                             ## Best Practices
                             
                             1. Always use the most specific tool for the job
@@ -382,8 +317,6 @@ object McpServerAiGuidance {
                             5. Keep section content concise and focused
                             6. Use bulk operations for multiple items
                             7. For updates, use partial-update tools instead of sending complete content
-                            8. Filter dependency queries by direction and type to focus on relevant relationships
-                            9. Use dependency information efficiently for workflow planning and task prioritization
                             
                             Following these guidelines ensures efficient use of context when interacting with AI assistants, allowing more complex tasks to be performed within context limits.
                             """.trimIndent()
@@ -570,158 +503,6 @@ object McpServerAiGuidance {
                             8. Use template combinations that complement each other (e.g., implementation + testing)
                             
                             Templates provide a starting point - always customize the content for the specific context while maintaining consistent structure.
-                            """.trimIndent()
-                        )
-                    )
-                ),
-                _meta = JsonObject(emptyMap())
-            )
-        }
-
-        // Claude Code workflow and memory instructions
-        server.addPrompt(
-            name = "claude_code_workflow",
-            description = "Comprehensive workflow instructions for Claude Code when working with MCP Task Orchestrator",
-        ) { _ ->
-            GetPromptResult(
-                description = "Comprehensive workflow instructions for Claude Code when working with MCP Task Orchestrator",
-                messages = listOf(
-                    PromptMessage(
-                        role = Role.assistant,
-                        content = TextContent(
-                            text = """
-                            # Claude Code Workflow Instructions for MCP Task Orchestrator
-
-                            ## Task Management Protocol
-
-                            **Always Use MCP Task Tools for Substantial Work:**
-                            1. **Use `create_task`** instead of TodoWrite for any non-trivial work items:
-                               - Multi-step implementations (3+ steps)
-                               - Complexity rating > 2
-                               - Testing suites for components
-                               - Bug fixes requiring investigation
-                               - Feature enhancements
-                               - Integration work
-                               - Any work benefiting from tracking and documentation
-
-                            2. **Task Workflow Process:**
-                               - Start with `get_task_overview` to check current work and priorities
-                               - If no suitable task exists, use `create_task` with proper metadata
-                               - Use `update_task` to set status to "in_progress" when starting work
-                               - Work incrementally with regular git commits following conventional commit format
-                               - Use `update_task` to set status to "completed" when finished
-                               - Use TodoWrite only for simple tracking within larger tasks
-
-                            3. **Task Quality Standards:**
-                               - Write descriptive titles and summaries
-                               - Use appropriate complexity ratings (1-10 scale)
-                               - Add relevant tags for categorization and searchability
-                               - Include acceptance criteria in summaries when helpful
-                               - Reference related tasks, features, or projects when applicable
-
-                            ## Template Usage Protocol
-
-                            **Always Check and Use Available Templates:**
-                            1. **Before creating tasks or features**, run `list_templates` to check available templates
-                            2. **Filter templates by target entity type** (TASK or FEATURE) and enabled status
-                            3. **Apply appropriate templates** using the `templateIds` parameter in `create_task` or `create_feature`
-                            4. **Use templates for consistency** in documentation structure and content organization
-
-                            **Template Selection Guidelines:**
-                            - **For Tasks:** Look for templates matching the work type (implementation, testing, bug-fix, etc.)
-                            - **For Features:** Use feature-level templates that provide comprehensive documentation structure
-                            - **Match template tags** to the work being done (e.g., "testing", "implementation", "documentation")
-                            - **Prefer built-in templates** for standard workflows when available
-
-                            **Template Application Examples:**
-                            ```bash
-                            # Check available templates first
-                            list_templates --targetEntityType TASK --isEnabled true
-
-                            # Create task with appropriate template
-                            create_task --title "Implement API endpoint" --summary "..." --templateIds ["template-uuid"]
-
-                            # Check available feature templates
-                            list_templates --targetEntityType FEATURE --isEnabled true
-
-                            # Create feature with template
-                            create_feature --name "User Authentication" --summary "..." --templateIds ["feature-template-uuid"]
-                            ```
-
-                            ## Git Workflow Integration
-
-                            **Commit Standards:**
-                            - Follow conventional commit format: `type: description`
-                            - Include template application in commit messages when templates are used
-                            - Commit incrementally as tasks progress
-                            - Always include co-authorship attribution:
-                              ```
-                              🤖 Generated with [Claude Code](https://claude.ai/code)
-                              
-                              Co-Authored-By: Claude <noreply@anthropic.com>
-                              ```
-
-                            ## Testing Protocol
-
-                            **When Creating Test Tasks:**
-                            1. Create separate tasks for different test suites (unit, integration, component)
-                            2. Use appropriate complexity ratings based on test scope
-                            3. Include coverage requirements in task summaries
-                            4. Tag tests with relevant categories ("unit-tests", "integration", "mocking", etc.)
-                            5. Update mock repositories as needed to support new functionality
-
-                            ## Priority and Dependency Management
-
-                            **Task Prioritization:**
-                            - Use "high" priority for critical functionality and blocking issues
-                            - Use "medium" priority for enhancements and non-blocking features  
-                            - Use "low" priority for optimization and nice-to-have features
-                            - Consider dependency relationships when setting priorities
-
-                            **Dependency Integration:**
-                            - Always test that new dependency features work with existing tools
-                            - Update mock repositories when adding new repository interfaces
-                            - Ensure backward compatibility in API enhancements
-                            - Run full test suite after significant changes
-                            - Use dependency relationships to model task execution order and workflow constraints
-                            - Consider dependency impacts when planning task completion sequences
-                            - Apply dependency filtering to focus on relevant relationships during workflow analysis
-
-                            ## Error Handling and Quality
-
-                            **Code Quality Standards:**
-                            - Implement comprehensive error handling for all tools
-                            - Provide clear, actionable error messages
-                            - Use appropriate error codes from ErrorCodes utility
-                            - Include proper logging for debugging support
-
-                            **Testing Requirements:**
-                            - Achieve comprehensive test coverage for new functionality
-                            - Test both success and failure scenarios
-                            - Include edge case testing
-                            - Validate error responses and status codes
-
-                            ## Project Structure Awareness
-
-                            This is a **Kotlin-based MCP (Model Context Protocol) server** that provides task orchestration tools. Key architectural components:
-                            - **Domain layer:** Core business models and repository interfaces
-                            - **Infrastructure layer:** Database implementations and utilities
-                            - **Application layer:** MCP tools and business logic
-                            - **Interface layer:** MCP server and API definitions
-
-                            When working on this project, maintain the architectural boundaries and follow the established patterns for consistency.
-
-                            ## Quick Reference Workflow
-
-                            1. **Start Work:** `get_task_overview` → identify or `create_task` → `update_task` status to in_progress
-                            2. **Check Templates:** `list_templates` → apply during task creation or use `apply_template`
-                            3. **Check Dependencies:** Use `get_task_dependencies` to understand prerequisites and plan execution order
-                            4. **Work Incrementally:** Make changes → test → git commit with conventional format
-                            5. **Manage Dependencies:** Create dependencies with `create_dependency` for workflow coordination as needed
-                            6. **Complete Work:** `update_task` status to completed → final commit
-                            7. **Quality Check:** Run tests → verify functionality → document any new patterns
-
-                            Following these guidelines ensures consistent, high-quality work that leverages the full capability of the MCP Task Orchestrator system.
                             """.trimIndent()
                         )
                     )

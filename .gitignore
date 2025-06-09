@@ -52,5 +52,6 @@ bin/
 
 ### Docs folder ###
 /docs/
+
+### Claude Code configuration files ###
 /.claude/settings.local.json
-/CLAUDE.md

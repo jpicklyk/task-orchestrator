@@ -40,7 +40,7 @@ To track releases and updates:
 - Model Context Protocol (MCP) server implementation
 - Docker containerization support
 - Structured section-based content for detailed documentation
-- **Dependency Tracking**: Comprehensive task dependency management with cycle detection and relationship validation
+- Dependency tracking and relationship validation
 - Bulk operations for efficient data management
 
 ## Getting Started
@@ -241,7 +241,7 @@ For advanced debugging, you can:
 
 ## Available MCP Tools
 
-The server provides **37 comprehensive MCP tools** organized into 6 main categories for complete task and project
+The server provides **34 comprehensive MCP tools** organized into 5 main categories for complete task and project
 management. All tools are designed for context efficiency and support progressive loading of related data.
 
 ### Task Management Tools (6 tools)
@@ -257,14 +257,6 @@ tagging systems.
 - `delete_task` - Remove tasks with proper dependency cleanup
 - `search_tasks` - Find tasks using flexible filtering by status, priority, tags, and text queries
 - `get_task_overview` - Get hierarchical overview of all tasks organized by features, with token-efficient summaries
-
-### Dependency Management Tools (3 tools)
-
-Dependency management tools enable modeling relationships between tasks that affect execution planning and workflow coordination. Dependencies support three relationship types (BLOCKS, IS_BLOCKED_BY, RELATES_TO) and include comprehensive cycle detection to maintain data integrity and prevent circular dependencies.
-
-- `create_dependency` - Create task dependencies with comprehensive validation and cycle detection
-- `get_task_dependencies` - Retrieve task dependencies with filtering by direction, type, and enrichment options
-- `delete_dependency` - Remove dependencies by ID, task relationship, or bulk deletion for specific tasks
 
 ### Feature Management Tools (5 tools)
 
@@ -335,18 +327,12 @@ Project (optional)
           ??? Section (optional, for detailed content)
 ```
 
-Additionally, tasks can have **Dependencies** that model execution relationships:
-- **BLOCKS**: Source task blocks target task from completion
-- **IS_BLOCKED_BY**: Source task is blocked by target task
-- **RELATES_TO**: General relationship without strict dependency
-
 - **Projects**: Top-level organizational containers
 - **Features**: Optional groupings for related tasks
 - **Tasks**: Primary work units with status, priority, and complexity
 - **Sections**: Structured content blocks for detailed documentation
-- **Dependencies**: Relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
 
-Tasks can exist independently or be associated with Features and Projects as needed. Dependencies enable workflow coordination by modeling task execution relationships with comprehensive cycle detection.
+Tasks can exist independently or be associated with Features and Projects as needed.
 
 ## Contributing
 
