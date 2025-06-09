@@ -40,7 +40,8 @@ To track releases and updates:
 - Model Context Protocol (MCP) server implementation
 - Docker containerization support
 - Structured section-based content for detailed documentation
-- Dependency tracking and relationship validation
+- **Task Dependency Management**: BLOCKS, IS_BLOCKED_BY, and RELATES_TO relationships with cycle detection
+- Relationship validation and cascade deletion for data integrity
 - Bulk operations for efficient data management
 
 ## Getting Started
@@ -241,7 +242,7 @@ For advanced debugging, you can:
 
 ## Available MCP Tools
 
-The server provides **34 comprehensive MCP tools** organized into 5 main categories for complete task and project
+The server provides **37 comprehensive MCP tools** organized into 6 main categories for complete task and project
 management. All tools are designed for context efficiency and support progressive loading of related data.
 
 ### Task Management Tools (6 tools)
@@ -282,6 +283,25 @@ complex relationship management and provide comprehensive views of project scope
 - `delete_project` - Remove projects with configurable cascade behavior for contained entities
 - `search_projects` - Find projects using advanced filtering, tagging, and full-text search capabilities
 
+### Dependency Management Tools (3 tools)
+
+Dependency management tools enable modeling relationships between tasks to represent workflows, blocking conditions, and task interdependencies. The system supports multiple dependency types and includes automatic cycle detection to maintain data integrity. These tools help organize complex project workflows and track task prerequisites.
+
+- `create_dependency` - Create dependencies between tasks with relationship type specification and automatic cycle detection
+- `get_task_dependencies` - Retrieve dependency information for tasks including incoming and outgoing relationships with filtering options
+- `delete_dependency` - Remove task dependencies with flexible selection criteria (by ID or task relationship)
+
+**Dependency Types Supported:**
+- `BLOCKS` - Source task blocks the target task from proceeding
+- `IS_BLOCKED_BY` - Source task is blocked by the target task
+- `RELATES_TO` - General relationship between tasks without blocking semantics
+
+**Key Features:**
+- **Automatic Cycle Detection**: Prevents circular dependencies that would create invalid workflows
+- **Cascade Operations**: Dependencies are automatically cleaned up when tasks are deleted
+- **Relationship Validation**: Ensures dependencies are created between valid, existing tasks
+- **Flexible Querying**: Filter dependencies by type, direction, or relationship patterns
+
 ### Section Management Tools (9 tools)
 
 Section management tools provide structured content capabilities for detailed documentation and information
@@ -318,21 +338,26 @@ Templates can be applied to any entity to create structured, consistent document
 
 ## Data Model
 
-The system uses a hierarchical structure:
+The system uses a hierarchical structure with dependency relationships:
 
 ```
 Project (optional)
   ??? Feature (optional)
-      ??? Task (required)
+      ??? Task (required) ?????? Dependencies ??? Task
           ??? Section (optional, for detailed content)
 ```
 
 - **Projects**: Top-level organizational containers
 - **Features**: Optional groupings for related tasks
 - **Tasks**: Primary work units with status, priority, and complexity
+- **Dependencies**: Relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
 - **Sections**: Structured content blocks for detailed documentation
 
-Tasks can exist independently or be associated with Features and Projects as needed.
+**Key Relationships:**
+- Tasks can exist independently or be associated with Features and Projects as needed
+- Dependencies create directed relationships between any two tasks regardless of their project/feature associations
+- Circular dependencies are automatically prevented to maintain workflow integrity
+- Cascade deletion ensures dependency cleanup when tasks are removed
 
 ## Contributing
 
