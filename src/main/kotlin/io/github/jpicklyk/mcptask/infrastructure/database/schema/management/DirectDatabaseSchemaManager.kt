@@ -22,7 +22,10 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
         SectionsTable,
         TemplateSectionsTable,
         TaskTable,
-        DependenciesTable
+        DependenciesTable,
+        WorkSessionsTable,
+        TaskLocksTable,
+        EntityAssignmentsTable
     )
 
     override fun updateSchema(): Boolean {
@@ -100,6 +103,26 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
 
             if (!finalTablesSuccess) {
                 logger.error("Failed to create final tables")
+                return false
+            }
+
+            // Fourth batch - locking system tables  
+            val lockingTablesSuccess = transaction(database) {
+                logger.info("Creating locking system tables...")
+                try {
+                    SchemaUtils.create(WorkSessionsTable)
+                    SchemaUtils.create(TaskLocksTable)  // depends on WorkSessionsTable
+                    SchemaUtils.create(EntityAssignmentsTable)  // depends on WorkSessionsTable
+                    logger.info("Locking system tables created successfully")
+                    true
+                } catch (e: Exception) {
+                    logger.error("Error creating locking tables: ${e.message}", e)
+                    false
+                }
+            }
+
+            if (!lockingTablesSuccess) {
+                logger.error("Failed to create locking tables")
                 return false
             }
 
