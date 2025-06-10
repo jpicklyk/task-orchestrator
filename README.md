@@ -159,6 +159,124 @@ The MCP Task Orchestrator includes a comprehensive template system with 9 built-
 Templates can be applied individually or in combination to create structured documentation for projects, features, and
 tasks.
 
+## MCP Workflow Prompts
+
+The MCP Task Orchestrator includes **5 user-invokable workflow prompts** that provide structured guidance for common task orchestration scenarios. These prompts are designed to work seamlessly with the MCP tool ecosystem and offer step-by-step workflows for complex project management tasks.
+
+### Available Workflow Prompts
+
+#### `create_feature_workflow`
+**Guide for creating a comprehensive feature with templates, tasks, and proper organization**
+
+Provides a complete 7-step workflow for creating well-structured features:
+1. Check current project state with `get_overview`
+2. Find appropriate templates using `list_templates`
+3. Create the feature with comprehensive metadata and templates
+4. Review the created structure with `get_feature`
+5. Create associated tasks with proper complexity and priority
+6. Establish task dependencies where needed
+7. Final review of the complete feature structure
+
+**Best Practices Included:**
+- Template selection strategies for comprehensive coverage
+- Task sizing guidelines (complexity 3-7)
+- Consistent tagging conventions
+- Clear acceptance criteria definition
+
+#### `task_breakdown_workflow`
+**Guide for breaking down complex tasks into manageable, well-organized subtasks**
+
+Systematic 7-step approach for decomposing complex work:
+1. Analyze the complex task scope and requirements
+2. Identify natural breakdown boundaries (component, phase, skill set)
+3. Create feature containers for large breakdowns (4+ subtasks)
+4. Create focused subtasks with manageable complexity (3-6)
+5. Establish proper task dependencies and sequencing
+6. Update the original task to reflect coordination role
+7. Review and validate the complete breakdown
+
+**Common Breakdown Patterns:**
+- **API Development**: Schema → Endpoints → Auth → Validation → Testing
+- **UI Features**: Design → Implementation → State → Styling → Testing
+- **Integration**: Research → Connection → Mapping → Error Handling → Monitoring
+
+#### `bug_triage_workflow`
+**Systematic approach to bug triage, investigation, and resolution planning**
+
+Comprehensive 7-step bug management process:
+1. Initial bug assessment using `search_tasks` with bug filters
+2. Create structured bug investigation task with appropriate templates
+3. Detailed investigation covering problem analysis, technical review, and impact assessment
+4. Determine resolution approach (simple update vs. complex breakdown)
+5. Prioritization and planning with proper timeline consideration
+6. Implementation workflow with branch management and testing
+7. Resolution tracking with status updates and documentation
+
+**Bug Classification System:**
+- **Severity**: critical, high, medium, low
+- **Component**: frontend, backend, database, integration, infrastructure
+- **Type**: regression, performance, security, data corruption
+
+#### `sprint_planning_workflow`
+**Comprehensive guide for sprint planning using task orchestrator tools and data**
+
+Data-driven 8-step sprint planning process:
+1. Current state analysis with `get_overview` and progress assessment
+2. Backlog analysis using `search_tasks` with priority and status filters
+3. Capacity assessment including in-progress work and complexity distribution
+4. Priority setting with business value and dependency analysis
+5. Sprint goal definition with feature-based objectives
+6. Task selection and assignment with capacity-based filtering
+7. Sprint backlog organization with dependencies and breakdown
+8. Sprint monitoring setup with tracking views and standup queries
+
+**Sprint Planning Best Practices:**
+- Mix of complexity levels (avoid all high-complexity tasks)
+- 20% capacity reserve for unexpected work
+- Balance feature development with technical debt
+- Risk mitigation and alternative planning
+
+#### `project_setup_workflow`
+**Complete guide for setting up a new project with proper structure, features, and initial tasks**
+
+Comprehensive 8-step project initialization:
+1. Project foundation creation with clear charter and scope
+2. Project documentation structure using `bulk_create_sections`
+3. Feature planning and structure identification (3-7 major functional areas)
+4. Initial task creation for infrastructure and research
+5. Template strategy setup with custom template consideration
+6. Development workflow setup including git and QA processes
+7. Initial dependencies and sequencing establishment
+8. Project monitoring setup with views and progress tracking
+
+**Project Organization Standards:**
+- **Naming Conventions**: Business-focused projects, user-focused features, action-focused tasks
+- **Tagging Strategy**: Multi-level categorization for domain, technology, and impact
+- **Documentation Standards**: High-level project docs, user-value feature docs, implementation-focused task docs
+- **Scalability Planning**: Team growth consideration and feature independence
+
+### Using Workflow Prompts
+
+Workflow prompts are accessed through the MCP prompt system and can be invoked by AI assistants to provide structured guidance:
+
+```json
+{
+  "method": "prompts/get",
+  "params": {
+    "name": "create_feature_workflow"
+  }
+}
+```
+
+Each prompt provides:
+- **Step-by-step instructions** with specific MCP tool calls
+- **Best practice guidance** for quality and consistency
+- **JSON examples** for tool parameters
+- **Quality validation** checklists
+- **Integration points** with other workflows and templates
+
+These prompts integrate seamlessly with the template system and MCP tools to provide comprehensive workflow automation for complex project management scenarios.
+
 ## Task Type Classification
 
 The system uses a standardized tagging convention for task types:
