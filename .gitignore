@@ -50,8 +50,8 @@ bin/
 ### Data folder ###
 /data/
 
-### Docs folder ###
-/docs/
+### Doc research folder ###
+/doc_research/
 
 ### Claude Code configuration files ###
 /.claude/settings.local.json
