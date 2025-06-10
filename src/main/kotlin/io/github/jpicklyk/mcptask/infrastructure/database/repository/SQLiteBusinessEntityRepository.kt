@@ -780,6 +780,9 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
         val now = Instant.now()
         val entityTypeName = this.entityType.name
         
+        // First deduplicate the input tags to avoid constraint violations
+        val uniqueInputTags = tags.distinct()
+        
         // Get existing tags to avoid duplicates
         val existingTags = EntityTagsTable
             .selectAll().where {
@@ -789,7 +792,7 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
             .toSet()
         
         // Only insert tags that don't already exist
-        val newTags = tags.filter { !existingTags.contains(it) }
+        val newTags = uniqueInputTags.filter { !existingTags.contains(it) }
         
         newTags.forEach { tag ->
             try {
