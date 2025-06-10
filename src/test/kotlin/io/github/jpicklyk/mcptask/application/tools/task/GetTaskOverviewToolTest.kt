@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools.task
 
+import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.domain.model.*
@@ -23,7 +24,7 @@ import java.util.*
 
 class GetTaskOverviewToolTest {
 
-    private val tool = GetTaskOverviewTool()
+    private val tool = GetOverviewTool()
     private lateinit var mockContext: ToolExecutionContext
     private lateinit var mockTaskRepository: TaskRepository
     private lateinit var mockFeatureRepository: FeatureRepository

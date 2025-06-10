@@ -1,15 +1,17 @@
-package io.github.jpicklyk.mcptask.application.tools.task
+package io.github.jpicklyk.mcptask.application.tools
 
-import io.github.jpicklyk.mcptask.application.tools.ToolCategory
-import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.Tool
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * MCP tool for retrieving a lightweight overview of all tasks and features in a hierarchical structure.
@@ -18,10 +20,10 @@ import kotlinx.serialization.json.*
  * metadata rather than complete details. Tasks are organized by their parent features
  * with orphaned tasks (those not associated with any feature) listed separately.
  */
-class GetTaskOverviewTool : BaseToolDefinition() {
+class GetOverviewTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
-    override val name: String = "get_task_overview"
+    override val name: String = "get_overview"
 
     override val description: String = """Retrieves a lightweight, token-efficient overview of tasks and features.
         
@@ -97,7 +99,7 @@ class GetTaskOverviewTool : BaseToolDefinition() {
     }
 
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        logger.info("Executing get_task_overview tool")
+        logger.info("Executing get_overview tool")
 
         try {
             // Extract parameter
@@ -179,7 +181,7 @@ class GetTaskOverviewTool : BaseToolDefinition() {
     private fun createFeatureEntry(feature: Feature, allTasks: List<Task>, summaryLength: Int): JsonObject {
         // Get tasks associated with this feature
         val featureTasks = allTasks.filter { it.featureId == feature.id }
-        
+
         return buildJsonObject {
             put("id", feature.id.toString())
             put("name", feature.name)

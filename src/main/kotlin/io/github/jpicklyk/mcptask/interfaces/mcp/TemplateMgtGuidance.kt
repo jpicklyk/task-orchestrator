@@ -716,7 +716,7 @@ object TemplateMgtGuidance {
                             }
                             ```
                             
-                            This makes it clear in `get_task_overview` and search results which tasks are bugs versus features or other work types.
+                            This makes it clear in `get_overview` and search results which tasks are bugs versus features or other work types.
                             """.trimIndent()
                         )
                     )

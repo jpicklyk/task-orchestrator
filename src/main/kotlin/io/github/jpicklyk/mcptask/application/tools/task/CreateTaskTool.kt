@@ -25,7 +25,7 @@ import java.util.*
  * - update_task: To modify an existing task
  * - get_task: To retrieve a task by ID
  * - delete_task: To remove a task
- * - get_task_overview: For a lightweight view of all tasks
+ * - get_overview: For a lightweight view of all tasks
  * - add_section: To add detailed content sections to a task
  */
 class CreateTaskTool : BaseToolDefinition() {

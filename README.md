@@ -258,7 +258,7 @@ tagging systems.
 - `get_task` - Retrieve individual task details with optional related entity inclusion
 - `delete_task` - Remove tasks with proper dependency cleanup
 - `search_tasks` - Find tasks using flexible filtering by status, priority, tags, and text queries
-- `get_task_overview` - Get hierarchical overview of all tasks organized by features, with token-efficient summaries
+- `get_overview` - Get hierarchical overview of all tasks organized by features, with token-efficient summaries
 
 ### Feature Management Tools (5 tools)
 

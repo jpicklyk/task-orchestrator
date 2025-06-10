@@ -163,7 +163,7 @@ object McpServerAiGuidance {
                                ```
                                
                             4. **Working with existing tasks**:
-                               - Use `get_task_overview` or `search_tasks` to find tasks
+                               - Use `get_overview` or `search_tasks` to find tasks
                                - Use `get_task` to retrieve a specific task
                                - Use `get_sections` to view task documentation
                                - Use `update_task` to modify task properties
@@ -285,7 +285,7 @@ object McpServerAiGuidance {
                             
                             - `get_task` with `includeSections=false` returns only the task metadata
                             - `get_task` with `includeSections=true` includes all associated sections
-                            - Use `get_task_overview` for lightweight summaries of many tasks
+                            - Use `get_overview` for lightweight summaries of many tasks
                             
                             ### 2. Summary Views
                             

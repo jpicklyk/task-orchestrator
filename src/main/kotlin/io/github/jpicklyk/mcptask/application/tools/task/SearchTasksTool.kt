@@ -27,7 +27,7 @@ import java.util.*
  * Related tools:
  * - get_task: To retrieve complete details for a specific task
  * - update_task: To modify an existing task
- * - get_task_overview: To get a lightweight overview of all tasks
+ * - get_overview: To get a lightweight overview of all tasks
  * - create_task: To create a new task
  * - get_feature_tasks: To get tasks associated with a specific feature
  */

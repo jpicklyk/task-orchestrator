@@ -15,7 +15,7 @@
    - Any work benefiting from tracking and documentation
 
 2. **Task Workflow Process:**
-   - Start with `get_task_overview` to check current work and priorities
+   - Start with `get_overview` to check current work and priorities
    - If no suitable task exists, use `create_task` with proper metadata
    - Use `update_task` to set status to "in_progress" when starting work
    - Work incrementally with regular git commits following conventional commit format

@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.application.tools.dependency.CreateDependencyT
 import io.github.jpicklyk.mcptask.application.tools.feature.CreateFeatureTool
 import io.github.jpicklyk.mcptask.application.tools.feature.GetFeatureTool
 import io.github.jpicklyk.mcptask.application.tools.task.CreateTaskTool
-import io.github.jpicklyk.mcptask.application.tools.task.GetTaskOverviewTool
+import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.test.mock.*
 import kotlinx.coroutines.runBlocking
@@ -40,7 +40,7 @@ class FeatureDependencyStatisticsTest {
     private lateinit var createFeatureTool: CreateFeatureTool
     private lateinit var createDependencyTool: CreateDependencyTool
     private lateinit var getFeatureTool: GetFeatureTool
-    private lateinit var getTaskOverviewTool: GetTaskOverviewTool
+    private lateinit var getOverviewTool: GetOverviewTool
     
     // Test entities
     private lateinit var featureA: Feature
@@ -81,7 +81,7 @@ class FeatureDependencyStatisticsTest {
         createFeatureTool = CreateFeatureTool()
         createDependencyTool = CreateDependencyTool()
         getFeatureTool = GetFeatureTool()
-        getTaskOverviewTool = GetTaskOverviewTool()
+        getOverviewTool = GetOverviewTool()
         
         // Create test features
         featureA = Feature(
@@ -384,7 +384,7 @@ class FeatureDependencyStatisticsTest {
             "summaryLength" to JsonPrimitive(50)
         ))
         
-        val response = getTaskOverviewTool.execute(params, executionContext)
+        val response = getOverviewTool.execute(params, executionContext)
         val responseObj = response as JsonObject
         
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Task overview should succeed")
