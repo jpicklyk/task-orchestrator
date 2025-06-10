@@ -39,31 +39,117 @@ class CreateFeatureTool : BaseToolDefinition() {
 
     override val description: String = """Create a new feature with required and optional fields.
         
-        Features are optional organizational groupings for tasks. They represent larger units of work
-        or project components that can contain multiple related tasks. Using features helps organize
-        tasks into logical groups, but tasks can also exist independently.
+        ## Purpose
+        Features provide higher-level organization for related tasks, representing coherent
+        functionality or project components. They bridge the gap between individual tasks
+        and overall project goals.
         
-        You can optionally apply templates at the time of creation by providing 
-        an array of templateIds. Use a single-item array for applying just one template.
-        This will automatically create standardized sections for the feature based on 
-        the template definitions.
+        ## Feature vs Task Decision Guide
+        
+        **Create a Feature when**:
+        - Work involves multiple related tasks (3+ tasks)
+        - Functionality represents a user-facing feature or system component
+        - Work has distinct phases (planning, development, testing, deployment)
+        - Multiple developers or skill sets are involved
+        - Work has independent business value or can be delivered as a unit
+        
+        **Use Direct Tasks when**:
+        - Work is a single, focused implementation
+        - Maintenance, bug fixes, or small enhancements
+        - Infrastructure or tooling improvements
+        - Work doesn't logically group with other tasks
+        
+        ## Template Integration Strategy
+        
+        **RECOMMENDED**: Apply templates at creation for consistent documentation structure.
+        
+        **Feature-Level Templates** (use `list_templates` with targetEntityType="FEATURE"):
+        - Context & Background: Project context and business requirements
+        - Requirements Specification: Detailed functional and non-functional requirements
+        - Technical Approach: High-level architecture and technical strategy
+        
+        **Template Combinations for Features**:
+        - **Planning Phase**: Context & Background + Requirements Specification
+        - **Technical Phase**: Requirements Specification + Technical Approach
+        - **Comprehensive**: All three templates for complex features
+        
+        ## Feature Lifecycle Management
+        
+        **Status Progression**:
+        1. `planning` - Requirements gathering, design, scope definition
+        2. `in-development` - Active implementation across multiple tasks
+        3. `completed` - All associated tasks completed, feature delivered
+        4. `archived` - Feature complete and no longer under active development
+        
+        **Priority Guidelines**:
+        - `high`: Core functionality, user-facing features, business critical
+        - `medium`: Important enhancements, internal tools, performance improvements
+        - `low`: Nice-to-have features, experimental functionality
+        
+        ## Organizing Tasks Under Features
+        
+        **After creating a feature**, use the featureId in `create_task` to associate tasks:
+        ```json
+        {
+          "title": "Implement OAuth Login",
+          "summary": "Create OAuth authentication endpoints",
+          "featureId": "feature-uuid-here",
+          "templateIds": ["task-template-uuid"]
+        }
+        ```
+        
+        **Task Organization Patterns**:
+        - **Frontend + Backend**: Separate tasks for UI and API implementation
+        - **By Component**: Database, API, UI, Tests as separate tasks
+        - **By Phase**: Research, Implementation, Testing, Documentation
+        - **By Complexity**: Break large features into manageable task chunks
+        
+        ## Integration with Project Hierarchy
+        
+        **Project → Features → Tasks** hierarchy:
+        - Use projectId to associate feature with a project
+        - Features group related functionality within a project
+        - Tasks represent specific implementation work within features
+        
+        ## Best Practices
+        
+        **Naming Conventions**:
+        - Use noun phrases describing functionality: "User Authentication", "Payment Processing"
+        - Avoid implementation details in names: "OAuth Integration" not "Implement OAuth"
+        - Be specific enough to distinguish from other features
+        
+        **Summary Guidelines**:
+        - Include business value and user impact
+        - Mention key technical components or integrations
+        - Define success criteria or completion indicators
+        - Keep scope clear and bounded
+        
+        **Tagging Strategy**:
+        - Include functional area: "authentication", "payments", "reporting"
+        - Add technical stack: "frontend", "backend", "database", "api"
+        - Mark business importance: "core", "enhancement", "experimental"
+        - Include user-facing impact: "user-experience", "admin-tools", "internal"
         
         Example successful response:
         {
           "success": true,
-          "message": "Feature created successfully",
+          "message": "Feature created successfully with 2 template(s) applied, creating 5 section(s)",
           "data": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "User Authentication",
-            "summary": "Implement secure user authentication system",
+            "name": "User Authentication System",
+            "summary": "Complete user authentication system with OAuth 2.0, JWT tokens, and social login integration. Provides secure user registration, login, password reset, and session management.",
             "status": "planning",
             "priority": "high",
             "createdAt": "2025-05-10T14:30:00Z",
             "modifiedAt": "2025-05-10T14:30:00Z",
-            "tags": "security, login, user-management",
+            "tags": ["core", "authentication", "security", "user-experience", "oauth"],
             "appliedTemplates": [
               {
-                "templateId": "550e8400-e29b-41d4-a716-446655440000",
+                "templateId": "context-background-uuid",
+                "sectionsCreated": 2
+              },
+              {
+                "templateId": "requirements-spec-uuid",
                 "sectionsCreated": 3
               }
             ]
@@ -71,8 +157,9 @@ class CreateFeatureTool : BaseToolDefinition() {
         }
         
         Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - DATABASE_ERROR: When there's an issue storing the feature
+        - VALIDATION_ERROR: When provided parameters fail validation (empty name/summary)
+        - RESOURCE_NOT_FOUND: When specified projectId or templateIds don't exist
+        - DATABASE_ERROR: When there's an issue storing the feature or applying templates
         - INTERNAL_ERROR: For unexpected system errors
     """
 

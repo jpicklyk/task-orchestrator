@@ -37,12 +37,118 @@ class BulkCreateSectionsTool : BaseToolDefinition() {
         ## Purpose
         
         This tool efficiently creates multiple sections for tasks, features, or projects in a single operation.
-        It's the preferred method for adding multiple sections, as it reduces the number of database
-        transactions and network calls compared to making multiple individual add_section calls.
+        PREFERRED over multiple `add_section` calls for efficiency and performance.
         
-        > **RECOMMENDED**: Use this tool rather than multiple `add_section` calls when adding
-        > multiple sections to the same entity. This is especially important for sections with
-        > shorter content or when creating the initial set of sections for an entity.
+        ## When to Use bulk_create_sections
+        
+        **ALWAYS PREFER** for:
+        - Creating initial section sets for new tasks/features (3+ sections)
+        - Adding template-like section structures
+        - Sections with shorter content (< 500 characters each)
+        - Any scenario requiring multiple sections for the same entity
+        
+        **Performance Benefits**:
+        - Single database transaction (atomic operation)
+        - Reduced network overhead (one API call vs multiple)
+        - Faster execution for multiple sections
+        - Better error handling (all succeed or fail together)
+        
+        ## Common Section Creation Patterns
+        
+        **Standard Task Documentation Set**:
+        ```json
+        {
+          "sections": [
+            {
+              "entityType": "TASK",
+              "entityId": "task-uuid",
+              "title": "Requirements",
+              "usageDescription": "Key requirements and acceptance criteria",
+              "content": "[List specific requirements and success criteria]",
+              "ordinal": 0,
+              "tags": "requirements,core"
+            },
+            {
+              "entityType": "TASK",
+              "entityId": "task-uuid",
+              "title": "Technical Approach",
+              "usageDescription": "Implementation strategy and architecture",
+              "content": "[Describe technical approach and key decisions]",
+              "ordinal": 1,
+              "tags": "technical,architecture"
+            },
+            {
+              "entityType": "TASK",
+              "entityId": "task-uuid",
+              "title": "Testing Strategy",
+              "usageDescription": "Testing approach and coverage requirements",
+              "content": "[Define testing strategy and success criteria]",
+              "ordinal": 2,
+              "tags": "testing,quality"
+            }
+          ]
+        }
+        ```
+        
+        **Feature Planning Documentation**:
+        ```json
+        {
+          "sections": [
+            {
+              "entityType": "FEATURE",
+              "entityId": "feature-uuid",
+              "title": "Business Context",
+              "usageDescription": "Business value and user impact",
+              "content": "[Explain business need and user benefits]",
+              "ordinal": 0,
+              "tags": "business,context"
+            },
+            {
+              "entityType": "FEATURE",
+              "entityId": "feature-uuid",
+              "title": "Feature Specification",
+              "usageDescription": "Detailed feature requirements and behavior",
+              "content": "[Define feature scope and detailed requirements]",
+              "ordinal": 1,
+              "tags": "requirements,specification"
+            }
+          ]
+        }
+        ```
+        
+        ## Section Organization Best Practices
+        
+        **Ordinal Sequencing**:
+        - Start with ordinal 0 for the first section
+        - Use increments of 1 for tightly related sequences
+        - Leave gaps (0, 10, 20) when you might insert sections later
+        - Order logically: Context → Requirements → Implementation → Testing
+        
+        **Content Format Selection**:
+        - **MARKDOWN**: Default for rich text, documentation, requirements
+        - **PLAIN_TEXT**: Simple text without formatting needs
+        - **JSON**: Structured data, API specs, configuration
+        - **CODE**: Implementation examples, code snippets
+        
+        **Tagging Strategy**:
+        - Use consistent tags across similar section types
+        - Include functional area: "requirements", "testing", "architecture"
+        - Add technical context: "api", "database", "frontend", "security"
+        - Mark importance: "core", "optional", "critical"
+        
+        ## Integration with Templates
+        
+        **Templates vs Manual Sections**:
+        - Templates provide standardized section structures automatically
+        - Use bulk_create_sections to supplement template sections with project-specific content
+        - Templates handle common patterns; bulk_create_sections handles custom needs
+        
+        **Post-Template Enhancement**:
+        After applying templates, use bulk_create_sections to add:
+        - Project-specific context sections
+        - Additional technical details
+        - Custom workflow or process sections
+        - Domain-specific requirements or constraints
         
         ## Parameters
         

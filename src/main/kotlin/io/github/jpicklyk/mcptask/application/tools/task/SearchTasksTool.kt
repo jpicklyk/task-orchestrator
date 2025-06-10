@@ -38,36 +38,142 @@ class SearchTasksTool : BaseToolDefinition() {
 
     override val description: String = """Searches for tasks based on various criteria.
         
-        This tool provides flexible task search with multiple filters. Results are paginated
-        and include lightweight task information for context efficiency.
+        ## Purpose
+        Provides flexible task discovery and filtering capabilities for project management,
+        work planning, and task analysis. Essential for finding specific tasks or analyzing
+        work patterns across the project.
         
-        When called with no parameters, this tool returns all tasks in the system, sorted by
-        modification date (newest first) with standard pagination.
+        ## Search Strategy Guidelines
+        
+        **Start Broad, Narrow Down**:
+        1. Begin with no parameters to see all tasks
+        2. Add status filter to focus on specific work states
+        3. Add priority filter for urgency-based searches
+        4. Use tag filters for domain-specific searches
+        5. Combine multiple filters for precise targeting
+        
+        **Common Search Patterns**:
+        
+        **Finding Work to Do**:
+        ```json
+        {
+          "status": "pending",
+          "priority": "high",
+          "sortBy": "priority",
+          "sortDirection": "desc"
+        }
+        ```
+        
+        **Reviewing In-Progress Work**:
+        ```json
+        {
+          "status": "in-progress",
+          "sortBy": "modifiedAt",
+          "sortDirection": "desc"
+        }
+        ```
+        
+        **Finding Feature-Specific Tasks**:
+        ```json
+        {
+          "featureId": "feature-uuid",
+          "sortBy": "complexity",
+          "sortDirection": "asc"
+        }
+        ```
+        
+        **Tag-Based Searches** (using consistent tagging conventions):
+        ```json
+        {
+          "tag": "task-type-bug",
+          "priority": "high"
+        }
+        ```
+        
+        **Text-Based Discovery**:
+        ```json
+        {
+          "query": "authentication oauth",
+          "sortBy": "modifiedAt"
+        }
+        ```
+        
+        ## Filter Combinations for Different Use Cases
+        
+        **Sprint Planning**:
+        - Filter by status="pending" and priority="high" or "medium"
+        - Sort by complexity to group similar-sized work
+        - Use pagination to handle large backlogs
+        
+        **Bug Triage**:
+        - Filter by tag="task-type-bug"
+        - Sort by priority and modifiedAt
+        - Review high priority bugs first
+        
+        **Feature Development**:
+        - Filter by featureId to see all related tasks
+        - Sort by status to see progression
+        - Check complexity distribution for estimation
+        
+        **Technical Debt Management**:
+        - Filter by tag="technical-debt" or tag="refactoring"
+        - Sort by complexity to tackle manageable items
+        - Combine with priority for impact assessment
+        
+        ## Pagination Best Practices
+        
+        **Default Behavior**: No parameters returns all tasks, newest first, 20 per page
+        
+        **Efficiency Guidelines**:
+        - Use limit=5-10 for quick overviews
+        - Use limit=50-100 for comprehensive analysis
+        - Use offset for paging through large result sets
+        - Sort by modifiedAt for recent activity
+        - Sort by priority for work planning
+        - Sort by complexity for estimation analysis
+        
+        ## Integration with Other Tools
+        
+        **After Search Results**:
+        - Use `get_task` with includeSections=true for detailed task info
+        - Use `update_task` to modify status, priority, or assignments
+        - Use `create_dependency` to link related tasks found in search
+        - Use `get_feature` to understand feature context for tasks
+        
+        **Complement get_overview**:
+        - get_overview: High-level project state and hierarchical view
+        - search_tasks: Detailed filtering and analysis of specific task subsets
+        
+        ## Context Efficiency Features
+        
+        **Lightweight Results**: Returns essential metadata without full content or sections
+        **Paginated Results**: Controls token usage for large datasets
+        **Flexible Sorting**: Enables different analytical perspectives
+        **Multiple Filters**: Precise targeting reduces noise
         
         Example successful response:
         {
           "success": true,
-          "message": "Found 3 tasks",
+          "message": "Found 12 tasks",
           "data": {
             "items": [
               {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
-                "title": "Implement OAuth Authentication",
-                "summary": "Create secure authentication flow...",
+                "title": "Implement OAuth Authentication API",
+                "summary": "Create secure authentication flow with OAuth 2.0 and JWT tokens...",
                 "status": "in-progress",
                 "priority": "high",
-                "complexity": 7,
+                "complexity": 8,
                 "createdAt": "2025-05-10T14:30:00Z",
                 "modifiedAt": "2025-05-10T15:45:00Z",
                 "featureId": "661e8511-f30c-41d4-a716-557788990000",
-                "tags": ["auth", "security"]
-              },
-              ... additional tasks ...
+                "tags": ["task-type-feature", "oauth", "authentication", "api", "security"]
+              }
             ],
             "pagination": {
               "page": 1,
               "pageSize": 20,
-              "totalItems": 3,
+              "totalItems": 12,
               "totalPages": 1,
               "hasNext": false,
               "hasPrevious": false
@@ -76,8 +182,9 @@ class SearchTasksTool : BaseToolDefinition() {
         }
         
         Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
+        - VALIDATION_ERROR: When provided parameters fail validation (invalid status, priority, UUID)
         - DATABASE_ERROR: When there's an issue searching for tasks
+        - INTERNAL_ERROR: For unexpected system errors
         - INTERNAL_ERROR: For unexpected system errors"""
 
     override val parameterSchema: Tool.Input = Tool.Input(
