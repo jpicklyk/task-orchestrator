@@ -23,49 +23,100 @@ class ListTemplatesTool : BaseToolDefinition() {
 
     override val description: String = """Retrieve a list of templates with optional filtering.
         
-        This tool allows you to list all available templates with filtering options to narrow down results.
-        Returns a context-efficient summary of templates for browsing.
+        ## Purpose
+        CRITICAL for template-driven workflow: Always check available templates before creating
+        tasks or features to ensure consistent documentation structure and comprehensive coverage.
+        
+        ## Template System Overview
+        The system provides focused, composable templates organized into categories:
+        
+        **AI Workflow Instructions** (process guidance):
+        - Local Git Branching Workflow: Step-by-step git workflow with MCP tool integration
+        - GitHub PR Workflow: Complete PR creation and management process
+        - Task Implementation Workflow: Structured implementation approach
+        - Bug Investigation Workflow: Systematic bug analysis and resolution
+        
+        **Documentation Properties** (information capture):
+        - Technical Approach: Architecture and implementation strategy
+        - Requirements Specification: Detailed requirements and acceptance criteria
+        - Context & Background: Project context and background information
+        
+        **Process & Quality** (standards and completion):
+        - Testing Strategy: Comprehensive testing approach and coverage
+        - Definition of Done: Clear completion criteria and quality gates
+        
+        ## Usage Patterns
+        **RECOMMENDED WORKFLOW**:
+        1. Run `list_templates` with targetEntityType filter (TASK or FEATURE)
+        2. Identify templates from multiple categories for comprehensive coverage
+        3. Apply templates during create_task/create_feature using templateIds parameter
+        4. Use template combinations: Workflow + Documentation + Quality
+        
+        ## Template Selection Strategy
+        **For Implementation Tasks**:
+        - Technical Approach + Task Implementation Workflow + Testing Strategy
+        
+        **For Bug Fixes**:
+        - Bug Investigation Workflow + Technical Approach + Definition of Done
+        
+        **For Complex Features**:
+        - Requirements Specification + Technical Approach + Local Git Branching + Testing Strategy
+        
+        **For Feature Planning**:
+        - Context & Background + Requirements Specification + Testing Strategy
+        
+        ## Filtering Best Practices
+        - Filter by targetEntityType to match your creation needs (TASK vs FEATURE)
+        - Use isEnabled=true to only see available templates
+        - Filter by tags to find domain-specific templates ("authentication", "api", "testing")
+        - Built-in templates (isBuiltIn=true) provide proven workflow patterns
+        
+        ## Context Efficiency
+        Templates are designed for modular composition rather than monolithic coverage:
+        - Small, focused templates (3-4 sections each) reduce cognitive overhead
+        - Composable design allows mixing based on specific needs
+        - Category-based organization helps with systematic selection
         
         Example successful response:
         {
           "success": true,
-          "message": "Retrieved 3 templates",
+          "message": "Retrieved 8 templates",
           "data": {
             "templates": [
               {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "name": "User Authentication",
-                "description": "Template for authentication features",
-                "targetEntityType": "FEATURE",
+                "id": "workflow-uuid-001",
+                "name": "Task Implementation Workflow",
+                "description": "Step-by-step implementation guidance with MCP tool integration",
+                "targetEntityType": "TASK",
                 "isBuiltIn": true,
                 "isProtected": true,
                 "isEnabled": true,
-                "tags": ["auth", "security"]
+                "tags": ["workflow", "implementation", "process"]
               },
               {
-                "id": "661e8511-f30c-41d4-a716-557788990000",
-                "name": "API Endpoint",
-                "description": "Template for API implementation tasks",
+                "id": "tech-uuid-002",
+                "name": "Technical Approach",
+                "description": "Architecture and implementation strategy documentation",
                 "targetEntityType": "TASK",
                 "isBuiltIn": true,
-                "isProtected": false,
+                "isProtected": true,
                 "isEnabled": true,
-                "tags": ["api", "backend"]
+                "tags": ["technical", "architecture", "documentation"]
               },
               {
-                "id": "772f9622-g41d-52e5-b827-668899101111",
-                "name": "Database Schema",
-                "description": "Template for database design tasks",
+                "id": "test-uuid-003",
+                "name": "Testing Strategy",
+                "description": "Comprehensive testing approach and coverage requirements",
                 "targetEntityType": "TASK",
-                "isBuiltIn": false,
-                "isProtected": false,
+                "isBuiltIn": true,
+                "isProtected": true,
                 "isEnabled": true,
-                "tags": ["database", "schema"]
+                "tags": ["testing", "quality", "coverage"]
               }
             ],
-            "count": 3,
+            "count": 8,
             "filters": {
-              "targetEntityType": "Any",
+              "targetEntityType": "TASK",
               "isBuiltIn": "Any",
               "isEnabled": "true",
               "tags": "Any"
@@ -74,7 +125,7 @@ class ListTemplatesTool : BaseToolDefinition() {
         }
         
         Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
+        - VALIDATION_ERROR: When targetEntityType is not TASK or FEATURE
         - DATABASE_ERROR: When there's an issue retrieving templates
         - INTERNAL_ERROR: For unexpected system errors
     """

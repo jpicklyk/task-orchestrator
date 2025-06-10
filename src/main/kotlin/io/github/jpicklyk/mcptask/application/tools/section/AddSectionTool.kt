@@ -46,10 +46,51 @@ class AddSectionTool(
         organized content blocks with specific formats and purposes. This approach
         optimizes context efficiency by keeping core entities lightweight.
         
-        > **IMPORTANT**: For adding multiple sections at once, prefer using the `bulk_create_sections` 
-        > tool instead of making multiple calls to `add_section`. This is especially 
-        > recommended when sections contain shorter content or when creating the initial 
-        > set of sections for a task or feature.
+        ## Usage Guidelines
+        
+        **EFFICIENCY RECOMMENDATION**: For adding multiple sections at once, prefer using 
+        `bulk_create_sections` instead of multiple `add_section` calls. This is especially 
+        important for:
+        - Creating initial section sets for new tasks/features
+        - Adding sections with shorter content (reduces network overhead)
+        - Template-like section creation scenarios
+        
+        **WHEN TO USE add_section**:
+        - Adding a single section with substantial content
+        - Adding sections incrementally during task development
+        - Creating sections that require careful individual validation
+        
+        ## Content Organization Strategy
+        
+        **Common Section Types** (use these title patterns for consistency):
+        - **Requirements**: What needs to be accomplished, acceptance criteria
+        - **Implementation Notes**: Technical approach, architecture decisions
+        - **Testing Strategy**: Testing approach, coverage requirements
+        - **Reference Information**: External links, documentation, resources
+        - **Dependencies**: Prerequisites, related tasks, blocking issues
+        - **Architecture**: Design patterns, system integration points
+        
+        **Ordinal Sequencing Best Practices**:
+        - Start with ordinal 0 for the first section
+        - Use increments of 1 for logical ordering
+        - Leave gaps (0, 10, 20) when you anticipate inserting sections later
+        - Requirements typically come first (ordinal 0)
+        - Implementation details in the middle (ordinal 1-5)
+        - Testing and validation toward the end (ordinal 6+)
+        
+        **Content Format Selection**:
+        - **MARKDOWN**: Default for documentation, requirements, notes (rich formatting)
+        - **PLAIN_TEXT**: Simple text without formatting needs
+        - **JSON**: Structured data, configuration, API specifications
+        - **CODE**: Source code examples, implementation snippets
+        
+        ## Integration with Workflow
+        
+        **Template Integration**: When using templates, they create standard sections automatically.
+        Use add_section to supplement template-created sections with project-specific content.
+        
+        **Progressive Detail**: Start with high-level sections (Requirements, Architecture) 
+        and add implementation details as the task progresses.
         
         ## Parameters
         

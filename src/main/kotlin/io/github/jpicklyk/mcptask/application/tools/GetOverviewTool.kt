@@ -27,9 +27,42 @@ class GetOverviewTool : BaseToolDefinition() {
 
     override val description: String = """Retrieves a lightweight, token-efficient overview of tasks and features.
         
-        This tool provides a project overview with optimized token usage by returning essential
-        metadata rather than complete details. Tasks are organized by their parent features,
-        with orphaned tasks (tasks not associated with any feature) listed separately.
+        ## Purpose
+        This tool provides a hierarchical project overview optimized for context efficiency.
+        Essential for understanding current work state and making informed task planning decisions.
+        
+        ## Usage Guidance
+        **RECOMMENDED WORKFLOW START**: Always begin work sessions with get_overview to:
+        - Understand current project state and priorities
+        - Identify in-progress tasks that need attention
+        - Plan new work based on existing features and tasks
+        - Locate orphaned tasks that might need feature association
+        
+        ## Data Organization
+        - **Features**: Top-level functionality groupings with their associated tasks
+        - **Orphaned Tasks**: Tasks not associated with any feature (may need organization)
+        - **Hierarchical View**: Tasks organized under their parent features for clear context
+        - **Essential Metadata**: Status, priority, complexity without full content for efficiency
+        
+        ## Context Efficiency Features
+        - Configurable summary length (0-200 chars) to control token usage
+        - Essential metadata only (no full task content or sections)
+        - Hierarchical organization reduces cognitive overhead
+        - Count summaries provide quick project metrics
+        
+        ## Integration with Other Tools
+        Use this overview to inform decisions for:
+        - `create_task`: Understand existing work before creating new tasks
+        - `create_feature`: Identify orphaned tasks that could be grouped
+        - `update_task`: Find tasks that need status updates
+        - `search_tasks`: Narrow down specific searches based on overview insights
+        
+        ## Best Practices
+        - Run get_overview at the start of work sessions
+        - Use summaryLength=0 when you only need structure and metadata
+        - Use summaryLength=100-200 when you need content context
+        - Pay attention to orphaned tasks - they may need feature association
+        - Monitor task status distribution across features
         
         Example response:
         {
@@ -41,15 +74,16 @@ class GetOverviewTool : BaseToolDefinition() {
                 "id": "661e8511-f30c-41d4-a716-557788990000",
                 "name": "User Authentication",
                 "status": "in-development",
-                "summary": "Implements secure user authentication mechanisms",
+                "summary": "Implements secure user authentication mechanisms with OAuth 2.0 and JWT tokens...",
                 "tasks": [
                   {
                     "id": "550e8400-e29b-41d4-a716-446655440000",
-                    "title": "Implement OAuth Authentication",
-                    "summary": "Create secure authentication flow...",
+                    "title": "Implement OAuth Authentication API",
+                    "summary": "Create secure authentication flow with OAuth 2.0 protocol and JWT token management...",
                     "status": "in-progress",
                     "priority": "high",
-                    "complexity": 7
+                    "complexity": 8,
+                    "tags": "task-type-feature, oauth, authentication, api"
                   }
                 ]
               }
@@ -58,10 +92,11 @@ class GetOverviewTool : BaseToolDefinition() {
               {
                 "id": "772f9622-g41d-52e5-b827-668899101111",
                 "title": "Setup CI/CD Pipeline",
-                "summary": "Configure automated build and deployment...",
+                "summary": "Configure automated build and deployment pipeline using GitHub Actions...",
                 "status": "pending",
                 "priority": "medium",
-                "complexity": 6
+                "complexity": 6,
+                "tags": "task-type-infrastructure, ci-cd, automation"
               }
             ],
             "counts": {

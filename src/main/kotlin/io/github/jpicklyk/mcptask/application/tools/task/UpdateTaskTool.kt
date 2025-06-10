@@ -28,7 +28,88 @@ class UpdateTaskTool(
 
     override val name: String = "update_task"
 
-    override val description: String = "Updates an existing task with the specified properties"
+    override val description: String = """Updates an existing task with the specified properties.
+        
+        ## Purpose
+        Modifies specific fields of an existing task without affecting other properties.
+        Critical for task lifecycle management and maintaining accurate project state.
+        
+        ## Common Update Patterns
+        
+        **Status Progression** (typical workflow):
+        1. `pending` → `in_progress` (when starting work)
+        2. `in_progress` → `completed` (when finished)
+        3. `pending` → `deferred` (when postponing)
+        4. Any status → `cancelled` (when no longer needed)
+        
+        **Priority Adjustments**:
+        - Increase to `high` when blockers are resolved or deadlines approach
+        - Decrease to `low` when other priorities take precedence
+        - Use `medium` as default for most standard work
+        
+        **Complexity Refinement**:
+        - Increase complexity (1-10) as unknowns are discovered during implementation
+        - Decrease complexity when simpler solutions are found
+        - Update complexity to inform future estimation accuracy
+        
+        ## Workflow Integration Best Practices
+        
+        **Before Starting Work**:
+        ```json
+        {
+          "id": "task-uuid",
+          "status": "in_progress"
+        }
+        ```
+        
+        **When Completing Work**:
+        ```json
+        {
+          "id": "task-uuid",
+          "status": "completed"
+        }
+        ```
+        
+        **When Reassigning to Feature**:
+        ```json
+        {
+          "id": "orphaned-task-uuid",
+          "featureId": "feature-uuid"
+        }
+        ```
+        
+        **When Requirements Change**:
+        ```json
+        {
+          "id": "task-uuid",
+          "title": "Updated Task Title",
+          "summary": "Updated comprehensive summary with new requirements",
+          "complexity": 8
+        }
+        ```
+        
+        ## Field Update Guidelines
+        
+        **Partial Updates**: Only specify fields you want to change. Unspecified fields remain unchanged.
+        
+        **Title Updates**: Keep titles concise but descriptive. Update when scope or focus changes.
+        
+        **Summary Updates**: Update summaries when requirements change or acceptance criteria evolve.
+        
+        **Tag Management**: Replace the entire tag set. To add a tag, include all existing tags plus the new one.
+        
+        **Feature Association**: Set featureId to associate task with a feature, or null to make orphaned.
+        
+        ## Locking System Integration
+        This tool respects the locking system to prevent concurrent modifications.
+        Updates may be queued if the task is currently locked by another operation.
+        
+        ## Error Handling
+        - RESOURCE_NOT_FOUND: Task with specified ID doesn't exist
+        - VALIDATION_ERROR: Invalid status, priority, complexity, or UUID format
+        - LOCK_ERROR: Task is currently locked by another operation
+        - DATABASE_ERROR: Issue persisting the update
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

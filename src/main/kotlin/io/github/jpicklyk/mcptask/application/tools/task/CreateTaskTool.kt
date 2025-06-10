@@ -35,32 +35,62 @@ class CreateTaskTool : BaseToolDefinition() {
 
     override val description: String = """Creates a new task with the specified properties.
         
+        ## Purpose
         Tasks are the primary work items in the system and can be organized into Features.
         Each task has basic metadata (title, status, etc.) and can have Sections for detailed content.
         
-        You can optionally apply templates at the time of creation by providing
-        an array of templateIds. Use a single-item array for applying just one template.
-        This will automatically create standardized sections for the task based on 
-        the template definitions.
+        ## Template Integration
+        RECOMMENDED: Apply templates at creation time using templateIds parameter for consistent
+        documentation structure. Use `list_templates` first to find appropriate templates.
+        
+        Template application creates standardized sections automatically:
+        - Use single-item array for one template: ["template-uuid"]
+        - Use multiple templates for comprehensive coverage: ["uuid1", "uuid2"]
+        - Templates are applied in order, with later templates' sections appearing after earlier ones
+        
+        ## Best Practices
+        - Use descriptive titles that clearly indicate the work to be done
+        - Write comprehensive summaries with acceptance criteria when helpful
+        - Set appropriate complexity ratings (1=trivial, 10=highly complex)
+        - Use consistent tagging conventions (e.g., "task-type-feature", "task-type-bug")
+        - Associate with features when the task is part of larger functionality
+        - Apply templates that match the work type (implementation, testing, documentation)
+        
+        ## Entity Relationships
+        - Tasks can belong to Features (use featureId to establish relationship)
+        - Tasks can belong to Projects (use projectId for top-level organization)
+        - Use dependencies to link related tasks (see create_dependency tool)
+        
+        ## Workflow Integration
+        Tasks integrate with the complete project management workflow:
+        1. Start with get_overview to understand current work
+        2. Create task with appropriate templates and metadata
+        3. Use add_section or bulk_create_sections for additional content
+        4. Update status as work progresses (pending → in_progress → completed)
+        5. Create dependencies between related tasks
         
         Example successful response:
         {
           "success": true,
-          "message": "Task created successfully",
+          "message": "Task created successfully with 2 template(s) applied, creating 6 section(s)",
           "data": {
             "id": "550e8400-e29b-41d4-a716-446655440000",
-            "title": "Implement API",
-            "summary": "Create REST API endpoints for data access",
+            "title": "Implement OAuth Authentication API",
+            "summary": "Create secure API endpoints for OAuth 2.0 authentication with JWT tokens",
             "status": "pending",
-            "priority": "medium",
-            "complexity": 5,
+            "priority": "high",
+            "complexity": 8,
             "createdAt": "2025-05-10T14:30:00Z",
             "modifiedAt": "2025-05-10T14:30:00Z",
             "featureId": "661e8511-f30c-41d4-a716-557788990000",
-            "tags": ["api", "backend"],
+            "tags": ["task-type-feature", "oauth", "authentication", "api", "security"],
             "appliedTemplates": [
               {
-                "templateId": "550e8400-e29b-41d4-a716-446655440000",
+                "templateId": "technical-approach-uuid",
+                "sectionsCreated": 3
+              },
+              {
+                "templateId": "implementation-workflow-uuid",
                 "sectionsCreated": 3
               }
             ]
@@ -68,8 +98,9 @@ class CreateTaskTool : BaseToolDefinition() {
         }
         
         Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - DATABASE_ERROR: When there's an issue storing the task
+        - VALIDATION_ERROR: When provided parameters fail validation (empty title/summary, invalid UUIDs)
+        - RESOURCE_NOT_FOUND: When specified featureId, projectId, or templateIds don't exist
+        - DATABASE_ERROR: When there's an issue storing the task or applying templates
         - INTERNAL_ERROR: For unexpected system errors
     """
 
