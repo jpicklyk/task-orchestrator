@@ -41,6 +41,7 @@ To track releases and updates:
 - Docker containerization support
 - Structured section-based content for detailed documentation
 - **Task Dependency Management**: BLOCKS, IS_BLOCKED_BY, and RELATES_TO relationships with cycle detection
+- **Automatic Concurrency Protection**: Transparent locking system prevents conflicts during concurrent operations without requiring workflow changes
 - Relationship validation and cascade deletion for data integrity
 - Bulk operations for efficient data management
 

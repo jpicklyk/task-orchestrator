@@ -56,6 +56,8 @@ object McpServerAiGuidance {
                             
                             3. **Database-Backed Storage** - All entities are persisted in SQLite for reliable state management
                             
+                            4. **Automatic Concurrency Protection** - The system includes transparent locking that prevents conflicts during concurrent operations without requiring any workflow changes. All existing tools and commands work exactly as before, with automatic protection against data corruption from simultaneous access.
+                            
                             ## Template-Driven Documentation
                             
                             Templates provide consistent documentation patterns that can be applied to tasks and features. Available templates include:
@@ -76,6 +78,8 @@ object McpServerAiGuidance {
                             - Definition of Done
                             
                             ## Common Workflows
+                            
+                            **Note**: All workflows benefit from automatic concurrency protection. The system transparently prevents conflicts when multiple operations access the same entities. No changes to existing workflows are required - simply continue using tools as before, with enhanced reliability.
                             
                             ### Task Type Tagging Convention
                             
@@ -308,6 +312,8 @@ object McpServerAiGuidance {
                             - Use `update_template_metadata` and `update_section_metadata` for metadata-only changes
                             - Use `reorder_sections` for structural reorganization without content transmission
                             
+                            **Automatic Locking**: The system's concurrency protection operates with minimal overhead and doesn't affect context efficiency. All patterns above work unchanged with automatic conflict prevention.
+                            
                             ## Best Practices
                             
                             1. Always use the most specific tool for the job
@@ -503,6 +509,150 @@ object McpServerAiGuidance {
                             8. Use template combinations that complement each other (e.g., implementation + testing)
                             
                             Templates provide a starting point - always customize the content for the specific context while maintaining consistent structure.
+                            """.trimIndent()
+                        )
+                    )
+                ),
+                _meta = JsonObject(emptyMap())
+            )
+        }
+
+        // Locking system guide - explains automatic concurrency protection
+        server.addPrompt(
+            name = "locking_system",
+            description = "Guide to the automatic locking system for concurrency protection",
+        ) { _ ->
+            GetPromptResult(
+                description = "Guide to the automatic locking system for concurrency protection",
+                messages = listOf(
+                    PromptMessage(
+                        role = Role.assistant,
+                        content = TextContent(
+                            text = """
+                            # Automatic Locking System Guide
+                            
+                            The MCP Task Orchestrator includes an automatic locking system that provides transparent concurrency protection. This system operates seamlessly behind the scenes to prevent conflicts when multiple operations access the same entities.
+                            
+                            ## Key Benefits
+                            
+                            ### 1. Transparent Operation
+                            - **No Parameter Changes Required**: All existing workflows continue to work exactly as before
+                            - **Automatic Protection**: The system automatically detects and prevents conflicts
+                            - **Zero Configuration**: No setup or configuration needed for basic operation
+                            - **Backward Compatibility**: All existing tools and commands work unchanged
+                            
+                            ### 2. Conflict Prevention
+                            - **DELETE Operation Protection**: DELETE operations are blocked when other operations are active on the same entities
+                            - **Entity-Level Locking**: Operations are tracked at the entity (task/feature) level for precise conflict detection
+                            - **Session Management**: Each session is automatically tracked to provide context for conflict resolution
+                            - **Race Condition Prevention**: Thread-safe operation tracking prevents race conditions
+                            
+                            ## How It Works
+                            
+                            ### Automatic Operation Tracking
+                            
+                            The system automatically:
+                            1. **Detects Operations**: Identifies when tools operate on specific entities (tasks, features, etc.)
+                            2. **Tracks Active Operations**: Maintains a registry of currently running operations
+                            3. **Checks for Conflicts**: Before starting new operations, checks for potential conflicts
+                            4. **Provides Clear Feedback**: Returns helpful error messages when conflicts are detected
+                            5. **Cleans Up**: Automatically removes operations from tracking when they complete
+                            
+                            ### Conflict Detection Rules
+                            
+                            The system uses these rules to determine conflicts:
+                            
+                            1. **DELETE operations are blocked by any other operation** on the same entity
+                               - Prevents deletion while updates or other modifications are in progress
+                               - Ensures data integrity during concurrent access
+                            
+                            2. **Other operations are blocked by DELETE operations** on the same entity  
+                               - Prevents modifications to entities that are being deleted
+                               - Maintains consistency during deletion processes
+                            
+                            3. **Non-DELETE operations generally do not conflict** with each other
+                               - Multiple read/write operations can proceed simultaneously
+                               - Optimized for common concurrent workflows
+                            
+                            ### Session-Based Context
+                            
+                            Each interaction automatically gets:
+                            - **Unique Session ID**: Automatically generated for tracking purposes
+                            - **Session Lifecycle Management**: Sessions are created, updated, and cleaned up automatically
+                            - **Activity Tracking**: Session activity is monitored for cleanup purposes
+                            - **Conflict Context**: When conflicts occur, session information helps provide better error messages
+                            
+                            ## Error Handling and Recovery
+                            
+                            ### When Conflicts Occur
+                            
+                            If a conflict is detected, you'll receive a clear error message:
+                            
+                            ```json
+                            {
+                              "success": false,
+                              "message": "Operation blocked due to concurrent access",
+                              "error": {
+                                "code": "CONFLICT_ERROR",
+                                "details": "Cannot delete task while another operation is in progress"
+                              }
+                            }
+                            ```
+                            
+                            ### Recommended Actions
+                            
+                            When encountering conflicts:
+                            
+                            1. **Wait and Retry**: Most conflicts are temporary - wait a moment and try again
+                            2. **Check Operation Status**: Use `get_task` or similar tools to verify current state
+                            3. **Use Alternative Approaches**: Consider using update operations instead of delete/recreate patterns
+                            4. **Sequence Operations**: Perform operations in sequence rather than parallel when working on the same entities
+                            
+                            ### Alternative Strategies
+                            
+                            If you encounter frequent conflicts:
+                            
+                            - **Use Bulk Operations**: Tools like `bulk_create_sections` reduce the number of separate operations
+                            - **Work on Different Entities**: Distribute work across different tasks/features when possible
+                            - **Use Partial Updates**: Use `update_section_text` or `update_section_metadata` for smaller changes
+                            - **Batch Related Changes**: Group related modifications into single operations
+                            
+                            ## Performance and Efficiency
+                            
+                            ### Minimal Overhead
+                            - **Lightweight Tracking**: Operation tracking uses minimal memory and CPU
+                            - **Fast Conflict Checking**: Conflict detection is optimized for speed
+                            - **Automatic Cleanup**: No manual intervention required for resource management
+                            - **In-Memory Storage**: Operation tracking uses fast in-memory data structures
+                            
+                            ### Best Practices
+                            
+                            1. **Normal Workflow**: Continue using all tools exactly as before - no changes needed
+                            2. **Handle Errors Gracefully**: Check for conflict errors and retry when appropriate
+                            3. **Use Efficient Patterns**: Prefer bulk operations and partial updates when possible
+                            4. **Sequential for Same Entity**: When working intensively on one entity, work sequentially
+                            5. **Parallel for Different Entities**: Operations on different entities can run in parallel safely
+                            
+                            ## Compatibility
+                            
+                            ### Existing Workflows
+                            - **100% Backward Compatible**: All existing commands, parameters, and workflows work unchanged
+                            - **No Migration Required**: No updates needed to existing automation or scripts  
+                            - **Same Tool Signatures**: All tool parameters and responses remain identical
+                            - **Transparent Integration**: Locking operates invisibly behind the scenes
+                            
+                            ### New Capabilities
+                            While no changes are required, the locking system enables:
+                            - **Safer Concurrent Operations**: Multiple sessions can work safely on different entities
+                            - **Better Error Messages**: More informative feedback when conflicts occur
+                            - **Improved Reliability**: Reduced risk of data corruption from concurrent access
+                            - **Enhanced Debugging**: Session tracking provides better context for troubleshooting
+                            
+                            ## Summary
+                            
+                            The automatic locking system provides robust concurrency protection while maintaining complete transparency for users. No workflow changes are required - simply continue using the task orchestrator as before, with the added confidence that concurrent operations are safely managed automatically.
+                            
+                            For most users, the locking system will be completely invisible except for the increased reliability and better error messages when conflicts occur.
                             """.trimIndent()
                         )
                     )
