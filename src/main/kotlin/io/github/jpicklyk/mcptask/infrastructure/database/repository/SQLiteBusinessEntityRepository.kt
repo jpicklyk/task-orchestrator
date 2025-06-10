@@ -779,7 +779,19 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
     private fun insertEntityTags(entityId: UUID, tags: List<String>) {
         val now = Instant.now()
         val entityTypeName = this.entityType.name
-        tags.forEach { tag ->
+        
+        // Get existing tags to avoid duplicates
+        val existingTags = EntityTagsTable
+            .selectAll().where {
+                (EntityTagsTable.entityId eq entityId) and (EntityTagsTable.entityType eq entityTypeName)
+            }
+            .map { it[EntityTagsTable.tag] }
+            .toSet()
+        
+        // Only insert tags that don't already exist
+        val newTags = tags.filter { !existingTags.contains(it) }
+        
+        newTags.forEach { tag ->
             try {
                 EntityTagsTable.insert {
                     it[EntityTagsTable.entityId] = entityId
