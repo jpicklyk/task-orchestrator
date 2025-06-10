@@ -1,0 +1,42 @@
+title: MCP Task Orchestrator Documentation
+description: Comprehensive documentation for the MCP Task Orchestrator - AI-native project management tools
+
+theme: minima
+
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    block:
+      line_numbers: true
+
+# Navigation structure
+header_pages:
+  - quick-start.md
+  - api-reference.md
+  - workflow-prompts.md
+  - templates.md
+  - troubleshooting.md
+
+# GitHub configuration
+repository: jpicklyk/task-orchestrator
+github:
+  is_project_page: true
+
+# SEO and social
+twitter:
+  card: summary
+  
+author:
+  name: jpicklyk
+  
+social:
+  name: MCP Task Orchestrator
+  links:
+    - https://github.com/jpicklyk/task-orchestrator
