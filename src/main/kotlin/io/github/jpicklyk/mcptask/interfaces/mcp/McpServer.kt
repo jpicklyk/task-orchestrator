@@ -76,6 +76,7 @@ class McpServer(
         }
 
         logger.info("Starting MCP server with stdio transport...")
+        logger.info(getServerDescription())
 
         val transport = StdioServerTransport(
             inputStream = System.`in`.asSource().buffered(),
@@ -104,7 +105,7 @@ class McpServer(
     }
 
     /**
-     * Configures the server with tools and capabilities.
+     * Configures the server with comprehensive metadata, tools, and capabilities.
      */
     private fun configureServer(): Server {
         val server = Server(
@@ -121,6 +122,9 @@ class McpServer(
                 )
             )
         )
+        
+        // Add comprehensive server metadata and description
+        configureServerMetadata(server)
 
         // Register tools with the server
         registerTools(server)
@@ -243,9 +247,85 @@ class McpServer(
     }
 
     /**
-     * Gets the server name from the configuration.
+     * Configures comprehensive server metadata to provide LLMs with detailed
+     * understanding of the Task Orchestrator's capabilities and purpose.
+     */
+    private fun configureServerMetadata(server: Server) {
+        // The MCP SDK doesn't provide direct server description APIs,
+        // but the comprehensive tool descriptions we've added serve as
+        // the primary source of capability documentation for LLMs.
+        
+        logger.info("Task Orchestrator MCP Server (v$version) - Comprehensive project management and workflow orchestration")
+        logger.info("Capabilities: Task management, Feature organization, Template-driven workflows, Dependency tracking")
+        logger.info("Tools registered: ${createTools().size} tools across ${getToolCategories().size} categories")
+        logger.info("Architecture: Hierarchical organization (Projects → Features → Tasks → Sections)")
+        logger.info("Workflow Integration: Template application, Git workflow guidance, Section-based documentation")
+    }
+    
+    /**
+     * Gets the comprehensive tool categories for metadata reporting.
+     */
+    private fun getToolCategories(): Set<String> {
+        return setOf(
+            "Task Management",
+            "Feature Management", 
+            "Project Management",
+            "Template Management",
+            "Section Management",
+            "Dependency Management",
+            "Search and Query",
+            "Workflow Orchestration"
+        )
+    }
+    
+    /**
+     * Gets the server name with enhanced metadata context.
      */
     private fun getServerName(): String {
-        return System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator"
+        val baseName = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator"
+        return "$baseName-v$version"
+    }
+    
+    /**
+     * Gets comprehensive server description for logging and metadata.
+     */
+    private fun getServerDescription(): String {
+        return """
+            MCP Task Orchestrator - Comprehensive project management and workflow automation server.
+            
+            CORE CAPABILITIES:
+            • Hierarchical project organization (Projects → Features → Tasks → Sections)
+            • Template-driven task and feature creation with standardized documentation
+            • Advanced search and filtering across all project entities
+            • Dependency tracking and workflow management
+            • Git workflow integration with step-by-step guidance
+            • Context-efficient section-based content organization
+            • Locking system for concurrent operation safety
+            
+            ENTITY TYPES:
+            • Projects: Top-level organization containers
+            • Features: Mid-level functionality groupings
+            • Tasks: Primary work items with status tracking
+            • Sections: Detailed content blocks for documentation
+            • Templates: Reusable documentation and workflow patterns
+            • Dependencies: Task relationship and workflow management
+            
+            WORKFLOW PATTERNS:
+            • Template-first approach for consistent documentation
+            • Progressive detail addition through sections
+            • Status-driven task lifecycle management
+            • Priority and complexity-based work planning
+            • Tag-based categorization and filtering
+            
+            INTEGRATION FEATURES:
+            • Automatic template application during entity creation
+            • Bulk operations for efficiency (bulk_create_sections, bulk_update_sections)
+            • Context-efficient search and overview tools
+            • Git workflow prompts with MCP tool integration
+            • Real-time status tracking and progress monitoring
+            
+            BUILT FOR: AI-assisted project management, development workflow automation,
+            comprehensive task tracking, and structured documentation management.
+        """.trimIndent()
     }
 }
