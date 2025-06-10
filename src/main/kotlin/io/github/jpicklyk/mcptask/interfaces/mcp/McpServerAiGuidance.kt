@@ -30,6 +30,9 @@ object McpServerAiGuidance {
         
         // Add template management guidance
         TemplateMgtGuidance.configureTemplateManagementGuidance(this)
+        
+        // Add workflow prompts for common task orchestrator workflows
+        WorkflowPromptsGuidance.configureWorkflowPrompts(this)
     }
     
     /**
