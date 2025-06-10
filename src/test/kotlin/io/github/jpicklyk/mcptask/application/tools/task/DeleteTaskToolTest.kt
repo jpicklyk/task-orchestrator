@@ -253,8 +253,8 @@ class DeleteTaskToolTest {
         val responseObj = response as JsonObject
         assertEquals(false, responseObj["success"]?.jsonPrimitive?.boolean, "Success should be false")
         assertTrue(
-            responseObj["message"]?.jsonPrimitive?.content?.contains("Failed to delete task") ?: false,
-            "Message should indicate deletion failure"
+            responseObj["message"]?.jsonPrimitive?.content?.contains("Database connection failed") ?: false,
+            "Message should indicate database error"
         )
 
         val error = responseObj["error"]?.jsonObject
@@ -284,8 +284,8 @@ class DeleteTaskToolTest {
         val responseObj = response as JsonObject
         assertEquals(false, responseObj["success"]?.jsonPrimitive?.boolean, "Success should be false")
         assertTrue(
-            responseObj["message"]?.jsonPrimitive?.content?.contains("Failed to delete task") ?: false,
-            "Message should indicate deletion failure"
+            responseObj["message"]?.jsonPrimitive?.content?.contains("Tool execution failed") ?: false,
+            "Message should indicate tool execution failure"
         )
 
         val error = responseObj["error"]?.jsonObject

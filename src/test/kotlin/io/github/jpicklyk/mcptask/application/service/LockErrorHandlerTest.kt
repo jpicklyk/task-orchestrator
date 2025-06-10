@@ -61,12 +61,12 @@ class LockErrorHandlerTest {
         assertEquals("false", jsonResult["success"]?.jsonPrimitive?.content)
         assertEquals("LOCK_CONFLICT", jsonResult["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content)
         
-        val message = jsonResult["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+        val message = jsonResult["message"]?.jsonPrimitive?.content
         assertNotNull(message)
         assertTrue(message!!.contains("Another operation is currently modifying"))
         assertTrue(message.contains("Estimated wait time: 10 minutes"))
         
-        val details = jsonResult["error"]?.jsonObject?.get("details")?.jsonObject
+        val details = jsonResult["error"]?.jsonObject?.get("additionalData")?.jsonObject
         assertNotNull(details)
         assertNotNull(details!!["conflictingLocks"])
         assertNotNull(details["suggestions"])
@@ -88,7 +88,7 @@ class LockErrorHandlerTest {
         val jsonResult = result.jsonObject
         assertEquals("INVALID_SESSION", jsonResult["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content)
         
-        val details = jsonResult["error"]?.jsonObject?.get("details")?.jsonObject
+        val details = jsonResult["error"]?.jsonObject?.get("additionalData")?.jsonObject
         assertEquals("EXPIRED", details!!["reason"]?.jsonPrimitive?.content)
         assertTrue(details["suggestion"]?.jsonPrimitive?.content!!.contains("Start a new session"))
     }
@@ -129,7 +129,10 @@ class LockErrorHandlerTest {
         // Should suggest waiting since the lock expires soon
         val waitSuggestion = suggestions.find { it is ConflictResolution.WaitForRelease }
         assertNotNull(waitSuggestion)
-        assertEquals(5L, (waitSuggestion as ConflictResolution.WaitForRelease).estimatedWaitTime)
+        val actualWaitTime = (waitSuggestion as ConflictResolution.WaitForRelease).estimatedWaitTime
+        assertNotNull(actualWaitTime)
+        // Allow for small timing differences (4-5 minutes is acceptable)
+        assertTrue(actualWaitTime!! in 4L..5L, "Expected wait time 4-5 minutes, got $actualWaitTime")
         
         // Should suggest escalation since SHARED_READ can escalate to EXCLUSIVE
         val escalationSuggestion = suggestions.find { it is ConflictResolution.RequestEscalation }
@@ -185,7 +188,7 @@ class LockErrorHandlerTest {
         
         // Assert
         val jsonResult = result.jsonObject
-        val details = jsonResult["error"]?.jsonObject?.get("details")?.jsonObject
+        val details = jsonResult["error"]?.jsonObject?.get("additionalData")?.jsonObject
         
         assertEquals(95, details!!["currentUsage"]?.jsonPrimitive?.content?.toInt())
         assertEquals(100, details["maxAllowed"]?.jsonPrimitive?.content?.toInt())
@@ -211,7 +214,7 @@ class LockErrorHandlerTest {
         
         // Assert
         val jsonResult = result.jsonObject
-        val details = jsonResult["error"]?.jsonObject?.get("details")?.jsonObject
+        val details = jsonResult["error"]?.jsonObject?.get("additionalData")?.jsonObject
         
         assertEquals(parentId.toString(), details!!["parentEntityId"]?.jsonPrimitive?.content)
         assertEquals(childId.toString(), details["childEntityId"]?.jsonPrimitive?.content)

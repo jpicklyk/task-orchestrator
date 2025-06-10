@@ -67,11 +67,7 @@ class TagFunctionalityTest {
     fun tearDown() {
         // Dump all tags for debugging before dropping tables
         TagDebugger.dumpAllTags()
-
-        // Drop tables
-        transaction {
-            SchemaUtils.drop(ProjectsTable, FeaturesTable, TaskTable, EntityTagsTable)
-        }
+        // Note: No need to drop tables for in-memory database
     }
 
     /**

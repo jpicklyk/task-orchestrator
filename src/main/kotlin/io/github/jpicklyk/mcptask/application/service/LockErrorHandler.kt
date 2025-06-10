@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.infrastructure.util.ResponseUtil
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.*
 
@@ -247,7 +248,7 @@ class DefaultLockErrorHandler : LockErrorHandler {
         
         // Analyze conflicting locks to suggest appropriate resolutions
         conflictingLocks.forEach { lock ->
-            val remainingTime = Duration.between(lock.lockedAt, lock.expiresAt).toMinutes()
+            val remainingTime = Duration.between(Instant.now(), lock.expiresAt).toMinutes()
             
             if (remainingTime <= 10) {
                 suggestions.add(
