@@ -72,6 +72,10 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.junit.api)
     testRuntimeOnly(libs.junit.engine)
+    
+    // Mockito for additional mocking support
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("org.mockito:mockito-core:5.8.0")
 
     // Add H2 database driver for in memory db testing
     testImplementation("com.h2database:h2:2.2.224")

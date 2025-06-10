@@ -64,16 +64,25 @@ class DefaultSimpleLockingService : SimpleLockingService {
     private val operationStartTimes = ConcurrentHashMap<String, Instant>()
     
     override suspend fun canProceed(operation: LockOperation): Boolean {
-        // For now, always allow operations to proceed
-        // In Phase 3, this will check for actual conflicts
         logger.debug("Checking if operation '${operation.description}' can proceed")
         
-        // Simple conflict detection: check if any exclusive operations are running on same entities
+        // Conflict detection logic:
+        // 1. DELETE operations are blocked by any other operation on the same entity
+        // 2. Other operations are blocked by DELETE operations on the same entity
         val hasConflicts = activeOperations.values.any { activeOp ->
-            activeOp.operationType == OperationType.DELETE && 
-            activeOp.entityIds.intersect(operation.entityIds).isNotEmpty()
+            val entityOverlap = activeOp.entityIds.intersect(operation.entityIds).isNotEmpty()
+            
+            when {
+                // DELETE operations are blocked by any operation on same entities
+                operation.operationType == OperationType.DELETE && entityOverlap -> true
+                // Other operations are blocked by DELETE operations on same entities  
+                activeOp.operationType == OperationType.DELETE && entityOverlap -> true
+                // No conflicts for other operation combinations
+                else -> false
+            }
         }
         
+        logger.debug("Operation '${operation.description}' ${if (hasConflicts) "blocked due to conflicts" else "can proceed"}")
         return !hasConflicts
     }
     
