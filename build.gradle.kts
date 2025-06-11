@@ -55,9 +55,8 @@ dependencies {
     implementation(libs.exposed.jdbc)
     implementation(libs.exposed.java.time)
 
-    // Flyway migration - uncomment when ready to implement Flyway
-    // implementation("org.flywaydb:flyway-core:9.20.0")
-    // implementation("org.flywaydb:flyway-database-sqlite:9.20.0") // For SQLite support
+    // Flyway migration
+    implementation(libs.flyway.core)
 
     // Logging
     implementation(libs.slf4j)
