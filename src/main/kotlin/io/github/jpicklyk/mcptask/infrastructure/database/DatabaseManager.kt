@@ -69,7 +69,7 @@ class DatabaseManager(
             // Set SQLite-specific pragmas using transaction
             transaction(getDatabase()) {
                 try {
-                    // Enable foreign keys for all database types
+                    // Enable foreign keys for all database types (these don't return results)
                     exec("PRAGMA foreign_keys = ON")
 
                     // Only set WAL mode for file-based databases

@@ -165,7 +165,7 @@ class FlywayMigrationIntegrationTest {
         var constraintViolationCaught = false
         try {
             org.jetbrains.exposed.v1.jdbc.transactions.transaction(database) {
-                exec("INSERT INTO features (id, project_id, name, summary, status, priority, created_at, modified_at) VALUES (randomblob(16), randomblob(16), 'Test', 'Test', 'planning', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
+                exec("INSERT INTO features (id, project_id, name, summary, status, priority, created_at, modified_at) VALUES (randomblob(16), randomblob(16), 'Test', 'Test', 'PLANNING', 'MEDIUM', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
             }
         } catch (e: Exception) {
             if (e.message?.contains("foreign key constraint", ignoreCase = true) == true) {

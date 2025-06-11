@@ -41,22 +41,14 @@ class TemplateInitializerImpl(
 
         logger.info("Creating predefined templates")
 
-        // Initialize each template individually
+        // Initialize each template individually - only templates that have actual creators
         val templateNames = listOf(
-            "Code Review and Analysis",
-            "Feature Context",
-            "Implementation Progress",
-            "Implementation and Usage Strategy",
-            "Project Context",
-            "Related Classes and Components",
-            "Task Implementation",
-            "Bug Report Template",
-            // New workflow templates
+            // Workflow templates
             "Local Git Branching Workflow",
-            "GitHub PR Workflow",
+            "GitHub PR Workflow", 
             "Task Implementation Workflow",
             "Bug Investigation Workflow",
-            // New documentation and quality templates
+            // Documentation and quality templates
             "Technical Approach",
             "Requirements Specification",
             "Context & Background",
