@@ -24,6 +24,7 @@ object WorkflowPromptsGuidance {
         addBugTriageWorkflowPrompt(server)
         addSprintPlanningPrompt(server)
         addProjectSetupPrompt(server)
+        addImplementFeatureWorkflowPrompt(server)
     }
 
     /**
@@ -857,6 +858,166 @@ object WorkflowPromptsGuidance {
                             - Project overview shows balanced work distribution
 
                             This comprehensive setup ensures your project starts with solid foundations and maintains organization as it scales.
+                            """.trimIndent()
+                        )
+                    )
+                ),
+                _meta = JsonObject(emptyMap())
+            )
+        }
+    }
+
+    /**
+     * Adds a prompt for implementing features with automatic git detection and proper development workflow integration.
+     */
+    private fun addImplementFeatureWorkflowPrompt(server: Server) {
+        server.addPrompt(
+            name = "implement_feature_workflow",
+            description = "Guide for implementing features with automatic git detection and proper development workflow integration"
+        ) { _ ->
+            GetPromptResult(
+                description = "Intelligent feature implementation guidance with automatic project context detection and workflow template suggestion",
+                messages = listOf(
+                    PromptMessage(
+                        role = Role.assistant,
+                        content = TextContent(
+                            text = """
+                            # Implement Feature Workflow
+
+                            This workflow provides intelligent feature implementation guidance with automatic project context detection and workflow template suggestion.
+
+                            ## Step 1: Check Current State & Git Detection
+                            Start by understanding project context:
+                            ```
+                            Use get_overview to understand project context and current work priorities
+                            ```
+                            - Review existing in-progress tasks to avoid conflicts
+                            - Use file system tools to detect if project uses git (check for .git directory)
+                            - If git detected, automatically suggest "Local Git Branching Workflow" template
+
+                            ## Step 2: Select Implementation Target
+                            Identify suitable work to implement:
+                            ```
+                            Use search_tasks with status="pending" and priority="high" to identify suitable work
+                            Use search_features for feature-level work opportunities
+                            ```
+                            - Suggest starting with highest priority, unblocked tasks
+                            - Verify prerequisites and dependencies are satisfied using get_task_dependencies
+
+                            ## Step 3: Apply Appropriate Templates with Smart Detection
+                            Apply templates based on detected project context:
+
+                            **Always Apply**: "Task Implementation Workflow" template for implementation tasks
+
+                            **If Git Detected**: Automatically apply "Local Git Branching Workflow" template
+
+                            **Ask User**: "Do you use GitHub/GitLab pull requests? If yes, I can apply PR workflow template"
+
+                            **If GitHub MCP Available**: Mention GitHub MCP tools can automate PR creation and management
+
+                            **For Complex Tasks**: Consider "Technical Approach" template for architectural guidance
+
+                            ## Step 4: Execute Implementation with Template Guidance
+                            Follow structured implementation approach:
+                            - Follow template-provided step-by-step instructions from applied templates
+                            - Make incremental commits if using git workflows (following git template guidance)
+                            - Update task status to "in-progress" when starting work:
+                            ```json
+                            Use update_task to mark work as started:
+                            {
+                              "id": "[task-id]",
+                              "status": "in-progress"
+                            }
+                            ```
+                            - Use update_task to track progress and add implementation notes
+
+                            ## Step 5: Complete with Validation
+                            Ensure proper completion with validation:
+
+                            **Before marking task as completed**:
+                            ```
+                            Use get_sections to read all task sections
+                            ```
+                            - **Verify template compliance**: Ensure all instructional template guidance was followed
+                            - **Git workflow completion**: If using git templates, complete branch merge process
+                            - **Run tests and verification**: Follow testing guidance from applied templates
+                            - Update task status to "completed" only after full validation
+
+                            ## Git Integration Best Practices
+
+                            **Auto-Detection Logic**:
+                            - Check for .git directory in project root or parent directories
+                            - If found, always suggest "Local Git Branching Workflow" template
+                            - Ask about PR workflows rather than assuming (different teams have different practices)
+
+                            **GitHub Integration**:
+                            - Detect if GitHub MCP server is available in the environment
+                            - If available, mention it can automate PR creation, review management, and merge processes
+                            - Only suggest GitHub PR workflow template if user confirms they use PRs
+
+                            **Template Selection Strategy**:
+                            - Implementation tasks (complexity > 3): Task Implementation + Git Branching workflows
+                            - Complex features (complexity > 6): Add Technical Approach template
+                            - Bug fixes: Bug Investigation + Git Branching workflows
+
+                            ## Quality Validation Requirements
+
+                            **Task Completion Validation**:
+                            ```bash
+                            # Before marking any task as completed:
+                            get_sections --entityType TASK --entityId [task-id]
+
+                            # Review each section's guidance, especially:
+                            # - Requirements compliance
+                            # - Implementation approach validation  
+                            # - Testing strategy completion
+                            # - Git workflow steps (if applicable)
+                            ```
+
+                            **Feature Completion Validation**:
+                            ```bash
+                            # Before marking any feature as completed:
+                            get_sections --entityType FEATURE --entityId [feature-id]
+                            get_feature --id [feature-id] --includeTasks true --includeTaskCounts true
+
+                            # Verify:
+                            # - All associated tasks are completed
+                            # - Feature-level requirements satisfied
+                            # - Integration testing completed
+                            # - Documentation updated
+                            ```
+
+                            ## Integration with Other Workflows
+
+                            This workflow complements other workflow prompts:
+                            - Use with task_breakdown_workflow for complex features requiring decomposition
+                            - Integrate with sprint_planning_workflow for systematic work organization
+                            - Apply bug_triage_workflow principles for bug-related implementation work
+
+                            ## Common Implementation Patterns
+
+                            **Feature Implementation**:
+                            1. Review feature requirements from sections
+                            2. Break down into implementation tasks if needed
+                            3. Apply git branching workflow for development
+                            4. Follow incremental development with regular commits
+                            5. Complete testing and validation before marking done
+
+                            **Bug Fix Implementation**:
+                            1. Follow bug investigation template guidance
+                            2. Create fix implementation plan
+                            3. Apply git workflow for isolated development
+                            4. Include regression testing in validation
+                            5. Document resolution in bug task sections
+
+                            **Enhancement Implementation**:
+                            1. Review technical approach guidance
+                            2. Plan backward compatibility considerations
+                            3. Follow development workflow templates
+                            4. Include impact testing and validation
+                            5. Update documentation and examples
+
+                            This workflow ensures systematic, well-documented implementation with proper version control integration and quality validation.
                             """.trimIndent()
                         )
                     )
