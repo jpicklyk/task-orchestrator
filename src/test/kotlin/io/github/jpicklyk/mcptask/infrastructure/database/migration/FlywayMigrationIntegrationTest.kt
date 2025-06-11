@@ -52,11 +52,12 @@ class FlywayMigrationIntegrationTest {
 
     @Test
     fun `test Flyway schema manager creation`() {
-        // Test that FlywayDatabaseSchemaManager can be created
+        // Test that FlywayDatabaseSchemaManager can be created and is properly initialized
         assertNotNull(schemaManager)
         
-        // Test that it's specifically a FlywayDatabaseSchemaManager
-        assertTrue(schemaManager is FlywayDatabaseSchemaManager)
+        // Test that it can report its version (indicating it's working)
+        val version = schemaManager.getCurrentVersion()
+        assertTrue(version >= 0, "Schema manager should report a valid version")
     }
 
     @Test
