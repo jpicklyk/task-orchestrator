@@ -3,7 +3,7 @@
 
 -- Projects table (no dependencies)
 CREATE TABLE projects (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
     name VARCHAR(255) NOT NULL,
     summary TEXT NOT NULL,
     status VARCHAR(20) NOT NULL CHECK (status IN ('planning', 'in-development', 'completed', 'archived')),
@@ -19,7 +19,7 @@ CREATE INDEX idx_projects_modified_at ON projects(modified_at);
 
 -- Templates table (no dependencies)
 CREATE TABLE templates (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
     name VARCHAR(200) NOT NULL UNIQUE,
     description TEXT NOT NULL,
     target_entity_type VARCHAR(50) NOT NULL,
@@ -39,8 +39,8 @@ CREATE INDEX idx_templates_is_enabled ON templates(is_enabled);
 
 -- Features table (depends on projects)
 CREATE TABLE features (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
-    project_id UUID,
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
+    project_id BLOB,
     name TEXT NOT NULL,
     summary TEXT NOT NULL,
     status VARCHAR(20) NOT NULL CHECK (status IN ('planning', 'in-development', 'completed', 'archived')),
@@ -60,8 +60,8 @@ CREATE INDEX idx_features_modified_at ON features(modified_at);
 
 -- Entity tags table (unified tags system)
 CREATE TABLE entity_tags (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
-    entity_id UUID NOT NULL,
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
+    entity_id BLOB NOT NULL,
     entity_type VARCHAR(20) NOT NULL,
     tag VARCHAR(100) NOT NULL,
     created_at TIMESTAMP NOT NULL
@@ -74,9 +74,9 @@ CREATE INDEX idx_entity_tags_entity ON entity_tags(entity_id, entity_type);
 
 -- Sections table (content blocks)
 CREATE TABLE sections (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
     entity_type VARCHAR(50) NOT NULL,
-    entity_id UUID NOT NULL,
+    entity_id BLOB NOT NULL,
     title VARCHAR(200) NOT NULL,
     usage_description TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -94,8 +94,8 @@ CREATE UNIQUE INDEX idx_sections_entity_ordinal ON sections(entity_type, entity_
 
 -- Template sections table (depends on templates)
 CREATE TABLE template_sections (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
-    template_id UUID NOT NULL,
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
+    template_id BLOB NOT NULL,
     title VARCHAR(200) NOT NULL,
     usage_description TEXT NOT NULL,
     content_sample TEXT NOT NULL,
@@ -112,9 +112,9 @@ CREATE UNIQUE INDEX idx_template_sections_template_ordinal ON template_sections(
 
 -- Tasks table (depends on projects and features)
 CREATE TABLE tasks (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
-    project_id UUID,
-    feature_id UUID,
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
+    project_id BLOB,
+    feature_id BLOB,
     title TEXT NOT NULL,
     summary TEXT NOT NULL,
     status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled', 'deferred')),
@@ -141,9 +141,9 @@ CREATE INDEX idx_tasks_last_modified_by ON tasks(last_modified_by);
 
 -- Dependencies table (depends on tasks)
 CREATE TABLE dependencies (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
-    from_task_id UUID NOT NULL,
-    to_task_id UUID NOT NULL,
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
+    from_task_id BLOB NOT NULL,
+    to_task_id BLOB NOT NULL,
     type VARCHAR(20) NOT NULL CHECK (type IN ('BLOCKS', 'IS_BLOCKED_BY', 'RELATES_TO')),
     created_at TIMESTAMP NOT NULL,
     FOREIGN KEY (from_task_id) REFERENCES tasks(id),
@@ -176,9 +176,9 @@ CREATE INDEX idx_work_sessions_started_at ON work_sessions(started_at);
 
 -- Task locks table (depends on work_sessions)
 CREATE TABLE task_locks (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
     lock_scope VARCHAR(20) NOT NULL CHECK (lock_scope IN ('TASK', 'FEATURE', 'PROJECT')),
-    entity_id UUID NOT NULL,
+    entity_id BLOB NOT NULL,
     session_id VARCHAR(255) NOT NULL,
     lock_type VARCHAR(20) NOT NULL CHECK (lock_type IN ('SHARED', 'EXCLUSIVE')),
     locked_at TIMESTAMP NOT NULL,
@@ -200,9 +200,9 @@ CREATE INDEX idx_task_locks_locked_at ON task_locks(locked_at);
 
 -- Entity assignments table (depends on work_sessions)
 CREATE TABLE entity_assignments (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
     entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('TASK', 'FEATURE', 'PROJECT')),
-    entity_id UUID NOT NULL,
+    entity_id BLOB NOT NULL,
     session_id VARCHAR(255) NOT NULL,
     assignment_type VARCHAR(20) NOT NULL CHECK (assignment_type IN ('WORKING', 'REVIEWING', 'PLANNING')),
     assigned_at TIMESTAMP NOT NULL,

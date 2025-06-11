@@ -2,7 +2,7 @@
 -- This table serves no business purpose except testing schema updates
 
 CREATE TABLE migration_test_table (
-    id UUID PRIMARY KEY DEFAULT (randomblob(16)),
+    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
     test_name VARCHAR(255) NOT NULL,
     test_description TEXT,
     migration_version INTEGER NOT NULL,
