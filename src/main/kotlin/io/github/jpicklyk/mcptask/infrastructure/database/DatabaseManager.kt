@@ -61,36 +61,11 @@ class DatabaseManager(
                 url = jdbcUrl,
                 driver = "org.sqlite.JDBC",
                 setupConnection = { connection ->
-                    // Use execute() instead of executeUpdate() for pragma statements
+                    // Enable foreign key constraints - critical for data integrity
                     connection.createStatement().execute("PRAGMA foreign_keys = ON")
                 }
             )
             TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-
-            // Set SQLite-specific pragmas using transaction
-            transaction(getDatabase()) {
-                try {
-                    // Enable foreign keys for all database types (these don't return results)
-                    exec("PRAGMA foreign_keys = ON")
-
-                    // Only set WAL mode for file-based databases
-                    if (!jdbcUrl.contains("mode=memory")) {
-                        exec("PRAGMA journal_mode = WAL")
-                        exec("PRAGMA synchronous = NORMAL")
-                    }
-
-                    logger.info("SQLite pragmas configured successfully")
-
-                    // For in-memory databases, verify the connection works
-                    if (jdbcUrl.contains("mode=memory")) {
-                        exec("SELECT 1")
-                        logger.info("In-memory SQLite database connection verified")
-                    }
-                } catch (e: Exception) {
-                    logger.warn("Error setting SQLite pragmas: ${e.message}")
-                    // Continue despite pragma errors - they're not critical
-                }
-            }
 
             logger.info("Database connection established successfully")
             return true
