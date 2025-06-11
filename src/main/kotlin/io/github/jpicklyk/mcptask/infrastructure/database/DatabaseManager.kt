@@ -111,7 +111,9 @@ class DatabaseManager(
 
             // Create schema manager if not already created
             if (!::schemaManager.isInitialized) {
-                schemaManager = SchemaManagerFactory.createSchemaManager(db, useFlyway = false)
+                val useFlyway = DatabaseConfig.useFlyway
+                logger.info("Creating schema manager with Flyway support: $useFlyway")
+                schemaManager = SchemaManagerFactory.createSchemaManager(db, useFlyway = useFlyway)
             }
 
             // Update schema using the manager

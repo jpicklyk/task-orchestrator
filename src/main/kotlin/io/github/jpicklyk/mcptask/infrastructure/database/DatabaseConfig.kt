@@ -29,4 +29,12 @@ object DatabaseConfig {
      */
     val showSql: Boolean
         get() = System.getenv("DATABASE_SHOW_SQL")?.toBoolean() ?: false
+    
+    /**
+     * Whether to use Flyway for database schema management.
+     * This can be enabled with the USE_FLYWAY environment variable.
+     * Default is false to maintain backward compatibility.
+     */
+    val useFlyway: Boolean
+        get() = System.getenv("USE_FLYWAY")?.toBoolean() ?: false
 }
