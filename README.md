@@ -2,7 +2,7 @@
 
 A Kotlin implementation of the Model Context Protocol (MCP) server for comprehensive task management, providing AI assistants with a structured, context-efficient way to interact with project data.
 
-[![Pre-Release](https://img.shields.io/badge/status-pre--release-orange)](https://github.com/jpicklyk/task-orchestrator/releases)
+[![Version](https://img.shields.io/github/v/release/jpicklyk/task-orchestrator?include_prereleases)](https://github.com/jpicklyk/task-orchestrator/releases)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 ## 📚 Documentation
@@ -126,11 +126,17 @@ java -jar build/libs/mcp-task-orchestrator-*.jar
 | `MCP_SERVER_NAME` | Server name | `mcp-task-orchestrator` |
 | `MCP_DEBUG` | Enable debug logging | `false` |
 
-## Pre-Release Status
+## Release Information
 
-**⚠️ Current Version: Pre-1.0.0 (Development)**
+**🚀 Ready for 1.0.0 Release**
 
-The SQL database schema may change between updates. For production use, wait for the 1.0.0 release.
+Version follows semantic versioning with git-based build numbers:
+
+- Format: `{major}.{minor}.{git-commit-count}-{qualifier}`
+- Stable releases remove the qualifier (e.g., `1.0.123`)
+- Pre-releases include qualifier (e.g., `1.0.123-beta-01`)
+
+Current versioning defined in [build.gradle.kts](build.gradle.kts).
 
 - 🔔 [Watch for releases](../../releases)
 - 📋 [View changelog](CHANGELOG.md)
