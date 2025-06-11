@@ -12,6 +12,7 @@ VOLUME /app/data
 ENV DATABASE_PATH=/app/data/tasks.db
 ENV MCP_TRANSPORT=stdio
 ENV LOG_LEVEL=info
+ENV USE_FLYWAY=true
 
 # Run the application with explicit stdio handling
 CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "-jar", "orchestrator.jar"]

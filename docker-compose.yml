@@ -11,6 +11,7 @@ services:
       - DATABASE_PATH=/app/data/tasks.db
       - MCP_TRANSPORT=stdio
       - LOG_LEVEL=debug  # Using debug for more verbose logging
+      - USE_FLYWAY=true  # Enable Flyway database migrations
       - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8 -Djava.awt.headless=true
     logging:
       driver: "json-file"

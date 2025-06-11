@@ -20,35 +20,38 @@ class FlywayDatabaseSchemaManager(private val database: Database) : DatabaseSche
         return try {
             logger.info("Starting Flyway database migration...")
             
-            transaction(database) {
-                // Get JDBC connection from Exposed
-                val connection = TransactionManager.current().connection.connection as Connection
-                
-                // Create a simple DataSource wrapper for the connection
-                val dataSource = createDataSourceFromConnection(connection)
-                
-                // Create Flyway instance with SQLite-specific configuration
-                val flyway = Flyway.configure()
-                    .dataSource(dataSource)
-                    .locations("classpath:db/migration")
-                    .validateMigrationNaming(true)
-                    .cleanDisabled(false) // Allow clean for development
-                    .baselineOnMigrate(true) // Create baseline for existing databases
-                    .baselineVersion("0") // Start baseline at version 0
-                    .load()
-                
-                // Apply migrations
-                val result = flyway.migrate()
-                logger.info("Successfully applied ${result.migrationsExecuted} migration(s)")
-                logger.info("Current schema version: ${result.targetSchemaVersion ?: "unknown"}")
-            }
+            // Get database URL from the connector
+            val databaseUrl = database.url
+            logger.info("Using database URL for Flyway: $databaseUrl")
+            
+            // Create Flyway instance with SQLite-specific configuration using database URL
+            val flyway = Flyway.configure()
+                .dataSource(databaseUrl, null, null) // For SQLite, no username/password needed
+                .locations("classpath:db/migration")
+                .validateMigrationNaming(true)
+                .cleanDisabled(false) // Allow clean for development
+                .baselineOnMigrate(true) // Create baseline for existing databases
+                .baselineVersion("0") // Start baseline at version 0
+                .load()
+            
+            // Apply migrations
+            val result = flyway.migrate()
+            logger.info("Successfully applied ${result.migrationsExecuted} migration(s)")
+            logger.info("Current schema version: ${result.targetSchemaVersion ?: "unknown"}")
             
             true
         } catch (e: FlywayException) {
             logger.error("Flyway migration failed: ${e.message}", e)
+            // Print to stderr as well to ensure we see it in tests
+            System.err.println("FLYWAY ERROR: ${e.message}")
+            System.err.println("FLYWAY ERROR DETAILS: ${e.cause?.message}")
+            e.printStackTrace()
             false
         } catch (e: Exception) {
             logger.error("Database migration failed: ${e.message}", e)
+            // Print to stderr as well to ensure we see it in tests
+            System.err.println("MIGRATION ERROR: ${e.message}")
+            e.printStackTrace()
             false
         }
     }
@@ -75,16 +78,12 @@ class FlywayDatabaseSchemaManager(private val database: Database) : DatabaseSche
 
     override fun getCurrentVersion(): Int {
         return try {
-            transaction(database) {
-                // Get JDBC connection from Exposed
-                val connection = TransactionManager.current().connection.connection as Connection
-                
-                // Create a simple DataSource wrapper for the connection
-                val dataSource = createDataSourceFromConnection(connection)
-                
-                // Create Flyway instance with same configuration as updateSchema
-                val flyway = Flyway.configure()
-                    .dataSource(dataSource)
+            // Get database URL from the connector
+            val databaseUrl = database.url
+            
+            // Create Flyway instance with same configuration as updateSchema
+            val flyway = Flyway.configure()
+                .dataSource(databaseUrl, null, null)
                     .locations("classpath:db/migration")
                     .validateMigrationNaming(true)
                     .cleanDisabled(false)
@@ -92,18 +91,17 @@ class FlywayDatabaseSchemaManager(private val database: Database) : DatabaseSche
                     .baselineVersion("0")
                     .load()
                 
-                // Get info about applied migrations
-                val info = flyway.info()
-                val current = info.current()
-                
-                if (current != null) {
-                    val version = current.version.version.toIntOrNull() ?: 0
-                    logger.debug("Current schema version: $version")
-                    version
-                } else {
-                    logger.debug("No migrations applied yet, returning version 0")
-                    0
-                }
+            // Get info about applied migrations
+            val info = flyway.info()
+            val current = info.current()
+            
+            if (current != null) {
+                val version = current.version.version.toIntOrNull() ?: 0
+                logger.debug("Current schema version: $version")
+                version
+            } else {
+                logger.debug("No migrations applied yet, returning version 0")
+                0
             }
         } catch (e: FlywayException) {
             logger.error("Failed to get current schema version from Flyway: ${e.message}", e)

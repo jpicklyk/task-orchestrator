@@ -65,6 +65,7 @@ Project (optional)
 
 ### For Developers  
 - **[API Reference](api-reference)** - Complete tool documentation
+- **[Database Migrations](database-migrations)** - Schema change management guide
 - **[Templates System](templates)** - Built-in template reference
 - **[Troubleshooting](troubleshooting)** - Common issues and solutions
 

@@ -12,6 +12,7 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 - **[🔧 API Reference](docs/api-reference.md)** - All 37 MCP tools detailed
 - **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 5 built-in workflow automations
 - **[📝 Templates](docs/templates.md)** - 9 built-in documentation templates
+- **[🗃️ Database Migrations](docs/database-migrations.md)** - Schema change management for developers
 - **[💬 Community Wiki](../../wiki)** - Examples, tips, and community guides
 
 ## Why Use MCP Task Orchestrator?
@@ -106,6 +107,7 @@ Project (optional)
 # Configure environment
 MCP_TRANSPORT=stdio
 DATABASE_PATH=data/tasks.db
+USE_FLYWAY=true
 ```
 
 ### Option 2: Direct JAR
@@ -123,6 +125,7 @@ java -jar build/libs/mcp-task-orchestrator-*.jar
 |----------|-------------|---------|
 | `MCP_TRANSPORT` | Transport type | `stdio` |
 | `DATABASE_PATH` | SQLite database path | `data/tasks.db` |
+| `USE_FLYWAY` | Enable Flyway database migrations | `true` |
 | `MCP_SERVER_NAME` | Server name | `mcp-task-orchestrator` |
 | `MCP_DEBUG` | Enable debug logging | `false` |
 
