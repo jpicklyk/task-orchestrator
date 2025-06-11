@@ -183,6 +183,8 @@ object WorkflowPromptsGuidance {
                             ```
 
                             ## Step 4: Create Focused Subtasks
+                            **Git Detection**: Check for .git directory in project root using file system tools
+                            
                             For each identified component:
                             ```json
                             Use create_task for each subtask:
@@ -192,10 +194,14 @@ object WorkflowPromptsGuidance {
                               "featureId": "[from step 3, if created]",
                               "complexity": "[3-6 for manageable tasks]",
                               "priority": "[based on implementation dependencies]",
-                              "templateIds": ["task-implementation-workflow"],
+                              "templateIds": ["task-implementation-workflow", "local-git-branching-workflow"],
                               "tags": "[original-tags,component-type,implementation-area]"
                             }
                             ```
+                            
+                            **Template Selection Notes**:
+                            - If git detected, automatically include "local-git-branching-workflow" template
+                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
                             ## Step 5: Establish Task Dependencies
                             Link subtasks with proper sequencing:
@@ -297,6 +303,8 @@ object WorkflowPromptsGuidance {
                             Review current bug load and priorities.
 
                             ## Step 2: Create Bug Investigation Task
+                            **Git Detection**: Check for .git directory in project root using file system tools
+                            
                             Create a structured task for investigation:
                             ```json
                             Use create_task with bug investigation template:
@@ -305,10 +313,14 @@ object WorkflowPromptsGuidance {
                               "summary": "[Detailed symptoms, reproduction steps, and initial impact assessment]",
                               "priority": "[high for critical issues, medium for significant issues, low for minor issues]",
                               "complexity": "[Initial estimate: 3-5 for investigation, adjust after analysis]",
-                              "templateIds": ["bug-investigation-workflow"],
+                              "templateIds": ["bug-investigation-workflow", "local-git-branching-workflow"],
                               "tags": "task-type-bug,component-[affected-area],severity-[high/medium/low]"
                             }
                             ```
+                            
+                            **Template Selection Notes**:
+                            - If git detected, automatically include "local-git-branching-workflow" template
+                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
                             ## Step 3: Detailed Investigation
                             Use the bug investigation template sections to systematically analyze:
@@ -536,6 +548,7 @@ object WorkflowPromptsGuidance {
                             - Appropriate complexity for team capacity
                             - Dependencies are satisfied or manageable
                             - Clear acceptance criteria defined
+                            - Implementation tasks have git workflow templates applied (check for "local-git-branching-workflow" template)
 
                             **Task Updates for Sprint Commitment**:
                             ```json
@@ -729,6 +742,8 @@ object WorkflowPromptsGuidance {
                             ```
 
                             ## Step 4: Initial Task Creation
+                            **Git Detection**: Check for .git directory in project root using file system tools
+                            
                             Create foundational tasks for project setup:
 
                             **Infrastructure and Setup Tasks**:
@@ -740,7 +755,7 @@ object WorkflowPromptsGuidance {
                               "projectId": "[project-id]",
                               "priority": "high",
                               "complexity": 6,
-                              "templateIds": ["task-implementation-workflow", "technical-approach"],
+                              "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
                               "tags": "task-type-infrastructure,setup,foundation"
                             }
                             ```
@@ -757,6 +772,11 @@ object WorkflowPromptsGuidance {
                               "tags": "task-type-research,planning,technology-validation"
                             }
                             ```
+                            
+                            **Template Selection Notes**:
+                            - If git detected, include "local-git-branching-workflow" for implementation tasks
+                            - Research tasks may not need git templates unless they involve code prototyping
+                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
                             ## Step 5: Template Strategy Setup
                             Establish consistent documentation patterns:

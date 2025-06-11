@@ -150,6 +150,7 @@ This workflow provides a systematic 7-step approach for decomposing complex work
      ```
 
 4. **Create Focused Subtasks**
+   - **Git Detection**: Check for .git directory in project root (use file system tools)
    - Create manageable subtasks with complexity 3-6:
      ```json
      {
@@ -158,10 +159,12 @@ This workflow provides a systematic 7-step approach for decomposing complex work
        "featureId": "[from step 3, if created]",
        "complexity": "[3-6 for manageable tasks]",
        "priority": "[based on implementation dependencies]",
-       "templateIds": ["task-implementation-workflow"],
+       "templateIds": ["task-implementation-workflow", "local-git-branching-workflow"],
        "tags": "[original-tags,component-type,implementation-area]"
      }
      ```
+   - **Note**: If git detected, automatically include "local-git-branching-workflow" template
+   - **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
 5. **Establish Task Dependencies**
    - Use `create_dependency` to establish implementation order
@@ -235,6 +238,7 @@ This workflow provides a comprehensive 7-step bug management process from initia
    - Assess overall bug backlog health
 
 2. **Create Bug Investigation Task**
+   - **Git Detection**: Check for .git directory in project root (use file system tools)
    - Create structured task with bug investigation template:
      ```json
      {
@@ -242,10 +246,12 @@ This workflow provides a comprehensive 7-step bug management process from initia
        "summary": "[Detailed symptoms, reproduction steps, and initial impact assessment]",
        "priority": "[high for critical issues, medium for significant issues, low for minor issues]",
        "complexity": "[Initial estimate: 3-5 for investigation, adjust after analysis]",
-       "templateIds": ["bug-investigation-workflow"],
+       "templateIds": ["bug-investigation-workflow", "local-git-branching-workflow"],
        "tags": "task-type-bug,component-[affected-area],severity-[high/medium/low]"
      }
      ```
+   - **Note**: If git detected, automatically include "local-git-branching-workflow" template
+   - **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
 3. **Detailed Investigation**
    - **Problem Analysis**:
@@ -407,6 +413,7 @@ This workflow provides a data-driven 8-step sprint planning process using the Ta
      - Appropriate complexity for team capacity
      - Dependencies are satisfied or manageable
      - Clear acceptance criteria defined
+     - Implementation tasks have git workflow templates applied (check for "local-git-branching-workflow" template)
    
    - **Task Updates for Sprint Commitment**:
      ```json
@@ -563,6 +570,7 @@ This workflow provides a comprehensive 8-step project initialization process for
      ```
 
 4. **Initial Task Creation**
+   - **Git Detection**: Check for .git directory in project root (use file system tools)
    - **Infrastructure and Setup Tasks**:
      ```json
      {
@@ -571,7 +579,7 @@ This workflow provides a comprehensive 8-step project initialization process for
        "projectId": "[project-id]",
        "priority": "high",
        "complexity": 6,
-       "templateIds": ["task-implementation-workflow", "technical-approach"],
+       "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
        "tags": "task-type-infrastructure,setup,foundation"
      }
      ```
@@ -588,6 +596,11 @@ This workflow provides a comprehensive 8-step project initialization process for
        "tags": "task-type-research,planning,technology-validation"
      }
      ```
+   
+   - **Template Selection Notes**:
+     - If git detected, include "local-git-branching-workflow" for implementation tasks
+     - Research tasks may not need git templates unless they involve code prototyping
+     - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
 5. **Template Strategy Setup**
    - **Review Available Templates**:
