@@ -55,8 +55,8 @@ class FlywayMigrationIntegrationTest {
         // Test that FlywayDatabaseSchemaManager can be created
         assertNotNull(schemaManager)
         
-        // Test that it implements the correct interface
-        assertTrue(schemaManager is io.github.jpicklyk.mcptask.infrastructure.database.schema.management.DatabaseSchemaManager)
+        // Test that it's specifically a FlywayDatabaseSchemaManager
+        assertTrue(schemaManager is FlywayDatabaseSchemaManager)
     }
 
     @Test

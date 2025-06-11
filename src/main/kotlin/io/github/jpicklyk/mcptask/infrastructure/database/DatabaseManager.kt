@@ -61,7 +61,8 @@ class DatabaseManager(
                 url = jdbcUrl,
                 driver = "org.sqlite.JDBC",
                 setupConnection = { connection ->
-                    connection.createStatement().executeUpdate("PRAGMA foreign_keys = ON")
+                    // Use execute() instead of executeUpdate() for pragma statements
+                    connection.createStatement().execute("PRAGMA foreign_keys = ON")
                 }
             )
             TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
