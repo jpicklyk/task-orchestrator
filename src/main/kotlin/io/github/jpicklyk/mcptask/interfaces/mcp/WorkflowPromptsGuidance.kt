@@ -83,6 +83,8 @@ object WorkflowPromptsGuidance {
                             ```
 
                             ## Step 5: Create Associated Tasks
+                            **Git Detection**: Check for .git directory in project root using file system tools
+                            
                             Break down the feature into specific tasks:
                             ```json
                             For each major component, use create_task with:
@@ -92,10 +94,15 @@ object WorkflowPromptsGuidance {
                               "featureId": "[feature-id-from-step-3]",
                               "complexity": "[1-10 based on effort estimate]",
                               "priority": "[based on implementation order]",
-                              "templateIds": ["task-implementation-workflow", "technical-approach"],
+                              "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
                               "tags": "[task-type-feature,component-type,technical-area]"
                             }
                             ```
+                            
+                            **Template Selection Notes**:
+                            - If git detected, automatically include "local-git-branching-workflow" template
+                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
+                            - For complex tasks (complexity > 6): Include "technical-approach" template
 
                             ## Step 6: Establish Dependencies (if needed)
                             Link related tasks:
@@ -957,7 +964,7 @@ object WorkflowPromptsGuidance {
 
                             **Template Selection Strategy**:
                             - Implementation tasks (complexity > 3): Task Implementation + Git Branching workflows
-                            - Complex features (complexity > 6): Add Technical Approach template
+                            - Complex features (complexity > 6): Task Implementation + Git Branching + Technical Approach templates
                             - Bug fixes: Bug Investigation + Git Branching workflows
 
                             ## Quality Validation Requirements

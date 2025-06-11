@@ -83,6 +83,7 @@ This workflow provides a complete 7-step process for creating well-structured fe
    - Review the documentation foundation
 
 5. **Create Associated Tasks**
+   - **Git Detection**: Check for .git directory in project root (use file system tools)
    - Break down the feature into specific implementation tasks:
      ```json
      {
@@ -91,10 +92,12 @@ This workflow provides a complete 7-step process for creating well-structured fe
        "featureId": "[feature-id-from-step-3]",
        "complexity": "[1-10 based on effort estimate]",
        "priority": "[based on implementation order]",
-       "templateIds": ["task-implementation-workflow", "technical-approach"],
+       "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
        "tags": "[task-type-feature,component-type,technical-area]"
      }
      ```
+   - **Note**: If git detected, automatically include "local-git-branching-workflow" template
+   - **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
 6. **Establish Dependencies (if needed)**
    - Use `create_dependency` to establish task relationships
@@ -731,7 +734,7 @@ This workflow provides intelligent feature implementation guidance with automati
 
 **Template Selection Strategy**:
 - Implementation tasks (complexity > 3): Task Implementation + Git Branching workflows
-- Complex features (complexity > 6): Add Technical Approach template
+- Complex features (complexity > 6): Task Implementation + Git Branching + Technical Approach templates
 - Bug fixes: Bug Investigation + Git Branching workflows
 
 #### Quality Validation Requirements
@@ -772,28 +775,103 @@ This workflow complements other workflow prompts:
 
 ## Using Workflow Prompts
 
-Workflow prompts are accessed through the MCP prompt system and can be invoked by AI assistants to provide structured guidance:
+Workflow prompts provide structured guidance for complex project management scenarios. You can use them in two ways:
 
-```json
-{
-  "method": "prompts/get",
-  "params": {
-    "name": "create_feature_workflow"
-  }
-}
-```
+### Usage Pattern 1: Guided Discovery (Run Prompt Alone)
 
-### Invocation Examples
+Run the workflow prompt without additional details, and the AI will guide you through questions to understand your specific needs:
 
 ```bash
-# Ask Claude to use a specific workflow
-"Use the create_feature_workflow to help me set up user authentication"
+# Basic invocation - AI will ask questions to understand your needs
+task-orchestrator:project_setup_workflow
 
-# Combine workflows for complex scenarios
-"Apply the project_setup_workflow and then use sprint_planning_workflow for the first sprint"
+# AI Response: "I'll help you set up a new project. What type of project are you building? 
+# What technologies are you planning to use? What are your main business goals?"
+```
 
-# Reference workflows in task creation
-"Create this task following the task_breakdown_workflow approach"
+```bash
+# Another example
+task-orchestrator:create_feature_workflow
+
+# AI Response: "I'll help you create a comprehensive feature. What functionality do you want to build? 
+# Do you have specific user stories or requirements in mind?"
+```
+
+**Best for:**
+- Exploring options and getting structured guidance
+- Learning about project setup best practices
+- When you're not sure about all the details yet
+- Getting AI assistance to think through requirements
+
+### Usage Pattern 2: Direct Implementation (Provide Details with Prompt)
+
+Provide your project details directly with the workflow prompt for immediate, targeted assistance:
+
+```bash
+task-orchestrator:project_setup_workflow
+
+I'm setting up a new web API project using Node.js and Express. It needs user authentication, 
+a PostgreSQL database, and REST endpoints for managing user profiles and documents. 
+The target deployment is Docker containers on AWS.
+```
+
+```bash
+task-orchestrator:create_feature_workflow
+
+I want to create a user authentication feature that supports email/password login, 
+social auth (Google, Apple), and JWT token management. It should integrate with our 
+existing user database and include password reset functionality.
+```
+
+```bash
+task-orchestrator:bug_triage_workflow
+
+We have a critical bug where users can't upload files larger than 5MB. The error happens 
+on both web and mobile clients. It started after yesterday's deployment of the new file 
+processing service. Users get a "Request timeout" error after 30 seconds.
+```
+
+**Best for:**
+- Getting immediate, focused assistance
+- When you have clear requirements
+- Faster workflow execution
+- Specific problem-solving scenarios
+
+### Choosing Your Approach
+
+| Use Guided Discovery When: | Use Direct Implementation When: |
+|---------------------------|--------------------------------|
+| Learning the system | You have clear requirements |
+| Exploring best practices | Working on time-sensitive tasks |
+| Unsure about requirements | Following established patterns |
+| Want comprehensive guidance | Need immediate action |
+
+### Advanced Usage Examples
+
+**Combining Workflows:**
+```bash
+task-orchestrator:project_setup_workflow
+
+followed by
+
+task-orchestrator:sprint_planning_workflow
+
+Set up a React dashboard project with authentication and data visualization, 
+then plan the first 2-week sprint focusing on basic auth and one chart type.
+```
+
+**Sequential Workflow Application:**
+```bash
+# First, break down a complex task
+task-orchestrator:task_breakdown_workflow
+
+This task involves building a complete CI/CD pipeline with testing, security scanning, 
+and multi-environment deployment.
+
+# Then implement the pieces
+task-orchestrator:implement_feature_workflow
+
+Now implement the first subtask from the breakdown.
 ```
 
 ### Integration Points
