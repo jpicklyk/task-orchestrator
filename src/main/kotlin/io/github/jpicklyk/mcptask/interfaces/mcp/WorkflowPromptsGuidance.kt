@@ -936,7 +936,7 @@ object WorkflowPromptsGuidance {
 
                             **If Git Detected**: Automatically apply "Local Git Branching Workflow" template
 
-                            **Ask User**: "Do you use GitHub/GitLab pull requests? If yes, I can apply PR workflow template"
+                            **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
                             **If GitHub MCP Available**: Mention GitHub MCP tools can automate PR creation and management
 

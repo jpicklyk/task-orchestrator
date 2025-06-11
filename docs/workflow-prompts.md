@@ -714,7 +714,7 @@ This workflow provides intelligent feature implementation guidance with automati
 3. **Apply Appropriate Templates with Smart Detection**
    - **Always apply**: "Task Implementation Workflow" template for implementation tasks
    - **If git detected**: Automatically apply "Local Git Branching Workflow" template  
-   - **Ask user**: "Do you use GitHub/GitLab pull requests? If yes, I can apply PR workflow template"
+   - **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
    - **If GitHub MCP available**: Mention GitHub MCP tools can automate PR creation and management
    - **For complex tasks**: Consider "Technical Approach" template for architectural guidance
 
