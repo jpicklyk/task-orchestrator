@@ -5,7 +5,7 @@ title: Workflow Prompts
 
 # MCP Workflow Prompts
 
-The MCP Task Orchestrator includes **5 user-invokable workflow prompts** that provide structured guidance for common task orchestration scenarios. These prompts are designed to work seamlessly with the MCP tool ecosystem and offer step-by-step workflows for complex project management tasks.
+The MCP Task Orchestrator includes **6 user-invokable workflow prompts** that provide structured guidance for common task orchestration scenarios. These prompts are designed to work seamlessly with the MCP tool ecosystem and offer step-by-step workflows for complex project management tasks.
 
 ## Table of Contents
 
@@ -16,6 +16,7 @@ The MCP Task Orchestrator includes **5 user-invokable workflow prompts** that pr
   - [bug_triage_workflow](#bug_triage_workflow)
   - [sprint_planning_workflow](#sprint_planning_workflow)
   - [project_setup_workflow](#project_setup_workflow)
+  - [implement_feature_workflow](#implement_feature_workflow)
 - [Using Workflow Prompts](#using-workflow-prompts)
 - [Integration with Templates](#integration-with-templates)
 
@@ -100,10 +101,11 @@ This workflow provides a complete 7-step process for creating well-structured fe
    - Link prerequisite tasks with BLOCKS relationships
    - Create feature completion chains
 
-7. **Final Review**
+7. **Final Review and Completion Validation**
    - Use `get_feature` with `includeTasks=true` and `includeSections=true`
    - Verify complete feature structure
    - Ensure all tasks have clear acceptance criteria
+   - **Before marking feature as completed**: Use `get_sections` to review all feature sections and verify template guidance was followed
 
 #### Best Practices Included
 
@@ -175,11 +177,12 @@ This workflow provides a systematic 7-step approach for decomposing complex work
      }
      ```
 
-7. **Review the Breakdown**
+7. **Review the Breakdown and Completion Validation**
    - Use `get_feature` (if created) or `search_tasks` to review all subtasks
    - Ensure total complexity is manageable
    - Verify dependencies don't create cycles
    - Confirm clear acceptance criteria for each subtask
+   - **For task completion**: Before marking any subtask as completed, use `get_sections` to verify all template guidance was followed
 
 #### Common Breakdown Patterns
 
@@ -296,10 +299,11 @@ This workflow provides a comprehensive 7-step bug management process from initia
      - Use `apply_template` with "local-git-branching-workflow" or "github-pr-workflow"
      - Follow step-by-step guidance for branch creation, development, testing, and deployment
 
-7. **Resolution Tracking**
+7. **Resolution Tracking and Completion Validation**
    - Use `update_task` to track progress:
      - **pending** → **in-progress** when starting investigation/fix
      - **in-progress** → **completed** when fix is deployed and verified
+   - **Before marking as completed**: Use `get_sections` to verify all bug investigation template guidance was followed
    - Document resolution details and lessons learned in sections
 
 #### Bug Classification System
@@ -672,6 +676,97 @@ This workflow provides a comprehensive 8-step project initialization process for
 - Features show steady progression
 - Dependencies are managed and don't create bottlenecks
 - Project overview shows balanced work distribution
+
+### `implement_feature_workflow`
+
+**Guide for implementing features with automatic git detection and proper development workflow integration**
+
+This workflow provides intelligent feature implementation guidance with automatic project context detection and workflow template suggestion.
+
+#### Workflow Steps
+
+1. **Check Current State & Git Detection**
+   - Use `get_overview` to understand project context and current work priorities
+   - Use file system tools to detect if project uses git (check for `.git` directory existence)
+   - If git detected, automatically suggest "Local Git Branching Workflow" template application
+   - Review existing in-progress tasks to avoid conflicts
+
+2. **Select Implementation Target**
+   - Use `search_tasks` with `status="pending"` and `priority="high"` to identify suitable work
+   - Review available features using `search_features` for feature-level work
+   - Suggest starting with highest priority, unblocked tasks
+   - Verify prerequisites and dependencies are satisfied using `get_task_dependencies`
+
+3. **Apply Appropriate Templates with Smart Detection**
+   - **Always apply**: "Task Implementation Workflow" template for implementation tasks
+   - **If git detected**: Automatically apply "Local Git Branching Workflow" template  
+   - **Ask user**: "Do you use GitHub/GitLab pull requests? If yes, I can apply PR workflow template"
+   - **If GitHub MCP available**: Mention GitHub MCP tools can automate PR creation and management
+   - **For complex tasks**: Consider "Technical Approach" template for architectural guidance
+
+4. **Execute Implementation with Template Guidance**
+   - Follow template-provided step-by-step instructions from applied templates
+   - Make incremental commits if using git workflows (following git template guidance)
+   - Update task status to "in-progress" when starting work
+   - Use `update_task` to track progress and add implementation notes
+
+5. **Complete with Validation**
+   - **Before marking task as completed**: Use `get_sections` to read all task sections
+   - **Verify template compliance**: Ensure all instructional template guidance was followed
+   - **Git workflow completion**: If using git templates, complete branch merge process
+   - **Run tests and verification**: Follow testing guidance from applied templates
+   - Update task status to "completed" only after full validation
+
+#### Git Integration Best Practices
+
+**Auto-Detection Logic**:
+- Check for `.git` directory in project root or parent directories
+- If found, always suggest "Local Git Branching Workflow" template
+- Ask about PR workflows rather than assuming (different teams have different practices)
+
+**GitHub Integration**:
+- Detect if GitHub MCP server is available in the environment
+- If available, mention it can automate PR creation, review management, and merge processes
+- Only suggest GitHub PR workflow template if user confirms they use PRs
+
+**Template Selection Strategy**:
+- Implementation tasks (complexity > 3): Task Implementation + Git Branching workflows
+- Complex features (complexity > 6): Add Technical Approach template
+- Bug fixes: Bug Investigation + Git Branching workflows
+
+#### Quality Validation Requirements
+
+**Task Completion Validation**:
+```bash
+# Before marking any task as completed:
+get_sections --entityType TASK --entityId [task-id]
+
+# Review each section's guidance, especially:
+# - Requirements compliance
+# - Implementation approach validation  
+# - Testing strategy completion
+# - Git workflow steps (if applicable)
+```
+
+**Feature Completion Validation**:
+```bash
+# Before marking any feature as completed:
+get_sections --entityType FEATURE --entityId [feature-id]
+get_feature --id [feature-id] --includeTasks true --includeTaskCounts true
+
+# Verify:
+# - All associated tasks are completed
+# - Feature-level requirements satisfied
+# - Integration testing completed
+# - Documentation updated
+```
+
+#### Integration with Other Workflows
+
+This workflow complements other workflow prompts:
+- Use with `task_breakdown_workflow` for complex features requiring decomposition
+- Integrate with `sprint_planning_workflow` for systematic work organization
+- Apply `bug_triage_workflow` principles for bug-related implementation work
 
 ---
 

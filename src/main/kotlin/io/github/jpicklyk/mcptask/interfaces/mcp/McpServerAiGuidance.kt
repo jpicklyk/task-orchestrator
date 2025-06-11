@@ -102,11 +102,19 @@ object McpServerAiGuidance {
                             - Apply appropriate templates during creation
                             - Set realistic complexity ratings (helps with future estimation)
                             - Use consistent tagging conventions
+                            - **Before marking completed**: Use `get_sections` to verify all template guidance was followed
                             
                             ### For Feature Organization
                             - Group related tasks under features for better organization
                             - Use feature-level templates for planning and requirements
                             - Track feature status independently from individual tasks
+                            - **Before marking completed**: Verify all associated tasks are completed and feature sections reviewed
+                            
+                            ### For Git Integration
+                            - Auto-detect git projects by checking for `.git` directory
+                            - Always suggest "Local Git Branching Workflow" template for git projects
+                            - Ask about PR workflows rather than assuming (teams vary)
+                            - Mention GitHub MCP tools if available for PR automation
                             
                             ### For Efficient Operations
                             - Start work sessions with `get_overview`

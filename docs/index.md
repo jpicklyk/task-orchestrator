@@ -20,7 +20,7 @@ Welcome to the comprehensive documentation for MCP Task Orchestrator - an AI-nat
   </div>
   <div class="grid-item">
     <h3>📋 <a href="workflow-prompts">Workflow Prompts</a></h3>
-    <p>5 built-in workflow automations for common scenarios</p>
+    <p>6 built-in workflow automations for common scenarios</p>
   </div>
   <div class="grid-item">
     <h3>📝 <a href="templates">Templates</a></h3>
