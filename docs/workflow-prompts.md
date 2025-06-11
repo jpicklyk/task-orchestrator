@@ -164,7 +164,6 @@ This workflow provides a systematic 7-step approach for decomposing complex work
      }
      ```
    - **Note**: If git detected, automatically include "local-git-branching-workflow" template
-   - **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
 5. **Establish Task Dependencies**
    - Use `create_dependency` to establish implementation order
@@ -600,7 +599,6 @@ This workflow provides a comprehensive 8-step project initialization process for
    - **Template Selection Notes**:
      - If git detected, include "local-git-branching-workflow" for implementation tasks
      - Research tasks may not need git templates unless they involve code prototyping
-     - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
 5. **Template Strategy Setup**
    - **Review Available Templates**:

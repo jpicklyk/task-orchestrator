@@ -201,7 +201,6 @@ object WorkflowPromptsGuidance {
                             
                             **Template Selection Notes**:
                             - If git detected, automatically include "local-git-branching-workflow" template
-                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
                             ## Step 5: Establish Task Dependencies
                             Link subtasks with proper sequencing:
@@ -776,7 +775,6 @@ object WorkflowPromptsGuidance {
                             **Template Selection Notes**:
                             - If git detected, include "local-git-branching-workflow" for implementation tasks
                             - Research tasks may not need git templates unless they involve code prototyping
-                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
 
                             ## Step 5: Template Strategy Setup
                             Establish consistent documentation patterns:
