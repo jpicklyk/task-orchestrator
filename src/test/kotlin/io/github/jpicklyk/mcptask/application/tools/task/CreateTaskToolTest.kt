@@ -300,6 +300,11 @@ class CreateTaskToolTest {
             mockTaskRepository.create(any())
         } returns Result.Success(taskWithFeature)
 
+        // Setup feature repository to return success for the feature ID validation
+        coEvery {
+            mockRepositoryProvider.featureRepository().getById(featureId)
+        } returns Result.Success(mockk())
+
         val result = tool.execute(params, context)
 
         // Check that the result is a success response

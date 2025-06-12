@@ -324,6 +324,33 @@ class CreateTaskTool : BaseToolDefinition() {
                 if (it.isEmpty()) null else UUID.fromString(it)
             }
 
+            // Validate that referenced entities exist before attempting to create task
+            if (projectId != null) {
+                when (val projectResult = context.repositoryProvider.projectRepository().getById(projectId)) {
+                    is Result.Error -> {
+                        return errorResponse(
+                            message = "Project not found",
+                            code = ErrorCodes.RESOURCE_NOT_FOUND,
+                            details = "No project exists with ID $projectId"
+                        )
+                    }
+                    is Result.Success -> { /* Project exists, continue */ }
+                }
+            }
+
+            if (featureId != null) {
+                when (val featureResult = context.repositoryProvider.featureRepository().getById(featureId)) {
+                    is Result.Error -> {
+                        return errorResponse(
+                            message = "Feature not found", 
+                            code = ErrorCodes.RESOURCE_NOT_FOUND,
+                            details = "No feature exists with ID $featureId"
+                        )
+                    }
+                    is Result.Success -> { /* Feature exists, continue */ }
+                }
+            }
+
             // Parse tags
             val tags = optionalString(params, "tags")?.let {
                 if (it.isEmpty()) emptyList()

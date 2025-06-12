@@ -315,6 +315,20 @@ class CreateFeatureTool : BaseToolDefinition() {
                 if (it.isEmpty()) null else UUID.fromString(it)
             }
             
+            // Validate that referenced project exists before attempting to create feature
+            if (projectId != null) {
+                when (val projectResult = context.repositoryProvider.projectRepository().getById(projectId)) {
+                    is Result.Error -> {
+                        return errorResponse(
+                            message = "Project not found",
+                            code = ErrorCodes.RESOURCE_NOT_FOUND,
+                            details = "No project exists with ID $projectId"
+                        )
+                    }
+                    is Result.Success -> { /* Project exists, continue */ }
+                }
+            }
+            
             // Convert string parameters to appropriate types
             val status = parseStatus(statusStr)
             val priority = parsePriority(priorityStr)
