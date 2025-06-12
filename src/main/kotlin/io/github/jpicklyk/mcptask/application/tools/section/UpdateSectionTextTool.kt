@@ -24,8 +24,29 @@ class UpdateSectionTextTool : BaseToolDefinition() {
         This tool allows changing portions of section content by providing the text to replace
         and its replacement.
         
-        This is particularly useful for large section contents where sending the entire
-        content for small changes would be inefficient for context usage.
+        ## Context Efficiency Strategy
+        
+        **PREFERRED** for targeted content updates in large sections:
+        - Only send the specific text segment to replace and its replacement
+        - Much more efficient than sending entire content for small changes
+        - Ideal for correcting typos, updating specific paragraphs, or modifying parts of documentation
+        - Significantly reduces token usage compared to full content updates
+        
+        **When to Use**:
+        - Correcting typos in template-generated content
+        - Updating specific values or references within larger documentation
+        - Making incremental improvements to existing sections
+        - Modifying parts of sections without affecting the overall structure
+        
+        **Usage Examples**:
+        - Fixing typos: `oldText: "straegy"` → `newText: "strategy"`
+        - Updating references: `oldText: "version 1.0"` → `newText: "version 2.0"`
+        - Modifying template placeholders: `oldText: "[Insert details here]"` → `newText: "Actual implementation details"`
+        
+        **Compared to Other Update Tools**:
+        - Use `update_section_text` for content changes (most efficient for partial updates)
+        - Use `update_section_metadata` for title, format, ordinal, or tag changes
+        - Use `update_section` for complete content replacement (less efficient)
         
         Parameters:
         - id (required): UUID of the section to update

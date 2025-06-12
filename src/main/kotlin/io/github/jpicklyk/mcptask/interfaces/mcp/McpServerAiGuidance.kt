@@ -28,8 +28,7 @@ object McpServerAiGuidance {
         // Add server overview prompt for users
         addServerOverviewPrompt(this)
         
-        // Add template management guidance
-        TemplateMgtGuidance.configureTemplateManagementGuidance(this)
+        // Template management guidance now integrated into tool descriptions
         
         // Add workflow prompts for common task orchestrator workflows
         WorkflowPromptsGuidance.configureWorkflowPrompts(this)

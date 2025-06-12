@@ -31,8 +31,66 @@ class ApplyTemplateTool(
 
     override val description: String = """Apply one or more templates to create sections for a task or feature.
         
-        Templates provide a standardized structure for task and feature documentation.
-        This tool applies templates to an entity, creating sections based on the templates' section definitions.
+        ## Purpose
+        Templates provide standardized structure for task and feature documentation.
+        This tool applies templates to an entity, creating sections based on template section definitions.
+        
+        ## Template Application Strategies
+        
+        **Multiple Template Support**:
+        - Apply multiple templates in single operation using templateIds array
+        - Templates applied in array order (later templates' sections appear after earlier ones)
+        - Use single-item array for one template: ["template-uuid"]
+        - Use multiple templates for comprehensive coverage: ["uuid1", "uuid2", "uuid3"]
+        
+        **Template Combination Patterns**:
+        The template system is organized into composable categories:
+        
+        **AI Workflow Instructions** (process guidance):
+        - Local Git Branching Workflow, GitHub PR Workflow
+        - Task Implementation Workflow, Bug Investigation Workflow
+        
+        **Documentation Properties** (information capture):
+        - Technical Approach, Requirements Specification, Context & Background
+        
+        **Process & Quality** (standards and completion):
+        - Testing Strategy, Definition of Done
+        
+        **Recommended Combinations**:
+        - **Development Task**: Technical Approach + Task Implementation Workflow + Testing Strategy
+        - **Bug Fix**: Bug Investigation Workflow + Technical Approach + Definition of Done
+        - **Feature Planning**: Requirements Specification + Context & Background + Testing Strategy
+        - **Complex Implementation**: Technical Approach + Local Git Branching + GitHub PR + Definition of Done
+        
+        ## Context Efficiency Techniques
+        
+        **ALWAYS PREFER** direct creation with templates over separate operations:
+        ```
+        // EFFICIENT
+        create_task(title: "X", templateIds: ["Y"])
+        
+        // LESS EFFICIENT  
+        id = create_task(title: "X")
+        apply_template(entityId: id, templateIds: ["Y"])
+        ```
+        
+        **Multiple Templates in One Call**:
+        ```
+        // EFFICIENT
+        apply_template(entityId: id, templateIds: ["A", "B", "C"])
+        
+        // LESS EFFICIENT
+        apply_template(entityId: id, templateIds: ["A"])
+        apply_template(entityId: id, templateIds: ["B"]) 
+        apply_template(entityId: id, templateIds: ["C"])
+        ```
+        
+        **Template Sequence Optimization**:
+        1. Start with Context: Context & Background, Requirements Specification
+        2. Add Technical Detail: Technical Approach for implementation guidance  
+        3. Include Process Guidance: Task Implementation, Bug Investigation workflows
+        4. Add Git Workflow: Local Git Branching, GitHub PR workflows
+        5. Ensure Quality: Testing Strategy, Definition of Done
         
         You can apply one or more templates by providing a templateIds array parameter.
         Use a single-item array for applying just one template.
