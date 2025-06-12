@@ -14,7 +14,6 @@ The MCP Task Orchestrator includes **6 user-invokable workflow prompts** that pr
   - [create_feature_workflow](#create_feature_workflow)
   - [task_breakdown_workflow](#task_breakdown_workflow)
   - [bug_triage_workflow](#bug_triage_workflow)
-  - [sprint_planning_workflow](#sprint_planning_workflow)
   - [project_setup_workflow](#project_setup_workflow)
   - [implement_feature_workflow](#implement_feature_workflow)
 - [Using Workflow Prompts](#using-workflow-prompts)
@@ -337,155 +336,6 @@ This workflow provides a comprehensive 7-step bug management process from initia
 
 ---
 
-### `sprint_planning_workflow`
-
-**Comprehensive guide for sprint planning using task orchestrator tools and data**
-
-This workflow provides a data-driven 8-step sprint planning process using the Task Orchestrator's analytical capabilities.
-
-#### Workflow Steps
-
-1. **Current State Analysis**
-   - Use `get_overview` to see all features, tasks, and work distribution
-   - Look for:
-     - In-progress tasks that need completion
-     - High-priority pending tasks
-     - Feature completion status
-     - Orphaned tasks needing organization
-
-2. **Backlog Analysis**
-   - Use `search_tasks` with various filters:
-     - `status="pending"` + `priority="high"`
-     - `status="pending"` + `priority="medium"`
-   - Review:
-     - Task complexity distribution
-     - Feature associations
-     - Dependencies between tasks
-     - Bug vs. feature work balance
-
-3. **Capacity Assessment**
-   - **Review In-Progress Work**:
-     - Use `search_tasks` with `status="in-progress"`
-     - Estimate completion effort for current tasks
-     - Identify potential blockers or delays
-     - Consider carry-over work impact
-   
-   - **Analyze Task Complexity**:
-     - Use `search_tasks` sorted by complexity
-     - Group tasks by complexity for estimation
-     - Consider team skill distribution
-     - Plan for complexity variance
-
-4. **Priority Setting**
-   - **Business Value Assessment**:
-     - Review feature summaries for business impact
-     - Consider user-facing vs. internal improvements
-     - Evaluate technical debt vs. new feature balance
-   
-   - **Dependency Analysis**:
-     - Use `get_task_dependencies` for critical tasks
-     - Identify blocking dependencies
-     - Plan task sequencing
-     - Consider cross-team dependencies
-
-5. **Sprint Goal Definition**
-   - **Feature-Based Goals**:
-     - Use `get_feature` with `includeTasks=true` for key features
-     - Complete specific features or feature phases
-     - Address critical bug backlogs
-     - Achieve technical milestones
-   
-   - **Create Sprint Feature (Optional)**:
-     ```json
-     {
-       "name": "Sprint [X] - [Sprint Goal]",
-       "summary": "[Sprint objectives and success criteria]",
-       "status": "in-development",
-       "priority": "high",
-       "tags": "sprint-planning,sprint-[number],goal-[theme]"
-     }
-     ```
-
-6. **Task Selection and Assignment**
-   - **Selection Criteria**:
-     - Aligns with sprint goals
-     - Appropriate complexity for team capacity
-     - Dependencies are satisfied or manageable
-     - Clear acceptance criteria defined
-     - Implementation tasks have git workflow templates applied (check for "local-git-branching-workflow" template)
-   
-   - **Task Updates for Sprint Commitment**:
-     ```json
-     {
-       "id": "[task-id]",
-       "tags": "[existing-tags],sprint-[number],assigned-[team-member]",
-       "priority": "[adjusted for sprint priority]"
-     }
-     ```
-
-7. **Sprint Backlog Organization**
-   - **Create Dependencies**:
-     - Use `create_dependency` to establish work sequences
-     - Link prerequisite tasks
-     - Create feature completion chains
-     - Plan integration points
-   
-   - **Task Breakdown (if needed)**:
-     - Use `task_breakdown_workflow` for complex tasks
-     - Split large tasks into sprint-sized work
-     - Enable parallel development
-     - Reduce estimation uncertainty
-
-8. **Sprint Monitoring Setup**
-   - **Create Sprint Views**:
-     - Use `search_tasks` with `tag="sprint-[number]"`
-     - This becomes your primary sprint tracking view
-   
-   - **Define Daily Standup Queries**:
-     - `status="in-progress"` + `tag="sprint-[number]"` for current work
-     - `status="completed"` + `tag="sprint-[number]"` for recent completions
-     - Tasks with blockers or dependency issues
-
-#### Sprint Planning Best Practices
-
-**Task Selection Guidelines**:
-- Include a mix of complexities (avoid all high-complexity tasks)
-- Reserve 20% capacity for unexpected work and support
-- Balance feature development with technical debt
-- Include testing and documentation tasks
-
-**Risk Mitigation**:
-- Identify tasks with external dependencies
-- Plan alternatives for high-risk tasks
-- Include buffer tasks for scope adjustment
-- Consider team availability and skills
-
-**Communication Planning**:
-- Update task summaries with sprint-specific context
-- Add acceptance criteria that align with sprint goals
-- Plan integration points and review checkpoints
-- Document assumptions and constraints
-
-#### Sprint Execution Support
-
-**Daily Progress Tracking**:
-- Use `search_tasks` with various status filters
-- Track task progression through statuses
-- Identify blockers early
-- Monitor scope creep
-
-**Mid-Sprint Adjustments**:
-- Use task priority updates for scope changes
-- Move non-critical tasks out of sprint
-- Break down tasks that prove more complex
-
-**Sprint Review Preparation**:
-- Use `search_tasks` with `status="completed"` and `tag="sprint-[number]"`
-- Review completed work
-- Document lessons learned in task sections
-- Identify process improvements
-
----
 
 ### `project_setup_workflow`
 
@@ -779,7 +629,6 @@ get_feature --id [feature-id] --includeTasks true --includeTaskCounts true
 
 This workflow complements other workflow prompts:
 - Use with `task_breakdown_workflow` for complex features requiring decomposition
-- Integrate with `sprint_planning_workflow` for systematic work organization
 - Apply `bug_triage_workflow` principles for bug-related implementation work
 
 ---
@@ -859,17 +708,6 @@ processing service. Users get a "Request timeout" error after 30 seconds.
 
 ### Advanced Usage Examples
 
-**Combining Workflows:**
-```bash
-task-orchestrator:project_setup_workflow
-
-followed by
-
-task-orchestrator:sprint_planning_workflow
-
-Set up a React dashboard project with authentication and data visualization, 
-then plan the first 2-week sprint focusing on basic auth and one chart type.
-```
 
 **Sequential Workflow Application:**
 ```bash
@@ -907,7 +745,7 @@ Workflow prompts are designed to work seamlessly with the template system:
 ### Template Categories by Workflow
 - **AI Workflow Instructions**: Used in implementation and git workflows
 - **Documentation Properties**: Used in feature and project setup workflows
-- **Process & Quality**: Used in bug triage and sprint planning workflows
+- **Process & Quality**: Used in bug triage workflows
 
 ### Custom Template Integration
 - Workflows can incorporate custom templates created for specific project needs
