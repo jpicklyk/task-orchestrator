@@ -9,7 +9,7 @@ val baseVersion = "1.0"
 
 // Define release qualifier (empty for stable releases)
 // Examples: "", "alpha-01", "beta-02", "rc-01"
-val qualifier = "beta-01"
+val qualifier = ""
 
 
 // Calculate build number from Git
