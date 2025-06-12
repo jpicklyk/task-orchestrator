@@ -10,7 +10,7 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 - **[📖 Full Documentation](docs/)** - Complete guides and reference
 - **[🚀 Quick Start Guide](docs/quick-start.md)** - Get running in 2 minutes
 - **[🔧 API Reference](docs/api-reference.md)** - All 37 MCP tools detailed
-- **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 6 built-in workflow automations
+- **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 5 built-in workflow automations
 - **[📝 Templates](docs/templates.md)** - 9 built-in documentation templates
 - **[🗃️ Database Migrations](docs/database-migrations.md)** - Schema change management for developers
 - **[💬 Community Wiki](../../wiki)** - Examples, tips, and community guides
@@ -82,11 +82,10 @@ Project (optional)
 - **Documentation Properties**: Technical approach, requirements, context & background  
 - **Process & Quality**: Testing strategy, definition of done
 
-### Workflow Prompts (6 Built-in Workflows)
+### Workflow Prompts (5 Built-in Workflows)
 - `create_feature_workflow` - Comprehensive feature creation
 - `task_breakdown_workflow` - Complex task decomposition
 - `bug_triage_workflow` - Systematic bug management
-- `sprint_planning_workflow` - Data-driven sprint planning
 - `project_setup_workflow` - Complete project initialization
 - `implement_feature_workflow` - Git-aware feature implementation with completion validation
 

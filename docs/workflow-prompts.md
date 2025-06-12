@@ -5,7 +5,7 @@ title: Workflow Prompts
 
 # MCP Workflow Prompts
 
-The MCP Task Orchestrator includes **6 user-invokable workflow prompts** that provide structured guidance for common task orchestration scenarios. These prompts are designed to work seamlessly with the MCP tool ecosystem and offer step-by-step workflows for complex project management tasks.
+The MCP Task Orchestrator includes **5 user-invokable workflow prompts** that provide structured guidance for common task orchestration scenarios. These prompts are designed to work seamlessly with the MCP tool ecosystem and offer step-by-step workflows for complex project management tasks.
 
 ## Table of Contents
 
