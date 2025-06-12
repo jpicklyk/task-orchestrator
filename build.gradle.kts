@@ -4,12 +4,14 @@ plugins {
     application
 }
 
-// Define a base version (manually maintained)
-val baseVersion = "1.0"
+// Define semantic version components (manually maintained)
+val majorVersion = "1"
+val minorVersion = "0"
+val patchVersion = "0"
 
 // Define release qualifier (empty for stable releases)
 // Examples: "", "alpha-01", "beta-02", "rc-01"
-val qualifier = "beta-01"
+val qualifier = ""
 
 
 // Calculate build number from Git
@@ -25,6 +27,7 @@ fun calculateBuildNumberFromGit(): Int {
 
 // Construct the full version
 val buildNumber = calculateBuildNumberFromGit()
+val baseVersion = "$majorVersion.$minorVersion.$patchVersion"
 
 val fullVersion = if (qualifier.isNotEmpty()) {
     "$baseVersion.$buildNumber-$qualifier"
@@ -111,8 +114,9 @@ tasks.register("generateVersionInfo") {
             // Created from build.gradle.kts
             object VersionInfo {
                 const val VERSION = "$fullVersion"
-                const val MAJOR_VERSION = "${baseVersion.split(".")[0]}"
-                const val MINOR_VERSION = "${baseVersion.split(".").getOrElse(1) { "0" }}"
+                const val MAJOR_VERSION = "$majorVersion"
+                const val MINOR_VERSION = "$minorVersion"
+                const val PATCH_VERSION = "$patchVersion"
                 const val BUILD_NUMBER = "$buildNumber"
                 const val QUALIFIER = "${qualifier.ifEmpty { "" }}"
                 
@@ -132,8 +136,9 @@ tasks.register("generateVersionInfo") {
 tasks.register("printVersion") {
     doLast {
         println("Project Version: $fullVersion")
-        println("  - Major: ${baseVersion.split(".")[0]}")
-        println("  - Minor: ${baseVersion.split(".").getOrElse(1) { "0" }}")
+        println("  - Major: $majorVersion")
+        println("  - Minor: $minorVersion")
+        println("  - Patch: $patchVersion")
         println("  - Build: $buildNumber")
         println("  - Qualifier: ${qualifier.ifEmpty { "none" }}")
     }
