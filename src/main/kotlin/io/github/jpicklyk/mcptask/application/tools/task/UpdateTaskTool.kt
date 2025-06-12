@@ -266,6 +266,20 @@ class UpdateTaskTool(
                 if (it.isEmpty()) null else UUID.fromString(it)
             } ?: existingTask.featureId
 
+            // Validate that referenced feature exists if featureId is being set/changed
+            if (featureId != null && featureId != existingTask.featureId) {
+                when (val featureResult = context.repositoryProvider.featureRepository().getById(featureId)) {
+                    is Result.Error -> {
+                        return errorResponse(
+                            message = "Feature not found",
+                            code = ErrorCodes.RESOURCE_NOT_FOUND,
+                            details = "No feature exists with ID $featureId"
+                        )
+                    }
+                    is Result.Success -> { /* Feature exists, continue */ }
+                }
+            }
+
             val tags = optionalString(params, "tags")?.let {
                 if (it.isEmpty()) emptyList()
                 else it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotEmpty() }
