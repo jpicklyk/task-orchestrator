@@ -3,9 +3,11 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.domain.model.EntityType
+import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
+import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.domain.repository.TaskRepository
@@ -28,6 +30,7 @@ class UpdateTaskToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var validTaskId: String
     private lateinit var mockTaskRepository: TaskRepository
+    private lateinit var mockFeatureRepository: FeatureRepository
     private lateinit var mockTask: Task
 
     @BeforeEach
@@ -35,10 +38,12 @@ class UpdateTaskToolTest {
         tool = UpdateTaskTool()
         // Create a mock repository provider and repositories
         mockTaskRepository = mockk<TaskRepository>()
+        mockFeatureRepository = mockk<FeatureRepository>()
         val mockRepositoryProvider = mockk<RepositoryProvider>()
 
-        // Configure the repository provider to return the mock task repository
+        // Configure the repository provider to return the mock repositories
         every { mockRepositoryProvider.taskRepository() } returns mockTaskRepository
+        every { mockRepositoryProvider.featureRepository() } returns mockFeatureRepository
 
         // Create the execution context with the mock repository provider
         context = ToolExecutionContext(mockRepositoryProvider)
@@ -334,5 +339,104 @@ class UpdateTaskToolTest {
         val error = responseObj["error"]?.jsonObject
         assertNotNull(error, "Error object should not be null")
         assertEquals("DATABASE_ERROR", error!!["code"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `test invalid featureId foreign key validation`() = runBlocking {
+        val invalidFeatureId = UUID.randomUUID().toString()
+        
+        // Mock feature repository to return not found for invalid feature ID
+        coEvery {
+            mockFeatureRepository.getById(UUID.fromString(invalidFeatureId))
+        } returns Result.Error(
+            RepositoryError.NotFound(
+                UUID.fromString(invalidFeatureId),
+                EntityType.FEATURE,
+                "Feature not found"
+            )
+        )
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId),
+                "featureId" to JsonPrimitive(invalidFeatureId)
+            )
+        )
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: true
+        assertFalse(success, "Success should be false for invalid featureId")
+
+        val message = responseObj["message"]?.jsonPrimitive?.content
+        assertEquals("Feature not found", message, "Should return proper feature not found message")
+
+        val error = responseObj["error"]?.jsonObject
+        assertNotNull(error, "Error object should not be null")
+        assertEquals("RESOURCE_NOT_FOUND", error!!["code"]?.jsonPrimitive?.content)
+        
+        val details = error["details"]?.jsonPrimitive?.content
+        assertTrue(
+            details?.contains("No feature exists with ID $invalidFeatureId") ?: false,
+            "Error details should mention the specific feature ID"
+        )
+    }
+
+    @Test
+    fun `test valid featureId foreign key validation`() = runBlocking {
+        val validFeatureId = UUID.randomUUID().toString()
+        val mockFeature = mockk<Feature>()
+        
+        // Mock feature repository to return success for valid feature ID
+        coEvery {
+            mockFeatureRepository.getById(UUID.fromString(validFeatureId))
+        } returns Result.Success(mockFeature)
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId),
+                "featureId" to JsonPrimitive(validFeatureId)
+            )
+        )
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true for valid featureId")
+
+        val message = responseObj["message"]?.jsonPrimitive?.content
+        assertTrue(
+            message?.contains("updated successfully") ?: false,
+            "Message should contain 'updated successfully'"
+        )
+    }
+
+    @Test
+    fun `test featureId validation only triggered when changing feature`() = runBlocking {
+        // Task already has a feature ID - updating without changing it should not trigger validation
+        val existingFeatureId = UUID.randomUUID()
+        val taskWithFeature = mockTask.copy(featureId = existingFeatureId)
+        
+        coEvery {
+            mockTaskRepository.getById(UUID.fromString(validTaskId))
+        } returns Result.Success(taskWithFeature)
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId),
+                "title" to JsonPrimitive("Updated Title") // Only updating title, not featureId
+            )
+        )
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true when not changing featureId")
     }
 }

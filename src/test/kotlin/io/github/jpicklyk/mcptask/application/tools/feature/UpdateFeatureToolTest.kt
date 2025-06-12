@@ -6,7 +6,9 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
+import io.github.jpicklyk.mcptask.domain.repository.ProjectRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
@@ -14,8 +16,7 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -26,16 +27,19 @@ class UpdateFeatureToolTest {
     private lateinit var tool: UpdateFeatureTool
     private lateinit var context: ToolExecutionContext
     private lateinit var mockFeatureRepository: FeatureRepository
+    private lateinit var mockProjectRepository: ProjectRepository
     private val testFeatureId = UUID.randomUUID()
 
     @BeforeEach
     fun setup() {
         // Create mock repositories
         mockFeatureRepository = mockk<FeatureRepository>()
+        mockProjectRepository = mockk<ProjectRepository>()
         val mockRepositoryProvider = mockk<RepositoryProvider>()
 
         // Configure the repository provider to return the mock repositories
         every { mockRepositoryProvider.featureRepository() } returns mockFeatureRepository
+        every { mockRepositoryProvider.projectRepository() } returns mockProjectRepository
 
         // Create an original feature
         val originalFeature = Feature(
@@ -207,5 +211,130 @@ class UpdateFeatureToolTest {
         val resultObj = result as JsonObject
         assertEquals(false, (resultObj["success"] as JsonPrimitive).content.toBoolean())
         assertTrue((resultObj["message"] as JsonPrimitive).content.contains("Feature not found"))
+    }
+
+    @Test
+    fun `test invalid projectId foreign key validation`() = runBlocking {
+        val invalidProjectId = UUID.randomUUID().toString()
+        
+        // Mock project repository to return not found for invalid project ID
+        coEvery {
+            mockProjectRepository.getById(UUID.fromString(invalidProjectId))
+        } returns Result.Error(
+            RepositoryError.NotFound(
+                UUID.fromString(invalidProjectId),
+                EntityType.PROJECT,
+                "Project not found"
+            )
+        )
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(testFeatureId.toString()),
+                "projectId" to JsonPrimitive(invalidProjectId)
+            )
+        )
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: true
+        assertFalse(success, "Success should be false for invalid projectId")
+
+        val message = responseObj["message"]?.jsonPrimitive?.content
+        assertEquals("Project not found", message, "Should return proper project not found message")
+
+        val error = responseObj["error"]?.jsonObject
+        assertNotNull(error, "Error object should not be null")
+        assertEquals("RESOURCE_NOT_FOUND", error!!["code"]?.jsonPrimitive?.content)
+        
+        val details = error["details"]?.jsonPrimitive?.content
+        assertTrue(
+            details?.contains("No project exists with ID $invalidProjectId") ?: false,
+            "Error details should mention the specific project ID"
+        )
+    }
+
+    @Test
+    fun `test valid projectId foreign key validation`() = runBlocking {
+        val validProjectId = UUID.randomUUID().toString()
+        val mockProject = mockk<Project>()
+        
+        // Mock project repository to return success for valid project ID
+        coEvery {
+            mockProjectRepository.getById(UUID.fromString(validProjectId))
+        } returns Result.Success(mockProject)
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(testFeatureId.toString()),
+                "projectId" to JsonPrimitive(validProjectId)
+            )
+        )
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true for valid projectId")
+
+        val message = responseObj["message"]?.jsonPrimitive?.content
+        assertTrue(
+            message?.contains("updated successfully") ?: false,
+            "Message should contain 'updated successfully'"
+        )
+    }
+
+    @Test
+    fun `test projectId validation only triggered when changing project`() = runBlocking {
+        // Feature already has a project ID - updating without changing it should not trigger validation
+        val existingProjectId = UUID.randomUUID()
+        val featureWithProject = Feature(
+            id = testFeatureId,
+            projectId = existingProjectId,
+            name = "Original Feature",
+            summary = "Original description",
+            status = FeatureStatus.PLANNING,
+            priority = Priority.MEDIUM,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now(),
+            tags = emptyList()
+        )
+        
+        coEvery {
+            mockFeatureRepository.getById(testFeatureId)
+        } returns Result.Success(featureWithProject)
+
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(testFeatureId.toString()),
+                "name" to JsonPrimitive("Updated Name") // Only updating name, not projectId
+            )
+        )
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true when not changing projectId")
+    }
+
+    @Test
+    fun `test projectId parameter validation`() {
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(testFeatureId.toString()),
+                "projectId" to JsonPrimitive("not-a-uuid")
+            )
+        )
+
+        // Should throw an exception for invalid projectId format
+        val exception = assertThrows(ToolValidationException::class.java) {
+            tool.validateParams(params)
+        }
+        assertTrue(exception.message!!.contains("Invalid project ID format"))
     }
 }

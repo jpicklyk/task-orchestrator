@@ -56,6 +56,13 @@ class UpdateFeatureTool : BaseToolDefinition() {
                         "description" to JsonPrimitive("New priority level (high, medium, low)")
                     )
                 ),
+                "projectId" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("New project ID (UUID) to associate this feature with"),
+                        "format" to JsonPrimitive("uuid")
+                    )
+                ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
@@ -103,6 +110,17 @@ class UpdateFeatureTool : BaseToolDefinition() {
                 throw ToolValidationException("Invalid priority: $priority. Must be one of: high, medium, low")
             }
         }
+
+        // Validate projectId if present
+        optionalString(params, "projectId")?.let { projectId ->
+            if (projectId.isNotEmpty()) {
+                try {
+                    UUID.fromString(projectId)
+                } catch (_: IllegalArgumentException) {
+                    throw ToolValidationException("Invalid project ID format. Must be a valid UUID")
+                }
+            }
+        }
     }
 
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -126,6 +144,24 @@ class UpdateFeatureTool : BaseToolDefinition() {
                     val status = optionalString(params, "status")?.let { parseStatus(it) } ?: feature.status
                     val priority = optionalString(params, "priority")?.let { parsePriority(it) } ?: feature.priority
 
+                    val projectId = optionalString(params, "projectId")?.let {
+                        if (it.isEmpty()) null else UUID.fromString(it)
+                    } ?: feature.projectId
+
+                    // Validate that referenced project exists if projectId is being set/changed
+                    if (projectId != null && projectId != feature.projectId) {
+                        when (val projectResult = context.repositoryProvider.projectRepository().getById(projectId)) {
+                            is Result.Error -> {
+                                return errorResponse(
+                                    message = "Project not found",
+                                    code = ErrorCodes.RESOURCE_NOT_FOUND,
+                                    details = "No project exists with ID $projectId"
+                                )
+                            }
+                            is Result.Success -> { /* Project exists, continue */ }
+                        }
+                    }
+
                     val tags = optionalString(params, "tags")?.let {
                         it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotBlank() }
                     } ?: feature.tags
@@ -133,6 +169,7 @@ class UpdateFeatureTool : BaseToolDefinition() {
                     // Create an updated feature
                     val updatedFeature = feature.update(
                         name = name,
+                        projectId = projectId,
                         summary = summary,
                         status = status,
                         priority = priority,
