@@ -131,13 +131,11 @@ java -jar build/libs/mcp-task-orchestrator-*.jar
 
 ## Release Information
 
-**🚀 Ready for 1.0.0 Release**
-
 Version follows semantic versioning with git-based build numbers:
 
-- Format: `{major}.{minor}.{git-commit-count}-{qualifier}`
-- Stable releases remove the qualifier (e.g., `1.0.123`)
-- Pre-releases include qualifier (e.g., `1.0.123-beta-01`)
+- Format: `{major}.{minor}.{patch}.{git-commit-count}-{qualifier}`
+- Stable releases remove the qualifier (e.g., `1.0.0.123`)
+- Pre-releases include qualifier (e.g., `1.0.0.123-beta-01`)
 
 Current versioning defined in [build.gradle.kts](build.gradle.kts).
 
