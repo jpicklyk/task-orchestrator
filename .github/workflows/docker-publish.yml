@@ -22,6 +22,25 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Validate version consistency
+      if: github.ref_type == 'tag'
+      run: |
+        # Extract version from build.gradle.kts
+        GRADLE_VERSION=$(grep -E '^val (majorVersion|minorVersion|patchVersion)' build.gradle.kts | \
+          sed 's/.*= "\(.*\)"/\1/' | paste -sd '.' -)
+        
+        # Extract tag version (remove 'v' prefix)
+        TAG_VERSION=${GITHUB_REF_NAME#v}
+        
+        echo "Gradle version: $GRADLE_VERSION"
+        echo "Git tag version: $TAG_VERSION"
+        
+        if [ "$GRADLE_VERSION" != "$TAG_VERSION" ]; then
+          echo "ERROR: Version mismatch! Gradle version ($GRADLE_VERSION) does not match git tag ($TAG_VERSION)"
+          exit 1
+        fi
+        echo "✅ Version consistency validated"
+
     - name: Log in to Container Registry
       uses: docker/login-action@v3
       with:
