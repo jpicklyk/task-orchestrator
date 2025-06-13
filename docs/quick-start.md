@@ -19,24 +19,29 @@ Get MCP Task Orchestrator running with Claude Desktop in under 2 minutes. This g
 
 ## Step 1: Get the Docker Image
 
-### Option A: Pull Pre-built Image (Fastest)
+### Option A: Pull Production Image (Fastest)
 ```bash
-# Pull the latest image
-docker pull mcp-task-orchestrator:latest
+# Pull the latest release
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Or specific version
+docker pull ghcr.io/jpicklyk/task-orchestrator:1.0.0
+
+# Or latest build from main branch
+docker pull ghcr.io/jpicklyk/task-orchestrator:main
 ```
 
-### Option B: Build Locally (Recommended for Development)
+### Option B: Build Locally (Development)
 ```bash
 # Clone the repository
 git clone https://github.com/jpicklyk/task-orchestrator.git
 cd task-orchestrator
 
-# Build using the provided script
-# Windows
+# Build using the provided script (Windows)
 ./scripts/docker-clean-and-build.bat
 
-# Linux/Mac
-./scripts/docker-clean-and-build.sh
+# Or manually
+docker build -t mcp-task-orchestrator:dev .
 ```
 
 ---
@@ -46,8 +51,11 @@ cd task-orchestrator
 Verify the container works:
 
 ```bash
-# Quick test run
-docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator
+# Quick test run (production image)
+docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Or test local build
+docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
 ```
 
 You should see MCP server startup messages. Press `Ctrl+C` to stop.
@@ -66,6 +74,7 @@ You should see MCP server startup messages. Press `Ctrl+C` to stop.
 
 Open `claude_desktop_config.json` and add:
 
+#### Production Configuration (Recommended)
 ```json
 {
   "mcpServers": {
@@ -77,7 +86,26 @@ Open `claude_desktop_config.json` and add:
         "-i",
         "--volume",
         "mcp-task-data:/app/data",
-        "mcp-task-orchestrator"
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
+}
+```
+
+#### Local Development Configuration
+```json
+{
+  "mcpServers": {
+    "task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--volume",
+        "mcp-task-data:/app/data",
+        "mcp-task-orchestrator:dev"
       ]
     }
   }
@@ -227,9 +255,13 @@ docker system prune
 Verify your setup with this simple test:
 
 ```bash
-# Test the container directly
+# Test the container directly (production)
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
-docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator
+docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Or test local build
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
 ```
 
 You should see a list of available tools.
@@ -250,7 +282,7 @@ Customize behavior with environment variables:
         "--volume", "mcp-task-data:/app/data",
         "--env", "MCP_DEBUG=true",
         "--env", "DATABASE_PATH=/app/data/my-tasks.db",
-        "mcp-task-orchestrator"
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
   }

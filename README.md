@@ -27,17 +27,33 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 
 ## Quick Start (2 Minutes)
 
-### 1. Run with Docker
-```bash
-# Quick test run
-docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator
+### 1. Pull or Build Docker Image
 
-# Or build locally
-./scripts/docker-clean-and-build.bat  # Windows
+#### Option A: Production Image (Recommended)
+```bash
+# Pull latest release
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Or specific version
+docker pull ghcr.io/jpicklyk/task-orchestrator:1.0.0
+
+# Or latest build from main branch
+docker pull ghcr.io/jpicklyk/task-orchestrator:main
 ```
 
-### 2. Configure Claude Desktop
+#### Option B: Build Locally (Development)
+```bash
+# Build locally
+./scripts/docker-clean-and-build.bat  # Windows
+# Or manually: docker build -t mcp-task-orchestrator:dev .
+```
+
+### 2. Configure Claude Desktop or Claude Code
+
+#### For Claude Desktop
 Add to your `claude_desktop_config.json`:
+
+**Production Configuration**
 ```json
 {
   "mcpServers": {
@@ -46,14 +62,56 @@ Add to your `claude_desktop_config.json`:
       "args": [
         "run", "--rm", "-i",
         "--volume", "mcp-task-data:/app/data",
-        "mcp-task-orchestrator"
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
   }
 }
 ```
 
-### 3. Start Using
+**Local Development Configuration**
+```json
+{
+  "mcpServers": {
+    "task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--volume", "mcp-task-data:/app/data",
+        "mcp-task-orchestrator:dev"
+      ]
+    }
+  }
+}
+```
+
+#### For Claude Code
+Use the JSON configuration command:
+
+```bash
+# Production version (latest release)
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+
+# Specific version
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:1.0.0"]}'
+
+# Latest from main branch
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:main"]}'
+
+# Local development version (after building locally)
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","mcp-task-orchestrator:dev"]}'
+```
+
+### 3. Test Connection (Optional)
+```bash
+# Test the Docker container runs correctly
+docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Test MCP connection (requires Node.js)
+node scripts/test-mcp-connection.js
+```
+
+### 4. Start Using
 Ask Claude:
 - "Create a new project for my web application"
 - "Show me the project overview"
@@ -97,26 +155,24 @@ Project (optional)
 - **9 Section Management Tools** - Rich documentation
 - **9 Template Management Tools** - Workflow automation
 
-## Installation Options
+## Alternative Installation Options
 
-### Option 1: Docker (Recommended)
-```bash
-# Build and run
-./scripts/docker-clean-and-build.bat
-
-# Configure environment
-MCP_TRANSPORT=stdio
-DATABASE_PATH=data/tasks.db
-USE_FLYWAY=true
-```
-
-### Option 2: Direct JAR
+### Option 1: Direct JAR (Without Docker)
 ```bash
 # Build
 ./gradlew build
 
 # Run
 java -jar build/libs/mcp-task-orchestrator-*.jar
+```
+
+### Option 2: Development Environment Variables
+```bash
+# Configure environment for local development
+MCP_TRANSPORT=stdio
+DATABASE_PATH=data/tasks.db
+USE_FLYWAY=true
+MCP_DEBUG=true  # Enable debug logging
 ```
 
 ## Configuration

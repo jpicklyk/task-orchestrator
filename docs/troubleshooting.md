@@ -43,8 +43,11 @@ This guide covers common issues and their solutions when using MCP Task Orchestr
 
 3. **Test Docker Container**
    ```bash
-   # Test the container directly
-   docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator
+   # Test the container directly (production)
+   docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest
+   
+   # Or test local build
+   docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
    ```
 
 4. **Check Docker Status**

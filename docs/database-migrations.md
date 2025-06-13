@@ -234,8 +234,8 @@ Flyway Community Edition doesn't support automatic rollbacks. For complex migrat
 
 ### Manual Rollback Process
 ```bash
-# 1. Stop the application
-docker-compose down
+# 1. Stop the application (if running in background)
+docker stop mcp-task-orchestrator 2>/dev/null || true
 
 # 2. Connect to database and run rollback SQL
 sqlite3 data/tasks.db < rollback_v5.sql
@@ -243,8 +243,11 @@ sqlite3 data/tasks.db < rollback_v5.sql
 # 3. Update Flyway history
 sqlite3 data/tasks.db "DELETE FROM flyway_schema_history WHERE version = '5';"
 
-# 4. Restart application
-docker-compose up
+# 4. Restart application (production)
+docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Or restart local development
+docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
 ```
 
 ## Troubleshooting
@@ -275,8 +278,11 @@ EXPLAIN QUERY PLAN SELECT * FROM table_name WHERE condition;
 ### Debugging Migrations
 
 ```bash
-# Enable debug logging
-LOG_LEVEL=debug USE_FLYWAY=true docker-compose up
+# Enable debug logging (production)
+docker run --rm -i -v mcp-task-data:/app/data -e LOG_LEVEL=debug -e USE_FLYWAY=true ghcr.io/jpicklyk/task-orchestrator:latest
+
+# Or with local development
+docker run --rm -i -v mcp-task-data:/app/data -e LOG_LEVEL=debug -e USE_FLYWAY=true mcp-task-orchestrator:dev
 
 # Check Flyway schema history
 sqlite3 data/tasks.db "SELECT * FROM flyway_schema_history ORDER BY installed_rank;"
