@@ -35,7 +35,7 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 
 # Or specific version
-docker pull ghcr.io/jpicklyk/task-orchestrator:1.0.0
+docker pull ghcr.io/jpicklyk/task-orchestrator:1.0.1
 
 # Or latest build from main branch
 docker pull ghcr.io/jpicklyk/task-orchestrator:main
@@ -93,7 +93,7 @@ Use the JSON configuration command:
 claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
 
 # Specific version
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:1.0.0"]}'
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:1.0.1"]}'
 
 # Latest from main branch
 claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:main"]}'
