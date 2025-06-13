@@ -3,7 +3,7 @@
 A Kotlin implementation of the Model Context Protocol (MCP) server for comprehensive task management, providing AI assistants with a structured, context-efficient way to interact with project data.
 
 [![Version](https://img.shields.io/github/v/release/jpicklyk/task-orchestrator?include_prereleases)](https://github.com/jpicklyk/task-orchestrator/releases)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ## 📚 Documentation
 
@@ -234,4 +234,4 @@ See [contributing guidelines](CONTRIBUTING.md) for details.
 
 ## License
 
-[AGPL-3.0 License](LICENSE)
+[MIT License](LICENSE)
