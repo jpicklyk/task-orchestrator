@@ -7,7 +7,7 @@ plugins {
 // Define semantic version components (manually maintained)
 val majorVersion = "1"
 val minorVersion = "0"
-val patchVersion = "0"
+val patchVersion = "1"
 
 // Define release qualifier (empty for stable releases)
 // Examples: "", "alpha-01", "beta-02", "rc-01"
