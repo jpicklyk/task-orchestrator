@@ -25,6 +25,9 @@ RUN ./gradlew build --no-daemon
 # Runtime stage
 FROM eclipse-temurin:23-jdk-alpine
 
+# Update packages to fix CVEs: CVE-2024-8176 (libexpat) and CVE-2025-0840 (binutils)
+RUN apk update && apk upgrade libexpat binutils
+
 WORKDIR /app
 
 # Copy the built JAR from the builder stage
