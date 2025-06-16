@@ -23,7 +23,7 @@ COPY src src
 RUN ./gradlew build --no-daemon
 
 # Runtime stage
-FROM amazoncorretto:23-al2023-jdk
+FROM eclipse-temurin:23-jdk-alpine
 
 WORKDIR /app
 
