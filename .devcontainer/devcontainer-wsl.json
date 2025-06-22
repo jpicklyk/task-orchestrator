@@ -1,0 +1,47 @@
+{
+  "name": "Task Orchestrator MCP Dev (WSL)",
+  "dockerComposeFile": "docker-compose-wsl.yml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  
+  // Features to add to the dev container
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally
+  "forwardPorts": [3100, 3101, 3102],
+
+  // Use 'postCreateCommand' to run commands after the container is created
+  "postCreateCommand": "echo 'DevContainer ready!'",
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "fwcd.kotlin",
+        "vscjava.vscode-gradle",
+        "ms-vscode.makefile-tools",
+        "yzhang.markdown-all-in-one",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "kotlin.compiler.jvm.target": "17",
+        "java.configuration.runtimes": [
+          {
+            "name": "JavaSE-17",
+            "path": "/usr/local/sdkman/candidates/java/current"
+          }
+        ]
+      }
+    }
+  },
+  
+  // Environment variables
+  "remoteEnv": {
+    "GRADLE_USER_HOME": "/home/vscode/.gradle",
+    "WSLENV": "USERPROFILE/p"
+  }
+}

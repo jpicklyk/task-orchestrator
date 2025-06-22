@@ -1,0 +1,29 @@
+services:
+  dev:
+    container_name: task-orchestrator-devcontainer
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+      - gradle-cache:/home/vscode/.gradle
+    environment:
+      - GRADLE_USER_HOME=/home/vscode/.gradle
+      # MCP specific environment variables for isolation
+      - MCP_SERVER_NAME=task-orchestrator-dev
+      - MCP_SERVER_PORT=3100
+    # Isolated network to prevent conflicts
+    networks:
+      - task-orchestrator-dev
+    # Prevent automatic port exposure to avoid conflicts
+    ports:
+      - "3100-3102:3100-3102"
+    command: /bin/sh -c "while sleep 1000; do :; done"
+
+networks:
+  task-orchestrator-dev:
+    name: task-orchestrator-dev-network
+    driver: bridge
+
+volumes:
+  gradle-cache:
