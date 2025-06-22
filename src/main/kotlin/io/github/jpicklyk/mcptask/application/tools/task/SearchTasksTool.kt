@@ -382,7 +382,15 @@ class SearchTasksTool : BaseToolDefinition() {
             val status = statusStr?.let { parseStatus(it) }
             val priority = priorityStr?.let { parsePriority(it) }
             val featureId = featureIdStr?.let { UUID.fromString(it) }
-            val projectId = projectIdStr?.let { UUID.fromString(it) }
+            
+            // Use explicit projectId if provided, otherwise check project context
+            val projectId = if (projectIdStr != null) {
+                UUID.fromString(projectIdStr)
+            } else {
+                // Check if there's a project context set for this session
+                val sessionId = context.sessionId ?: "default"
+                io.github.jpicklyk.mcptask.application.context.ProjectContext.getCurrentProject(sessionId)
+            }
 
             // Use the appropriate repository method based on available parameters
             // Execute the search using the unified findByFilters method from base repository

@@ -8,9 +8,11 @@ import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
  * This is passed to tools during execution to provide access to common resources.
  *
  * @property repositoryProvider Provider of repository instances
+ * @property sessionId Optional session identifier for maintaining context across tool calls
  */
 class ToolExecutionContext(
-    val repositoryProvider: RepositoryProvider
+    val repositoryProvider: RepositoryProvider,
+    val sessionId: String? = null
 ) {
     /**
      * Gets the TaskRepository instance.

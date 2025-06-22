@@ -114,6 +114,7 @@ class SQLiteFeatureRepository(
     override fun getPriorityColumn(): Column<Priority>? = FeaturesTable.priority
     override fun getEntityStatus(entity: Feature): FeatureStatus? = entity.status
     override fun getEntityPriority(entity: Feature): Priority? = entity.priority
+    override fun getProjectIdColumn(): Column<UUID?>? = FeaturesTable.projectId
 
     //======================================
     // FeatureRepository Interface Implementation

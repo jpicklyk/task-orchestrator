@@ -212,7 +212,16 @@ class SearchFeaturesTool : BaseToolDefinition() {
             // Convert string parameters to appropriate types
             val status = statusStr?.let { parseStatus(it) }
             val priority = priorityStr?.let { parsePriority(it) }
-            val projectId = projectIdStr?.let { UUID.fromString(it) }
+            
+            // Use explicit projectId if provided, otherwise check project context
+            val projectId = if (projectIdStr != null) {
+                UUID.fromString(projectIdStr)
+            } else {
+                // Check if there's a project context set for this session
+                val sessionId = context.sessionId ?: "default"
+                io.github.jpicklyk.mcptask.application.context.ProjectContext.getCurrentProject(sessionId)
+            }
+            
             val createdAfter = createdAfterStr?.let { Instant.parse(it) }
             val createdBefore = createdBeforeStr?.let { Instant.parse(it) }
 
