@@ -122,6 +122,12 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
      */
     protected abstract fun getEntityPriority(entity: T): TPriority?
 
+    /**
+     * Gets the projectId column for the entity (optional).
+     * Override in repositories that support project scoping.
+     */
+    protected open fun getProjectIdColumn(): Column<UUID?>? = null
+
     //======================================
     // Common CRUD Operations
     //======================================
@@ -555,11 +561,13 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
                 var query = table.selectAll()
 
                 // Apply project filter if this implementation supports it
-                // (will be overridden in project-scoped repositories)
+                if (projectId != null && getProjectIdColumn() != null) {
+                    query = query.where { getProjectIdColumn()!! eq projectId }
+                }
 
                 // Apply status filter
                 if (status != null && getStatusColumn() != null) {
-                    query = query.where { getStatusColumn()!! eq status }
+                    query = query.andWhere { getStatusColumn()!! eq status }
                 }
 
                 // Apply priority filter
@@ -634,11 +642,13 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
                 var query = table.selectAll()
 
                 // Apply project filter if this implementation supports it
-                // (will be overridden in project-scoped repositories)
+                if (projectId != null && getProjectIdColumn() != null) {
+                    query = query.where { getProjectIdColumn()!! eq projectId }
+                }
 
                 // Apply status filter
                 if (status != null && getStatusColumn() != null) {
-                    query = query.where { getStatusColumn()!! eq status }
+                    query = query.andWhere { getStatusColumn()!! eq status }
                 }
 
                 // Apply priority filter

@@ -122,6 +122,7 @@ class SQLiteTaskRepository(
     override fun getPriorityColumn(): Column<Priority>? = TaskTable.priority
     override fun getEntityStatus(entity: Task): TaskStatus? = entity.status
     override fun getEntityPriority(entity: Task): Priority? = entity.priority
+    override fun getProjectIdColumn(): Column<UUID?>? = TaskTable.projectId
 
     //======================================
     // TaskRepository Interface Implementation
