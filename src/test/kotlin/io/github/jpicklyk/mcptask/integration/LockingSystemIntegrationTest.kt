@@ -223,18 +223,25 @@ class LockingSystemIntegrationTest {
 
         // When
         sessionManager.updateActivity(sessionId)
+        
+        // Check operation can proceed before starting
+        assertTrue(lockingService.canProceed(operation))
+        
         val operationId = lockingService.recordOperationStart(operation)
         
         // Then
         assertTrue(sessionManager.isSessionActive(sessionId))
         assertEquals(1, lockingService.getActiveOperationCount())
         
-        // Verify operation can proceed
-        assertTrue(lockingService.canProceed(operation))
+        // Verify same operation is now blocked (conflict with itself)
+        assertFalse(lockingService.canProceed(operation))
         
         // Complete operation
         lockingService.recordOperationComplete(operationId)
         assertEquals(0, lockingService.getActiveOperationCount())
+        
+        // After completion, operation should be able to proceed again
+        assertTrue(lockingService.canProceed(operation))
     }
 
     @Test
