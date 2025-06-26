@@ -28,6 +28,8 @@ class DeleteTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "delete_task"
+    
+    override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Deletes a task by its ID"
 
@@ -97,6 +99,11 @@ class DeleteTaskTool(
             val taskId = UUID.fromString(idStr)
             val force = optionalBoolean(params, "force", false)
             val deleteSections = optionalBoolean(params, "deleteSections", true)
+
+            // Check for operation conflicts before proceeding
+            checkOperationPermissions("delete_task", EntityType.TASK, taskId)?.let { lockError ->
+                return lockError
+            }
 
             // Verify task exists before attempting to delete
             val getResult = context.taskRepository().getById(taskId)
