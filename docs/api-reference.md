@@ -52,6 +52,7 @@ Modify existing tasks with validation and relationship preservation
 - Complexity refinement
 - Tag management
 - Relationship preservation
+- **Concurrent access protection**: Prevents conflicts when multiple agents work in parallel
 
 ### `get_task`
 Retrieve individual task details with optional related entity inclusion
@@ -76,6 +77,7 @@ Remove tasks with proper dependency cleanup
 - Soft delete support
 - Section cleanup
 - Relationship validation
+- **Concurrent access protection**: Prevents conflicts during deletion operations
 
 ### `search_tasks`
 Find tasks using flexible filtering by status, priority, tags, and text queries
@@ -135,6 +137,7 @@ Modify existing features while preserving task relationships
 - Priority adjustments
 - Task relationship preservation
 - Tag management
+- **Concurrent access protection**: Prevents conflicts when multiple agents work in parallel
 
 ### `get_feature`
 Retrieve feature details with optional task listings and progressive loading
@@ -159,6 +162,7 @@ Remove features with configurable task handling (cascade or orphan)
 - Force deletion override
 - Section cleanup
 - Relationship validation
+- **Concurrent access protection**: Prevents conflicts during deletion operations
 
 ### `search_features`
 Find features using comprehensive filtering and text search capabilities
@@ -213,6 +217,7 @@ Modify existing projects with relationship preservation and validation
 - Priority adjustments
 - Relationship preservation
 - Tag management
+- **Concurrent access protection**: Prevents conflicts when multiple agents work in parallel
 
 ### `delete_project`
 Remove projects with configurable cascade behavior for contained entities
@@ -225,6 +230,7 @@ Remove projects with configurable cascade behavior for contained entities
 - Hard delete vs soft delete
 - Comprehensive cleanup
 - Relationship validation
+- **Concurrent access protection**: Prevents conflicts during deletion operations
 
 ### `search_projects`
 Find projects using advanced filtering, tagging, and full-text search capabilities
@@ -597,4 +603,32 @@ Use bulk operations when possible:
 - Apply workflow prompts for structured process guidance
 - Combine multiple tools in logical sequences for complex operations
 
-This comprehensive API provides all the tools needed for sophisticated project management workflows while maintaining context efficiency and supporting AI-driven automation.
+## Concurrent Access Protection
+
+The MCP Task Orchestrator includes built-in protection against sub-agent collisions when multiple AI agents work in parallel. The locking system automatically prevents conflicts on update and delete operations for projects, features, and tasks.
+
+### How It Works
+
+- **Automatic Protection**: No additional configuration needed - protection is built into the tools
+- **Conflict Detection**: Operations check for conflicts before proceeding
+- **Clear Error Messages**: Blocked operations receive descriptive error responses
+- **Timeout Protection**: Operations automatically expire after 2 minutes to prevent deadlocks from crashed agents
+
+### Protected Operations
+
+The following tools include concurrent access protection:
+- `update_task` and `delete_task`
+- `update_feature` and `delete_feature` 
+- `update_project` and `delete_project`
+
+### Handling Conflicts
+
+When a conflict is detected, the tool returns an error response indicating that another operation is currently active on the same entity. The recommended approach is to wait briefly and retry the operation.
+
+### Best Practices
+
+- **Parallel Workflows**: Multiple agents can safely work on different entities simultaneously
+- **Retry Logic**: Implement simple retry logic for conflict scenarios
+- **Entity Separation**: Distribute work across different projects, features, or tasks to minimize conflicts
+
+This comprehensive API provides all the tools needed for sophisticated project management workflows while maintaining context efficiency, supporting AI-driven automation, and ensuring safe parallel operation.

@@ -23,6 +23,7 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 - **📋 Template-Driven**: 9 built-in templates for consistent documentation
 - **🔄 Workflow Automation**: 5 comprehensive workflow prompts
 - **🔗 Rich Relationships**: Task dependencies with cycle detection
+- **🔒 Concurrent Access Protection**: Built-in sub-agent collision prevention
 - **⚡ 37 MCP Tools**: Complete task orchestration API
 
 ## Quick Start (2 Minutes)
