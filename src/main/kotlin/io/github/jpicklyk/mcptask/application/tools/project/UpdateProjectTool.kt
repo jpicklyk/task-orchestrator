@@ -3,7 +3,10 @@ package io.github.jpicklyk.mcptask.application.tools.project
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
+import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -29,9 +32,14 @@ import java.util.*
  * - delete_project: To remove a project
  * - search_projects: To find projects matching criteria
  */
-class UpdateProjectTool : BaseToolDefinition() {
+class UpdateProjectTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.PROJECT_MANAGEMENT
     override val name: String = "update_project"
+    
+    override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing project's properties.
         
@@ -163,7 +171,7 @@ class UpdateProjectTool : BaseToolDefinition() {
         optionalString(params, "tags")
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_project tool")
 
         try {
@@ -174,6 +182,11 @@ class UpdateProjectTool : BaseToolDefinition() {
             val summary = optionalString(params, "summary")
             val statusStr = optionalString(params, "status")
             val tagsStr = optionalString(params, "tags")
+
+            // Check for operation conflicts before proceeding
+            checkOperationPermissions("update_project", EntityType.PROJECT, projectId)?.let { lockError ->
+                return lockError
+            }
 
             // First, get the existing project
             val getResult = context.projectRepository().getById(projectId)
