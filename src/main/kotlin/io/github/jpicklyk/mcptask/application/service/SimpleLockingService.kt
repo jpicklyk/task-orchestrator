@@ -55,7 +55,10 @@ enum class OperationType {
 /**
  * Simple in-memory implementation of locking service.
  */
-class DefaultSimpleLockingService : SimpleLockingService {
+class DefaultSimpleLockingService(
+    /** Operation timeout in minutes - operations older than this are considered expired */
+    private val operationTimeoutMinutes: Long = 15
+) : SimpleLockingService {
     
     private val logger = LoggerFactory.getLogger(DefaultSimpleLockingService::class.java)
     
@@ -66,9 +69,13 @@ class DefaultSimpleLockingService : SimpleLockingService {
     override suspend fun canProceed(operation: LockOperation): Boolean {
         logger.debug("Checking if operation '${operation.description}' can proceed")
         
+        // Clean up expired operations first (lazy cleanup)
+        cleanupExpiredOperations()
+        
         // Conflict detection logic:
         // 1. DELETE operations are blocked by any other operation on the same entity
-        // 2. Other operations are blocked by DELETE operations on the same entity
+        // 2. Other operations are blocked by DELETE operations on the same entity  
+        // 3. WRITE operations are blocked by other WRITE operations on the same entity
         val hasConflicts = activeOperations.values.any { activeOp ->
             val entityOverlap = activeOp.entityIds.intersect(operation.entityIds).isNotEmpty()
             
@@ -77,7 +84,14 @@ class DefaultSimpleLockingService : SimpleLockingService {
                 operation.operationType == OperationType.DELETE && entityOverlap -> true
                 // Other operations are blocked by DELETE operations on same entities  
                 activeOp.operationType == OperationType.DELETE && entityOverlap -> true
-                // No conflicts for other operation combinations
+                // WRITE operations are blocked by other WRITE operations on same entities
+                operation.operationType == OperationType.WRITE && activeOp.operationType == OperationType.WRITE && entityOverlap -> true
+                // CREATE operations are blocked by other CREATE operations on same entities (prevents duplicate creation)
+                operation.operationType == OperationType.CREATE && activeOp.operationType == OperationType.CREATE && entityOverlap -> true
+                // STRUCTURE_CHANGE operations are blocked by any non-READ operation on same entities
+                operation.operationType == OperationType.STRUCTURE_CHANGE && activeOp.operationType != OperationType.READ && entityOverlap -> true
+                activeOp.operationType == OperationType.STRUCTURE_CHANGE && operation.operationType != OperationType.READ && entityOverlap -> true
+                // No conflicts for other operation combinations (READ operations never conflict)
                 else -> false
             }
         }
@@ -118,4 +132,31 @@ class DefaultSimpleLockingService : SimpleLockingService {
             entry.key to java.time.Duration.between(entry.value, now).toMillis()
         }
     }
+    
+    /**
+     * Cleans up operations that have exceeded the timeout duration.
+     * This prevents crashed agents from creating permanent deadlocks.
+     */
+    private fun cleanupExpiredOperations(): Int {
+        val now = Instant.now()
+        val timeoutThreshold = now.minusSeconds(operationTimeoutMinutes * 60)
+        
+        val expiredOperations = operationStartTimes.filter { (_, startTime) ->
+            startTime.isBefore(timeoutThreshold)
+        }
+        
+        expiredOperations.keys.forEach { operationId ->
+            activeOperations.remove(operationId)
+            operationStartTimes.remove(operationId)
+            logger.info("Cleaned up expired operation '$operationId' (timeout: ${operationTimeoutMinutes} minutes)")
+        }
+        
+        return expiredOperations.size
+    }
+    
+    /**
+     * Manually triggers cleanup of expired operations and returns count of cleaned operations.
+     * Useful for monitoring and diagnostics.
+     */
+    fun forceCleanupExpiredOperations(): Int = cleanupExpiredOperations()
 }

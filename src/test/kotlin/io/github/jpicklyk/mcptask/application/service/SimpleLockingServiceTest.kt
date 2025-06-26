@@ -266,4 +266,57 @@ class SimpleLockingServiceTest {
         lockingService.recordOperationComplete(highOpId)
         lockingService.recordOperationComplete(lowOpId)
     }
+
+    @Test
+    fun `should detect conflict between WRITE operations on same entity`() = runBlocking {
+        // Given
+        val entityId = UUID.randomUUID()
+        val writeOperation1 = LockOperation(
+            operationType = OperationType.WRITE,
+            toolName = "UpdateTaskTool",
+            description = "Agent A updating task",
+            entityIds = setOf(entityId)
+        )
+        val writeOperation2 = LockOperation(
+            operationType = OperationType.WRITE,
+            toolName = "UpdateTaskTool",
+            description = "Agent B updating task",
+            entityIds = setOf(entityId)
+        )
+
+        // When
+        val opId1 = lockingService.recordOperationStart(writeOperation1)
+        val canProceed = lockingService.canProceed(writeOperation2)
+
+        // Then
+        assertFalse(canProceed, "Second WRITE operation should be blocked when first WRITE operation is active on same entity")
+
+        // Cleanup
+        lockingService.recordOperationComplete(opId1)
+    }
+
+    @Test 
+    fun `should cleanup expired operations automatically`() = runBlocking {
+        // Given - Use short timeout for testing
+        val shortTimeoutService = DefaultSimpleLockingService(operationTimeoutMinutes = 0) // 0 minutes = immediate expiration
+        val entityId = UUID.randomUUID()
+        val operation = LockOperation(
+            operationType = OperationType.WRITE,
+            toolName = "UpdateTaskTool",
+            description = "Operation that will expire",
+            entityIds = setOf(entityId)
+        )
+
+        // When
+        val opId = shortTimeoutService.recordOperationStart(operation)
+        assertEquals(1, shortTimeoutService.getActiveOperationCount(), "Should have 1 active operation")
+        
+        // Wait a moment then try another operation (this triggers cleanup)
+        delay(100) // 100ms delay to ensure expiration
+        val canProceed = shortTimeoutService.canProceed(operation)
+
+        // Then
+        assertTrue(canProceed, "Should be able to proceed after expired operation is cleaned up")
+        assertEquals(0, shortTimeoutService.getActiveOperationCount(), "Expired operation should be cleaned up")
+    }
 }
