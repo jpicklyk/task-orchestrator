@@ -57,7 +57,7 @@ enum class OperationType {
  */
 class DefaultSimpleLockingService(
     /** Operation timeout in minutes - operations older than this are considered expired */
-    private val operationTimeoutMinutes: Long = 15
+    private val operationTimeoutMinutes: Long = 2
 ) : SimpleLockingService {
     
     private val logger = LoggerFactory.getLogger(DefaultSimpleLockingService::class.java)

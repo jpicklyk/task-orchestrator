@@ -3,7 +3,10 @@ package io.github.jpicklyk.mcptask.application.tools.feature
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
+import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
@@ -14,10 +17,15 @@ import java.util.*
 /**
  * MCP tool for deleting features with options for handling associated tasks.
  */
-class DeleteFeatureTool : BaseToolDefinition() {
+class DeleteFeatureTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
 
     override val name: String = "delete_feature"
+    
+    override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Remove a feature and its associated tasks"
 
@@ -66,7 +74,7 @@ class DeleteFeatureTool : BaseToolDefinition() {
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing delete_feature tool")
 
         try {
@@ -76,6 +84,11 @@ class DeleteFeatureTool : BaseToolDefinition() {
             val hardDelete = optionalBoolean(params, "hardDelete", false)
             val cascade = optionalBoolean(params, "cascade", false)
             val force = optionalBoolean(params, "force", false)
+
+            // Check for operation conflicts before proceeding
+            checkOperationPermissions("delete_feature", EntityType.FEATURE, featureId)?.let { lockError ->
+                return lockError
+            }
 
             // Check if the feature exists
             val featureResult = context.featureRepository().getById(featureId)

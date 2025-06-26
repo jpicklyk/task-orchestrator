@@ -3,7 +3,10 @@ package io.github.jpicklyk.mcptask.application.tools.feature
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
+import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
+import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
+import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -16,10 +19,15 @@ import java.util.*
 /**
  * MCP tool for updating existing features with partial updates.
  */
-class UpdateFeatureTool : BaseToolDefinition() {
+class UpdateFeatureTool(
+    lockingService: SimpleLockingService? = null,
+    sessionManager: SimpleSessionManager? = null
+) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
 
     override val name: String = "update_feature"
+    
+    override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Update an existing feature's properties"
 
@@ -123,13 +131,18 @@ class UpdateFeatureTool : BaseToolDefinition() {
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_feature tool")
 
         try {
             // Extract feature ID
             val idStr = requireString(params, "id")
             val featureId = UUID.fromString(idStr)
+
+            // Check for operation conflicts before proceeding
+            checkOperationPermissions("update_feature", EntityType.FEATURE, featureId)?.let { lockError ->
+                return lockError
+            }
 
             // Get the existing feature
             val featureResult = context.featureRepository().getById(featureId)
