@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
+import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -27,6 +28,8 @@ class UpdateTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "update_task"
+    
+    override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing task with the specified properties.
         
@@ -239,6 +242,11 @@ class UpdateTaskTool(
             // Extract task ID
             val idStr = requireString(params, "id")
             val taskId = UUID.fromString(idStr)
+
+            // Check for operation conflicts before proceeding
+            checkOperationPermissions("update_task", EntityType.TASK, taskId)?.let { lockError ->
+                return lockError
+            }
 
             // Get an existing task from repository
             val existingTaskResult = context.taskRepository().getById(taskId)
