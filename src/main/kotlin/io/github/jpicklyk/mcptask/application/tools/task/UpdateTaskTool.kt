@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
+import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -27,6 +28,8 @@ class UpdateTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "update_task"
+    
+    override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing task with the specified properties.
         
@@ -235,98 +238,120 @@ class UpdateTaskTool(
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_task tool")
 
-        try {
+        return try {
             // Extract task ID
-            val idStr = requireString(params, "id")
-            val taskId = UUID.fromString(idStr)
+            val taskId = extractEntityId(params, "id")
 
-            // Get an existing task from repository
-            val existingTaskResult = context.taskRepository().getById(taskId)
-            val existingTask = when (existingTaskResult) {
-                is Result.Success -> existingTaskResult.data
-                is Result.Error -> return handleRepositoryResult(
-                    existingTaskResult,
-                    "Failed to retrieve task"
-                ) { JsonNull }
+            // Execute with proper locking
+            executeWithLocking("update_task", EntityType.TASK, taskId) {
+                executeTaskUpdate(params, context, taskId)
             }
-
-            // Extract update parameters
-            val title = optionalString(params, "title") ?: existingTask.title
-            val description = optionalString(params, "description") ?: existingTask.summary
-
-            val statusStr = optionalString(params, "status")
-            val status = if (statusStr != null) parseStatus(statusStr) else existingTask.status
-
-            val priorityStr = optionalString(params, "priority")
-            val priority = if (priorityStr != null) parsePriority(priorityStr) else existingTask.priority
-
-            val complexity = optionalInt(params, "complexity") ?: existingTask.complexity
-
-            val featureId = optionalString(params, "featureId")?.let {
-                if (it.isEmpty()) null else UUID.fromString(it)
-            } ?: existingTask.featureId
-
-            // Validate that referenced feature exists if featureId is being set/changed
-            if (featureId != null && featureId != existingTask.featureId) {
-                when (val featureResult = context.repositoryProvider.featureRepository().getById(featureId)) {
-                    is Result.Error -> {
-                        return errorResponse(
-                            message = "Feature not found",
-                            code = ErrorCodes.RESOURCE_NOT_FOUND,
-                            details = "No feature exists with ID $featureId"
-                        )
-                    }
-                    is Result.Success -> { /* Feature exists, continue */ }
-                }
-            }
-
-            val tags = optionalString(params, "tags")?.let {
-                if (it.isEmpty()) emptyList()
-                else it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotEmpty() }
-            } ?: existingTask.tags
-
-            // Create an updated task entity
-            val updatedTask = existingTask.copy(
-                title = title,
-                summary = description,
-                status = status,
-                priority = priority,
-                complexity = complexity,
-                featureId = featureId,
-                tags = tags,
-                modifiedAt = Instant.now() // Always update modification time
+        } catch (e: ToolValidationException) {
+            logger.warn("Validation error updating task: ${e.message}")
+            errorResponse(
+                message = e.message ?: "Validation error",
+                code = ErrorCodes.VALIDATION_ERROR
             )
-
-            // Save updated task to repository
-            val updateResult = context.taskRepository().update(updatedTask)
-
-            // Return standardized response
-            return handleRepositoryResult(updateResult, "Task updated successfully") { updatedTaskData ->
-                buildJsonObject {
-                    put("id", updatedTaskData.id.toString())
-                    put("title", updatedTaskData.title)
-                    put("summary", updatedTaskData.summary)
-                    put("status", updatedTaskData.status.name.lowercase())
-                    put("priority", updatedTaskData.priority.name.lowercase())
-                    put("complexity", updatedTaskData.complexity)
-                    put("createdAt", updatedTaskData.createdAt.toString())
-                    put("modifiedAt", updatedTaskData.modifiedAt.toString())
-
-                    if (updatedTaskData.featureId != null) {
-                        put("featureId", updatedTaskData.featureId.toString())
-                    } else {
-                        put("featureId", JsonNull)
-                    }
-
-                    put("tags", buildJsonArray {
-                        updatedTaskData.tags.forEach { add(it) }
-                    })
-                }
-            }
         } catch (e: Exception) {
-            // Handle unexpected exceptions
             logger.error("Error updating task", e)
-            throw e // Let SimpleLockAwareToolDefinition handle the error formatting
+            errorResponse(
+                message = "Failed to update task",
+                code = ErrorCodes.INTERNAL_ERROR,
+                details = e.message ?: "Unknown error"
+            )
+        }
+    }
+
+    /**
+     * Executes the actual task update business logic.
+     */
+    private suspend fun executeTaskUpdate(
+        params: JsonElement,
+        context: ToolExecutionContext,
+        taskId: UUID
+    ): JsonElement {
+        // Get an existing task from repository
+        val existingTaskResult = context.taskRepository().getById(taskId)
+        val existingTask = when (existingTaskResult) {
+            is Result.Success -> existingTaskResult.data
+            is Result.Error -> return handleRepositoryResult(
+                existingTaskResult,
+                "Failed to retrieve task"
+            ) { JsonNull }
+        }
+
+        // Extract update parameters
+        val title = optionalString(params, "title") ?: existingTask.title
+        val description = optionalString(params, "description") ?: existingTask.summary
+
+        val statusStr = optionalString(params, "status")
+        val status = if (statusStr != null) parseStatus(statusStr) else existingTask.status
+
+        val priorityStr = optionalString(params, "priority")
+        val priority = if (priorityStr != null) parsePriority(priorityStr) else existingTask.priority
+
+        val complexity = optionalInt(params, "complexity") ?: existingTask.complexity
+
+        val featureId = optionalString(params, "featureId")?.let {
+            if (it.isEmpty()) null else UUID.fromString(it)
+        } ?: existingTask.featureId
+
+        // Validate that referenced feature exists if featureId is being set/changed
+        if (featureId != null && featureId != existingTask.featureId) {
+            when (val featureResult = context.repositoryProvider.featureRepository().getById(featureId)) {
+                is Result.Error -> {
+                    return errorResponse(
+                        message = "Feature not found",
+                        code = ErrorCodes.RESOURCE_NOT_FOUND,
+                        details = "No feature exists with ID $featureId"
+                    )
+                }
+                is Result.Success -> { /* Feature exists, continue */ }
+            }
+        }
+
+        val tags = optionalString(params, "tags")?.let {
+            if (it.isEmpty()) emptyList()
+            else it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotEmpty() }
+        } ?: existingTask.tags
+
+        // Create an updated task entity
+        val updatedTask = existingTask.copy(
+            title = title,
+            summary = description,
+            status = status,
+            priority = priority,
+            complexity = complexity,
+            featureId = featureId,
+            tags = tags,
+            modifiedAt = Instant.now() // Always update modification time
+        )
+
+        // Save updated task to repository
+        val updateResult = context.taskRepository().update(updatedTask)
+
+        // Return standardized response
+        return handleRepositoryResult(updateResult, "Task updated successfully") { updatedTaskData ->
+            buildJsonObject {
+                put("id", updatedTaskData.id.toString())
+                put("title", updatedTaskData.title)
+                put("summary", updatedTaskData.summary)
+                put("status", updatedTaskData.status.name.lowercase())
+                put("priority", updatedTaskData.priority.name.lowercase())
+                put("complexity", updatedTaskData.complexity)
+                put("createdAt", updatedTaskData.createdAt.toString())
+                put("modifiedAt", updatedTaskData.modifiedAt.toString())
+
+                if (updatedTaskData.featureId != null) {
+                    put("featureId", updatedTaskData.featureId.toString())
+                } else {
+                    put("featureId", JsonNull)
+                }
+
+                put("tags", buildJsonArray {
+                    updatedTaskData.tags.forEach { add(it) }
+                })
+            }
         }
     }
 
