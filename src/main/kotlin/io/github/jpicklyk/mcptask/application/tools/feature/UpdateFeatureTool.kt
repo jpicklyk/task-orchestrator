@@ -134,171 +134,177 @@ class UpdateFeatureTool(
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_feature tool")
 
-        try {
+        return try {
             // Extract feature ID
-            val idStr = requireString(params, "id")
-            val featureId = UUID.fromString(idStr)
+            val featureId = extractEntityId(params, "id")
 
-            // Check for operation conflicts before proceeding
-            checkOperationPermissions("update_feature", EntityType.FEATURE, featureId)?.let { lockError ->
-                return lockError
-            }
-
-            // Get the existing feature
-            val featureResult = context.featureRepository().getById(featureId)
-
-            when (featureResult) {
-                is Result.Success -> {
-                    val feature = featureResult.data
-
-                    // Extract update parameters
-                    val name = optionalString(params, "name") ?: feature.name
-                    val summary = optionalString(params, "summary") ?: feature.summary
-                    val status = optionalString(params, "status")?.let { parseStatus(it) } ?: feature.status
-                    val priority = optionalString(params, "priority")?.let { parsePriority(it) } ?: feature.priority
-
-                    val projectId = optionalString(params, "projectId")?.let {
-                        if (it.isEmpty()) null else UUID.fromString(it)
-                    } ?: feature.projectId
-
-                    // Validate that referenced project exists if projectId is being set/changed
-                    if (projectId != null && projectId != feature.projectId) {
-                        when (val projectResult = context.repositoryProvider.projectRepository().getById(projectId)) {
-                            is Result.Error -> {
-                                return errorResponse(
-                                    message = "Project not found",
-                                    code = ErrorCodes.RESOURCE_NOT_FOUND,
-                                    details = "No project exists with ID $projectId"
-                                )
-                            }
-                            is Result.Success -> { /* Project exists, continue */ }
-                        }
-                    }
-
-                    val tags = optionalString(params, "tags")?.let {
-                        it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotBlank() }
-                    } ?: feature.tags
-
-                    // Create an updated feature
-                    val updatedFeature = feature.update(
-                        name = name,
-                        projectId = projectId,
-                        summary = summary,
-                        status = status,
-                        priority = priority,
-                        tags = tags
-                    )
-
-                    // Save the updated feature
-                    return when (val updateResult = context.featureRepository().update(updatedFeature)) {
-                        is Result.Success -> {
-                            val savedFeature = updateResult.data
-
-                            // Create a response with feature information using the standardized format
-                            val responseData = buildJsonObject {
-                                put("id", savedFeature.id.toString())
-                                put("name", savedFeature.name)
-                                put("summary", savedFeature.summary)
-                                put("status", savedFeature.status.name.lowercase().replace('_', '-'))
-                                put("priority", savedFeature.priority.name.lowercase())
-                                put("createdAt", savedFeature.createdAt.toString())
-                                put("modifiedAt", savedFeature.modifiedAt.toString())
-
-                                // Include tags if present
-                                if (savedFeature.tags.isNotEmpty()) {
-                                    put("tags", savedFeature.tags.joinToString(", "))
-                                }
-                            }
-
-                            successResponse(
-                                data = responseData,
-                                message = "Feature updated successfully"
-                            )
-                        }
-
-                        is Result.Error -> {
-                            // Determine appropriate error code and message based on error type
-                            when (val error = updateResult.error) {
-                                is RepositoryError.ValidationError -> {
-                                    errorResponse(
-                                        message = "Validation error: ${error.message}",
-                                        code = ErrorCodes.VALIDATION_ERROR,
-                                        details = error.message
-                                    )
-                                }
-
-                                is RepositoryError.DatabaseError -> {
-                                    errorResponse(
-                                        message = "Database error occurred",
-                                        code = ErrorCodes.DATABASE_ERROR,
-                                        details = error.message
-                                    )
-                                }
-
-                                is RepositoryError.ConflictError -> {
-                                    errorResponse(
-                                        message = "Conflict error: ${error.message}",
-                                        code = ErrorCodes.DUPLICATE_RESOURCE,
-                                        details = error.message
-                                    )
-                                }
-
-                                else -> {
-                                    errorResponse(
-                                        message = "Failed to update feature",
-                                        code = ErrorCodes.INTERNAL_ERROR,
-                                        details = error.toString()
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                is Result.Error -> {
-                    // Handle errors when getting the feature
-                    return when (val error = featureResult.error) {
-                        is RepositoryError.NotFound -> {
-                            errorResponse(
-                                message = "Feature not found",
-                                code = ErrorCodes.RESOURCE_NOT_FOUND,
-                                details = "No feature exists with ID $featureId"
-                            )
-                        }
-
-                        is RepositoryError.DatabaseError -> {
-                            errorResponse(
-                                message = "Database error occurred",
-                                code = ErrorCodes.DATABASE_ERROR,
-                                details = error.message
-                            )
-                        }
-
-                        else -> {
-                            errorResponse(
-                                message = "Failed to retrieve feature",
-                                code = ErrorCodes.INTERNAL_ERROR,
-                                details = error.toString()
-                            )
-                        }
-                    }
-                }
+            // Execute with proper locking
+            executeWithLocking("update_feature", EntityType.FEATURE, featureId) {
+                executeFeatureUpdate(params, context, featureId)
             }
         } catch (e: ToolValidationException) {
-            // Handle validation errors
             logger.warn("Validation error updating feature: ${e.message}")
-            return errorResponse(
+            errorResponse(
                 message = e.message ?: "Validation error",
                 code = ErrorCodes.VALIDATION_ERROR
             )
         } catch (e: Exception) {
-            // Handle unexpected errors
             logger.error("Error updating feature", e)
-            return errorResponse(
+            errorResponse(
                 message = "Failed to update feature",
                 code = ErrorCodes.INTERNAL_ERROR,
                 details = e.message ?: "Unknown error"
             )
+        }
+    }
+
+    /**
+     * Executes the actual feature update business logic.
+     */
+    private suspend fun executeFeatureUpdate(
+        params: JsonElement,
+        context: ToolExecutionContext,
+        featureId: UUID
+    ): JsonElement {
+        // Get the existing feature
+        val featureResult = context.featureRepository().getById(featureId)
+
+        return when (featureResult) {
+            is Result.Success -> {
+                val feature = featureResult.data
+
+                // Extract update parameters
+                val name = optionalString(params, "name") ?: feature.name
+                val summary = optionalString(params, "summary") ?: feature.summary
+                val status = optionalString(params, "status")?.let { parseStatus(it) } ?: feature.status
+                val priority = optionalString(params, "priority")?.let { parsePriority(it) } ?: feature.priority
+
+                val projectId = optionalString(params, "projectId")?.let {
+                    if (it.isEmpty()) null else UUID.fromString(it)
+                } ?: feature.projectId
+
+                // Validate that referenced project exists if projectId is being set/changed
+                if (projectId != null && projectId != feature.projectId) {
+                    when (val projectResult = context.repositoryProvider.projectRepository().getById(projectId)) {
+                        is Result.Error -> {
+                            return errorResponse(
+                                message = "Project not found",
+                                code = ErrorCodes.RESOURCE_NOT_FOUND,
+                                details = "No project exists with ID $projectId"
+                            )
+                        }
+                        is Result.Success -> { /* Project exists, continue */ }
+                    }
+                }
+
+                val tags = optionalString(params, "tags")?.let {
+                    it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotBlank() }
+                } ?: feature.tags
+
+                // Create an updated feature
+                val updatedFeature = feature.update(
+                    name = name,
+                    projectId = projectId,
+                    summary = summary,
+                    status = status,
+                    priority = priority,
+                    tags = tags
+                )
+
+                // Save the updated feature
+                when (val updateResult = context.featureRepository().update(updatedFeature)) {
+                    is Result.Success -> {
+                        val savedFeature = updateResult.data
+
+                        // Create a response with feature information using the standardized format
+                        val responseData = buildJsonObject {
+                            put("id", savedFeature.id.toString())
+                            put("name", savedFeature.name)
+                            put("summary", savedFeature.summary)
+                            put("status", savedFeature.status.name.lowercase().replace('_', '-'))
+                            put("priority", savedFeature.priority.name.lowercase())
+                            put("createdAt", savedFeature.createdAt.toString())
+                            put("modifiedAt", savedFeature.modifiedAt.toString())
+
+                            // Include tags if present
+                            if (savedFeature.tags.isNotEmpty()) {
+                                put("tags", savedFeature.tags.joinToString(", "))
+                            }
+                        }
+
+                        successResponse(
+                            data = responseData,
+                            message = "Feature updated successfully"
+                        )
+                    }
+
+                    is Result.Error -> {
+                        // Determine appropriate error code and message based on error type
+                        when (val error = updateResult.error) {
+                            is RepositoryError.ValidationError -> {
+                                errorResponse(
+                                    message = "Validation error: ${error.message}",
+                                    code = ErrorCodes.VALIDATION_ERROR,
+                                    details = error.message
+                                )
+                            }
+
+                            is RepositoryError.DatabaseError -> {
+                                errorResponse(
+                                    message = "Database error occurred",
+                                    code = ErrorCodes.DATABASE_ERROR,
+                                    details = error.message
+                                )
+                            }
+
+                            is RepositoryError.ConflictError -> {
+                                errorResponse(
+                                    message = "Conflict error: ${error.message}",
+                                    code = ErrorCodes.DUPLICATE_RESOURCE,
+                                    details = error.message
+                                )
+                            }
+
+                            else -> {
+                                errorResponse(
+                                    message = "Failed to update feature",
+                                    code = ErrorCodes.INTERNAL_ERROR,
+                                    details = error.toString()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            is Result.Error -> {
+                // Handle errors when getting the feature
+                when (val error = featureResult.error) {
+                    is RepositoryError.NotFound -> {
+                        errorResponse(
+                            message = "Feature not found",
+                            code = ErrorCodes.RESOURCE_NOT_FOUND,
+                            details = "No feature exists with ID $featureId"
+                        )
+                    }
+
+                    is RepositoryError.DatabaseError -> {
+                        errorResponse(
+                            message = "Database error occurred",
+                            code = ErrorCodes.DATABASE_ERROR,
+                            details = error.message
+                        )
+                    }
+
+                    else -> {
+                        errorResponse(
+                            message = "Failed to retrieve feature",
+                            code = ErrorCodes.INTERNAL_ERROR,
+                            details = error.toString()
+                        )
+                    }
+                }
+            }
         }
     }
 

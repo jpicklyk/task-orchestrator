@@ -93,109 +93,113 @@ class DeleteTaskTool(
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing delete_task tool")
 
-        try {
-            // Extract parameters
-            val idStr = requireString(params, "id")
-            val taskId = UUID.fromString(idStr)
-            val force = optionalBoolean(params, "force", false)
-            val deleteSections = optionalBoolean(params, "deleteSections", true)
+        // Extract task ID
+        val taskId = extractEntityId(params, "id")
 
-            // Check for operation conflicts before proceeding
-            checkOperationPermissions("delete_task", EntityType.TASK, taskId)?.let { lockError ->
-                return lockError
+        // Execute with proper locking
+        return executeWithLocking("delete_task", EntityType.TASK, taskId) {
+            executeTaskDelete(params, context, taskId)
+        }
+    }
+
+    /**
+     * Executes the actual task deletion business logic.
+     */
+    private suspend fun executeTaskDelete(
+        params: JsonElement,
+        context: ToolExecutionContext,
+        taskId: UUID
+    ): JsonElement {
+        // Extract parameters
+        val force = optionalBoolean(params, "force", false)
+        val deleteSections = optionalBoolean(params, "deleteSections", true)
+
+        // Verify task exists before attempting to delete
+        val getResult = context.taskRepository().getById(taskId)
+        when (getResult) {
+            is Result.Success -> { /* Task exists, continue */ }
+            is Result.Error -> return handleRepositoryResult(
+                getResult,
+                "Failed to retrieve task"
+            ) { JsonNull }
+        }
+
+        // Check for dependencies and handle them appropriately
+        val dependencies = context.dependencyRepository().findByTaskId(taskId)
+        val incomingDependencies = dependencies.filter { it.toTaskId == taskId }
+        val outgoingDependencies = dependencies.filter { it.fromTaskId == taskId }
+        var dependenciesDeletedCount = 0
+
+        // If there are dependencies and force is not enabled, check if deletion should proceed
+        if (dependencies.isNotEmpty() && !force) {
+            val dependencyInfo = buildJsonObject {
+                put("totalDependencies", dependencies.size)
+                put("incomingDependencies", incomingDependencies.size)
+                put("outgoingDependencies", outgoingDependencies.size)
+                put("affectedTasks", dependencies.map { 
+                    if (it.fromTaskId == taskId) it.toTaskId else it.fromTaskId 
+                }.distinct().size)
             }
 
-            // Verify task exists before attempting to delete
-            val getResult = context.taskRepository().getById(taskId)
-            when (getResult) {
-                is Result.Success -> { /* Task exists, continue */ }
-                is Result.Error -> return handleRepositoryResult(
-                    getResult,
-                    "Failed to retrieve task"
-                ) { JsonNull }
-            }
+            return errorResponse(
+                message = "Cannot delete task with existing dependencies",
+                code = ErrorCodes.VALIDATION_ERROR,
+                details = "Task has ${dependencies.size} dependencies. Use 'force=true' to delete anyway and break dependency chains.",
+                additionalData = dependencyInfo
+            )
+        }
 
-            // Check for dependencies and handle them appropriately
-            val dependencies = context.dependencyRepository().findByTaskId(taskId)
-            val incomingDependencies = dependencies.filter { it.toTaskId == taskId }
-            val outgoingDependencies = dependencies.filter { it.fromTaskId == taskId }
-            var dependenciesDeletedCount = 0
+        // Delete all dependencies for this task
+        if (dependencies.isNotEmpty()) {
+            dependenciesDeletedCount = context.dependencyRepository().deleteByTaskId(taskId)
+            logger.info("Deleted $dependenciesDeletedCount dependencies for task $taskId")
+        }
 
-            // If there are dependencies and force is not enabled, check if deletion should proceed
-            if (dependencies.isNotEmpty() && !force) {
-                val dependencyInfo = buildJsonObject {
-                    put("totalDependencies", dependencies.size)
-                    put("incomingDependencies", incomingDependencies.size)
-                    put("outgoingDependencies", outgoingDependencies.size)
-                    put("affectedTasks", dependencies.map { 
-                        if (it.fromTaskId == taskId) it.toTaskId else it.fromTaskId 
-                    }.distinct().size)
+        // Delete associated sections if requested
+        var sectionsDeletedCount = 0
+
+        if (deleteSections) {
+            // Get sections for this task
+            val sectionsResult = context.sectionRepository().getSectionsForEntity(EntityType.TASK, taskId)
+
+            if (sectionsResult is Result.Success) {
+                sectionsDeletedCount = sectionsResult.data.size
+
+                // Delete each section
+                sectionsResult.data.forEach { section ->
+                    context.sectionRepository().deleteSection(section.id)
                 }
-
-                return errorResponse(
-                    message = "Cannot delete task with existing dependencies",
-                    code = ErrorCodes.VALIDATION_ERROR,
-                    details = "Task has ${dependencies.size} dependencies. Use 'force=true' to delete anyway and break dependency chains.",
-                    additionalData = dependencyInfo
-                )
+                logger.info("Deleted $sectionsDeletedCount sections for task $taskId")
             }
+        }
 
-            // Delete all dependencies for this task
-            if (dependencies.isNotEmpty()) {
-                dependenciesDeletedCount = context.dependencyRepository().deleteByTaskId(taskId)
-                logger.info("Deleted $dependenciesDeletedCount dependencies for task $taskId")
-            }
+        // Delete the task
+        val deleteResult = context.taskRepository().delete(taskId)
 
-            // Delete associated sections if requested
-            var sectionsDeletedCount = 0
+        // Return standardized response
+        val message = if (dependenciesDeletedCount > 0) {
+            "Task deleted successfully with $dependenciesDeletedCount dependencies and $sectionsDeletedCount sections"
+        } else {
+            "Task deleted successfully"
+        }
 
-            if (deleteSections) {
-                // Get sections for this task
-                val sectionsResult = context.sectionRepository().getSectionsForEntity(EntityType.TASK, taskId)
-
-                if (sectionsResult is Result.Success) {
-                    sectionsDeletedCount = sectionsResult.data.size
-
-                    // Delete each section
-                    sectionsResult.data.forEach { section ->
-                        context.sectionRepository().deleteSection(section.id)
-                    }
-                    logger.info("Deleted $sectionsDeletedCount sections for task $taskId")
+        return handleRepositoryResult(deleteResult, message) { _ ->
+            buildJsonObject {
+                put("id", taskId.toString())
+                put("deleted", true)
+                put("sectionsDeleted", sectionsDeletedCount)
+                put("dependenciesDeleted", dependenciesDeletedCount)
+                if (dependencies.isNotEmpty() && force) {
+                    put("warningsBrokenDependencies", true)
+                    put("brokenDependencyChains", buildJsonObject {
+                        put("incomingDependencies", incomingDependencies.size)
+                        put("outgoingDependencies", outgoingDependencies.size)
+                        put("affectedTasks", dependencies.map { 
+                            if (it.fromTaskId == taskId) it.toTaskId else it.fromTaskId 
+                        }.distinct().size)
+                    })
                 }
             }
-
-            // Delete the task
-            val deleteResult = context.taskRepository().delete(taskId)
-
-            // Return standardized response
-            val message = if (dependenciesDeletedCount > 0) {
-                "Task deleted successfully with $dependenciesDeletedCount dependencies and $sectionsDeletedCount sections"
-            } else {
-                "Task deleted successfully"
-            }
-
-            return handleRepositoryResult(deleteResult, message) { _ ->
-                buildJsonObject {
-                    put("id", taskId.toString())
-                    put("deleted", true)
-                    put("sectionsDeleted", sectionsDeletedCount)
-                    put("dependenciesDeleted", dependenciesDeletedCount)
-                    if (dependencies.isNotEmpty() && force) {
-                        put("warningsBrokenDependencies", true)
-                        put("brokenDependencyChains", buildJsonObject {
-                            put("incomingDependencies", incomingDependencies.size)
-                            put("outgoingDependencies", outgoingDependencies.size)
-                            put("affectedTasks", dependencies.map { 
-                                if (it.fromTaskId == taskId) it.toTaskId else it.fromTaskId 
-                            }.distinct().size)
-                        })
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Handle unexpected exceptions
-            logger.error("Error deleting task", e)
-            throw e // Let SimpleLockAwareToolDefinition handle the error formatting
         }
     }
 }

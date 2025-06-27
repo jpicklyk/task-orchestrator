@@ -164,57 +164,78 @@ abstract class SimpleLockAwareToolDefinition(
     }
     
     /**
-     * Checks if the operation can proceed and handles any lock conflicts gracefully.
+     * Executes an operation with proper locking lifecycle management.
+     * This ensures operations are recorded, conflicts are detected, and cleanup happens.
      */
-    protected suspend fun checkOperationPermissions(
+    protected suspend fun executeWithLocking(
         operationName: String,
         entityType: io.github.jpicklyk.mcptask.domain.model.EntityType,
-        entityId: UUID
-    ): JsonElement? {
-        // For Phase 2, this just logs the operation intent
-        // In Phase 3, this will perform actual lock checking
+        entityId: UUID,
+        operation: suspend () -> JsonElement
+    ): JsonElement {
+        // If locking is disabled, execute directly
+        if (!shouldUseLocking() || lockingService == null || sessionManager == null) {
+            return operation()
+        }
         
-        lockingService?.let { service ->
-            sessionManager?.let { session ->
-                val operation = io.github.jpicklyk.mcptask.application.service.LockOperation(
-                    operationType = mapOperationToLockType(operationName),
-                    toolName = name,
-                    description = "Tool operation: $operationName on ${entityType.name}",
-                    entityIds = setOf(entityId)
-                )
-                
-                val canProceed = service.canProceed(operation)
-                if (!canProceed) {
-                    // Create a simulated conflict error for demonstration
-                    val context = createLockErrorContext(operationName, entityType, entityId, session.getCurrentSession())
-                    val conflictError = LockError.LockConflict(
-                        message = "Operation cannot proceed due to conflicting locks",
-                        conflictingLocks = emptyList(), // Would be populated in real implementation
-                        requestedLock = io.github.jpicklyk.mcptask.domain.model.LockRequest(
+        val lockOperation = io.github.jpicklyk.mcptask.application.service.LockOperation(
+            operationType = mapOperationToLockType(operationName),
+            toolName = name,
+            description = "Tool operation: $operationName on ${entityType.name}",
+            entityIds = setOf(entityId)
+        )
+        
+        // Atomically attempt to acquire the lock
+        val lockResult = lockingService.tryAcquireLock(lockOperation)
+        
+        when (lockResult) {
+            is io.github.jpicklyk.mcptask.application.service.LockAcquisitionResult.Conflict -> {
+                val context = createLockErrorContext(operationName, entityType, entityId, sessionManager.getCurrentSession())
+                val conflictError = LockError.LockConflict(
+                    message = "Operation cannot proceed due to conflicting locks",
+                    conflictingLocks = emptyList(),
+                    requestedLock = io.github.jpicklyk.mcptask.domain.model.LockRequest(
+                        entityId = entityId,
+                        scope = io.github.jpicklyk.mcptask.domain.model.LockScope.TASK,
+                        lockType = io.github.jpicklyk.mcptask.domain.model.LockType.SHARED_WRITE,
+                        sessionId = sessionManager.getCurrentSession(),
+                        operationName = operationName,
+                        expectedDuration = 120L // 2 minutes
+                    ),
+                    suggestions = errorHandler.suggestAlternatives(emptyList(), 
+                        io.github.jpicklyk.mcptask.domain.model.LockRequest(
                             entityId = entityId,
                             scope = io.github.jpicklyk.mcptask.domain.model.LockScope.TASK,
                             lockType = io.github.jpicklyk.mcptask.domain.model.LockType.SHARED_WRITE,
-                            sessionId = session.getCurrentSession(),
+                            sessionId = sessionManager.getCurrentSession(),
                             operationName = operationName,
-                            expectedDuration = 1800L // 30 minutes
-                        ),
-                        suggestions = errorHandler.suggestAlternatives(emptyList(), 
-                            io.github.jpicklyk.mcptask.domain.model.LockRequest(
-                                entityId = entityId,
-                                scope = io.github.jpicklyk.mcptask.domain.model.LockScope.TASK,
-                                lockType = io.github.jpicklyk.mcptask.domain.model.LockType.SHARED_WRITE,
-                                sessionId = session.getCurrentSession(),
-                                operationName = operationName,
-                                expectedDuration = 1800L
-                            ), context),
-                        context = context
-                    )
-                    return handleLockError(conflictError)
+                            expectedDuration = 120L
+                        ), context),
+                    context = context
+                )
+                return handleLockError(conflictError)
+            }
+            is io.github.jpicklyk.mcptask.application.service.LockAcquisitionResult.Success -> {
+                // Lock acquired successfully, continue with operation
+                val operationId = lockResult.operationId
+                
+                try {
+                    // Execute the actual operation
+                    return operation()
+                } finally {
+                    // Always clean up the lock, even if operation fails
+                    lockingService.recordOperationComplete(operationId)
                 }
             }
         }
-        
-        return null // Operation can proceed
+    }
+    
+    /**
+     * Helper method to extract entity ID from different parameter structures.
+     */
+    protected fun extractEntityId(params: JsonElement, paramName: String = "id"): UUID {
+        return extractUuidFromParameters(params, paramName)
+            ?: throw ToolValidationException("Missing or invalid $paramName parameter")
     }
     
     private fun mapOperationToLockType(operationName: String): io.github.jpicklyk.mcptask.application.service.OperationType {

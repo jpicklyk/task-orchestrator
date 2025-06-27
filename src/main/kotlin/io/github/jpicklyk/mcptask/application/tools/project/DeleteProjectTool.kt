@@ -77,103 +77,127 @@ class DeleteProjectTool(
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing delete_project tool")
 
-        try {
-            // Extract parameters
-            val idStr = requireString(params, "id")
-            val projectId = UUID.fromString(idStr)
-            val hardDelete = optionalBoolean(params, "hardDelete", false)
-            val cascade = optionalBoolean(params, "cascade", false)
-            val force = optionalBoolean(params, "force", false)
+        return try {
+            // Extract project ID
+            val projectId = extractEntityId(params, "id")
 
-            // Check for operation conflicts before proceeding
-            checkOperationPermissions("delete_project", EntityType.PROJECT, projectId)?.let { lockError ->
-                return lockError
+            // Execute with proper locking
+            executeWithLocking("delete_project", EntityType.PROJECT, projectId) {
+                executeProjectDelete(params, context, projectId)
+            }
+        } catch (e: ToolValidationException) {
+            logger.warn("Validation error deleting project: ${e.message}")
+            errorResponse(
+                message = e.message ?: "Validation error",
+                code = ErrorCodes.VALIDATION_ERROR
+            )
+        } catch (e: Exception) {
+            logger.error("Error deleting project", e)
+            errorResponse(
+                message = "Failed to delete project",
+                code = ErrorCodes.INTERNAL_ERROR,
+                details = e.message ?: "Unknown error"
+            )
+        }
+    }
+
+    /**
+     * Executes the actual project deletion business logic.
+     */
+    private suspend fun executeProjectDelete(
+        params: JsonElement,
+        context: ToolExecutionContext,
+        projectId: UUID
+    ): JsonElement {
+        // Extract parameters
+        val hardDelete = optionalBoolean(params, "hardDelete", false)
+        val cascade = optionalBoolean(params, "cascade", false)
+        val force = optionalBoolean(params, "force", false)
+
+        // Check if the project exists
+        val projectResult = context.projectRepository().getById(projectId)
+
+        when (projectResult) {
+            is Result.Error -> {
+                if (projectResult.error is RepositoryError.NotFound) {
+                    return errorResponse(
+                        message = "Project not found",
+                        code = ErrorCodes.RESOURCE_NOT_FOUND,
+                        details = "No project exists with ID $projectId"
+                    )
+                } else {
+                    return errorResponse(
+                        message = "Failed to retrieve project",
+                        code = ErrorCodes.DATABASE_ERROR,
+                        details = projectResult.error.toString()
+                    )
+                }
             }
 
-            // Check if the project exists
-            val projectResult = context.projectRepository().getById(projectId)
+            is Result.Success -> {
+                // Project exists, continue with deletion process
+            }
+        }
 
-            when (projectResult) {
-                is Result.Error -> {
-                    if (projectResult.error is RepositoryError.NotFound) {
-                        return errorResponse(
-                            message = "Project not found",
-                            code = ErrorCodes.RESOURCE_NOT_FOUND,
-                            details = "No project exists with ID $projectId"
-                        )
-                    } else {
-                        return errorResponse(
-                            message = "Failed to retrieve project",
-                            code = ErrorCodes.DATABASE_ERROR,
-                            details = projectResult.error.toString()
-                        )
+        // Check for associated features
+        val featuresResult = context.featureRepository().findByProject(
+            projectId = projectId,
+            limit = 20,
+        )
+
+        val features = when (featuresResult) {
+            is Result.Success -> featuresResult.data
+            is Result.Error -> {
+                logger.warn("Error retrieving features for project $projectId: ${featuresResult.error}")
+                emptyList() // Assume no features if we can't retrieve them
+            }
+        }
+
+        // Check for associated tasks (directly associated with project, not through features)
+        val tasksResult = context.taskRepository().findByProject(
+            projectId = projectId,
+            limit = 20,
+        )
+
+        val directTasks = when (tasksResult) {
+            is Result.Success -> tasksResult.data
+            is Result.Error -> {
+                logger.warn("Error retrieving tasks for project $projectId: ${tasksResult.error}")
+                emptyList() // Assume no tasks if we can't retrieve them
+            }
+        }
+
+        // If there are features or tasks, and we're not forcing or cascading, prevent deletion
+        if ((features.isNotEmpty() || directTasks.isNotEmpty()) && !force && !cascade) {
+            return errorResponse(
+                message = "Cannot delete project with associated features or tasks",
+                code = ErrorCodes.DEPENDENCY_ERROR,
+                details = "Project with ID $projectId has ${features.size} associated features and " +
+                        "${directTasks.size} directly associated tasks. " +
+                        "Use 'force=true' to delete anyway, or 'cascade=true' to delete associated entities as well."
+            )
+        }
+
+        // If cascading, delete associated tasks and features
+        val featureTasksMap = mutableMapOf<UUID, List<UUID>>()
+        var totalTasksDeleted = 0
+        var totalFeaturesDeleted = 0
+        var failedTaskDeletes = 0
+        var failedFeatureDeletes = 0
+
+        if (cascade) {
+            // First collect all tasks associated with features
+            for (feature in features) {
+                val featureTasksResult = context.taskRepository().findByFeature(feature.id)
+                val featureTasks = when (featureTasksResult) {
+                    is Result.Success -> featureTasksResult.data
+                    is Result.Error -> {
+                        logger.warn("Error retrieving tasks for feature ${feature.id}: ${featureTasksResult.error}")
+                        emptyList()
                     }
                 }
 
-                is Result.Success -> {
-                    // Project exists, continue with deletion process
-                }
-            }
-
-            // Check for associated features
-            val featuresResult = context.featureRepository().findByProject(
-                projectId = projectId,
-                limit = 20,
-            )
-
-            val features = when (featuresResult) {
-                is Result.Success -> featuresResult.data
-                is Result.Error -> {
-                    logger.warn("Error retrieving features for project $projectId: ${featuresResult.error}")
-                    emptyList() // Assume no features if we can't retrieve them
-                }
-            }
-
-            // Check for associated tasks (directly associated with project, not through features)
-            val tasksResult = context.taskRepository().findByProject(
-                projectId = projectId,
-                limit = 20,
-            )
-
-            val directTasks = when (tasksResult) {
-                is Result.Success -> tasksResult.data
-                is Result.Error -> {
-                    logger.warn("Error retrieving tasks for project $projectId: ${tasksResult.error}")
-                    emptyList() // Assume no tasks if we can't retrieve them
-                }
-            }
-
-            // If there are features or tasks, and we're not forcing or cascading, prevent deletion
-            if ((features.isNotEmpty() || directTasks.isNotEmpty()) && !force && !cascade) {
-                return errorResponse(
-                    message = "Cannot delete project with associated features or tasks",
-                    code = ErrorCodes.DEPENDENCY_ERROR,
-                    details = "Project with ID $projectId has ${features.size} associated features and " +
-                            "${directTasks.size} directly associated tasks. " +
-                            "Use 'force=true' to delete anyway, or 'cascade=true' to delete associated entities as well."
-                )
-            }
-
-            // If cascading, delete associated tasks and features
-            val featureTasksMap = mutableMapOf<UUID, List<UUID>>()
-            var totalTasksDeleted = 0
-            var totalFeaturesDeleted = 0
-            var failedTaskDeletes = 0
-            var failedFeatureDeletes = 0
-
-            if (cascade) {
-                // First collect all tasks associated with features
-                for (feature in features) {
-                    val featureTasksResult = context.taskRepository().findByFeature(feature.id)
-                    val featureTasks = when (featureTasksResult) {
-                        is Result.Success -> featureTasksResult.data
-                        is Result.Error -> {
-                            logger.warn("Error retrieving tasks for feature ${feature.id}: ${featureTasksResult.error}")
-                            emptyList()
-                        }
-                    }
-
-                    featureTasksMap[feature.id] = featureTasks.map { it.id }
+                featureTasksMap[feature.id] = featureTasks.map { it.id }
                 }
 
                 // Delete all tasks associated with features
@@ -262,21 +286,5 @@ class DeleteProjectTool(
                     )
                 }
             }
-        } catch (e: ToolValidationException) {
-            // Handle validation errors
-            logger.warn("Validation error deleting project: ${e.message}")
-            return errorResponse(
-                message = e.message ?: "Validation error",
-                code = ErrorCodes.VALIDATION_ERROR
-            )
-        } catch (e: Exception) {
-            // Handle unexpected errors
-            logger.error("Error deleting project", e)
-            return errorResponse(
-                message = "Failed to delete project",
-                code = ErrorCodes.INTERNAL_ERROR,
-                details = e.message ?: "Unknown error"
-            )
-        }
     }
 }

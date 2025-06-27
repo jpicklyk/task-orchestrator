@@ -174,129 +174,137 @@ class UpdateProjectTool(
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
         logger.info("Executing update_project tool")
 
-        try {
-            // Extract parameters
-            val idStr = requireString(params, "id")
-            val projectId = UUID.fromString(idStr)
-            val name = optionalString(params, "name")
-            val summary = optionalString(params, "summary")
-            val statusStr = optionalString(params, "status")
-            val tagsStr = optionalString(params, "tags")
+        return try {
+            // Extract project ID
+            val projectId = extractEntityId(params, "id")
 
-            // Check for operation conflicts before proceeding
-            checkOperationPermissions("update_project", EntityType.PROJECT, projectId)?.let { lockError ->
-                return lockError
-            }
-
-            // First, get the existing project
-            val getResult = context.projectRepository().getById(projectId)
-
-            return when (getResult) {
-                is Result.Success -> {
-                    val existingProject = getResult.data
-
-                    // Convert string parameters to appropriate types
-                    val status = statusStr?.let { parseStatus(it) }
-                    val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
-
-                    // Create an updated project entity
-                    val updatedProject = existingProject.update(
-                        name = name ?: existingProject.name,
-                        summary = summary ?: existingProject.summary,
-                        status = status ?: existingProject.status,
-                        tags = tags ?: existingProject.tags
-                    )
-
-                    // Update the project using the repository
-                    val updateResult = context.projectRepository().update(updatedProject)
-
-                    when (updateResult) {
-                        is Result.Success -> {
-                            val project = updateResult.data
-
-                            // Build the response
-                            val responseBuilder = buildJsonObject {
-                                put("id", project.id.toString())
-                                put("name", project.name)
-                                put("summary", project.summary)
-                                put("status", project.status.name.lowercase().replace('_', '-'))
-                                put("createdAt", project.createdAt.toString())
-                                put("modifiedAt", project.modifiedAt.toString())
-
-                                // Include tags if present
-                                if (project.tags.isNotEmpty()) {
-                                    put("tags", JsonArray(project.tags.map { JsonPrimitive(it) }))
-                                }
-                            }
-
-                            successResponse(
-                                data = responseBuilder,
-                                message = "Project updated successfully"
-                            )
-                        }
-
-                        is Result.Error -> {
-                            // Determine appropriate error code and message based on error type
-                            when (val error = updateResult.error) {
-                                is RepositoryError.ValidationError -> {
-                                    errorResponse(
-                                        message = "Validation error: ${error.message}",
-                                        code = ErrorCodes.VALIDATION_ERROR,
-                                        details = error.message
-                                    )
-                                }
-
-                                is RepositoryError.DatabaseError -> {
-                                    errorResponse(
-                                        message = "Database error occurred",
-                                        code = ErrorCodes.DATABASE_ERROR,
-                                        details = error.message
-                                    )
-                                }
-
-                                else -> {
-                                    errorResponse(
-                                        message = "Failed to update project",
-                                        code = ErrorCodes.INTERNAL_ERROR,
-                                        details = error.toString()
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                is Result.Error -> {
-                    if (getResult.error is RepositoryError.NotFound) {
-                        errorResponse(
-                            message = "Project not found",
-                            code = ErrorCodes.RESOURCE_NOT_FOUND,
-                            details = "No project exists with ID $projectId"
-                        )
-                    } else {
-                        errorResponse(
-                            message = "Failed to retrieve project for update",
-                            code = ErrorCodes.DATABASE_ERROR,
-                            details = getResult.error.toString()
-                        )
-                    }
-                }
+            // Execute with proper locking
+            executeWithLocking("update_project", EntityType.PROJECT, projectId) {
+                executeProjectUpdate(params, context, projectId)
             }
         } catch (e: ToolValidationException) {
-            // Handle validation errors
             logger.warn("Validation error updating project: ${e.message}")
-            return errorResponse(
+            errorResponse(
                 message = e.message ?: "Validation error",
                 code = ErrorCodes.VALIDATION_ERROR
             )
         } catch (e: Exception) {
-            // Handle unexpected errors
             logger.error("Error updating project", e)
-            return errorResponse(
+            errorResponse(
                 message = "Failed to update project",
                 code = ErrorCodes.INTERNAL_ERROR,
                 details = e.message ?: "Unknown error"
             )
+        }
+    }
+
+    /**
+     * Executes the actual project update business logic.
+     */
+    private suspend fun executeProjectUpdate(
+        params: JsonElement,
+        context: ToolExecutionContext,
+        projectId: UUID
+    ): JsonElement {
+        // Extract parameters
+        val name = optionalString(params, "name")
+        val summary = optionalString(params, "summary")
+        val statusStr = optionalString(params, "status")
+        val tagsStr = optionalString(params, "tags")
+
+        // First, get the existing project
+        val getResult = context.projectRepository().getById(projectId)
+
+        return when (getResult) {
+            is Result.Success -> {
+                val existingProject = getResult.data
+
+                // Convert string parameters to appropriate types
+                val status = statusStr?.let { parseStatus(it) }
+                val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+
+                // Create an updated project entity
+                val updatedProject = existingProject.update(
+                    name = name ?: existingProject.name,
+                    summary = summary ?: existingProject.summary,
+                    status = status ?: existingProject.status,
+                    tags = tags ?: existingProject.tags
+                )
+
+                // Update the project using the repository
+                val updateResult = context.projectRepository().update(updatedProject)
+
+                when (updateResult) {
+                    is Result.Success -> {
+                        val project = updateResult.data
+
+                        // Build the response
+                        val responseBuilder = buildJsonObject {
+                            put("id", project.id.toString())
+                            put("name", project.name)
+                            put("summary", project.summary)
+                            put("status", project.status.name.lowercase().replace('_', '-'))
+                            put("createdAt", project.createdAt.toString())
+                            put("modifiedAt", project.modifiedAt.toString())
+
+                            // Include tags if present
+                            if (project.tags.isNotEmpty()) {
+                                put("tags", JsonArray(project.tags.map { JsonPrimitive(it) }))
+                            }
+                        }
+
+                        successResponse(
+                            data = responseBuilder,
+                            message = "Project updated successfully"
+                        )
+                    }
+
+                    is Result.Error -> {
+                        // Determine appropriate error code and message based on error type
+                        when (val error = updateResult.error) {
+                            is RepositoryError.ValidationError -> {
+                                errorResponse(
+                                    message = "Validation error: ${error.message}",
+                                    code = ErrorCodes.VALIDATION_ERROR,
+                                    details = error.message
+                                )
+                            }
+
+                            is RepositoryError.DatabaseError -> {
+                                errorResponse(
+                                    message = "Database error occurred",
+                                    code = ErrorCodes.DATABASE_ERROR,
+                                    details = error.message
+                                )
+                            }
+
+                            else -> {
+                                errorResponse(
+                                    message = "Failed to update project",
+                                    code = ErrorCodes.INTERNAL_ERROR,
+                                    details = error.toString()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            is Result.Error -> {
+                if (getResult.error is RepositoryError.NotFound) {
+                    errorResponse(
+                        message = "Project not found",
+                        code = ErrorCodes.RESOURCE_NOT_FOUND,
+                        details = "No project exists with ID $projectId"
+                    )
+                } else {
+                    errorResponse(
+                        message = "Failed to retrieve project for update",
+                        code = ErrorCodes.DATABASE_ERROR,
+                        details = getResult.error.toString()
+                    )
+                }
+            }
         }
     }
 
