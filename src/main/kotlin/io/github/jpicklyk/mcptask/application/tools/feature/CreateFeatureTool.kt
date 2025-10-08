@@ -35,7 +35,139 @@ import java.util.*
  */
 class CreateFeatureTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
+
     override val name: String = "create_feature"
+
+    override val title: String = "Create New Feature"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Whether the operation succeeded")
+                    )
+                ),
+                "message" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Human-readable message describing the result")
+                    )
+                ),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created feature object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("uuid"),
+                                        "description" to JsonPrimitive("Unique identifier for the feature")
+                                    )
+                                ),
+                                "name" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Feature name")
+                                    )
+                                ),
+                                "summary" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Feature summary/description")
+                                    )
+                                ),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("planning", "in-development", "completed", "archived").map { JsonPrimitive(it) }),
+                                        "description" to JsonPrimitive("Current status of the feature")
+                                    )
+                                ),
+                                "priority" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("high", "medium", "low").map { JsonPrimitive(it) }),
+                                        "description" to JsonPrimitive("Feature priority level")
+                                    )
+                                ),
+                                "createdAt" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("date-time"),
+                                        "description" to JsonPrimitive("ISO-8601 timestamp when feature was created")
+                                    )
+                                ),
+                                "modifiedAt" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("date-time"),
+                                        "description" to JsonPrimitive("ISO-8601 timestamp when feature was last modified")
+                                    )
+                                ),
+                                "projectId" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))),
+                                        "format" to JsonPrimitive("uuid"),
+                                        "description" to JsonPrimitive("ID of the project this feature belongs to, or null")
+                                    )
+                                ),
+                                "tags" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Comma-separated list of tags")
+                                    )
+                                ),
+                                "appliedTemplates" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of templates that were applied (only present if templates were used)"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "templateId" to JsonObject(
+                                                            mapOf(
+                                                                "type" to JsonPrimitive("string"),
+                                                                "format" to JsonPrimitive("uuid"),
+                                                                "description" to JsonPrimitive("ID of the applied template")
+                                                            )
+                                                        ),
+                                                        "sectionsCreated" to JsonObject(
+                                                            mapOf(
+                                                                "type" to JsonPrimitive("integer"),
+                                                                "description" to JsonPrimitive("Number of sections created by this template")
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(
+                    mapOf(
+                        "type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))),
+                        "description" to JsonPrimitive("Error details if the operation failed, null otherwise")
+                    )
+                ),
+                "metadata" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Additional metadata about the operation")
+                    )
+                )
+            )
+        )
+    )
 
     override val description: String = """Create a new feature with required and optional fields.
         

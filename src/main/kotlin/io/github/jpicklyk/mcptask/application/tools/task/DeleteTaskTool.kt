@@ -28,7 +28,86 @@ class DeleteTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "delete_task"
-    
+
+    override val title: String = "Delete Task"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Whether the operation succeeded")
+                    )
+                ),
+                "message" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Human-readable message describing the result")
+                    )
+                ),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Deletion result information"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("uuid"),
+                                        "description" to JsonPrimitive("ID of the deleted task")
+                                    )
+                                ),
+                                "deleted" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Confirmation that task was deleted")
+                                    )
+                                ),
+                                "sectionsDeleted" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("integer"),
+                                        "description" to JsonPrimitive("Number of sections deleted")
+                                    )
+                                ),
+                                "dependenciesDeleted" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("integer"),
+                                        "description" to JsonPrimitive("Number of dependencies deleted")
+                                    )
+                                ),
+                                "warningsBrokenDependencies" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether dependency chains were broken (optional, only present when force=true and dependencies existed)")
+                                    )
+                                ),
+                                "brokenDependencyChains" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Information about broken dependency chains (optional)"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "incomingDependencies" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "outgoingDependencies" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "affectedTasks" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        ),
+                        "required" to JsonArray(
+                            listOf("id", "deleted", "sectionsDeleted", "dependenciesDeleted").map { JsonPrimitive(it) }
+                        )
+                    )
+                )
+            )
+        ),
+        required = listOf("success", "message")
+    )
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Deletes a task by its ID"

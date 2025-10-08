@@ -16,7 +16,37 @@ import java.util.*
  */
 class DeleteSectionTool : BaseToolDefinition() {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "delete_section"
+
+    override val title: String = "Delete Section"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Deletion result"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "deleted" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = "Deletes a section by its ID"
 
     override val parameterSchema: Tool.Input = Tool.Input(

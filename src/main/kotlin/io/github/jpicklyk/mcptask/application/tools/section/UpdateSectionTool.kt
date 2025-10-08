@@ -23,7 +23,40 @@ class UpdateSectionTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "update_section"
+
+    override val title: String = "Update Section"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The updated section object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "usageDescription" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "content" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "contentFormat" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "ordinal" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = "Updates an existing section by its ID"
 
     override val parameterSchema: Tool.Input = Tool.Input(

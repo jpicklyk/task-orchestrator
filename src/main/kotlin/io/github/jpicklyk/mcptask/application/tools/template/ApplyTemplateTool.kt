@@ -29,6 +29,49 @@ class ApplyTemplateTool(
 
     override val name: String = "apply_template"
 
+    override val title: String = "Apply Template to Entity"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Template application results"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "totalSectionsCreated" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                "appliedTemplates" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "templateId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "sectionsCreated" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                        "sections" to JsonObject(mapOf("type" to JsonPrimitive("array")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Apply one or more templates to create sections for a task or feature.
         
         ## Purpose

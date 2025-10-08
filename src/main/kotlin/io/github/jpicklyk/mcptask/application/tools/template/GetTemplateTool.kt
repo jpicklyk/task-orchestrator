@@ -22,6 +22,40 @@ class GetTemplateTool : BaseToolDefinition() {
 
     override val name: String = "get_template"
 
+    override val title: String = "Get Template Details"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The template object with optional sections"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "description" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "targetEntityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "isBuiltIn" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "isProtected" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "isEnabled" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                "sections" to JsonObject(mapOf("type" to JsonPrimitive("array"), "description" to JsonPrimitive("Template sections (present when includeSections=true)"))),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = "Retrieve a complete template by ID with options for including sections"
 
     override val parameterSchema: Tool.Input = Tool.Input(

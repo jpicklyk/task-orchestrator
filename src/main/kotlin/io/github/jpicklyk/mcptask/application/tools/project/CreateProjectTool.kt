@@ -33,7 +33,43 @@ import kotlinx.serialization.json.*
  */
 class CreateProjectTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.PROJECT_MANAGEMENT
+
     override val name: String = "create_project"
+
+    override val title: String = "Create New Project"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created project object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("planning", "in-development", "completed", "archived").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
 
     override val description: String =
         """Implement the CreateProjectTool MCP tool for creating new projects. Define parameter schema and validation for all required and optional fields (name, summary, status, tags). Implement tool execution logic to create and persist project entities.

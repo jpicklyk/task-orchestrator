@@ -37,6 +37,44 @@ class GetProjectTool : BaseToolDefinition() {
 
     override val name: String = "get_project"
 
+    override val title: String = "Get Project Details"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The requested project with optional related entities"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("planning", "in-development", "completed", "archived").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
+                                "features" to JsonObject(mapOf("type" to JsonPrimitive("object"), "description" to JsonPrimitive("Features information (present when includeFeatures=true)"))),
+                                "tasks" to JsonObject(mapOf("type" to JsonPrimitive("object"), "description" to JsonPrimitive("Tasks information (present when includeTasks=true)"))),
+                                "sections" to JsonObject(mapOf("type" to JsonPrimitive("array"), "description" to JsonPrimitive("Array of sections (present when includeSections=true)")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Retrieves a project by its ID with options for including relationships.
 
         This tool provides detailed access to a specific project with options to include related entities like 

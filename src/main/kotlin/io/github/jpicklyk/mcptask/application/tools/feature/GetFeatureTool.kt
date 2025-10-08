@@ -34,6 +34,85 @@ class GetFeatureTool : BaseToolDefinition() {
 
     override val name: String = "get_feature"
 
+    override val title: String = "Get Feature Details"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The requested feature with optional related entities"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("planning", "in-development", "completed", "archived").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "priority" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("high", "medium", "low").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "projectId" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))), "format" to JsonPrimitive("uuid"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
+                                "taskCounts" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Task statistics (present when includeTaskCounts=true)"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "total" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "byStatus" to JsonObject(
+                                                    mapOf(
+                                                        "type" to JsonPrimitive("object"),
+                                                        "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "sections" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of sections (present when includeSections=true)")
+                                    )
+                                ),
+                                "tasks" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Tasks information (present when includeTasks=true)"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "items" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                                "total" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "included" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "hasMore" to JsonObject(mapOf("type" to JsonPrimitive("boolean")))
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Retrieves a feature by its ID with options for including relationships.
         
         ## Purpose

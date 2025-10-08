@@ -98,7 +98,9 @@ class ToolRegistry(
             server.addTool(
                 name = name,
                 description = definition.description,
-                inputSchema = definition.parameterSchema
+                inputSchema = definition.parameterSchema,
+                title = definition.title,
+                outputSchema = definition.outputSchema
             ) { request ->
                 try {
                     // Validate parameters

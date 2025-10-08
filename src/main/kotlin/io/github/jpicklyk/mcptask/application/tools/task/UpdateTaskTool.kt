@@ -28,7 +28,93 @@ class UpdateTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "update_task"
-    
+
+    override val title: String = "Update Task"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Whether the operation succeeded")
+                    )
+                ),
+                "message" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Human-readable message describing the result")
+                    )
+                ),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The updated task object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("uuid")
+                                    )
+                                ),
+                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("pending", "in-progress", "completed", "cancelled", "deferred").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "priority" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("high", "medium", "low").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "complexity" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("integer"),
+                                        "minimum" to JsonPrimitive(1),
+                                        "maximum" to JsonPrimitive(10)
+                                    )
+                                ),
+                                "createdAt" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("date-time")
+                                    )
+                                ),
+                                "modifiedAt" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("date-time")
+                                    )
+                                ),
+                                "featureId" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))),
+                                        "format" to JsonPrimitive("uuid")
+                                    )
+                                ),
+                                "tags" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                    )
+                                )
+                            )
+                        ),
+                        "required" to JsonArray(
+                            listOf("id", "title", "summary", "status", "priority", "complexity", "createdAt", "modifiedAt", "tags").map { JsonPrimitive(it) }
+                        )
+                    )
+                )
+            )
+        ),
+        required = listOf("success", "message")
+    )
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing task with the specified properties.

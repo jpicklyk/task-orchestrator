@@ -19,9 +19,22 @@ interface ToolDefinition {
     val description: String
 
     /**
+     * Optional human-readable title for the tool (used for better organization and discoverability).
+     * If not specified, defaults to null.
+     */
+    val title: String? get() = null
+
+    /**
      * The parameter schema defining the expected input for this tool.
      */
     val parameterSchema: Tool.Input
+
+    /**
+     * Optional output schema defining the structure of the tool's response.
+     * Enables better integration with agent workflow systems (n8n, Zapier, etc.).
+     * If not specified, defaults to null.
+     */
+    val outputSchema: Tool.Output? get() = null
 
     /**
      * Categorization for organizing tools in documentation and UI.

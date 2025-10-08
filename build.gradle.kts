@@ -6,12 +6,12 @@ plugins {
 
 // Define semantic version components (manually maintained)
 val majorVersion = "1"
-val minorVersion = "0"
-val patchVersion = "2"
+val minorVersion = "1"
+val patchVersion = "0"
 
 // Define release qualifier (empty for stable releases)
 // Examples: "", "alpha-01", "beta-02", "rc-01"
-val qualifier = ""
+val qualifier = "alpha-01"
 
 
 // Calculate build number from Git

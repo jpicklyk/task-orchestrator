@@ -31,7 +31,56 @@ import java.util.*
  */
 class BulkCreateSectionsTool : BaseToolDefinition() {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "bulk_create_sections"
+
+    override val title: String = "Bulk Create Sections"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Bulk creation results"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "items" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Created sections"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "contentFormat" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "ordinal" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                        "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "count" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                "failed" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = """Creates multiple sections in a single operation.
         
         ## Purpose

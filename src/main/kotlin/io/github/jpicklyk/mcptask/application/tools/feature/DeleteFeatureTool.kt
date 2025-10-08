@@ -24,8 +24,41 @@ class DeleteFeatureTool(
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
 
     override val name: String = "delete_feature"
-    
+
+    override val title: String = "Delete Feature"
+
     override fun shouldUseLocking(): Boolean = true
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Deletion result information"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "deleteType" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("soft", "hard").map { JsonPrimitive(it) }),
+                                        "description" to JsonPrimitive("Type of deletion performed")
+                                    )
+                                ),
+                                "cascaded" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("Whether associated tasks were deleted"))),
+                                "tasksAffected" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of tasks affected by deletion")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
 
     override val description: String = "Remove a feature and its associated tasks"
 

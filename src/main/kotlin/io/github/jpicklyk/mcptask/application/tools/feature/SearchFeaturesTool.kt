@@ -21,6 +21,57 @@ class SearchFeaturesTool : BaseToolDefinition() {
 
     override val name: String = "search_features"
 
+    override val title: String = "Search Features"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Search results with pagination"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "items" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of feature objects matching search criteria"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                                        "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                                        "projectId" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))))),
+                                                        "tags" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "total" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Total number of features matching criteria"))),
+                                "limit" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Maximum results per page"))),
+                                "offset" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of results skipped"))),
+                                "hasMore" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("Whether more results are available")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = "Find features matching specified criteria"
 
     override val parameterSchema: Tool.Input = Tool.Input(

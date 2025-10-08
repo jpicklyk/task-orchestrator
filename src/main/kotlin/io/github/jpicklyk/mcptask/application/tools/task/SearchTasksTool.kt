@@ -36,6 +36,71 @@ class SearchTasksTool : BaseToolDefinition() {
 
     override val name: String = "search_tasks"
 
+    override val title: String = "Search Tasks"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "items" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of task objects matching the search criteria"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                        "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                                        "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                                        "featureId" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))))),
+                                                        "projectId" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))))),
+                                                        "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "pagination" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Pagination information for result set"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "page" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Current page number (1-indexed)"))),
+                                                "pageSize" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of items per page"))),
+                                                "totalItems" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Total number of items matching the search"))),
+                                                "totalPages" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Total number of pages"))),
+                                                "hasNext" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("Whether there are more pages after this one"))),
+                                                "hasPrevious" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("Whether there are pages before this one")))
+                                            )
+                                        ),
+                                        "required" to JsonArray(listOf("page", "pageSize", "totalItems", "totalPages", "hasNext", "hasPrevious").map { JsonPrimitive(it) })
+                                    )
+                                )
+                            )
+                        ),
+                        "required" to JsonArray(listOf("items", "pagination").map { JsonPrimitive(it) })
+                    )
+                )
+            )
+        ),
+        required = listOf("success", "message")
+    )
+
     override val description: String = """Searches for tasks based on various criteria.
         
         ## Purpose
