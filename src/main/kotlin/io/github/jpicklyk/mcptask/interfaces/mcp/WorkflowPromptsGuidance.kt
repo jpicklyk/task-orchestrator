@@ -690,7 +690,30 @@ object WorkflowPromptsGuidance {
 
                             This workflow guides you through setting up a new project with proper structure, comprehensive documentation, and effective organization for long-term success.
 
-                            ## Step 1: Project Foundation
+                            ## Step 1: Initialize AI Environment
+                            **Before creating the project, set up AI guidelines for optimal task orchestrator usage.**
+
+                            If you haven't already initialized Task Orchestrator guidelines in this AI session:
+                            ```
+                            Invoke the initialize_task_orchestrator prompt to set up guidelines
+                            ```
+
+                            **Why This Matters**:
+                            - Ensures AI understands best practices for task/feature creation
+                            - Enables intelligent template discovery and application
+                            - Provides natural language pattern recognition throughout project
+                            - Establishes proper workflow integration from the start
+                            - Optimizes task orchestrator usage for entire project lifecycle
+
+                            **What It Does**:
+                            - Guides reading all guideline resources (usage, templates, workflows, patterns)
+                            - Sets up guidelines in AI's memory system
+                            - Teaches dual workflow model (autonomous vs explicit)
+                            - Prepares AI for effective project management
+
+                            **Note**: If already initialized in current session, skip to Step 2.
+
+                            ## Step 2: Project Foundation
                             Create the top-level project container:
                             ```json
                             Use create_project:
@@ -708,7 +731,7 @@ object WorkflowPromptsGuidance {
                             - Mention key technologies and constraints
                             - State success criteria and completion definition
 
-                            ## Step 2: Project Documentation Structure
+                            ## Step 3: Project Documentation Structure
                             Add comprehensive project documentation:
                             ```json
                             Use bulk_create_sections for project-level documentation:
@@ -745,7 +768,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 3: Feature Planning and Structure
+                            ## Step 4: Feature Planning and Structure
                             Identify and create major features:
 
                             **Feature Identification Strategy**:
@@ -768,7 +791,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 4: Initial Task Creation
+                            ## Step 5: Initial Task Creation
                             **Git Detection**: Check for .git directory in project root using file system tools
                             
                             Create foundational tasks for project setup:
@@ -804,7 +827,7 @@ object WorkflowPromptsGuidance {
                             - If git detected, include "local-git-branching-workflow" for implementation tasks
                             - Research tasks may not need git templates unless they involve code prototyping
 
-                            ## Step 5: Template Strategy Setup
+                            ## Step 6: Template Strategy Setup
                             Establish consistent documentation patterns:
 
                             **Review Available Templates**:
@@ -824,7 +847,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 6: Development Workflow Setup
+                            ## Step 7: Development Workflow Setup
                             Establish project workflows and standards:
 
                             **Git Workflow Configuration**:
@@ -848,7 +871,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 7: Initial Dependencies and Sequencing
+                            ## Step 8: Initial Dependencies and Sequencing
                             Establish logical task progression:
                             ```
                             Use create_dependency to establish foundational sequences:
@@ -857,7 +880,7 @@ object WorkflowPromptsGuidance {
                             - Research tasks BLOCK implementation decisions
                             - Architecture decisions BLOCK detailed design tasks
 
-                            ## Step 8: Project Monitoring Setup
+                            ## Step 9: Project Monitoring Setup
                             Prepare for ongoing project management:
 
                             **Create Project Views**:
