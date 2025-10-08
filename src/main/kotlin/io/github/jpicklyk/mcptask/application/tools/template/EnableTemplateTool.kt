@@ -23,6 +23,30 @@ class EnableTemplateTool : BaseToolDefinition() {
 
     override val title: String = "Enable Template"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The enabled template object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "isEnabled" to JsonObject(mapOf("type" to JsonPrimitive("boolean")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Enables a previously disabled template, making it available for use again.
         
         Parameters:

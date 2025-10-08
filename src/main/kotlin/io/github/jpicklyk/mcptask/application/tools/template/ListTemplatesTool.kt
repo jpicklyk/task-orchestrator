@@ -23,6 +23,51 @@ class ListTemplatesTool : BaseToolDefinition() {
 
     override val title: String = "List Available Templates"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("List of templates with filtering info"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "templates" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "description" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "targetEntityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "isBuiltIn" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                                        "isProtected" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                                        "isEnabled" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                                        "tags" to JsonObject(mapOf("type" to JsonPrimitive("array")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "count" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                "filters" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Retrieve a list of templates with optional filtering.
         
         ## Purpose

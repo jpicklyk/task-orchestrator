@@ -23,6 +23,34 @@ class UpdateTemplateMetadataTool : BaseToolDefinition() {
 
     override val title: String = "Update Template Metadata"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The updated template object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "description" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "targetEntityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "isEnabled" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Updates a template's metadata (name, description, tags, etc.) 
         without affecting its sections. Protected templates cannot be updated.
         

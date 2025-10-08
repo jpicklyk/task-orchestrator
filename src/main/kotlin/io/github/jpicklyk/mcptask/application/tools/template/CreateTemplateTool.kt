@@ -27,6 +27,38 @@ class CreateTemplateTool : BaseToolDefinition() {
 
     override val title: String = "Create New Template"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created template object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "description" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "targetEntityType" to JsonObject(mapOf("type" to JsonPrimitive("string"), "enum" to JsonArray(listOf("TASK", "FEATURE").map { JsonPrimitive(it) }))),
+                                "isBuiltIn" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "isProtected" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "isEnabled" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "createdBy" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Creates a new template with required and optional fields.
         
         Templates provide reusable patterns for structuring task and feature documentation.

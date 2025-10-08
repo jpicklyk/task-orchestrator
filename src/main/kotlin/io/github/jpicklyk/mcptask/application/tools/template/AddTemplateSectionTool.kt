@@ -26,6 +26,36 @@ class AddTemplateSectionTool : BaseToolDefinition() {
 
     override val title: String = "Add Section to Template"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created template section object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "templateId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "usageDescription" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "contentSample" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "contentFormat" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "ordinal" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                "isRequired" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Add a section to a template.
         
         Templates define a structured documentation pattern with multiple sections.
