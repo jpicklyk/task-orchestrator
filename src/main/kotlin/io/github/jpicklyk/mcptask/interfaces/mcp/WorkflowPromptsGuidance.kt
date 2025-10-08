@@ -19,11 +19,243 @@ object WorkflowPromptsGuidance {
      * Configures workflow prompts for the MCP server.
      */
     fun configureWorkflowPrompts(server: Server) {
+        addInitializeTaskOrchestratorPrompt(server)
         addCreateFeatureWorkflowPrompt(server)
         addTaskBreakdownPrompt(server)
         addBugTriageWorkflowPrompt(server)
         addProjectSetupPrompt(server)
         addImplementFeatureWorkflowPrompt(server)
+    }
+
+    /**
+     * Adds an AI-agnostic initialization prompt that guides AI agents through setting up
+     * Task Orchestrator guidelines in their own memory systems.
+     */
+    private fun addInitializeTaskOrchestratorPrompt(server: Server) {
+        server.addPrompt(
+            name = "initialize_task_orchestrator",
+            description = "Guide AI agents through self-initialization with Task Orchestrator guidelines in their own memory systems"
+        ) { _ ->
+            GetPromptResult(
+                description = "AI-agnostic initialization workflow for setting up Task Orchestrator usage guidelines",
+                messages = listOf(
+                    PromptMessage(
+                        role = Role.assistant,
+                        content = TextContent(
+                            text = """
+                            # Task Orchestrator Initialization Workflow
+
+                            This workflow guides AI agents through self-initialization with Task Orchestrator guidelines, enabling effective natural language interaction with task management tools.
+
+                            ## Understanding the System Architecture
+
+                            Task Orchestrator uses a three-layer guidance system:
+
+                            **Layer 1: MCP Resources (Guidelines)**
+                            - Discoverable reference documentation
+                            - Principle-based guidance for AI agents
+                            - Internalized patterns for autonomous operation
+                            - Available via `task-orchestrator://guidelines/*` URIs
+
+                            **Layer 2: Workflow Prompts**
+                            - User-invokable step-by-step processes
+                            - Explicit guidance for complex scenarios
+                            - Complement autonomous AI operation
+                            - Invoked when needed for complex workflows
+
+                            **Layer 3: Dynamic Templates**
+                            - Database-driven documentation structures
+                            - Discovered via `list_templates` tool
+                            - Applied during entity creation
+                            - Provide consistent documentation patterns
+
+                            ## Initialization Steps
+
+                            ### Step 1: Read Core Guideline Resources
+
+                            AI agents should read and internalize all guideline resources using appropriate MCP resource reading capabilities:
+
+                            **Essential Resources**:
+                            1. `task-orchestrator://guidelines/usage-overview`
+                               - When/why to use Task Orchestrator tools
+                               - Decision framework for tool selection
+                               - Natural language pattern recognition principles
+
+                            2. `task-orchestrator://guidelines/template-strategy`
+                               - Critical: Templates are dynamic, database-driven
+                               - Template discovery workflow patterns
+                               - Template selection decision trees
+                               - Application patterns and best practices
+
+                            3. `task-orchestrator://guidelines/task-management`
+                               - Intent recognition for natural language requests
+                               - 6 executable workflow patterns
+                               - Pattern application guidelines
+                               - Autonomy vs workflow prompt decisions
+
+                            4. `task-orchestrator://guidelines/workflow-integration`
+                               - Dual workflow model explanation
+                               - When to apply patterns autonomously
+                               - When to invoke workflow prompts
+                               - Integration best practices
+
+                            ### Step 2: Store Guidelines in AI's Memory System
+
+                            After reading resources, AI agents should store the key principles and patterns in whatever memory mechanism they support:
+
+                            **Memory Storage Options** (AI-dependent):
+                            - Project-specific instruction files (e.g., CLAUDE.md, .cursorrules, .ai/*)
+                            - Memory MCP servers or similar persistent storage
+                            - Conversational context and session memory
+                            - AI-specific configuration systems
+                            - Any other AI-native memory mechanism
+
+                            **What to Store**:
+                            - Key decision frameworks from usage-overview
+                            - Template discovery patterns from template-strategy
+                            - Intent recognition categories from task-management
+                            - Pattern application guidelines
+                            - Dual workflow model principles
+
+                            **Storage Best Practices**:
+                            - Summarize key principles rather than full text
+                            - Focus on actionable patterns and decision trees
+                            - Include examples of common intent → action mappings
+                            - Reference resource URIs for detailed lookup when needed
+                            - Store workflow invocation triggers and scenarios
+
+                            ### Step 3: Understand Dual Workflow Usage Model
+
+                            Task Orchestrator supports two complementary modes:
+
+                            **Autonomous Pattern Application**:
+                            - AI recognizes user intent from natural language
+                            - Applies appropriate patterns automatically
+                            - Uses template discovery and selection autonomously
+                            - Provides streamlined, efficient interaction
+                            - Best for: Common tasks, clear intents, experienced users
+
+                            **Explicit Workflow Invocation**:
+                            - User invokes specific workflow prompts
+                            - AI follows detailed step-by-step guidance
+                            - Provides teaching and comprehensive coverage
+                            - Best for: Complex scenarios, learning, edge cases
+
+                            **Decision Framework**:
+                            ```
+                            User Request → Intent Recognition
+                            ├─ Clear, common pattern? → Apply autonomously
+                            ├─ Complex, multi-phase? → Suggest workflow prompt
+                            ├─ Educational need? → Offer workflow prompt
+                            └─ Uncertain? → Apply pattern + explain approach
+                            ```
+
+                            ### Step 4: Key Patterns to Remember
+
+                            **Always Start Sessions With**:
+                            ```
+                            get_overview() to understand current work state
+                            ```
+
+                            **Template Discovery Pattern**:
+                            ```
+                            list_templates(targetEntityType, isEnabled=true)
+                            → Review templates
+                            → Select appropriate templates
+                            → Apply via templateIds parameter
+                            ```
+
+                            **Never Assume Templates Exist**:
+                            - Templates are database-driven and dynamic
+                            - Always use list_templates to discover
+                            - Filter by targetEntityType (TASK or FEATURE)
+                            - Check isEnabled status
+
+                            **Natural Language Intent Recognition**:
+                            - "Create feature for..." → Feature creation pattern
+                            - "Implement..." → Task creation with implementation templates
+                            - "Fix bug..." → Bug triage pattern
+                            - "Break down..." → Task decomposition pattern
+                            - "Set up project..." → Project setup pattern
+
+                            **Git Workflow Integration**:
+                            - Detect .git directory in project
+                            - Auto-suggest git workflow templates when detected
+                            - Ask about PR workflows (don't assume)
+
+                            ### Step 5: Verify Initialization
+
+                            **Self-Check Questions**:
+                            - [ ] Can I explain when to use Task Orchestrator vs internal task tracking?
+                            - [ ] Do I understand the template discovery pattern and why it's critical?
+                            - [ ] Can I recognize common user intents and map them to patterns?
+                            - [ ] Do I know when to apply patterns autonomously vs suggest workflow prompts?
+                            - [ ] Have I stored key guidelines in my available memory system?
+
+                            **Test Understanding**:
+                            - Read a hypothetical user request
+                            - Identify the intent category
+                            - Determine appropriate pattern or workflow
+                            - Plan template discovery approach
+                            - Decide autonomous vs workflow prompt
+
+                            ### Step 6: Initialization Confirmation
+
+                            After completing initialization, AI agents should:
+
+                            1. **Confirm Resource Reading**:
+                               Verify all 4 guideline resources were successfully read and understood
+
+                            2. **Confirm Memory Storage**:
+                               Verify key principles stored in available memory mechanism
+
+                            3. **Confirm Pattern Recognition**:
+                               Demonstrate understanding by explaining how to handle a sample request
+
+                            4. **Ready for Use**:
+                               Signal readiness to use Task Orchestrator tools effectively
+
+                            ## Ongoing Best Practices
+
+                            **Session Start Routine**:
+                            - Run get_overview() to understand current state
+                            - Check for in-progress tasks before starting new work
+                            - Review priorities and dependencies
+
+                            **Template Usage**:
+                            - Always discover templates dynamically
+                            - Apply multiple templates for comprehensive coverage
+                            - Combine workflow + documentation + quality templates
+
+                            **Natural Language Interaction**:
+                            - Recognize intent from user's natural phrasing
+                            - Apply appropriate patterns automatically when clear
+                            - Offer workflow prompts for complex scenarios
+                            - Explain your approach when applying patterns
+
+                            **Quality Standards**:
+                            - Write descriptive titles and summaries
+                            - Use appropriate complexity ratings (1-10)
+                            - Apply consistent tagging conventions
+                            - Include acceptance criteria in summaries
+
+                            ## Success Indicators
+
+                            Initialization is successful when AI agents:
+                            - Recognize user intents without explicit workflow invocation
+                            - Autonomously apply template discovery patterns
+                            - Make appropriate autonomous vs workflow prompt decisions
+                            - Provide efficient, natural interactions with Task Orchestrator
+                            - Reference guideline resources when needed for detailed guidance
+
+                            This initialization enables effective, natural language interaction with Task Orchestrator tools while maintaining access to detailed workflow guidance when needed.
+                            """.trimIndent()
+                        )
+                    )
+                ),
+                _meta = JsonObject(emptyMap())
+            )
+        }
     }
 
     /**
