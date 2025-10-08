@@ -19,6 +19,7 @@ object TaskOrchestratorResources {
     fun configure(server: Server) {
         addUsageOverviewResource(server)
         addTemplateStrategyResource(server)
+        addTaskManagementPatternsResource(server)
     }
 
     /**
@@ -601,6 +602,544 @@ Template discovery is **mandatory, not optional**:
 - Combine categories for comprehensive coverage
 
 This strategy ensures robust template usage across any Task Orchestrator installation, regardless of customization or configuration.
+                        """.trimIndent()
+                    )
+                )
+            )
+        }
+    }
+
+    /**
+     * Adds the task management patterns resource containing executable workflow
+     * patterns for natural language usage.
+     */
+    private fun addTaskManagementPatternsResource(server: Server) {
+        server.addResource(
+            uri = "task-orchestrator://guidelines/task-management",
+            name = "Task Management Patterns",
+            description = "Executable workflow patterns for recognizing user intent and applying appropriate task management patterns",
+            mimeType = "text/markdown"
+        ) { _ ->
+            ReadResourceResult(
+                contents = listOf(
+                    TextResourceContents(
+                        uri = "task-orchestrator://guidelines/task-management",
+                        mimeType = "text/markdown",
+                        text = """
+# Task Management Patterns
+
+## Purpose
+
+This resource teaches AI agents to recognize natural language user requests and automatically apply appropriate task management patterns without requiring explicit workflow invocation.
+
+**Goal**: Enable interactions like:
+- User: "Create a feature for user authentication"
+- AI: Automatically applies feature creation pattern with templates
+- User: "Fix the login bug"
+- AI: Automatically applies bug triage pattern
+
+## Pattern Recognition
+
+### Intent Categories
+
+**Feature Creation Intents**:
+- "Create a feature for X"
+- "Build X functionality"
+- "Implement X feature"
+- "Add X capability"
+- "New feature: X"
+
+**Task Implementation Intents**:
+- "Implement X"
+- "Build X component"
+- "Create task for X"
+- "Work on X"
+- "Fix X" (non-bug)
+
+**Bug Triage Intents**:
+- "Fix bug: X"
+- "X is broken"
+- "Debug X issue"
+- "Investigate X problem"
+- "X doesn't work"
+
+**Documentation Intents**:
+- "Document X"
+- "Write docs for X"
+- "Add documentation"
+- "Create README"
+
+**Priority Assessment Intents**:
+- "What should I work on?"
+- "What's next?"
+- "Show priorities"
+- "What's urgent?"
+
+## Executable Workflow Patterns
+
+### Pattern 1: Feature Creation from Natural Language
+
+**Trigger**: User describes a feature to build
+
+**Execution**:
+```
+Step 1: Check current state
+get_overview()
+
+Step 2: Discover available templates
+templates = list_templates(targetEntityType: "FEATURE", isEnabled: true)
+
+Step 3: Select relevant templates
+context_template = find template with "Context" or "Background"
+requirements_template = find template with "Requirements"
+
+Step 4: Create feature with templates
+create_feature(
+    name: [extract feature name from user request],
+    summary: [comprehensive description based on user input],
+    status: "planning",
+    priority: [assess from context: high/medium/low],
+    templateIds: [selected template IDs],
+    tags: [derive from feature type and domain]
+)
+
+Step 5: Confirm creation and suggest next steps
+"Feature created. Ready to break down into tasks?"
+```
+
+**Example**:
+```
+User: "Create a feature for OAuth authentication with Google and GitHub"
+
+AI applies pattern:
+1. get_overview() - check existing work
+2. list_templates(targetEntityType: "FEATURE") - discover templates
+3. create_feature(
+     name: "OAuth Authentication Integration",
+     summary: "Implement OAuth 2.0 authentication with Google and GitHub providers...",
+     priority: "high",
+     templateIds: [context-id, requirements-id],
+     tags: "authentication,oauth,security,user-management"
+   )
+4. "Feature created with 2 documentation templates. Ready to create implementation tasks?"
+```
+
+### Pattern 2: Task Creation with Template Discovery
+
+**Trigger**: User requests implementation of specific functionality
+
+**Execution**:
+```
+Step 1: Understand context
+get_overview() - see current work
+Detect git usage: check for .git directory
+
+Step 2: Discover templates
+templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+
+Step 3: Select templates based on task type
+implementation = find "Task Implementation Workflow"
+git = find "Local Git Branching" (if git detected)
+technical = find "Technical Approach" (if complexity > 6)
+testing = find "Testing Strategy" (if quality critical)
+
+Step 4: Assess complexity
+Analyze requirements:
+- Simple (1-3): Single component, straightforward
+- Medium (4-6): Multiple components, moderate integration
+- High (7-10): Complex architecture, multiple integrations
+
+Step 5: Create task
+create_task(
+    title: [specific, actionable title],
+    summary: [detailed description with acceptance criteria],
+    complexity: [assessed complexity],
+    priority: [high/medium/low based on urgency],
+    templateIds: [selected template IDs],
+    tags: [task-type, component, technology]
+)
+
+Step 6: Update status when starting
+update_task(id: task-id, status: "in_progress")
+```
+
+**Example**:
+```
+User: "Implement API endpoints for user profile management"
+
+AI applies pattern:
+1. get_overview() - check current state
+2. Check for .git → detected
+3. list_templates(targetEntityType: "TASK")
+4. Assess complexity: Medium (4-6) - API + validation + tests
+5. create_task(
+     title: "Implement user profile management API endpoints",
+     summary: "Create REST API endpoints for user profile CRUD operations. Include: GET /profile, PUT /profile, validation, error handling, tests",
+     complexity: 5,
+     priority: "medium",
+     templateIds: [impl-workflow-id, git-workflow-id, technical-approach-id],
+     tags: "task-type-feature,api,backend,user-management"
+   )
+6. "Task created with git branching workflow. Ready to start implementation?"
+```
+
+### Pattern 3: Bug Triage and Investigation
+
+**Trigger**: User reports a bug or issue
+
+**Execution**:
+```
+Step 1: Check existing bugs
+search_tasks(tag: "task-type-bug", status: "pending")
+
+Step 2: Discover bug investigation templates
+templates = list_templates(targetEntityType: "TASK", tags: "bug")
+bug_workflow = find "Bug Investigation Workflow"
+git_workflow = find "Local Git Branching"
+
+Step 3: Assess severity
+Critical: System down, data loss, security
+High: Major function broken, many users affected
+Medium: Feature partially broken, workaround exists
+Low: Minor issue, cosmetic problem
+
+Step 4: Create bug task
+create_task(
+    title: [clear bug description with impact],
+    summary: [symptoms, reproduction steps, initial impact],
+    priority: [based on severity assessment],
+    complexity: [initial estimate: 3-5 for investigation],
+    templateIds: [bug-workflow-id, git-workflow-id],
+    tags: "task-type-bug,severity-[level],component-[area]"
+)
+
+Step 5: Begin systematic investigation
+Follow bug investigation template sections
+```
+
+**Example**:
+```
+User: "The login page is showing a blank screen after submitting credentials"
+
+AI applies pattern:
+1. search_tasks(tag: "task-type-bug") - check existing bugs
+2. list_templates(tags: "bug")
+3. Assess: High severity (login is critical, affects all users)
+4. create_task(
+     title: "Login page blank screen after credential submission",
+     summary: "Symptoms: Blank white screen appears after entering credentials and clicking login. User session not established. Reproduction: Navigate to /login, enter valid credentials, click submit. Expected: Dashboard loads. Actual: Blank screen.",
+     priority: "high",
+     complexity: 4,
+     templateIds: [bug-investigation-id, git-branching-id],
+     tags: "task-type-bug,severity-high,component-frontend,authentication"
+   )
+5. "Bug task created. Following investigation workflow to determine root cause..."
+```
+
+### Pattern 4: Priority Assessment and Work Selection
+
+**Trigger**: User asks what to work on next
+
+**Execution**:
+```
+Step 1: Get comprehensive overview
+overview = get_overview()
+
+Step 2: Search for high-priority pending work
+high_priority = search_tasks(
+    status: "pending",
+    priority: "high",
+    sortBy: "complexity",
+    sortDirection: "asc"
+)
+
+Step 3: Check for blockers
+For each high-priority task:
+    dependencies = get_task_dependencies(taskId: task-id, direction: "incoming")
+    If blocked: skip
+    If unblocked: candidate
+
+Step 4: Assess readiness
+For candidates:
+- Check if templates applied
+- Verify clear acceptance criteria
+- Confirm dependencies satisfied
+
+Step 5: Recommend work
+Present top 3 unblocked, ready tasks with reasoning
+```
+
+**Example**:
+```
+User: "What should I work on next?"
+
+AI applies pattern:
+1. get_overview() - get project state
+2. search_tasks(status: "pending", priority: "high")
+3. Check dependencies for each
+4. Assess:
+   - Task A: Unblocked, has templates, clear criteria ✓
+   - Task B: Blocked by Task C ✗
+   - Task D: Unblocked, clear criteria ✓
+5. "Top recommendations:
+   1. 'Implement user profile API' (complexity 5, unblocked, ready)
+   2. 'Add OAuth integration' (complexity 6, unblocked, needs template review)
+   Start with #1?"
+```
+
+### Pattern 5: Dependency Management
+
+**Trigger**: User mentions task relationships or ordering
+
+**Execution**:
+```
+Step 1: Identify related tasks
+If tasks exist: get task IDs
+If tasks need creation: create them first
+
+Step 2: Understand relationship type
+BLOCKS: Task A must complete before Task B starts
+IS_BLOCKED_BY: Task A cannot start until Task B completes
+RELATES_TO: Tasks are related but no strict ordering
+
+Step 3: Create dependency
+create_dependency(
+    fromTaskId: [source task],
+    toTaskId: [target task],
+    type: [relationship type]
+)
+
+Step 4: Verify no cycles
+Check that dependency doesn't create circular relationship
+
+Step 5: Confirm and update planning
+Report dependency creation
+Suggest appropriate task ordering
+```
+
+**Example**:
+```
+User: "The API implementation needs to wait for the database schema task to complete"
+
+AI applies pattern:
+1. search_tasks(query: "API implementation") → Task A
+2. search_tasks(query: "database schema") → Task B
+3. Relationship: Task B BLOCKS Task A
+4. create_dependency(
+     fromTaskId: task-B-id,
+     toTaskId: task-A-id,
+     type: "BLOCKS"
+   )
+5. "Dependency created: Database schema blocks API implementation. Work on database schema first."
+```
+
+### Pattern 6: Feature Decomposition
+
+**Trigger**: User has a large feature that needs breakdown
+
+**Execution**:
+```
+Step 1: Understand feature scope
+get_feature(id: feature-id, includeSections: true)
+
+Step 2: Identify natural boundaries
+Analyze by:
+- Component (frontend, backend, database)
+- Phase (research, implementation, testing)
+- Skill set (different expertise required)
+
+Step 3: Discover task templates
+templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+
+Step 4: Create tasks for each component
+For each component:
+    create_task(
+        title: [specific component implementation],
+        summary: [clear scope and criteria],
+        featureId: feature-id,
+        complexity: [3-6 for manageable tasks],
+        templateIds: [relevant templates],
+        tags: [component-specific tags]
+    )
+
+Step 5: Establish dependencies
+create_dependency between tasks with ordering requirements
+
+Step 6: Verify breakdown
+get_feature(id: feature-id, includeTasks: true)
+Ensure total complexity manageable
+```
+
+**Example**:
+```
+User: "Break down the OAuth feature into implementation tasks"
+
+AI applies pattern:
+1. get_feature(id: oauth-feature-id, includeSections: true)
+2. Identify components:
+   - Database: User OAuth tokens table
+   - Backend: OAuth providers integration
+   - Backend: Token management endpoints
+   - Frontend: OAuth login buttons
+   - Testing: Integration test suite
+3. list_templates(targetEntityType: "TASK")
+4. Create 5 tasks:
+   - "Create OAuth tokens database schema" (complexity 3)
+   - "Integrate Google OAuth provider" (complexity 5)
+   - "Integrate GitHub OAuth provider" (complexity 4)
+   - "Add OAuth login UI components" (complexity 4)
+   - "Create OAuth integration test suite" (complexity 5)
+5. Dependencies:
+   - Database BLOCKS backend integration
+   - Backend BLOCKS frontend UI
+   - All BLOCK testing
+6. "Created 5 tasks (total complexity 21). Start with database schema?"
+```
+
+## Pattern Application Guidelines
+
+### When to Apply Each Pattern
+
+**Feature Creation**:
+- User mentions "feature", "functionality", "capability"
+- Describes user-facing behavior or benefit
+- Scope involves multiple related tasks
+
+**Task Creation**:
+- Specific implementation request
+- Component or module work
+- Bounded, clear scope
+
+**Bug Triage**:
+- User reports problem or error
+- Something "doesn't work" or "is broken"
+- Unexpected behavior described
+
+**Priority Assessment**:
+- User asks "what next" or "what should I work on"
+- Needs direction or planning help
+- Wants work recommendations
+
+**Dependency Management**:
+- User mentions task ordering
+- Describes prerequisites or blockers
+- Talks about "before" or "after" relationships
+
+### Integration with Template Discovery
+
+**Always combine patterns with template discovery**:
+```
+Pattern recognition → Template discovery → Pattern execution with templates
+```
+
+**Example flow**:
+1. Recognize: "Create feature" intent
+2. Discover: list_templates(targetEntityType: "FEATURE")
+3. Execute: create_feature with discovered templates
+```
+
+### Natural Language Flexibility
+
+**Recognize variations**:
+- "Build X" = "Create X" = "Implement X"
+- "Fix bug" = "Debug" = "Resolve issue"
+- "What's next" = "What should I do" = "Show priorities"
+
+**Extract parameters from natural language**:
+- Name/Title: Extract key subject
+- Summary: Expand user description with technical details
+- Priority: Infer from urgency words (urgent, critical, when you can, etc.)
+- Complexity: Estimate from scope description
+- Tags: Derive from domain and technical keywords
+
+## Autonomy vs Workflow Prompts
+
+### Autonomous Pattern Application
+
+**When AI should apply patterns automatically**:
+- Clear intent recognized
+- Sufficient context available
+- Standard pattern applies
+- Low risk of misunderstanding
+
+**Example**:
+```
+User: "Create a feature for file upload with drag and drop"
+AI: Automatically applies feature creation pattern
+```
+
+### Workflow Prompt Invocation
+
+**When to invoke workflow prompts**:
+- User explicitly requests workflow
+- Complex scenario needing guidance
+- Learning new patterns
+- Ambiguous requirements
+
+**Example**:
+```
+User: "I want to set up a new project for my mobile app"
+AI: Invokes project_setup_workflow prompt for step-by-step guidance
+```
+
+### Hybrid Approach
+
+**Combine for best results**:
+1. Apply pattern automatically for standard cases
+2. Offer workflow prompt for complex variations
+3. Ask clarifying questions when ambiguous
+
+**Example**:
+```
+User: "Fix the authentication system"
+AI: "This sounds like either:
+     1. A bug investigation (if auth is broken)
+     2. An enhancement task (if improving auth)
+     Which applies? Or would you like me to invoke bug_triage_workflow?"
+```
+
+## Best Practices
+
+1. **Always start with get_overview**
+   - Understand current project state
+   - Check for existing related work
+   - Avoid duplicate creation
+
+2. **Template discovery is mandatory**
+   - Never assume templates
+   - Always use list_templates
+   - Apply relevant templates
+
+3. **Provide context-aware responses**
+   - Reference existing work when relevant
+   - Suggest next steps
+   - Offer related patterns
+
+4. **Confirm understanding when ambiguous**
+   - Ask clarifying questions
+   - Offer alternatives
+   - Don't guess on critical details
+
+5. **Track progress and status**
+   - Update task status as work progresses
+   - Use get_task to verify before completing
+   - Ensure template compliance
+
+6. **Learn from patterns**
+   - Recognize user's workflow preferences
+   - Adapt to project-specific conventions
+   - Apply consistent patterns within sessions
+
+## Summary
+
+Task management patterns enable AI agents to:
+- Recognize natural language intent
+- Apply appropriate workflow patterns automatically
+- Discover and use templates dynamically
+- Execute multi-step workflows without explicit prompts
+- Provide intelligent assistance based on context
+
+**Key principle**: Internalize these patterns to provide seamless, natural task orchestration that feels intuitive to users rather than requiring explicit tool invocation.
                         """.trimIndent()
                     )
                 )
