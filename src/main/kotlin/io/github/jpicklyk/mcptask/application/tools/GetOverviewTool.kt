@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.Tool
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,6 +27,103 @@ class GetOverviewTool : BaseToolDefinition() {
     override val name: String = "get_overview"
 
     override val title: String = "Get Project Overview"
+
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Hierarchical project overview with features and tasks"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "features" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of features with their associated tasks"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Truncated summary (optional based on summaryLength parameter)"))),
+                                                        "tasks" to JsonObject(
+                                                            mapOf(
+                                                                "type" to JsonPrimitive("array"),
+                                                                "items" to JsonObject(
+                                                                    mapOf(
+                                                                        "type" to JsonPrimitive("object"),
+                                                                        "properties" to JsonObject(
+                                                                            mapOf(
+                                                                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                                                "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                                                "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                                                "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Truncated summary (optional based on summaryLength parameter)"))),
+                                                                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Comma-separated tag string")))
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                )
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "orphanedTasks" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of tasks not associated with any feature"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "tags" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "counts" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Summary counts for quick reference"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "features" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "tasks" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "orphanedTasks" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                                            )
+                                        ),
+                                        "required" to JsonArray(listOf("features", "tasks", "orphanedTasks").map { JsonPrimitive(it) })
+                                    )
+                                )
+                            )
+                        ),
+                        "required" to JsonArray(listOf("features", "orphanedTasks", "counts").map { JsonPrimitive(it) })
+                    )
+                )
+            )
+        ),
+        required = listOf("success", "message")
+    )
 
     override val description: String = """Retrieves a lightweight, token-efficient overview of tasks and features.
         

@@ -35,6 +35,139 @@ class CreateTaskTool : BaseToolDefinition() {
 
     override val title: String = "Create New Task"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Whether the operation succeeded")
+                    )
+                ),
+                "message" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Human-readable message describing the result")
+                    )
+                ),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created task object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("uuid"),
+                                        "description" to JsonPrimitive("Unique identifier for the task")
+                                    )
+                                ),
+                                "title" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Task title")
+                                    )
+                                ),
+                                "summary" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Task summary/description")
+                                    )
+                                ),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("pending", "in-progress", "completed", "cancelled", "deferred").map { JsonPrimitive(it) }),
+                                        "description" to JsonPrimitive("Current status of the task")
+                                    )
+                                ),
+                                "priority" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("high", "medium", "low").map { JsonPrimitive(it) }),
+                                        "description" to JsonPrimitive("Task priority level")
+                                    )
+                                ),
+                                "complexity" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("integer"),
+                                        "minimum" to JsonPrimitive(1),
+                                        "maximum" to JsonPrimitive(10),
+                                        "description" to JsonPrimitive("Task complexity rating (1-10)")
+                                    )
+                                ),
+                                "createdAt" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("date-time"),
+                                        "description" to JsonPrimitive("ISO-8601 timestamp when task was created")
+                                    )
+                                ),
+                                "modifiedAt" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "format" to JsonPrimitive("date-time"),
+                                        "description" to JsonPrimitive("ISO-8601 timestamp when task was last modified")
+                                    )
+                                ),
+                                "featureId" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))),
+                                        "format" to JsonPrimitive("uuid"),
+                                        "description" to JsonPrimitive("ID of the feature this task belongs to, or null")
+                                    )
+                                ),
+                                "projectId" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))),
+                                        "format" to JsonPrimitive("uuid"),
+                                        "description" to JsonPrimitive("ID of the project this task belongs to, or null")
+                                    )
+                                ),
+                                "tags" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                        "description" to JsonPrimitive("Array of tag strings")
+                                    )
+                                ),
+                                "appliedTemplates" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of templates that were applied (only present if templates were used)"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "templateId" to JsonObject(
+                                                            mapOf(
+                                                                "type" to JsonPrimitive("string"),
+                                                                "format" to JsonPrimitive("uuid")
+                                                            )
+                                                        ),
+                                                        "sectionsCreated" to JsonObject(
+                                                            mapOf("type" to JsonPrimitive("integer"))
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        ),
+                        "required" to JsonArray(
+                            listOf("id", "title", "summary", "status", "priority", "complexity", "createdAt", "modifiedAt", "tags").map { JsonPrimitive(it) }
+                        )
+                    )
+                )
+            )
+        ),
+        required = listOf("success", "message")
+    )
+
     override val description: String = """Creates a new task with the specified properties.
         
         ## Purpose

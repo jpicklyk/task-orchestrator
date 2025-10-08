@@ -36,6 +36,105 @@ class GetTaskTool : BaseToolDefinition() {
 
     override val title: String = "Get Task Details"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The requested task with optional related entities"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "status" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("pending", "in-progress", "completed", "cancelled", "deferred").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "priority" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("high", "medium", "low").map { JsonPrimitive(it) })
+                                    )
+                                ),
+                                "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "minimum" to JsonPrimitive(1), "maximum" to JsonPrimitive(10))),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                "featureId" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))), "format" to JsonPrimitive("uuid"))),
+                                "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
+                                "feature" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Feature object (only present when includeFeature=true and task belongs to feature)"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                "summary" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                            )
+                                        )
+                                    )
+                                ),
+                                "sections" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("Array of sections (only present when includeSections=true)"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "content" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "contentFormat" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "ordinal" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "dependencies" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Dependency information (only present when includeDependencies=true)"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "incoming" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                                "outgoing" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                                "counts" to JsonObject(
+                                                    mapOf(
+                                                        "type" to JsonPrimitive("object"),
+                                                        "properties" to JsonObject(
+                                                            mapOf(
+                                                                "total" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                                "incoming" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                                "outgoing" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        ),
+                        "required" to JsonArray(listOf("id", "title", "summary", "status", "priority", "complexity", "createdAt", "modifiedAt", "tags").map { JsonPrimitive(it) })
+                    )
+                )
+            )
+        ),
+        required = listOf("success", "message")
+    )
+
     override val description: String = """Retrieves a task by its ID with options for including relationships.
         
         ## Purpose
