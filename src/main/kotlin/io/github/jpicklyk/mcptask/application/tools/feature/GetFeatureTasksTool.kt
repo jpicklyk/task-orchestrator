@@ -21,6 +21,8 @@ class GetFeatureTasksTool : BaseToolDefinition() {
 
     override val name: String = "get_feature_tasks"
 
+    override val title: String = "Get Feature Tasks"
+
     override val description: String = "Retrieve all tasks associated with a specific feature"
 
     override val parameterSchema: Tool.Input = Tool.Input(

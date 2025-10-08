@@ -28,7 +28,9 @@ class UpdateTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "update_task"
-    
+
+    override val title: String = "Update Task"
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing task with the specified properties.

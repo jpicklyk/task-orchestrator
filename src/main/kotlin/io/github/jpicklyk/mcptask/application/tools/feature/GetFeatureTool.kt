@@ -34,6 +34,8 @@ class GetFeatureTool : BaseToolDefinition() {
 
     override val name: String = "get_feature"
 
+    override val title: String = "Get Feature Details"
+
     override val description: String = """Retrieves a feature by its ID with options for including relationships.
         
         ## Purpose

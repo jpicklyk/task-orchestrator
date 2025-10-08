@@ -26,7 +26,9 @@ class UpdateFeatureTool(
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
 
     override val name: String = "update_feature"
-    
+
+    override val title: String = "Update Feature"
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Update an existing feature's properties"

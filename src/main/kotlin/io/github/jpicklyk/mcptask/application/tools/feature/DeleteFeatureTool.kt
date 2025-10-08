@@ -24,7 +24,9 @@ class DeleteFeatureTool(
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
 
     override val name: String = "delete_feature"
-    
+
+    override val title: String = "Delete Feature"
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Remove a feature and its associated tasks"

@@ -28,7 +28,9 @@ class DeleteTaskTool(
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "delete_task"
-    
+
+    override val title: String = "Delete Task"
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Deletes a task by its ID"

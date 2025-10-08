@@ -36,6 +36,8 @@ class SearchTasksTool : BaseToolDefinition() {
 
     override val name: String = "search_tasks"
 
+    override val title: String = "Search Tasks"
+
     override val description: String = """Searches for tasks based on various criteria.
         
         ## Purpose

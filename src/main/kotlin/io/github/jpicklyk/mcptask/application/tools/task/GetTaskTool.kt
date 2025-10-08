@@ -34,6 +34,8 @@ class GetTaskTool : BaseToolDefinition() {
 
     override val name: String = "get_task"
 
+    override val title: String = "Get Task Details"
+
     override val description: String = """Retrieves a task by its ID with options for including relationships.
         
         ## Purpose

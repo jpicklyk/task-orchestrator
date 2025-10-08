@@ -21,6 +21,8 @@ class SearchFeaturesTool : BaseToolDefinition() {
 
     override val name: String = "search_features"
 
+    override val title: String = "Search Features"
+
     override val description: String = "Find features matching specified criteria"
 
     override val parameterSchema: Tool.Input = Tool.Input(

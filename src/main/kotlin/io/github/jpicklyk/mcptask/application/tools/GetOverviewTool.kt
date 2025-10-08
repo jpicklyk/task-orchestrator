@@ -25,6 +25,8 @@ class GetOverviewTool : BaseToolDefinition() {
 
     override val name: String = "get_overview"
 
+    override val title: String = "Get Project Overview"
+
     override val description: String = """Retrieves a lightweight, token-efficient overview of tasks and features.
         
         ## Purpose

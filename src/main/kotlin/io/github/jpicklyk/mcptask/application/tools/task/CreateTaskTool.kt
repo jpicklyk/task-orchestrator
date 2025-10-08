@@ -33,6 +33,8 @@ class CreateTaskTool : BaseToolDefinition() {
 
     override val name: String = "create_task"
 
+    override val title: String = "Create New Task"
+
     override val description: String = """Creates a new task with the specified properties.
         
         ## Purpose

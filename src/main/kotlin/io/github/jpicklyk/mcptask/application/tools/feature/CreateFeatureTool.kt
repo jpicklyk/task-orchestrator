@@ -35,7 +35,10 @@ import java.util.*
  */
 class CreateFeatureTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.FEATURE_MANAGEMENT
+
     override val name: String = "create_feature"
+
+    override val title: String = "Create New Feature"
 
     override val description: String = """Create a new feature with required and optional fields.
         
