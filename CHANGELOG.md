@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Output schemas for all 6 Task Management tools (create_task, get_task, update_task, delete_task, search_tasks, get_overview)
+- Tool titles for all 39 MCP tools for better discoverability in clients
+- ToolDefinition interface enhancements: optional `title` and `outputSchema` properties
+- ToolRegistry now registers tool titles and output schemas with MCP server
+
+### Changed
+- All tool implementations now include descriptive title properties
+- Task Management tools now provide structured output schemas for better agent integration
+
+### Technical Details
+- Output schemas use Tool.Output from kotlin-sdk 0.7.x
+- Schemas define complete response structure with required vs optional fields
+- Proper JSON Schema types, formats, and enum constraints
+- Support for nested structures (pagination, hierarchical data)
+- All changes maintain backward compatibility
+
 ## [1.0.2] - 2025-10-08
 
 ### Changed
