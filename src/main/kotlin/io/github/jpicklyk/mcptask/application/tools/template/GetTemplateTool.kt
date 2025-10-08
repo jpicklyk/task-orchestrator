@@ -22,6 +22,8 @@ class GetTemplateTool : BaseToolDefinition() {
 
     override val name: String = "get_template"
 
+    override val title: String = "Get Template Details"
+
     override val description: String = "Retrieve a complete template by ID with options for including sections"
 
     override val parameterSchema: Tool.Input = Tool.Input(

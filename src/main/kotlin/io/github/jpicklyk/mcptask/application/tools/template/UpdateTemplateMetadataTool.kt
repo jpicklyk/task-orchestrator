@@ -18,7 +18,10 @@ import java.util.*
  */
 class UpdateTemplateMetadataTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TEMPLATE_MANAGEMENT
+
     override val name: String = "update_template_metadata"
+
+    override val title: String = "Update Template Metadata"
 
     override val description: String = """Updates a template's metadata (name, description, tags, etc.) 
         without affecting its sections. Protected templates cannot be updated.

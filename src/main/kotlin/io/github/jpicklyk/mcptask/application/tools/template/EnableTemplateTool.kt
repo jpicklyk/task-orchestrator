@@ -21,6 +21,8 @@ class EnableTemplateTool : BaseToolDefinition() {
 
     override val name: String = "enable_template"
 
+    override val title: String = "Enable Template"
+
     override val description: String = """Enables a previously disabled template, making it available for use again.
         
         Parameters:

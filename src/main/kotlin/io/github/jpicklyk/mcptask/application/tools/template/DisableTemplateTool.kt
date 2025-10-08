@@ -22,6 +22,8 @@ class DisableTemplateTool : BaseToolDefinition() {
 
     override val name: String = "disable_template"
 
+    override val title: String = "Disable Template"
+
     override val description: String = """Disables a template including system templates. Disabled templates are not available for use.
         
         Parameters:

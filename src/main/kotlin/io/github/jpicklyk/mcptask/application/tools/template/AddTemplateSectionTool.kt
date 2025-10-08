@@ -24,6 +24,8 @@ class AddTemplateSectionTool : BaseToolDefinition() {
 
     override val name: String = "add_template_section"
 
+    override val title: String = "Add Section to Template"
+
     override val description: String = """Add a section to a template.
         
         Templates define a structured documentation pattern with multiple sections.

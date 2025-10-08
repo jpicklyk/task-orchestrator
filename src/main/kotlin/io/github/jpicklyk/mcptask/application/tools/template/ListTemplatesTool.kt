@@ -21,6 +21,8 @@ class ListTemplatesTool : BaseToolDefinition() {
 
     override val name: String = "list_templates"
 
+    override val title: String = "List Available Templates"
+
     override val description: String = """Retrieve a list of templates with optional filtering.
         
         ## Purpose

@@ -22,6 +22,8 @@ class DeleteTemplateTool : BaseToolDefinition() {
 
     override val name: String = "delete_template"
 
+    override val title: String = "Delete Template"
+
     override val description: String = """Deletes a user-created template. Built-in templates cannot be deleted.
         
         Parameters:

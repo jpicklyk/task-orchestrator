@@ -29,6 +29,8 @@ class ApplyTemplateTool(
 
     override val name: String = "apply_template"
 
+    override val title: String = "Apply Template to Entity"
+
     override val description: String = """Apply one or more templates to create sections for a task or feature.
         
         ## Purpose

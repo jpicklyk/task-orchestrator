@@ -25,6 +25,8 @@ class CreateTemplateTool : BaseToolDefinition() {
 
     override val name: String = "create_template"
 
+    override val title: String = "Create New Template"
+
     override val description: String = """Creates a new template with required and optional fields.
         
         Templates provide reusable patterns for structuring task and feature documentation.
