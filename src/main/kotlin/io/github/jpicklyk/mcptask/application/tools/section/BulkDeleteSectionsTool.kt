@@ -21,6 +21,29 @@ class BulkDeleteSectionsTool : BaseToolDefinition() {
 
     override val title: String = "Bulk Delete Sections"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Bulk deletion results"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "deleted" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of sections successfully deleted"))),
+                                "failed" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of sections that failed to delete")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = "Deletes multiple sections in a single operation"
 
     override val parameterSchema: Tool.Input = Tool.Input(

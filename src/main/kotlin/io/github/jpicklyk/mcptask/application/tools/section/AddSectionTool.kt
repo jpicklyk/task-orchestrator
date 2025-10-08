@@ -41,6 +41,43 @@ class AddSectionTool(
 
     override val title: String = "Add Section to Entity"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created section object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "section" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                "contentFormat" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                "ordinal" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = """Adds a section to a task, feature, or project.
         
         ## Purpose

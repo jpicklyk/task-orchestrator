@@ -38,6 +38,53 @@ class GetSectionsTool : BaseToolDefinition() {
 
     override val title: String = "Get Entity Sections"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Sections for the entity"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "sections" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "items" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("object"),
+                                                "properties" to JsonObject(
+                                                    mapOf(
+                                                        "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "usageDescription" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "content" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "contentFormat" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                                        "ordinal" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                        "tags" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                                                        "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
+                                                        "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                ),
+                                "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "count" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = """Retrieves sections for a task, feature, or project.
         
         ## Purpose

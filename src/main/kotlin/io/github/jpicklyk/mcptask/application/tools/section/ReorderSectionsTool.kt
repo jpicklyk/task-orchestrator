@@ -23,6 +23,30 @@ class ReorderSectionsTool : BaseToolDefinition() {
 
     override val title: String = "Reorder Sections"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Reordering results"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "sectionsReordered" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Reorders sections within a template or other entity.
         This tool changes the display order of sections by updating their ordinal values.
         

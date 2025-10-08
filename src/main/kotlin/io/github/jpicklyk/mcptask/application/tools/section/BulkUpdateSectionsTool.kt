@@ -23,6 +23,29 @@ class BulkUpdateSectionsTool : BaseToolDefinition() {
 
     override val title: String = "Bulk Update Sections"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Bulk update results"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "updated" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of sections successfully updated"))),
+                                "failed" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Number of sections that failed to update")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description = "Updates multiple sections in a single operation"
 
     override val parameterSchema: Tool.Input = Tool.Input(

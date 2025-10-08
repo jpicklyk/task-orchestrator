@@ -23,6 +23,30 @@ class UpdateSectionTextTool : BaseToolDefinition() {
 
     override val title: String = "Update Section Text"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The updated section object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "content" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Updates specific text within a section without requiring the entire content.
         This tool allows changing portions of section content by providing the text to replace
         and its replacement.
