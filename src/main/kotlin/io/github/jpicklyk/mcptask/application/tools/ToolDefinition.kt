@@ -30,6 +30,13 @@ interface ToolDefinition {
     val parameterSchema: Tool.Input
 
     /**
+     * Optional output schema defining the structure of the tool's response.
+     * Enables better integration with agent workflow systems (n8n, Zapier, etc.).
+     * If not specified, defaults to null.
+     */
+    val outputSchema: Tool.Output? get() = null
+
+    /**
      * Categorization for organizing tools in documentation and UI.
      */
     val category: ToolCategory
