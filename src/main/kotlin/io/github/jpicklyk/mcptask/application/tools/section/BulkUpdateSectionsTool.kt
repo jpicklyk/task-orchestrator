@@ -18,7 +18,11 @@ import java.util.*
  */
 class BulkUpdateSectionsTool : BaseToolDefinition() {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "bulk_update_sections"
+
+    override val title: String = "Bulk Update Sections"
+
     override val description = "Updates multiple sections in a single operation"
 
     override val parameterSchema: Tool.Input = Tool.Input(

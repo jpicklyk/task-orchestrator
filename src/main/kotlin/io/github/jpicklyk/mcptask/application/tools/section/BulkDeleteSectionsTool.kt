@@ -16,7 +16,11 @@ import java.util.*
  */
 class BulkDeleteSectionsTool : BaseToolDefinition() {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "bulk_delete_sections"
+
+    override val title: String = "Bulk Delete Sections"
+
     override val description = "Deletes multiple sections in a single operation"
 
     override val parameterSchema: Tool.Input = Tool.Input(

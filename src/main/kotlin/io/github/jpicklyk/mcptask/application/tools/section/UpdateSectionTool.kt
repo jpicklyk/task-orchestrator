@@ -23,7 +23,11 @@ class UpdateSectionTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "update_section"
+
+    override val title: String = "Update Section"
+
     override val description = "Updates an existing section by its ID"
 
     override val parameterSchema: Tool.Input = Tool.Input(

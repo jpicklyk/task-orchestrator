@@ -18,7 +18,10 @@ import java.util.*
  */
 class ReorderSectionsTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
     override val name: String = "reorder_sections"
+
+    override val title: String = "Reorder Sections"
 
     override val description: String = """Reorders sections within a template or other entity.
         This tool changes the display order of sections by updating their ordinal values.

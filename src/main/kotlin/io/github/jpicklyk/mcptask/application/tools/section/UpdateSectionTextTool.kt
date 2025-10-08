@@ -18,7 +18,10 @@ import java.util.*
  */
 class UpdateSectionTextTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
     override val name: String = "update_section_text"
+
+    override val title: String = "Update Section Text"
 
     override val description: String = """Updates specific text within a section without requiring the entire content.
         This tool allows changing portions of section content by providing the text to replace

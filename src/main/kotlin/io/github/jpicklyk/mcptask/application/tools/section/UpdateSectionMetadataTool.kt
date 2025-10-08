@@ -19,7 +19,10 @@ import java.util.*
  */
 class UpdateSectionMetadataTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
     override val name: String = "update_section_metadata"
+
+    override val title: String = "Update Section Metadata"
 
     override val description: String = """Updates a section's metadata (title, usage description, format, ordinal, tags)
         without affecting its content.

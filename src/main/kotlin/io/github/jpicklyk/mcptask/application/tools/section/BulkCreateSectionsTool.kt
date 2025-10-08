@@ -31,7 +31,11 @@ import java.util.*
  */
 class BulkCreateSectionsTool : BaseToolDefinition() {
     override val category = ToolCategory.TASK_MANAGEMENT
+
     override val name = "bulk_create_sections"
+
+    override val title: String = "Bulk Create Sections"
+
     override val description = """Creates multiple sections in a single operation.
         
         ## Purpose

@@ -36,7 +36,11 @@ class AddSectionTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
     override val name = "add_section"
+
+    override val title: String = "Add Section to Entity"
+
     override val description = """Adds a section to a task, feature, or project.
         
         ## Purpose

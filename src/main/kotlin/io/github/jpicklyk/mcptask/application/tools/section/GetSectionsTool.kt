@@ -33,7 +33,11 @@ import java.util.*
  */
 class GetSectionsTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
     override val name = "get_sections"
+
+    override val title: String = "Get Entity Sections"
+
     override val description = """Retrieves sections for a task, feature, or project.
         
         ## Purpose
