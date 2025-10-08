@@ -19,6 +19,12 @@ interface ToolDefinition {
     val description: String
 
     /**
+     * Optional human-readable title for the tool (used for better organization and discoverability).
+     * If not specified, defaults to null.
+     */
+    val title: String? get() = null
+
+    /**
      * The parameter schema defining the expected input for this tool.
      */
     val parameterSchema: Tool.Input
