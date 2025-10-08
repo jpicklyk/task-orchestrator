@@ -25,6 +25,60 @@ class GetTaskDependenciesTool : BaseToolDefinition() {
 
     override val title: String = "Get Task Dependencies"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("Task dependencies with optional filtering"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "taskId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                "dependencies" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Dependency objects grouped by direction or as array"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "incoming" to JsonObject(mapOf("type" to JsonPrimitive("array"), "description" to JsonPrimitive("Dependencies where other tasks depend on this task"))),
+                                                "outgoing" to JsonObject(mapOf("type" to JsonPrimitive("array"), "description" to JsonPrimitive("Dependencies where this task depends on other tasks")))
+                                            )
+                                        )
+                                    )
+                                ),
+                                "counts" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Count statistics for dependencies"),
+                                        "properties" to JsonObject(
+                                            mapOf(
+                                                "total" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "incoming" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "outgoing" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                                                "byType" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+                                            )
+                                        )
+                                    )
+                                ),
+                                "filters" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("object"),
+                                        "description" to JsonPrimitive("Applied filter parameters")
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Retrieves all dependencies for a specific task with filtering options and dependency chain information.
         
         This tool provides comprehensive dependency information for a task, allowing you to understand 

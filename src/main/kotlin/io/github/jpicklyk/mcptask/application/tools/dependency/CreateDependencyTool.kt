@@ -27,6 +27,38 @@ class CreateDependencyTool : BaseToolDefinition() {
 
     override val title: String = "Create Task Dependency"
 
+    override val outputSchema: Tool.Output = Tool.Output(
+        properties = JsonObject(
+            mapOf(
+                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                "data" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("object"),
+                        "description" to JsonPrimitive("The created dependency object"),
+                        "properties" to JsonObject(
+                            mapOf(
+                                "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"), "description" to JsonPrimitive("Unique identifier for the dependency"))),
+                                "fromTaskId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"), "description" to JsonPrimitive("ID of the source task"))),
+                                "toTaskId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"), "description" to JsonPrimitive("ID of the target task"))),
+                                "type" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "enum" to JsonArray(listOf("BLOCKS", "IS_BLOCKED_BY", "RELATES_TO").map { JsonPrimitive(it) }),
+                                        "description" to JsonPrimitive("Type of dependency relationship")
+                                    )
+                                ),
+                                "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"), "description" to JsonPrimitive("ISO-8601 timestamp when dependency was created")))
+                            )
+                        )
+                    )
+                ),
+                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
+                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
+            )
+        )
+    )
+
     override val description: String = """Creates a new task dependency with validation for task existence, cycle detection, and duplicate prevention.
         
         Dependencies represent relationships between tasks that can affect execution planning and workflow management.
