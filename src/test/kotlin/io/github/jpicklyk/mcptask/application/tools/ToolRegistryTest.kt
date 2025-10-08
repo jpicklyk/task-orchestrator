@@ -112,18 +112,24 @@ class ToolRegistryTest {
         // Verify that the server.addTool method was called for each tool
         verify(exactly = 1) {
             mockServer.addTool(
-                eq("tool1"),
-                eq("Tool 1"),
-                any(),
-                any()
+                name = eq("tool1"),
+                description = eq("Tool 1"),
+                inputSchema = any(),
+                title = any(),
+                outputSchema = any(),
+                toolAnnotations = any(),
+                handler = any()
             )
         }
         verify(exactly = 1) {
             mockServer.addTool(
-                eq("tool2"),
-                eq("Tool 2"),
-                any(),
-                any()
+                name = eq("tool2"),
+                description = eq("Tool 2"),
+                inputSchema = any(),
+                title = any(),
+                outputSchema = any(),
+                toolAnnotations = any(),
+                handler = any()
             )
         }
     }

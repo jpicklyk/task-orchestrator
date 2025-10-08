@@ -5,7 +5,7 @@ kotlinCoroutines = "1.8.0"
 kotlinSerialization = "1.8.0"
 
 # MCP SDK
-mcpSdk = "0.5.0"
+mcpSdk = "0.7.2"
 
 # Database
 sqlite = "3.45.1.0"
