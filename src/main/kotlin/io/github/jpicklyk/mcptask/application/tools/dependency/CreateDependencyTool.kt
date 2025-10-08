@@ -25,6 +25,8 @@ class CreateDependencyTool : BaseToolDefinition() {
 
     override val name: String = "create_dependency"
 
+    override val title: String = "Create Task Dependency"
+
     override val description: String = """Creates a new task dependency with validation for task existence, cycle detection, and duplicate prevention.
         
         Dependencies represent relationships between tasks that can affect execution planning and workflow management.

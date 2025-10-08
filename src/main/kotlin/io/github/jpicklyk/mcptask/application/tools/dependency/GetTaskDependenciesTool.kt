@@ -23,6 +23,8 @@ class GetTaskDependenciesTool : BaseToolDefinition() {
 
     override val name: String = "get_task_dependencies"
 
+    override val title: String = "Get Task Dependencies"
+
     override val description: String = """Retrieves all dependencies for a specific task with filtering options and dependency chain information.
         
         This tool provides comprehensive dependency information for a task, allowing you to understand 

@@ -37,8 +37,11 @@ class UpdateProjectTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.PROJECT_MANAGEMENT
+
     override val name: String = "update_project"
-    
+
+    override val title: String = "Update Project"
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing project's properties.

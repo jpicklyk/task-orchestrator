@@ -33,7 +33,10 @@ import kotlinx.serialization.json.*
  */
 class CreateProjectTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.PROJECT_MANAGEMENT
+
     override val name: String = "create_project"
+
+    override val title: String = "Create New Project"
 
     override val description: String =
         """Implement the CreateProjectTool MCP tool for creating new projects. Define parameter schema and validation for all required and optional fields (name, summary, status, tags). Implement tool execution logic to create and persist project entities.

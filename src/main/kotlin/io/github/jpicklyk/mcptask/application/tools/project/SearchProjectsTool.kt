@@ -19,6 +19,8 @@ class SearchProjectsTool : BaseToolDefinition() {
 
     override val name: String = "search_projects"
 
+    override val title: String = "Search Projects"
+
     override val description: String = "Find projects matching specified criteria"
 
     override val parameterSchema: Tool.Input = Tool.Input(

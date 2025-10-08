@@ -24,7 +24,9 @@ class DeleteProjectTool(
     override val category: ToolCategory = ToolCategory.PROJECT_MANAGEMENT
 
     override val name: String = "delete_project"
-    
+
+    override val title: String = "Delete Project"
+
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = "Remove a project and its associated features/tasks"

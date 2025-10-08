@@ -37,6 +37,8 @@ class GetProjectTool : BaseToolDefinition() {
 
     override val name: String = "get_project"
 
+    override val title: String = "Get Project Details"
+
     override val description: String = """Retrieves a project by its ID with options for including relationships.
 
         This tool provides detailed access to a specific project with options to include related entities like 

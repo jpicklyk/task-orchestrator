@@ -22,6 +22,8 @@ class DeleteDependencyTool : BaseToolDefinition() {
 
     override val name: String = "delete_dependency"
 
+    override val title: String = "Delete Task Dependency"
+
     override val description: String = """Deletes task dependencies by dependency ID or by task relationship criteria.
         
         This tool provides flexible dependency deletion capabilities. You can delete dependencies:
