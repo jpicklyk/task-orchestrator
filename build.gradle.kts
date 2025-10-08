@@ -11,7 +11,7 @@ val patchVersion = "0"
 
 // Define release qualifier (empty for stable releases)
 // Examples: "", "alpha-01", "beta-02", "rc-01"
-val qualifier = ""
+val qualifier = "alpha-01"
 
 
 // Calculate build number from Git
