@@ -287,7 +287,9 @@ class CreateFeatureTool : BaseToolDefinition() {
             ]
           }
         }
-        
+
+        For feature creation patterns and best practices, see: task-orchestrator://guidelines/task-management
+
         Common error responses:
         - VALIDATION_ERROR: When provided parameters fail validation (empty name/summary)
         - RESOURCE_NOT_FOUND: When specified projectId or templateIds don't exist

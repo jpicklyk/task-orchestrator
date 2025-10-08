@@ -170,7 +170,9 @@ class ListTemplatesTool : BaseToolDefinition() {
             }
           }
         }
-        
+
+        For template discovery patterns and selection strategies, see: task-orchestrator://guidelines/template-strategy
+
         Common error responses:
         - VALIDATION_ERROR: When targetEntityType is not TASK or FEATURE
         - DATABASE_ERROR: When there's an issue retrieving templates
