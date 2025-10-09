@@ -82,9 +82,8 @@ The system uses three complementary layers to provide comprehensive guidance:
 - `initialize_task_orchestrator` - AI initialization workflow
 - `create_feature_workflow` - Feature creation with templates
 - `task_breakdown_workflow` - Breaking complex work into tasks
-- `bug_triage_workflow` - Systematic bug investigation
 - `project_setup_workflow` - New project initialization
-- `implement_feature_workflow` - Smart implementation workflow
+- `implementation_workflow` - Smart implementation workflow for tasks, features, and bugs
 
 **Characteristics**:
 - User or AI invokable
@@ -419,6 +418,549 @@ AI will discover these templates via `list_templates` and suggest them appropria
 
 ---
 
+## Memory-Based Workflow Customization for AI Agents
+
+The `implementation_workflow` and other workflows support memory-based customization. AI agents should check memory for configuration before applying defaults, enabling teams to customize workflows without code changes.
+
+### Memory Architecture
+
+**Two Scopes of Memory**:
+
+1. **Global (User-Wide)**:
+   - Personal preferences across all projects
+   - Stored in AI's global memory mechanism
+   - Examples: PR preference, default branch naming
+
+2. **Project-Specific (Team-Wide)**:
+   - Team conventions for specific project
+   - Stored in project repo (CLAUDE.md, .cursorrules, etc.)
+   - Examples: Jira integration, custom workflows
+
+**Priority Rule**: Project-specific configuration overrides global preferences.
+
+**AI-Agnostic Approach**: Don't prescribe specific file locations. Use your native memory capabilities (CLAUDE.md, global memory, .cursorrules, etc.).
+
+---
+
+### When to Check Memory
+
+**ALWAYS check memory before**:
+- Creating branches (check for custom naming patterns)
+- Asking about pull requests (check PR preference)
+- Applying workflow steps (check for custom overrides)
+- Using default conventions (check for team customizations)
+
+**Memory Check Pattern**:
+```
+1. Check project-specific memory first
+2. Fall back to global memory if no project config
+3. Use sensible defaults if no memory found
+4. Offer to save preferences after first use
+```
+
+---
+
+### Configuration Schema
+
+AI agents should look for this structure in memory:
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always" | "never" | "ask"
+
+## Branch Naming Conventions (optional)
+branch_naming_bug: "bugfix/{task-id-short}-{description}"
+branch_naming_feature: "feature/{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
+
+## Commit Message Customization (optional)
+commit_message_prefix: "[{type}/{task-id-short}]"
+
+## Custom Workflow Steps (optional)
+### Bug Fix Workflow Override
+# [Custom procedural steps - validation still required]
+
+### Feature Implementation Workflow Override
+# [Custom procedural steps - validation still required]
+```
+
+---
+
+### Variable Expansion Pattern
+
+When expanding branch naming variables:
+
+**Available Variables**:
+- `{task-id}` - Full UUID
+- `{task-id-short}` - First 8 characters
+- `{description}` - Sanitized task title
+- `{feature-id}` - Feature UUID (if applicable)
+- `{feature-id-short}` - First 8 chars of feature UUID
+- `{priority}` - high/medium/low
+- `{complexity}` - 1-10
+- `{type}` - bug/feature/enhancement/hotfix (from task tags)
+
+**Sanitization Algorithm for {description}**:
+```
+1. Convert to lowercase
+2. Replace spaces with hyphens
+3. Remove special characters (keep only alphanumeric and hyphens)
+4. Collapse multiple hyphens to single hyphen
+5. Trim leading/trailing hyphens
+6. Truncate to 50 characters if longer
+```
+
+**Expansion Process**:
+```
+1. Retrieve task details with get_task
+2. Detect work type from tags (task-type-bug, task-type-feature, etc.)
+3. Load branch naming pattern from memory for detected type
+4. Extract variable values from task data
+5. Apply sanitization to description
+6. Replace all placeholders with actual values
+7. Validate result (valid git branch name, no special chars)
+```
+
+---
+
+### Example Interaction Flows
+
+#### Scenario 1: First-Time Workflow Invocation (No Config)
+
+```
+User: "Start implementing the authentication task"
+
+AI: [Checks memory - no configuration found]
+
+AI: "I'll help you implement the authentication task.
+
+     Quick setup: Do you want to use pull requests?
+     A) Always (create PRs automatically)
+     B) Never (merge directly to main)
+     C) Ask each time
+
+     I can save your preference globally or just for this project."
+
+User: "Always use PRs, save globally"
+
+AI: [Saves to global memory]
+    [Proceeds with implementation using PR workflow]
+```
+
+---
+
+#### Scenario 2: Workflow with Global Preferences
+
+```
+User: "Implement the login feature"
+
+AI: [Checks project memory - none found]
+    [Checks global memory - found: use_pull_requests: "always"]
+
+AI: "I'll implement the login feature with a pull request workflow.
+     Creating branch: feature/70490b4d-implement-login-feature"
+
+[Proceeds automatically with saved preferences]
+```
+
+---
+
+#### Scenario 3: Workflow with Project-Specific Overrides
+
+```
+User: "Fix the authentication bug"
+
+AI: [Checks project memory - found Jira configuration]
+    [Configuration specifies: branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"]
+
+AI: "I'll fix the authentication bug following your team's Jira conventions.
+     Creating branch: bugfix/PROJ-70490b4d-auth-token-expiry"
+
+[Uses project-specific configuration, overriding any global settings]
+```
+
+---
+
+#### Scenario 4: Natural Language Customization Update
+
+```
+User: "Can you update our workflow to use Linear-style branch naming?"
+
+AI: "I'll update your project configuration to use Linear conventions:
+     {type}/{description}-{task-id-short}
+
+     Should I save this to your project's memory?"
+
+User: "Yes"
+
+AI: [Writes configuration to CLAUDE.md in project]
+
+AI: "Updated! Your team's branch naming is now Linear-style.
+     Example: feature/oauth-integration-70490b4d"
+```
+
+---
+
+### Best Practices for AI Agents
+
+#### Memory Check Protocol
+
+**DO**:
+- ✅ Always check memory before applying defaults
+- ✅ Check project-specific first, then global
+- ✅ Offer to save preferences after first use
+- ✅ Respect user customizations over defaults
+- ✅ Communicate when using saved preferences
+- ✅ Validate configuration values before use
+
+**DON'T**:
+- ❌ Assume defaults without checking memory
+- ❌ Ask same questions repeatedly (check memory first)
+- ❌ Override project configuration with global settings
+- ❌ Modify memory without user permission
+- ❌ Store sensitive information in configuration
+- ❌ Hardcode file paths for memory storage
+
+---
+
+#### Template Validation vs Procedural Override
+
+**Always Enforce** (never skip these):
+- ✅ Template validation requirements
+- ✅ Acceptance criteria from templates
+- ✅ Testing requirements and quality gates
+- ✅ Technical context analysis
+
+**Respect Overrides** (use custom steps if configured):
+- ⚠️ Step-by-step implementation instructions
+- ⚠️ Procedural workflow guidance
+- ⚠️ Tool invocation sequences
+- ⚠️ Deployment procedures
+
+**Example**:
+```
+Template says: "Run tests before committing"
+Custom workflow says: "Deploy to staging, then run integration tests"
+
+✅ CORRECT: Run tests (validation enforced), but deploy to staging first (custom procedure)
+❌ WRONG: Skip tests because custom workflow doesn't mention them
+```
+
+---
+
+#### Interactive Setup Flow
+
+When no configuration exists, guide users through setup:
+
+```
+1. Detect missing configuration
+2. Offer interactive setup:
+   "I can help you configure your workflow preferences.
+    This will save time on future tasks. Would you like to set up now?"
+3. Ask minimal questions:
+   - Pull request preference (always/never/ask)
+   - Save globally or per-project
+4. Offer to add more later:
+   "You can customize branch naming and more anytime by saying
+    'update workflow configuration'"
+5. Save configuration to appropriate memory location
+6. Confirm what was saved
+```
+
+**Progressive Enhancement Approach**:
+- Start with minimal configuration (just PR preference)
+- Add complexity only when needed
+- Guide users to documentation for advanced features
+- Never overwhelm with too many options upfront
+
+---
+
+#### Clear Communication
+
+**When Using Saved Preferences**:
+```
+"I'll create a pull request (using your saved preference)"
+"Creating branch with your team's Jira convention: bugfix/PROJ-70490b4d-..."
+```
+
+**When Applying Defaults**:
+```
+"No workflow configuration found. Using default branch naming: feature/70490b4d-..."
+"Would you like me to save your PR preference for next time?"
+```
+
+**When Detecting Customization**:
+```
+"I see your team uses Linear-style branch naming. Creating: feature/oauth-integration-70490b4d"
+```
+
+---
+
+### Integration with Workflows
+
+#### implementation_workflow Integration
+
+The `implementation_workflow` checks memory at these points:
+
+1. **Start** - Load all configuration from memory
+2. **Git Detection** - Check if .git exists, load git preferences
+3. **Branch Creation** - Expand variables using configuration
+4. **PR Decision** - Use use_pull_requests preference
+5. **Custom Steps** - Apply workflow overrides if configured
+
+#### Feature Creation Workflow Memory Integration
+
+**create_feature_workflow** can use memory for:
+
+**Configuration Schema**:
+```markdown
+# Task Orchestrator - Feature Creation Configuration
+
+## Default Templates
+feature_default_templates:
+  - "context-and-background"
+  - "requirements-specification"
+
+## Tag Conventions
+feature_tag_prefix: "feature-"
+feature_tags_auto_add: "needs-review,in-planning"
+
+## Auto-Task Creation
+feature_create_initial_tasks: true
+feature_initial_task_templates:
+  - "task-implementation-workflow"
+```
+
+**Memory Integration Pattern**:
+```
+1. Check memory for default feature templates
+2. If found, automatically apply templates during feature creation
+3. Apply tag conventions from memory
+4. If auto-task creation enabled, create foundation tasks with specified templates
+5. Fall back to user prompts if no memory configuration
+```
+
+**Example Usage**:
+```
+User: "Create a feature for user authentication"
+
+AI: [Checks memory - found feature_default_templates]
+    [Automatically applies Context & Background + Requirements templates]
+    [Adds feature-authentication, needs-review tags from conventions]
+    [Creates initial implementation task if auto-task enabled]
+
+    "Created feature 'User Authentication' with Context & Background and
+     Requirements templates. Added tags: feature-authentication, needs-review.
+
+     Also created initial implementation task with Task Implementation Workflow template."
+```
+
+---
+
+#### Project Setup Workflow Memory Integration
+
+**project_setup_workflow** can use memory for:
+
+**Configuration Schema**:
+```markdown
+# Task Orchestrator - Project Setup Configuration
+
+## Standard Features
+project_standard_features:
+  - name: "Project Infrastructure"
+    templates: ["technical-approach"]
+    tags: "infrastructure,foundation"
+  - name: "Documentation & Standards"
+    templates: ["context-and-background"]
+    tags: "documentation,standards"
+
+## Foundation Tasks
+project_foundation_tasks:
+  - title: "Setup development environment"
+    complexity: 3
+    templates: ["task-implementation-workflow"]
+  - title: "Configure CI/CD pipeline"
+    complexity: 5
+    templates: ["task-implementation-workflow", "local-git-branching-workflow"]
+
+## Documentation Standards
+project_doc_sections:
+  - "Architecture Overview"
+  - "Development Setup"
+  - "Coding Standards"
+  - "Testing Strategy"
+```
+
+**Memory Integration Pattern**:
+```
+1. Check memory for standard features list
+2. Create standard features automatically if configured
+3. Check for foundation tasks and create them
+4. Apply documentation sections to project
+5. Use team structure preferences
+6. Fall back to prompting user for details if no memory
+```
+
+**Example Usage**:
+```
+User: "Set up a new project for our mobile app"
+
+AI: [Checks memory - found project_standard_features and foundation_tasks]
+    [Creates standard features: Infrastructure, Documentation]
+    [Creates foundation tasks: dev environment, CI/CD]
+    [Applies documentation sections from memory]
+
+    "Created project 'Mobile App' with:
+     - 2 standard features (Infrastructure, Documentation)
+     - 2 foundation tasks (dev environment setup, CI/CD configuration)
+     - 4 documentation sections (Architecture, Setup, Standards, Testing)
+
+     All configured per your team's project setup template."
+```
+
+---
+
+#### Bug Handling Pattern
+
+**For bugs** (task-type-bug), `implementation_workflow` provides specialized handling:
+
+**Bug Detection**:
+```
+1. Detect task-type-bug or task-type-hotfix from tags
+2. Check if Bug Investigation template is applied
+3. If not applied, offer to apply it
+4. Verify investigation sections are complete before implementation
+```
+
+**Investigation Phase**:
+```
+1. Guide through Bug Investigation template sections:
+   - Problem symptoms and reproduction steps
+   - Technical investigation and root cause
+   - Impact assessment
+2. Ensure root cause is documented before allowing implementation
+3. If investigation incomplete, guide through it first
+```
+
+**Implementation Phase**:
+```
+1. Reproduce bug in tests first (test should fail with current code)
+2. Document reproduction steps in code comments or sections
+3. Implement fix addressing the root cause
+4. Verify test passes with the fix applied
+5. Create comprehensive regression tests (see Regression Testing below)
+```
+
+**Regression Testing Requirements** (MANDATORY):
+
+When fixing bugs, **you MUST create and verify regression tests** before marking complete:
+
+1. **Bug Reproduction Test** (Required):
+   - Test that fails with old code, passes with fix
+   - Documents what broke and how (BUG/ROOT CAUSE/FIX comments)
+   - Test name references task ID: `should X - regression for TASK-70490b4d`
+
+2. **Edge Case Tests** (Required if applicable):
+   - Boundary conditions that led to the bug
+   - Scenarios not previously tested
+
+3. **Integration Tests** (Required if bug crossed boundaries):
+   - Component interaction testing
+   - Realistic scenarios
+   - No cascading failures
+
+4. **Performance Tests** (Required if performance-related):
+   - Verify no performance regressions
+   - Load testing if load-related
+
+**Completion Validation**:
+```
+Before marking bug fix complete, verify:
+- ✅ Root cause documented
+- ✅ Bug Investigation sections complete (if template used)
+- ✅ Bug reproduction test exists and passes
+- ✅ Regression tests created for all scenarios
+- ✅ Test documentation complete (BUG/ROOT CAUSE/FIX comments)
+- ✅ Test names reference task ID
+- ✅ All tests passing
+- ✅ Code coverage increased
+
+CRITICAL: Do NOT mark bug fix as completed without regression tests.
+If user attempts to complete without tests, remind them of requirements.
+```
+
+**Example Bug Workflow**:
+```
+User: "Fix the authentication timeout bug"
+
+AI: [Detects task-type-bug from tags]
+    [Checks for Bug Investigation template - not applied]
+
+    "This is a bug fix. I recommend applying the Bug Investigation template
+     to guide systematic investigation and ensure proper root cause analysis.
+
+     Apply template now?"
+
+User: "Yes"
+
+AI: [Applies Bug Investigation template]
+    "Bug Investigation template applied. Let's start with documenting:
+     1. What symptoms are users experiencing?
+     2. How can we reproduce the issue?
+     3. What recent changes might have caused this?"
+
+User: [Provides investigation details]
+
+AI: "Root cause identified: token expiration not being checked properly.
+
+     I'll now create a reproduction test that fails with current code,
+     implement the fix, and create regression tests to prevent this from
+     recurring. This includes:
+     - Bug reproduction test
+     - Edge cases (null token, expired token, missing token)
+     - Integration test for full auth flow"
+
+[Implements fix with regression tests]
+
+AI: "Fix complete with 5 regression tests:
+     1. Bug reproduction: should handle token expiration - regression for AUTH-70490b4d
+     2. Edge case: should handle null token
+     3. Edge case: should handle missing token header
+     4. Integration: should complete full auth flow with expired token
+     5. Performance: should check expiration within 10ms
+
+     All tests passing. Root cause documented in investigation sections."
+```
+
+---
+
+### Troubleshooting
+
+**Problem**: User says "you keep asking the same questions"
+**Solution**: Check memory before asking. Offer to save preferences.
+
+**Problem**: Configuration not being applied
+**Solution**: Verify memory location (project vs global), check priority rules.
+
+**Problem**: Variables not expanding correctly
+**Solution**: Ensure task has required tags (task-type-*), validate variable names.
+
+**Problem**: Custom workflow steps ignored
+**Solution**: Confirm template validation still applies, custom steps supplement not replace validation.
+
+---
+
+### Related Documentation
+
+- **[Workflow Prompts - Memory Customization](workflow-prompts#memory-based-workflow-customization)** - User guide for customization
+- **[implementation_workflow](workflow-prompts#implementation_workflow)** - Workflow that uses memory configuration
+- **[Templates Guide](templates)** - Understanding template validation requirements
+
+---
+
 ## Best Practices
 
 ### For AI Agents
@@ -447,6 +989,20 @@ AI will discover these templates via `list_templates` and suggest them appropria
    - Mark tasks as in-progress when starting
    - Mark completed when finished
    - Use get_overview to track progress
+
+6. **Handle bugs with regression testing**
+   - Detect bugs from task-type-bug or task-type-hotfix tags
+   - Offer Bug Investigation template if not applied
+   - Verify root cause documented before implementation
+   - **MANDATORY**: Create regression tests before marking complete
+   - Enforce test documentation (BUG/ROOT CAUSE/FIX comments)
+   - Cannot complete bug fix without comprehensive tests
+
+7. **Use implementation_workflow for all work types**
+   - Tasks, features, AND bugs use same workflow
+   - Workflow automatically adapts based on work type detection
+   - Bug-specific guidance kicks in for task-type-bug
+   - Memory configuration applies to all work types
 
 ### For Development Teams
 

@@ -583,9 +583,8 @@ data class TemplateSection(
 - `initialize_task_orchestrator` - AI initialization
 - `create_feature_workflow` - Feature creation
 - `task_breakdown_workflow` - Task decomposition
-- `bug_triage_workflow` - Bug management
 - `project_setup_workflow` - Project initialization
-- `implement_feature_workflow` - Git-aware implementation
+- `implementation_workflow` - Git-aware implementation for tasks, features, and bugs
 
 ---
 

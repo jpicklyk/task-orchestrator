@@ -159,35 +159,6 @@ Claude explicitly:
 
 ---
 
-### `bug_triage_workflow`
-
-**Purpose**: Systematic bug assessment, investigation, and resolution planning
-
-**When to Use**:
-- Critical or high-severity bugs requiring systematic approach
-- Complex bugs needing thorough investigation
-- Want to ensure proper documentation for bug resolution
-- Learning bug triage best practices
-
-**What It Covers**:
-1. Initial bug assessment and current bug load review
-2. Bug investigation task creation with templates
-3. Detailed problem and technical investigation
-4. Impact assessment and priority determination
-5. Resolution approach determination (simple vs. complex)
-6. Implementation workflow and git integration
-7. Resolution tracking and validation
-
-**Key Decisions It Helps With**:
-- Severity and priority assessment
-- Simple fix vs. complex breakdown decision
-- What investigation steps to take
-- How to document root cause and resolution
-
-**Autonomous Alternative**: Report "I found a bug where X isn't working" and Claude will create bug task with appropriate templates automatically
-
----
-
 ### `project_setup_workflow`
 
 **Purpose**: Initialize new projects with proper structure, features, and foundation tasks
@@ -218,9 +189,9 @@ Claude explicitly:
 
 ---
 
-### `implement_feature_workflow`
+### `implementation_workflow`
 
-**Purpose**: Smart feature implementation with automatic git detection and workflow integration
+**Purpose**: Smart implementation workflow for tasks, features, and bugs with automatic git detection and workflow integration
 
 **When to Use**:
 - Ready to start implementing a specific feature or task
@@ -229,22 +200,62 @@ Claude explicitly:
 - Learning implementation best practices
 
 **What It Covers**:
-1. Current state check and git detection (automatic)
-2. Implementation target selection (what to work on)
-3. Smart template application based on context and git detection
-4. Implementation execution with template guidance
-5. Completion validation before marking done
+1. Memory-based configuration loading (PR preferences, branch naming, custom workflows)
+2. Current state check and git detection (automatic)
+3. Work type detection (task, feature, or **bug**) with specialized guidance
+4. **Bug-specific investigation** and root cause verification (for bugs)
+5. Smart template application based on context and git detection
+6. Implementation execution with template guidance
+7. **Mandatory regression testing** (for bug fixes)
+8. Completion validation before marking done
 
 **Key Decisions It Helps With**:
 - Which task to work on next
 - What templates to apply (automatic suggestions)
 - Whether to use git workflows (auto-detected)
+- **For bugs**: When investigation is complete and ready to implement
+- **For bugs**: What regression tests are needed
 - When task is truly complete
 
 **Special Features**:
 - **Git Detection**: Automatically detects .git directory and suggests git workflow templates
 - **GitHub Integration**: Asks about PR workflows if git detected
 - **Template Stacking**: Suggests combining multiple templates for comprehensive guidance
+- **Bug Investigation Integration**: Offers Bug Investigation template if not applied, verifies root cause before implementation
+- **Regression Testing Enforcement**: For bug fixes, requires comprehensive regression tests before completion
+
+**Bug Handling**:
+
+When working on bugs (task-type-bug), the workflow provides specialized guidance:
+
+1. **Investigation Phase**:
+   - Checks if Bug Investigation template is applied
+   - Offers to apply template if missing
+   - Verifies root cause is documented before allowing implementation
+   - Guides through systematic investigation if incomplete
+
+2. **Implementation Phase**:
+   - Reproduce bug in tests first (test should fail with current code)
+   - Document reproduction steps
+   - Implement fix addressing root cause
+   - Verify test passes with fix
+
+3. **Regression Testing** (MANDATORY):
+   - **Bug Reproduction Test**: Test that fails with old code, passes with fix
+   - **Edge Case Tests**: Boundary conditions that led to the bug
+   - **Integration Tests**: If bug crossed component boundaries
+   - **Performance Tests**: If bug was performance-related
+   - **Test Documentation**: BUG/ROOT CAUSE/FIX comments required
+
+4. **Completion Validation**:
+   - Root cause documented
+   - Bug investigation complete
+   - Regression tests created and passing
+   - Test names reference task ID
+   - Code coverage increased
+   - **Cannot complete without regression tests**
+
+See [Regression Testing Requirements](#regression-testing-requirements) below for detailed guidance.
 
 **Autonomous Alternative**: Ask "What should I work on next?" or "I'll start implementing the login feature" and Claude will guide implementation automatically
 
@@ -457,6 +468,481 @@ All workflow prompts integrate with the template system:
 - Technical Approach (for complex tasks)
 
 > **See**: [Templates Guide](templates) for complete template documentation and [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for discovery patterns
+
+---
+
+## Regression Testing Requirements
+
+When fixing bugs using `implementation_workflow`, **comprehensive regression tests are mandatory** to prevent the issue from recurring. The workflow enforces these requirements and will not allow completion without proper tests.
+
+### When Required
+
+**All bug fixes MUST include regression tests.** This applies to:
+- Tasks tagged with `task-type-bug`
+- Hotfixes (`task-type-hotfix`)
+- Any work addressing production issues or defects
+
+### Required Test Types
+
+#### 1. Bug Reproduction Test (Required)
+
+Create a test that **fails with the old code** and **passes with the fix**:
+
+```kotlin
+@Test
+fun `should handle null user token without NPE - regression for AUTH-70490b4d`() {
+    // BUG: User logout crashed when token was null
+    // ROOT CAUSE: user.token.invalidate() called without null check
+    // FIX: Changed to user.token?.invalidate()
+
+    val user = User(token = null)
+    assertDoesNotThrow {
+        authService.logout(user)
+    }
+}
+```
+
+**Requirements**:
+- Test name clearly describes the scenario and references task ID
+- Comments explain BUG, ROOT CAUSE, and FIX
+- Test reproduces exact conditions that caused the bug
+- Assertions verify bug condition doesn't cause failure
+
+#### 2. Edge Case Tests (Required if applicable)
+
+Test boundary conditions and scenarios not previously covered:
+
+```kotlin
+@Test
+fun `should handle empty token string - edge case for AUTH-70490b4d`() {
+    val user = User(token = "")
+    assertDoesNotThrow { authService.logout(user) }
+}
+
+@Test
+fun `should handle whitespace-only token - edge case for AUTH-70490b4d`() {
+    val user = User(token = "   ")
+    assertDoesNotThrow { authService.logout(user) }
+}
+```
+
+#### 3. Integration Tests (Required if bug crossed boundaries)
+
+Test component interactions where the bug occurred:
+
+```kotlin
+@Test
+fun `logout flow should complete when user has no active session`() {
+    // This bug affected the full logout flow
+    val user = createUserWithoutSession()
+
+    val result = authService.logout(user)
+
+    assertEquals(LogoutResult.SUCCESS, result.status)
+    verifySessionCleaned(user)
+    verifyAuditLogCreated(user, "logout")
+}
+```
+
+#### 4. Performance Tests (Required if performance-related)
+
+Verify fix doesn't introduce performance regressions:
+
+```kotlin
+@Test
+fun `logout should complete within 100ms even with null token`() {
+    val user = User(token = null)
+
+    val duration = measureTimeMillis {
+        authService.logout(user)
+    }
+
+    assertTrue(duration < 100, "Logout took ${duration}ms, expected < 100ms")
+}
+```
+
+### Test Naming Convention
+
+**Format**: `should [expected behavior] - regression for [TASK-ID-SHORT]`
+
+**Examples**:
+- `should handle null input - regression for TASK-70490b4d`
+- `should process concurrent requests - regression for TASK-a2a36aeb`
+- `should validate maximum value - regression for TASK-12bf786d`
+
+### Test Documentation Requirements
+
+Every regression test **MUST** include:
+
+1. **Descriptive test name** with task ID reference
+2. **Comment block** explaining:
+   - `BUG:` What went wrong and user impact
+   - `ROOT CAUSE:` Technical reason for the bug
+   - `FIX:` What code change fixed it
+3. **Clear assertions** verifying expected behavior
+
+### Completion Checklist
+
+Before marking a bug fix as completed, verify:
+
+- ✅ Bug reproduction test exists and fails on old code
+- ✅ Bug reproduction test passes with fix
+- ✅ Edge cases identified and tested
+- ✅ Integration tests added if bug crossed boundaries
+- ✅ Performance tests added if relevant
+- ✅ All tests have proper documentation comments
+- ✅ Test names reference task ID for traceability
+- ✅ Code coverage increased for affected code paths
+- ✅ All tests passing
+
+### Common Patterns
+
+**Null/Empty Input Bugs**:
+```kotlin
+@Test
+fun `should handle null input - regression for TASK-xxxxx`() {
+    assertDoesNotThrow { service.process(null) }
+}
+```
+
+**Race Condition Bugs**:
+```kotlin
+@Test
+fun `should handle concurrent access - regression for TASK-xxxxx`() {
+    val threads = (1..10).map { thread { service.processRequest(it) } }
+    threads.forEach { it.join() }
+    // Verify no corruption occurred
+}
+```
+
+**Boundary Value Bugs**:
+```kotlin
+@Test
+fun `should handle maximum value - regression for TASK-xxxxx`() {
+    val result = service.calculate(Int.MAX_VALUE)
+    assertTrue(result.isSuccess)
+}
+```
+
+**State Management Bugs**:
+```kotlin
+@Test
+fun `should handle state transition - regression for TASK-xxxxx`() {
+    service.initialize()
+    service.stop()
+    service.initialize() // Bug: second init failed
+    assertTrue(service.isRunning)
+}
+```
+
+### Enforcement
+
+The `implementation_workflow` **enforces** regression testing requirements:
+
+- **Step 3 (Bug Detection)**: Identifies bug fixes and prepares for regression testing
+- **Step 5 (Implementation)**: Guides through bug reproduction and test creation
+- **Step 7 (Validation)**: Checks for regression tests before allowing completion
+- **Critical Warning**: If user attempts to complete without tests, workflow reminds them of requirements
+
+**You cannot mark a bug fix as completed without regression tests.**
+
+---
+
+## Memory-Based Workflow Customization
+
+The `implementation_workflow` supports customization through AI memory configuration, allowing teams to adapt workflows to their specific processes without modifying code.
+
+### Overview
+
+**Memory-based customization** allows you to:
+- Define pull request preferences (always/never/ask)
+- Customize branch naming conventions with variables
+- Override procedural workflow steps while keeping validation
+- Configure team-specific processes
+- Store configuration globally (user-wide) or per-project (team-wide)
+
+**Key Benefits**:
+- ✅ **Zero-config default**: Works out of the box with sensible defaults
+- ✅ **Progressive enhancement**: Start minimal, add complexity as needed
+- ✅ **Version-controlled**: Project configuration lives in your repo
+- ✅ **Natural language**: Update via conversation with AI
+- ✅ **AI-agnostic**: Works with any AI memory mechanism
+
+---
+
+### Minimal Configuration
+
+The simplest customization is just your PR preference:
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+```
+
+That's it! The workflow will now always create pull requests without asking.
+
+**Options**:
+- `"always"` - Always create PRs (skip asking)
+- `"never"` - Never create PRs, merge directly to main
+- `"ask"` - Ask each time (default if not configured)
+
+---
+
+### Memory Configuration Schema
+
+Complete configuration schema with all available options:
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always" | "never" | "ask"
+
+## Branch Naming Conventions (optional - defaults provided)
+branch_naming_bug: "bugfix/{task-id-short}-{description}"
+branch_naming_feature: "feature/{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
+
+## Commit Message Customization (optional)
+commit_message_prefix: "[{type}/{task-id-short}]"
+
+## Custom Workflow Steps (optional - leave empty to use templates)
+### Bug Fix Workflow Override
+# [Custom steps override Bug Investigation template procedural guidance]
+# Template validation requirements still apply
+
+### Feature Implementation Workflow Override
+# [Custom steps override Task Implementation template procedural guidance]
+# Template validation requirements still apply
+```
+
+---
+
+### Branch Naming Variables
+
+Use these standardized variables in branch naming patterns:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{task-id}` | Full task UUID | `70490b4d-f412-4c20-93f1-cacf038a2ee8` |
+| `{task-id-short}` | First 8 characters of UUID | `70490b4d` |
+| `{description}` | Sanitized task title | `fix-authentication-bug` |
+| `{feature-id}` | Feature UUID (if applicable) | `a3d0ab76-d93d-455c-ba54-459476633a3f` |
+| `{feature-id-short}` | First 8 chars of feature UUID | `a3d0ab76` |
+| `{priority}` | Task priority | `high`, `medium`, `low` |
+| `{complexity}` | Task complexity | `1` through `10` |
+| `{type}` | Work type from tags | `bug`, `feature`, `enhancement`, `hotfix` |
+
+**Sanitization**: The `{description}` variable is automatically sanitized (lowercase, hyphenated, special chars removed, max 50 chars).
+
+---
+
+### Template Validation vs Procedural Override
+
+**What's Always Used** (never overridden):
+- ✅ Validation requirements from templates
+- ✅ Acceptance criteria and definition of done
+- ✅ Testing requirements and quality gates
+- ✅ Technical context and background information
+
+**What Can Be Overridden** (custom workflow steps replace):
+- ⚠️ Step-by-step implementation instructions
+- ⚠️ Procedural workflow guidance
+- ⚠️ Tool invocation sequences
+
+This ensures quality standards are maintained while allowing team-specific processes.
+
+---
+
+### Real-World Configuration Examples
+
+#### Example 1: Startup Team (Minimal Setup)
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "never"
+```
+
+**Use Case**: Fast-moving startup, direct commits to main, rapid iteration.
+
+---
+
+#### Example 2: Jira Integration with Custom Branch Naming
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+
+## Branch Naming (Jira-style)
+branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"
+branch_naming_feature: "feature/PROJ-{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/PROJ-{task-id-short}-{description}"
+
+## Commit Messages
+commit_message_prefix: "[PROJ-{task-id-short}]"
+```
+
+**Use Case**: Team using Jira with project prefix "PROJ", wants consistent ticket references.
+
+**Result**:
+- Branch: `feature/PROJ-70490b4d-oauth-authentication`
+- Commit: `[PROJ-70490b4d] feat: add OAuth2 authentication`
+
+---
+
+#### Example 3: Enterprise Team with Staging Deployment
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+
+## Branch Naming
+branch_naming_bug: "bugfix/{priority}-{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+
+## Bug Fix Workflow Override
+### Custom Bug Fix Process
+1. Create branch from main
+2. Implement fix with tests
+3. Deploy to staging environment: `./deploy-staging.sh`
+4. Run integration test suite: `npm run test:integration:staging`
+5. Request QA approval in PR
+6. After QA approval, merge to main
+7. Deploy to production: `./deploy-production.sh`
+
+Note: Template validation still requires:
+- Bug Investigation template analysis completed
+- Root cause documented
+- Test coverage for bug fix
+- Regression tests passing
+```
+
+**Use Case**: Enterprise team with required staging deployment and QA approval.
+
+---
+
+#### Example 4: Priority-Based Branch Naming
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+
+## Branch Naming (priority-based)
+branch_naming_bug: "bug/{priority}-{complexity}-{description}"
+branch_naming_feature: "feature/{feature-id-short}/{description}"
+branch_naming_hotfix: "hotfix/{description}"
+```
+
+**Use Case**: Team that prioritizes by severity and groups features together.
+
+**Result**:
+- Bug: `bug/high-8-security-vulnerability`
+- Feature: `feature/a3d0ab76/oauth-integration`
+- Hotfix: `hotfix/critical-data-leak`
+
+---
+
+### Natural Language Customization
+
+You can update configuration through natural conversation with your AI:
+
+**Example Conversation**:
+```
+User: "Can you update our workflow to use Linear-style branch naming?"
+
+AI: "I'll update your project configuration to use Linear conventions:
+     {type}/{description}-{task-id-short}
+
+     Should I save this to your project's memory?"
+
+User: "Yes, and we always use pull requests"
+
+AI: "Updated! I've saved:
+     - Linear-style branch naming
+     - use_pull_requests: always
+
+     Your team's configuration is now in CLAUDE.md"
+```
+
+The AI handles:
+- Schema generation
+- Variable substitution
+- Validation
+- Storage in appropriate memory location
+
+---
+
+### Global vs Project-Specific Configuration
+
+**Global (User-Wide)**:
+- Your personal preferences across all projects
+- Stored in AI's global memory
+- Examples: PR preference, default branch naming
+
+**Project-Specific (Team-Wide)**:
+- Team conventions for specific project
+- Stored in project repo (e.g., `CLAUDE.md`)
+- Examples: Jira integration, staging deployment steps
+
+**Priority**: Project-specific configuration overrides global preferences.
+
+---
+
+### Getting Started with Customization
+
+1. **Start Simple**: Just configure `use_pull_requests` preference
+2. **Add Branch Naming**: Customize patterns for your team's conventions
+3. **Override Workflows**: Add custom steps only if needed
+4. **Iterate**: Refine based on team feedback
+
+**First-Time Setup** (via AI conversation):
+```
+User: "Set up workflow customization for our team"
+
+AI: "I'll help you configure. A few questions:
+     1. Do you always use pull requests? (always/never/ask)
+     2. Do you use Jira or Linear for tickets?
+     3. Any specific branch naming conventions?"
+
+[AI creates configuration based on answers]
+```
+
+---
+
+### Best Practices
+
+**DO**:
+- ✅ Start with minimal configuration (just PR preference)
+- ✅ Use default branch naming patterns unless team has strong conventions
+- ✅ Store team configuration in version-controlled project files
+- ✅ Document custom workflow steps clearly
+- ✅ Test configuration with simple task first
+
+**DON'T**:
+- ❌ Override template validation requirements
+- ❌ Create overly complex branch naming patterns
+- ❌ Duplicate template guidance in custom workflow steps
+- ❌ Store sensitive information in configuration
+
+---
+
+### Related Documentation
+
+- **[implementation_workflow](workflow-prompts#implementation_workflow)** - Workflow that uses this configuration
+- **[AI Guidelines - Memory Patterns](ai-guidelines)** - How AI agents use memory
+- **[Quick Start](quick-start)** - Getting started examples
+- **[Templates Guide](templates)** - Understanding template validation
 
 ---
 

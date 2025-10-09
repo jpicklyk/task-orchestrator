@@ -22,9 +22,8 @@ object WorkflowPromptsGuidance {
         addInitializeTaskOrchestratorPrompt(server)
         addCreateFeatureWorkflowPrompt(server)
         addTaskBreakdownPrompt(server)
-        addBugTriageWorkflowPrompt(server)
         addProjectSetupPrompt(server)
-        addImplementFeatureWorkflowPrompt(server)
+        addImplementationWorkflowPrompt(server)
     }
 
     /**
@@ -277,13 +276,56 @@ object WorkflowPromptsGuidance {
 
                             This workflow guides you through creating a comprehensive feature with proper templates, documentation, and associated tasks.
 
-                            ## Step 1: Check Current State
+                            ## Step 1: Load Feature Creation Configuration from Memory
+
+                            **Check your available memory systems** for feature creation configuration:
+
+                            **Global Preferences** (user-wide):
+                            - Default feature templates
+                            - Feature tagging conventions
+                            - Auto-task creation preferences
+
+                            **Project Configuration** (team-specific):
+                            - Team-specific default templates
+                            - Project tag conventions
+                            - Standard task structure
+
+                            **Memory Configuration Schema** (what to look for):
+                            ```
+                            # Task Orchestrator - Feature Creation Configuration
+
+                            ## Default Templates
+                            feature_default_templates:
+                              - "context-and-background"
+                              - "requirements-specification"
+
+                            ## Tag Conventions
+                            feature_tag_prefix: "feature-"
+                            feature_tags_auto_add: "needs-review,in-planning"
+
+                            ## Auto-Task Creation
+                            feature_create_initial_tasks: true
+                            feature_initial_task_templates:
+                              - "task-implementation-workflow"
+                            ```
+
+                            **If configuration found**:
+                            - Use configured default templates
+                            - Apply tag conventions automatically
+                            - Auto-create initial tasks if enabled
+
+                            **If NOT found**:
+                            - Use manual template selection
+                            - Ask user about tagging preferences
+                            - Offer to save preferences for future
+
+                            ## Step 2: Check Current State
                             Start by understanding the current project state:
                             ```
                             Use get_overview to see existing features and work
                             ```
 
-                            ## Step 2: Find Appropriate Templates
+                            ## Step 3: Find Appropriate Templates
                             Identify templates for your feature:
                             ```
                             Use list_templates with targetEntityType="FEATURE" and isEnabled=true
@@ -293,10 +335,25 @@ object WorkflowPromptsGuidance {
                             - Requirements Specification (for detailed requirements)
                             - Technical Approach (for architecture planning)
 
-                            ## Step 3: Create the Feature
-                            Create your feature with templates:
+                            ## Step 4: Create the Feature
+                            Create your feature with configuration from memory (if available):
+
+                            **If memory configuration found**:
                             ```json
-                            Use create_feature with:
+                            Use create_feature with memory-based defaults:
+                            {
+                              "name": "[Descriptive feature name]",
+                              "summary": "[Comprehensive summary with business value]",
+                              "status": "planning",
+                              "priority": "[high/medium/low based on importance]",
+                              "templateIds": ["[templates-from-memory-or-step-3]"],
+                              "tags": "[feature_tag_prefix][feature-name],[feature_tags_auto_add-from-memory]"
+                            }
+                            ```
+
+                            **If NO memory configuration**:
+                            ```json
+                            Use create_feature with manual template selection:
                             {
                               "name": "[Descriptive feature name]",
                               "summary": "[Comprehensive summary with business value]",
@@ -307,44 +364,99 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 4: Review Created Structure
+                            **Tag Convention Examples**:
+                            - With prefix "feature-": `"feature-authentication,needs-review,in-planning"`
+                            - Without prefix: `"authentication,api,security,needs-review"`
+
+                            ## Step 5: Review Created Structure
                             Examine the feature with its sections:
                             ```
                             Use get_feature with includeSections=true to see the template structure
                             ```
 
-                            ## Step 5: Create Associated Tasks
+                            ## Step 6: Create Associated Tasks
                             **Git Detection**: Check for .git directory in project root using file system tools
-                            
-                            Break down the feature into specific tasks:
+
+                            **If memory configuration found with feature_create_initial_tasks=true**:
                             ```json
-                            For each major component, use create_task with:
+                            Automatically create foundation tasks using feature_initial_task_templates:
+                            {
+                              "title": "[Implementation task from template]",
+                              "summary": "[Task description with acceptance criteria]",
+                              "featureId": "[feature-id-from-step-4]",
+                              "complexity": "[1-10 based on effort estimate]",
+                              "priority": "[based on implementation order]",
+                              "templateIds": ["[templates-from-memory]", "local-git-branching-workflow"],
+                              "tags": "[inherit-feature-tags],[task-specific-tags]"
+                            }
+                            ```
+
+                            **If NO memory configuration OR feature_create_initial_tasks=false**:
+                            ```json
+                            Manually create tasks for each major component:
                             {
                               "title": "[Specific implementation task]",
                               "summary": "[Clear task description with acceptance criteria]",
-                              "featureId": "[feature-id-from-step-3]",
+                              "featureId": "[feature-id-from-step-4]",
                               "complexity": "[1-10 based on effort estimate]",
                               "priority": "[based on implementation order]",
                               "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
                               "tags": "[task-type-feature,component-type,technical-area]"
                             }
                             ```
-                            
+
                             **Template Selection Notes**:
                             - If git detected, automatically include "local-git-branching-workflow" template
                             - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
                             - For complex tasks (complexity > 6): Include "technical-approach" template
+                            - Apply tag conventions from memory to tasks (inherit feature tags + task-specific tags)
 
-                            ## Step 6: Establish Dependencies (if needed)
+                            ## Step 7: Establish Dependencies (if needed)
                             Link related tasks:
                             ```
                             Use create_dependency to establish task relationships
                             ```
 
-                            ## Step 7: Final Review
+                            ## Step 8: Final Review
                             Verify the complete feature structure:
                             ```
                             Use get_feature with includeTasks=true and includeSections=true
+                            ```
+
+                            ## Saving Memory Configuration
+
+                            **If user expressed preferences during workflow**:
+                            Offer to save configuration for future features:
+                            ```
+                            "I noticed you prefer [templates/tags/auto-task-creation].
+                             Would you like me to save these preferences to your memory
+                             for future feature creation workflows?
+
+                             This will automatically:
+                             - Apply these templates to new features
+                             - Use your tag naming conventions
+                             - Auto-create initial tasks if enabled
+
+                             Save to: [Global memory / Project CLAUDE.md / .cursorrules]"
+                            ```
+
+                            **Configuration to save**:
+                            ```markdown
+                            # Task Orchestrator - Feature Creation Configuration
+
+                            ## Default Templates
+                            feature_default_templates:
+                              - "[template-1-id]"
+                              - "[template-2-id]"
+
+                            ## Tag Conventions
+                            feature_tag_prefix: "[prefix-or-empty]"
+                            feature_tags_auto_add: "[comma-separated-tags]"
+
+                            ## Auto-Task Creation
+                            feature_create_initial_tasks: [true/false]
+                            feature_initial_task_templates:
+                              - "[task-template-id]"
                             ```
 
                             ## Best Practices
@@ -506,170 +618,6 @@ object WorkflowPromptsGuidance {
         }
     }
 
-    /**
-     * Adds a prompt for systematic bug triage and resolution workflow.
-     */
-    private fun addBugTriageWorkflowPrompt(server: Server) {
-        server.addPrompt(
-            name = "bug_triage_workflow",
-            description = "Systematic approach to bug triage, investigation, and resolution planning"
-        ) { _ ->
-            GetPromptResult(
-                description = "Complete workflow for triaging, investigating, and planning bug resolution",
-                messages = listOf(
-                    PromptMessage(
-                        role = Role.assistant,
-                        content = TextContent(
-                            text = """
-                            # Bug Triage Workflow
-
-                            This workflow provides a systematic approach to bug triage, investigation, and resolution planning.
-
-                            ## Step 1: Initial Bug Assessment
-                            Start by understanding existing bug reports:
-                            ```
-                            Use search_tasks with tag="task-type-bug" and priority="high"
-                            ```
-                            Review current bug load and priorities.
-
-                            ## Step 2: Create Bug Investigation Task
-                            **Git Detection**: Check for .git directory in project root using file system tools
-                            
-                            Create a structured task for investigation:
-                            ```json
-                            Use create_task with bug investigation template:
-                            {
-                              "title": "[Clear bug description with impact]",
-                              "summary": "[Detailed symptoms, reproduction steps, and initial impact assessment]",
-                              "priority": "[high for critical issues, medium for significant issues, low for minor issues]",
-                              "complexity": "[Initial estimate: 3-5 for investigation, adjust after analysis]",
-                              "templateIds": ["bug-investigation-workflow", "local-git-branching-workflow"],
-                              "tags": "task-type-bug,component-[affected-area],severity-[high/medium/low]"
-                            }
-                            ```
-                            
-                            **Template Selection Notes**:
-                            - If git detected, automatically include "local-git-branching-workflow" template
-                            - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
-
-                            ## Step 3: Detailed Investigation
-                            Use the bug investigation template sections to systematically analyze:
-
-                            **Problem Analysis**:
-                            - Document exact symptoms and error messages
-                            - Identify affected user workflows
-                            - Determine frequency and impact scope
-                            - List reproduction steps
-
-                            **Technical Investigation**:
-                            - Review relevant logs and error traces
-                            - Identify potential root causes
-                            - Check recent code changes in affected areas
-                            - Test in different environments
-
-                            **Impact Assessment**:
-                            - Determine user impact severity
-                            - Assess business impact and urgency
-                            - Identify workarounds or temporary solutions
-                            - Evaluate fix complexity and risk
-
-                            ## Step 4: Determine Resolution Approach
-                            Based on investigation findings:
-
-                            **For Simple Bugs (complexity 3-5)**:
-                            Update the existing task with resolution plan:
-                            ```json
-                            Use update_task to add resolution approach:
-                            {
-                              "id": "[bug-task-id]",
-                              "title": "[Updated with root cause]",
-                              "summary": "[Include resolution approach and testing plan]",
-                              "complexity": "[Refined based on investigation]"
-                            }
-                            ```
-
-                            **For Complex Bugs (complexity 6+)**:
-                            Use task_breakdown_workflow to create focused subtasks:
-                            1. Root cause analysis task
-                            2. Fix implementation task
-                            3. Testing and validation task
-                            4. Deployment and monitoring task
-
-                            ## Step 5: Prioritization and Planning
-                            Set appropriate priority and timeline:
-
-                            **Priority Guidelines**:
-                            - **High**: Security issues, data corruption, complete feature breakdown
-                            - **Medium**: Significant functionality issues, user experience problems
-                            - **Low**: Minor UI issues, edge case problems, cosmetic issues
-
-                            **Planning Considerations**:
-                            ```
-                            Use get_task_dependencies to understand blocking relationships
-                            ```
-                            - Consider impact on other features
-                            - Evaluate fix risk vs. issue severity
-                            - Plan testing strategy
-                            - Determine rollback procedures
-
-                            ## Step 6: Implementation Workflow
-                            Apply appropriate implementation templates:
-                            ```
-                            Use apply_template with "local-git-branching-workflow" or "github-pr-workflow"
-                            ```
-                            This provides step-by-step guidance for:
-                            - Branch creation and naming
-                            - Development and testing approach
-                            - Code review and deployment process
-
-                            ## Step 7: Resolution Tracking
-                            Monitor progress and completion:
-                            ```
-                            Use update_task to track progress through status updates
-                            ```
-                            - **pending** → **in-progress** when starting investigation/fix
-                            - **in-progress** → **completed** when fix is deployed and verified
-                            - Use sections to document resolution details and lessons learned
-
-                            ## Bug Classification Tags
-
-                            **Severity Tags**:
-                            - `severity-critical`: System down, data loss, security breach
-                            - `severity-high`: Major functionality broken, significant user impact
-                            - `severity-medium`: Feature partially broken, workaround available
-                            - `severity-low`: Minor issue, cosmetic problem
-
-                            **Component Tags**:
-                            - `component-frontend`: UI, user experience issues
-                            - `component-backend`: API, server-side logic issues
-                            - `component-database`: Data integrity, query performance
-                            - `component-integration`: Third-party service issues
-                            - `component-infrastructure`: Deployment, environment issues
-
-                            **Type Tags**:
-                            - `bug-type-regression`: Previously working functionality broken
-                            - `bug-type-performance`: Speed or resource usage issues
-                            - `bug-type-security`: Security vulnerabilities
-                            - `bug-type-data`: Data corruption or incorrect processing
-
-                            ## Quality Assurance
-                            Ensure comprehensive resolution:
-                            - Document root cause analysis in task sections
-                            - Include testing verification steps
-                            - Add monitoring or prevention measures
-                            - Update task status promptly as work progresses
-                            - Create follow-up tasks for systemic improvements if needed
-
-                            This workflow ensures bugs are systematically analyzed, appropriately prioritized, and effectively resolved with proper documentation.
-                            """.trimIndent()
-                        )
-                    )
-                ),
-                _meta = JsonObject(emptyMap())
-            )
-        }
-    }
-
 
     /**
      * Adds a prompt for setting up a new project with proper structure and organization.
@@ -690,7 +638,55 @@ object WorkflowPromptsGuidance {
 
                             This workflow guides you through setting up a new project with proper structure, comprehensive documentation, and effective organization for long-term success.
 
-                            ## Step 1: Initialize AI Environment
+                            ## Step 1: Load Project Setup Configuration from Memory
+
+                            **Check your available memory systems** for project setup configuration:
+
+                            **Global Preferences** (user-wide):
+                            - Standard feature set for new projects
+                            - Default foundation tasks
+                            - Documentation section standards
+
+                            **Project Configuration** (team-specific):
+                            - Team-specific feature structure
+                            - Organization-standard foundation tasks
+                            - Company documentation requirements
+
+                            **Memory Configuration Schema** (what to look for):
+                            ```
+                            # Task Orchestrator - Project Setup Configuration
+
+                            ## Standard Features
+                            project_standard_features:
+                              - "User Management"
+                              - "Authentication & Authorization"
+                              - "Data Management"
+
+                            ## Foundation Tasks
+                            project_foundation_tasks:
+                              - title: "Project Infrastructure Setup"
+                                templates: ["task-implementation-workflow", "technical-approach"]
+                              - title: "Development Environment Configuration"
+                                templates: ["task-implementation-workflow"]
+
+                            ## Documentation Standards
+                            project_documentation_sections:
+                              - "Project Charter"
+                              - "Technical Architecture"
+                              - "Development Standards"
+                            ```
+
+                            **If configuration found**:
+                            - Use configured standard features
+                            - Auto-create foundation tasks
+                            - Apply documentation standards
+
+                            **If NOT found**:
+                            - Use manual feature identification
+                            - Create foundation tasks based on project needs
+                            - Offer to save preferences for future projects
+
+                            ## Step 2: Initialize AI Environment
                             **Before creating the project, set up AI guidelines for optimal task orchestrator usage.**
 
                             If you haven't already initialized Task Orchestrator guidelines in this AI session:
@@ -711,9 +707,9 @@ object WorkflowPromptsGuidance {
                             - Teaches dual workflow model (autonomous vs explicit)
                             - Prepares AI for effective project management
 
-                            **Note**: If already initialized in current session, skip to Step 2.
+                            **Note**: If already initialized in current session, skip to Step 3.
 
-                            ## Step 2: Project Foundation
+                            ## Step 3: Project Foundation
                             Create the top-level project container:
                             ```json
                             Use create_project:
@@ -731,7 +727,7 @@ object WorkflowPromptsGuidance {
                             - Mention key technologies and constraints
                             - State success criteria and completion definition
 
-                            ## Step 3: Project Documentation Structure
+                            ## Step 4: Project Documentation Structure
                             Add comprehensive project documentation:
                             ```json
                             Use bulk_create_sections for project-level documentation:
@@ -768,8 +764,24 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 4: Feature Planning and Structure
-                            Identify and create major features:
+                            ## Step 5: Feature Planning and Structure
+                            Identify and create major features using memory configuration (if available):
+
+                            **If memory configuration found with project_standard_features**:
+                            ```json
+                            Auto-create standard features from memory:
+                            {
+                              "name": "[Feature from project_standard_features list]",
+                              "summary": "[Feature description with user value and technical scope]",
+                              "status": "planning",
+                              "priority": "high",
+                              "projectId": "[project-id]",
+                              "templateIds": ["context-background", "requirements-specification"],
+                              "tags": "[feature-type,user-facing/internal,complexity-level]"
+                            }
+                            ```
+
+                            **If NO memory configuration**:
 
                             **Feature Identification Strategy**:
                             - Break project into 3-7 major functional areas
@@ -791,9 +803,25 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 5: Initial Task Creation
+                            ## Step 6: Initial Task Creation
                             **Git Detection**: Check for .git directory in project root using file system tools
-                            
+
+                            **If memory configuration found with project_foundation_tasks**:
+                            ```json
+                            Auto-create foundation tasks from memory:
+                            {
+                              "title": "[Title from project_foundation_tasks]",
+                              "summary": "[Task description based on project needs]",
+                              "projectId": "[project-id]",
+                              "priority": "high",
+                              "complexity": "[based on task scope]",
+                              "templateIds": ["[templates-from-memory]", "local-git-branching-workflow"],
+                              "tags": "task-type-infrastructure,setup,foundation"
+                            }
+                            ```
+
+                            **If NO memory configuration**:
+
                             Create foundational tasks for project setup:
 
                             **Infrastructure and Setup Tasks**:
@@ -822,12 +850,12 @@ object WorkflowPromptsGuidance {
                               "tags": "task-type-research,planning,technology-validation"
                             }
                             ```
-                            
+
                             **Template Selection Notes**:
                             - If git detected, include "local-git-branching-workflow" for implementation tasks
                             - Research tasks may not need git templates unless they involve code prototyping
 
-                            ## Step 6: Template Strategy Setup
+                            ## Step 7: Template Strategy Setup
                             Establish consistent documentation patterns:
 
                             **Review Available Templates**:
@@ -847,7 +875,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 7: Development Workflow Setup
+                            ## Step 8: Development Workflow Setup
                             Establish project workflows and standards:
 
                             **Git Workflow Configuration**:
@@ -871,7 +899,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 8: Initial Dependencies and Sequencing
+                            ## Step 9: Initial Dependencies and Sequencing
                             Establish logical task progression:
                             ```
                             Use create_dependency to establish foundational sequences:
@@ -880,7 +908,7 @@ object WorkflowPromptsGuidance {
                             - Research tasks BLOCK implementation decisions
                             - Architecture decisions BLOCK detailed design tasks
 
-                            ## Step 9: Project Monitoring Setup
+                            ## Step 10: Project Monitoring Setup
                             Prepare for ongoing project management:
 
                             **Create Project Views**:
@@ -894,6 +922,47 @@ object WorkflowPromptsGuidance {
                             - Task status distribution
                             - Complexity and effort tracking
                             - Priority balance monitoring
+
+                            ## Saving Memory Configuration
+
+                            **If user expressed preferences during workflow**:
+                            Offer to save configuration for future projects:
+                            ```
+                            "I noticed you prefer [standard features/foundation tasks/documentation structure].
+                             Would you like me to save these preferences to your memory
+                             for future project setup workflows?
+
+                             This will automatically:
+                             - Create standard features for new projects
+                             - Auto-create foundation tasks
+                             - Apply documentation section standards
+
+                             Save to: [Global memory / Project CLAUDE.md / .cursorrules]"
+                            ```
+
+                            **Configuration to save**:
+                            ```markdown
+                            # Task Orchestrator - Project Setup Configuration
+
+                            ## Standard Features
+                            project_standard_features:
+                              - "[feature-name-1]"
+                              - "[feature-name-2]"
+                              - "[feature-name-3]"
+
+                            ## Foundation Tasks
+                            project_foundation_tasks:
+                              - title: "[task-title-1]"
+                                templates: ["[template-id-1]", "[template-id-2]"]
+                              - title: "[task-title-2]"
+                                templates: ["[template-id]"]
+
+                            ## Documentation Standards
+                            project_documentation_sections:
+                              - "[section-title-1]"
+                              - "[section-title-2]"
+                              - "[section-title-3]"
+                            ```
 
                             ## Project Organization Best Practices
 
@@ -944,12 +1013,13 @@ object WorkflowPromptsGuidance {
     }
 
     /**
-     * Adds a prompt for implementing features with automatic git detection and proper development workflow integration.
+     * Adds a prompt for implementing work items (tasks, features, bugs) with AI memory-based workflow customization
+     * and automatic git detection.
      */
-    private fun addImplementFeatureWorkflowPrompt(server: Server) {
+    private fun addImplementationWorkflowPrompt(server: Server) {
         server.addPrompt(
-            name = "implement_feature_workflow",
-            description = "Guide for implementing features with automatic git detection and proper development workflow integration"
+            name = "implementation_workflow",
+            description = "Intelligent implementation workflow for tasks, features, and bugs with AI memory-based customization and automatic git detection"
         ) { _ ->
             GetPromptResult(
                 description = "Intelligent feature implementation guidance with automatic project context detection and workflow template suggestion",
@@ -958,11 +1028,65 @@ object WorkflowPromptsGuidance {
                         role = Role.assistant,
                         content = TextContent(
                             text = """
-                            # Implement Feature Workflow
+                            # Implementation Workflow
 
-                            This workflow provides intelligent feature implementation guidance with automatic project context detection and workflow template suggestion.
+                            This workflow provides intelligent implementation guidance for tasks, features, and bugs with AI memory-based customization and automatic project context detection.
 
-                            ## Step 1: Check Current State & Git Detection
+                            ## Step 1: Load Workflow Configuration from Memory
+
+                            **Check your available memory systems** for workflow configuration:
+
+                            **Global Preferences** (user-wide):
+                            - Git provider preference
+                            - PR/MR usage preference (always/never/ask)
+                            - Default workflows
+
+                            **Project Configuration** (team-specific):
+                            - Team workflow requirements
+                            - Branch naming conventions
+                            - Testing and validation requirements
+
+                            **Use whatever memory mechanism you support**:
+                            - Don't hardcode file paths
+                            - Use your native memory capabilities (CLAUDE.md, global memory, etc.)
+                            - Store structured configuration data
+
+                            **Memory Configuration Schema** (what to look for):
+                            ```
+                            # Task Orchestrator - Implementation Workflow Configuration
+
+                            ## Pull Request Preference
+                            use_pull_requests: "always" | "never" | "ask"
+
+                            ## Branch Naming Conventions (optional - defaults provided)
+                            branch_naming_bug: "bugfix/{task-id-short}-{description}"
+                            branch_naming_feature: "feature/{task-id-short}-{description}"
+                            branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+                            branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
+
+                            ## Custom Workflow Steps (optional - leave empty to use templates)
+                            ### Bug Fix Workflow Override
+                            # [Custom steps override Bug Investigation template procedural guidance]
+                            # Template validation requirements still apply
+
+                            ### Feature Workflow Override
+                            # [Custom steps override template procedural guidance]
+
+                            ### Additional Validation Requirements
+                            # [Extra requirements beyond template validation]
+                            ```
+
+                            **If configuration found**:
+                            - Use configured preferences and workflow steps
+                            - Adapt to work type (bug/feature/enhancement)
+                            - Apply team-specific validation
+
+                            **If NOT found**:
+                            - Use sensible defaults
+                            - Offer to set up preferences during workflow
+                            - Ask: "Should I remember these preferences globally or just for this project?"
+
+                            ## Step 2: Check Current State & Git Detection
                             Start by understanding project context:
                             ```
                             Use get_overview to understand project context and current work priorities
@@ -971,128 +1095,430 @@ object WorkflowPromptsGuidance {
                             - Use file system tools to detect if project uses git (check for .git directory)
                             - If git detected, automatically suggest "Local Git Branching Workflow" template
 
-                            ## Step 2: Select Implementation Target
-                            Identify suitable work to implement:
-                            ```
-                            Use search_tasks with status="pending" and priority="high" to identify suitable work
-                            Use search_features for feature-level work opportunities
-                            ```
-                            - Suggest starting with highest priority, unblocked tasks
-                            - Verify prerequisites and dependencies are satisfied using get_task_dependencies
+                            ## Step 3: Understand the Work & Detect Type
 
-                            ## Step 3: Apply Appropriate Templates with Smart Detection
-                            Apply templates based on detected project context:
+                            Use get_task (or get_feature) to retrieve work details:
+                            - **Detect work type** from tags:
+                              - `task-type-bug` → Bug workflow
+                              - `task-type-feature` → Feature workflow
+                              - `task-type-enhancement` → Enhancement workflow
+                              - `task-type-hotfix` → Hotfix workflow
+                            - Load applied templates with get_sections
+                            - Review template guidance for this work type
 
-                            **Always Apply**: "Task Implementation Workflow" template for implementation tasks
+                            **For Bugs** (task-type-bug detected):
+                            - Check if "Bug Investigation Workflow" template is applied
+                            - If NOT applied:
+                              ```
+                              Offer to apply Bug Investigation template:
+                              "This is a bug fix. I recommend applying the Bug Investigation Workflow template
+                               to guide systematic investigation and ensure proper root cause analysis.
 
-                            **If Git Detected**: Automatically apply "Local Git Branching Workflow" template
+                               Apply template now? (This adds sections for: Problem Analysis, Technical Investigation,
+                               Root Cause, Impact Assessment, Resolution Plan)"
+                              ```
+                            - If applied, verify investigation sections are documented:
+                              - Problem symptoms and reproduction steps
+                              - Root cause analysis
+                              - Impact assessment
+                            - **Before implementation**: Ensure root cause is documented
+                            - If investigation incomplete, guide through it first before implementing fix
 
-                            **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
+                            ## Step 4: Determine Workflow Steps
 
-                            **If GitHub MCP Available**: Mention GitHub MCP tools can automate PR creation and management
+                            **Check for custom workflow override in memory**:
 
-                            **For Complex Tasks**: Consider "Technical Approach" template for architectural guidance
+                            If memory contains custom steps for this work type (e.g., "Bug Fix Workflow Override"):
+                              ✓ Use custom steps from memory
+                              ✗ Template procedural sections provide context only
 
-                            ## Step 4: Execute Implementation with Template Guidance
-                            Follow structured implementation approach:
-                            - Follow template-provided step-by-step instructions from applied templates
-                            - Make incremental commits if using git workflows (following git template guidance)
-                            - Update task status to "in-progress" when starting work:
-                            ```json
-                            Use update_task to mark work as started:
-                            {
-                              "id": "[task-id]",
-                              "status": "in-progress"
+                            If NO custom override:
+                              ✓ Use template sections as workflow steps
+                              ✓ Follow template procedural guidance
+
+                            **What's Always Used** (never overridden):
+                            - ✅ Validation requirements from templates
+                            - ✅ Acceptance criteria and definition of done
+                            - ✅ Testing requirements and quality gates
+                            - ✅ Technical context and background information
+
+                            **What Can Be Overridden** (custom workflow steps replace):
+                            - ⚠️ Step-by-step implementation instructions
+                            - ⚠️ Procedural workflow guidance (how to execute)
+                            - ⚠️ Tool invocation sequences
+
+                            ## Step 5: Execute Implementation
+
+                            **Follow the selected workflow** (custom override OR template guidance):
+
+                            1. Update task status to "in-progress"
+                            2. Execute each step from workflow source
+                            3. Apply any additional validations from memory
+                            4. Make incremental commits with descriptive messages
+
+                            **For Bugs**: Follow bug-specific implementation approach:
+                            1. **Reproduce the bug** in tests first (test should fail with current code)
+                            2. **Document reproduction** steps in code comments or task sections
+                            3. **Implement the fix** addressing the root cause
+                            4. **Verify test passes** with the fix applied
+                            5. **Create regression tests** (see Regression Testing Requirements below)
+
+                            ---
+
+                            ## Regression Testing Requirements (MANDATORY for Bugs)
+
+                            When fixing bugs, you **MUST** create comprehensive regression tests to prevent the issue from recurring.
+
+                            ### Required Test Types
+
+                            **1. Bug Reproduction Test** (Required)
+                            - Test that **fails with the old code** and **passes with the fix**
+                            - Reproduces the exact conditions that caused the bug
+                            - Documents what broke and how it was fixed
+
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `should handle null user token without NPE - regression for AUTH-70490b4d`() {
+                                // BUG: User logout crashed when token was null
+                                // ROOT CAUSE: user.token.invalidate() called without null check
+                                // FIX: Changed to user.token?.invalidate()
+
+                                val user = User(token = null)
+                                assertDoesNotThrow {
+                                    authService.logout(user)
+                                }
                             }
                             ```
-                            - Use update_task to track progress and add implementation notes
 
-                            ## Step 5: Complete with Validation
-                            Ensure proper completion with validation:
+                            **2. Edge Case Tests** (Required if applicable)
+                            - Test the boundary conditions that led to the bug
+                            - Cover scenarios that weren't previously tested
+                            - Validate fix doesn't break related functionality
 
-                            **Before marking task as completed**:
-                            ```
-                            Use get_sections to read all task sections
-                            ```
-                            - **Verify template compliance**: Ensure all instructional template guidance was followed
-                            - **Git workflow completion**: If using git templates, complete branch merge process
-                            - **Run tests and verification**: Follow testing guidance from applied templates
-                            - Update task status to "completed" only after full validation
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `should handle empty token string - edge case for AUTH-70490b4d`() {
+                                val user = User(token = "")
+                                assertDoesNotThrow { authService.logout(user) }
+                            }
 
-                            ## Git Integration Best Practices
-
-                            **Auto-Detection Logic**:
-                            - Check for .git directory in project root or parent directories
-                            - If found, always suggest "Local Git Branching Workflow" template
-                            - Ask about PR workflows rather than assuming (different teams have different practices)
-
-                            **GitHub Integration**:
-                            - Detect if GitHub MCP server is available in the environment
-                            - If available, mention it can automate PR creation, review management, and merge processes
-                            - Only suggest GitHub PR workflow template if user confirms they use PRs
-
-                            **Template Selection Strategy**:
-                            - Implementation tasks (complexity > 3): Task Implementation + Git Branching workflows
-                            - Complex features (complexity > 6): Task Implementation + Git Branching + Technical Approach templates
-                            - Bug fixes: Bug Investigation + Git Branching workflows
-
-                            ## Quality Validation Requirements
-
-                            **Task Completion Validation**:
-                            ```bash
-                            # Before marking any task as completed:
-                            get_sections --entityType TASK --entityId [task-id]
-
-                            # Review each section's guidance, especially:
-                            # - Requirements compliance
-                            # - Implementation approach validation  
-                            # - Testing strategy completion
-                            # - Git workflow steps (if applicable)
+                            @Test
+                            fun `should handle whitespace-only token - edge case for AUTH-70490b4d`() {
+                                val user = User(token = "   ")
+                                assertDoesNotThrow { authService.logout(user) }
+                            }
                             ```
 
-                            **Feature Completion Validation**:
-                            ```bash
-                            # Before marking any feature as completed:
-                            get_sections --entityType FEATURE --entityId [feature-id]
-                            get_feature --id [feature-id] --includeTasks true --includeTaskCounts true
+                            **3. Integration Tests** (Required if bug crossed component boundaries)
+                            - Test the interaction between components where bug occurred
+                            - Verify fix works in realistic scenarios
+                            - Ensure no cascading failures
 
-                            # Verify:
-                            # - All associated tasks are completed
-                            # - Feature-level requirements satisfied
-                            # - Integration testing completed
-                            # - Documentation updated
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `logout flow should complete when user has no active session`() {
+                                // This bug affected the full logout flow
+                                val user = createUserWithoutSession()
+
+                                val result = authService.logout(user)
+
+                                assertEquals(LogoutResult.SUCCESS, result.status)
+                                verifySessionCleaned(user)
+                                verifyAuditLogCreated(user, "logout")
+                            }
                             ```
 
-                            ## Integration with Other Workflows
+                            **4. Performance/Load Tests** (Required if bug was performance-related)
+                            - Verify fix doesn't introduce performance regressions
+                            - Test under load if original bug was load-related
+                            - Measure and assert performance metrics
 
-                            This workflow complements other workflow prompts:
-                            - Use with task_breakdown_workflow for complex features requiring decomposition
-                            - Apply bug_triage_workflow principles for bug-related implementation work
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `logout should complete within 100ms even with null token`() {
+                                val user = User(token = null)
 
-                            ## Common Implementation Patterns
+                                val duration = measureTimeMillis {
+                                    authService.logout(user)
+                                }
 
-                            **Feature Implementation**:
-                            1. Review feature requirements from sections
-                            2. Break down into implementation tasks if needed
-                            3. Apply git branching workflow for development
-                            4. Follow incremental development with regular commits
-                            5. Complete testing and validation before marking done
+                                assertTrue(duration < 100, "Logout took ${'$'}{duration}ms, expected < 100ms")
+                            }
+                            ```
 
-                            **Bug Fix Implementation**:
-                            1. Follow bug investigation template guidance
-                            2. Create fix implementation plan
-                            3. Apply git workflow for isolated development
-                            4. Include regression testing in validation
-                            5. Document resolution in bug task sections
+                            ### Test Documentation Requirements
 
-                            **Enhancement Implementation**:
-                            1. Review technical approach guidance
-                            2. Plan backward compatibility considerations
-                            3. Follow development workflow templates
-                            4. Include impact testing and validation
-                            5. Update documentation and examples
+                            Every regression test MUST include:
 
-                            This workflow ensures systematic, well-documented implementation with proper version control integration and quality validation.
+                            1. **Test Name**: Clearly describe what's being tested and reference task ID
+                               - Format: `should [expected behavior] - regression for [TASK-ID-SHORT]`
+                               - Example: `should handle null token - regression for AUTH-70490b4d`
+
+                            2. **Bug Comment**: Explain what broke, root cause, and fix
+                               ```kotlin
+                               // BUG: [What went wrong and user impact]
+                               // ROOT CAUSE: [Technical reason for the bug]
+                               // FIX: [What code change fixed it]
+                               ```
+
+                            3. **Test Assertions**: Verify both:
+                               - Bug condition doesn't cause failure
+                               - Expected behavior occurs correctly
+
+                            ### Validation Checklist
+
+                            Before marking bug fix complete, verify:
+                            - ✅ Bug reproduction test exists and fails on old code
+                            - ✅ Bug reproduction test passes with fix
+                            - ✅ Edge cases identified and tested
+                            - ✅ Integration tests added if bug crossed boundaries
+                            - ✅ Performance tests added if relevant
+                            - ✅ All tests have proper documentation comments
+                            - ✅ Test names reference task ID for traceability
+                            - ✅ Code coverage increased for affected code paths
+
+                            ### Common Regression Test Patterns
+
+                            **Null/Empty Input Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle null input - regression for TASK-12345`() {
+                                assertDoesNotThrow { service.process(null) }
+                            }
+                            ```
+
+                            **Race Condition Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle concurrent access - regression for TASK-67890`() {
+                                val threads = (1..10).map {
+                                    thread { service.processRequest(it) }
+                                }
+                                threads.forEach { it.join() }
+                                // Verify no corruption occurred
+                            }
+                            ```
+
+                            **Boundary Value Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle maximum value - regression for TASK-11111`() {
+                                val result = service.calculate(Int.MAX_VALUE)
+                                assertTrue(result.isSuccess)
+                            }
+                            ```
+
+                            **State Management Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle state transition - regression for TASK-22222`() {
+                                service.initialize()
+                                service.stop()
+                                service.initialize() // Bug: second init failed
+                                assertTrue(service.isRunning)
+                            }
+                            ```
+
+                            ---
+
+                            ## Step 6: Git Workflow (if applicable)
+
+                            **Use memory overrides if specified, otherwise use defaults**:
+
+                            **Branch naming**:
+                            - Memory has custom branch_naming? → Use that pattern with variable expansion
+                            - No override? → Use default: `{work-type}/{task-id-short}-{description}`
+                            - Variables: {task-id}, {task-id-short}, {description}, {priority}, {complexity}
+
+                            **Example variable expansion**:
+                            - Pattern: `bugfix/{task-id-short}-{description}`
+                            - Task ID: `3bd10691-f40a-4d30-8fa6-02d00b666305`
+                            - Title: "Fix Docker CVE issues"
+                            - Result: `bugfix/3bd10691-fix-docker-cve-issues`
+
+                            **PR/MR Decision**:
+                            - Use memory preference (use_pull_requests)
+                            - If "always" → Create PR automatically
+                            - If "never" → Push directly
+                            - If "ask" or not set → Ask user, offer to remember preference
+
+                            **PR/MR Creation**:
+                            - Auto-detect GitHub MCP server → use `gh pr create`
+                            - Auto-detect GitLab MCP server → use `glab mr create`
+                            - No MCP available → guide manual creation
+
+                            ## Step 7: Validation
+
+                            **Combine template validation + memory validation**:
+
+                            1. **Template requirements** (from applied templates)
+                            2. **Additional validation from memory** (if specified)
+                            3. Both must pass before marking complete
+
+                            **Before marking work as completed**:
+                            ```
+                            Use get_sections to read all task/feature sections
+                            ```
+
+                            **For Bugs** (MANDATORY - see Regression Testing Requirements above):
+                            - ✅ Root cause documented in task sections or code comments
+                            - ✅ Bug investigation sections complete (if Bug Investigation template used)
+                            - ✅ **Bug reproduction test exists** (must fail with old code, pass with fix)
+                            - ✅ **Regression tests created** for all scenarios:
+                              - Edge cases that led to the bug
+                              - Integration tests if bug crossed boundaries
+                              - Performance tests if performance-related
+                            - ✅ **Test documentation complete** (BUG/ROOT CAUSE/FIX comments in tests)
+                            - ✅ **Test names reference task ID** for traceability
+                            - ✅ All tests passing
+                            - ✅ Fix verified in affected scenarios
+                            - ✅ Code coverage increased for affected code paths
+
+                            **CRITICAL**: Do NOT mark bug fix as completed without regression tests. If user attempts to complete without tests, remind them of regression testing requirements and offer to help create them.
+
+                            **For Features**:
+                            - ✅ All feature tasks completed
+                            - ✅ Feature requirements satisfied
+                            - ✅ Integration testing done
+                            - ✅ Feature sections complete
+
+                            **For All Work**:
+                            - ✅ Template guidance followed (validation requirements)
+                            - ✅ Tests passing
+                            - ✅ Additional memory validations met (if specified)
+                            - ✅ Git workflow completed (if applicable)
+
+                            ## Step 8: Complete
+
+                            Mark work as completed only after all validation passes:
+                            ```
+                            Use update_task to set status="completed"
+                            ```
+
+                            ---
+
+                            ## Memory Configuration Setup Helper
+
+                            **If no configuration found during workflow, offer setup**:
+
+                            "I don't have workflow preferences stored. Let me help you set this up:
+
+                            1. Do you use pull requests? (yes/no/ask each time)
+                            2. Any custom branch naming? (or use defaults)
+                            3. Team-specific workflow steps? (or use templates)
+
+                            Should I remember these preferences:
+                            A) Globally (for all your projects)
+                            B) Just for this project
+                            C) Don't save (ask each time)"
+
+                            **Save preferences using your memory mechanism** (CLAUDE.md, global memory, etc.)
+
+                            ---
+
+                            ## Branch Naming Variable System
+
+                            ### Available Variables
+
+                            Use these standardized placeholders in branch naming patterns:
+
+                            | Variable | Description | Example Value |
+                            |----------|-------------|---------------|
+                            | `{task-id}` | Full task UUID | `70490b4d-f412-4c20-93f1-cacf038a2ee8` |
+                            | `{task-id-short}` | First 8 characters of UUID | `70490b4d` |
+                            | `{description}` | Sanitized task title | `rename-workflow-add-memory` |
+                            | `{feature-id}` | Feature UUID (if task belongs to feature) | `a3d0ab76-d93d-455c-ba54-459476633a3f` |
+                            | `{feature-id-short}` | First 8 characters of feature UUID | `a3d0ab76` |
+                            | `{priority}` | Task priority | `high`, `medium`, `low` |
+                            | `{complexity}` | Task complexity rating | `1` through `10` |
+                            | `{type}` | Work type detected from tags | `bug`, `feature`, `enhancement`, `hotfix` |
+
+                            ### Description Sanitization Rules
+
+                            The `{description}` variable applies these transformations to the task title:
+                            1. Convert to lowercase
+                            2. Replace spaces with hyphens
+                            3. Remove special characters (keep only alphanumeric and hyphens)
+                            4. Collapse multiple hyphens to single hyphen
+                            5. Trim leading/trailing hyphens
+                            6. Truncate to 50 characters if longer
+
+                            **Examples**:
+                            - `"Fix Authentication Bug"` → `fix-authentication-bug`
+                            - `"Add User Profile (with avatar)"` → `add-user-profile-with-avatar`
+                            - `"Update API: Version 2.0"` → `update-api-version-2-0`
+
+                            ### Default Branch Naming Patterns
+
+                            If no custom configuration exists in memory, use these defaults:
+
+                            | Work Type | Pattern | Example |
+                            |-----------|---------|---------|
+                            | Bug | `bugfix/{task-id-short}-{description}` | `bugfix/70490b4d-fix-auth-error` |
+                            | Feature | `feature/{task-id-short}-{description}` | `feature/a2a36aeb-user-profile` |
+                            | Hotfix | `hotfix/{task-id-short}-{description}` | `hotfix/12bf786d-security-patch` |
+                            | Enhancement | `enhancement/{task-id-short}-{description}` | `enhancement/6d115591-improve-performance` |
+
+                            ### Custom Pattern Examples
+
+                            **Team-Specific Conventions**:
+
+                            ```
+                            # Jira-style with ticket numbers
+                            branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"
+                            branch_naming_feature: "feature/PROJ-{task-id-short}-{description}"
+
+                            # Linear-style
+                            branch_naming_bug: "{type}/{description}-{task-id-short}"
+                            branch_naming_feature: "{type}/{description}-{task-id-short}"
+
+                            # Priority-based
+                            branch_naming_hotfix: "hotfix/{priority}-{description}"
+                            branch_naming_bug: "bug/{priority}-{complexity}-{description}"
+
+                            # Feature-grouped
+                            branch_naming_feature: "feature/{feature-id-short}/{description}"
+                            ```
+
+                            ### Variable Expansion Process
+
+                            When creating a branch:
+                            1. **Retrieve task details** using `get_task`
+                            2. **Detect work type** from task tags (`task-type-bug`, `task-type-feature`, etc.)
+                            3. **Load branch naming pattern** from memory for the detected type
+                            4. **Extract variable values** from task data
+                            5. **Apply sanitization** to description
+                            6. **Replace all placeholders** with actual values
+                            7. **Validate result** (no special chars, valid git branch name)
+
+                            **Example Expansion**:
+                            ```
+                            Task: "Implement OAuth2 Authentication"
+                            ID: 70490b4d-f412-4c20-93f1-cacf038a2ee8
+                            Type: feature
+                            Priority: high
+                            Complexity: 8
+
+                            Pattern: feature/{task-id-short}-{description}
+                            Result: feature/70490b4d-implement-oauth2-authentication
+                            ```
+
+                            ### Commit Message Variables
+
+                            Same variables can be used for commit message prefixes:
+                            ```
+                            commit_message_prefix: "[{type}/{task-id-short}]"
+
+                            Result: "[feature/70490b4d] feat: add OAuth2 authentication"
+                            ```
+
+                            ---
+
+                            This workflow provides simple defaults with full customization through AI memory, enabling team-specific workflows without code changes.
                             """.trimIndent()
                         )
                     )
