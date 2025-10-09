@@ -23,10 +23,10 @@ COPY src src
 RUN ./gradlew build --no-daemon
 
 # Runtime stage
-FROM eclipse-temurin:23-jdk-alpine
+FROM amazoncorretto:25-al2023-headless
 
-# Update packages to fix CVEs: CVE-2024-8176 (libexpat) and CVE-2025-0840 (binutils)
-RUN apk update && apk upgrade libexpat binutils
+# Amazon Corretto 25 on AL2023 addresses high severity CVEs present in eclipse-temurin:23
+# Using headless variant (runtime-only, no GUI libraries) for optimal production container size
 
 WORKDIR /app
 
