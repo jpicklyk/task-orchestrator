@@ -159,35 +159,6 @@ Claude explicitly:
 
 ---
 
-### `bug_triage_workflow`
-
-**Purpose**: Systematic bug assessment, investigation, and resolution planning
-
-**When to Use**:
-- Critical or high-severity bugs requiring systematic approach
-- Complex bugs needing thorough investigation
-- Want to ensure proper documentation for bug resolution
-- Learning bug triage best practices
-
-**What It Covers**:
-1. Initial bug assessment and current bug load review
-2. Bug investigation task creation with templates
-3. Detailed problem and technical investigation
-4. Impact assessment and priority determination
-5. Resolution approach determination (simple vs. complex)
-6. Implementation workflow and git integration
-7. Resolution tracking and validation
-
-**Key Decisions It Helps With**:
-- Severity and priority assessment
-- Simple fix vs. complex breakdown decision
-- What investigation steps to take
-- How to document root cause and resolution
-
-**Autonomous Alternative**: Report "I found a bug where X isn't working" and Claude will create bug task with appropriate templates automatically
-
----
-
 ### `project_setup_workflow`
 
 **Purpose**: Initialize new projects with proper structure, features, and foundation tasks

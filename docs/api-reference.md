@@ -430,7 +430,6 @@ Task Orchestrator tools work seamlessly with:
 Tools are automatically used by workflow prompts:
 - `create_feature_workflow` - Uses create_feature, create_task, create_dependency
 - `task_breakdown_workflow` - Uses create_task, create_dependency, update_task
-- `bug_triage_workflow` - Uses create_task, search_tasks, update_task
 - `implementation_workflow` - Uses get_overview, search_tasks, apply_template for tasks, features, and bugs
 
 > **See**: [Workflow Prompts](workflow-prompts) for complete workflow automation details

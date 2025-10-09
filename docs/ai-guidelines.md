@@ -82,7 +82,6 @@ The system uses three complementary layers to provide comprehensive guidance:
 - `initialize_task_orchestrator` - AI initialization workflow
 - `create_feature_workflow` - Feature creation with templates
 - `task_breakdown_workflow` - Breaking complex work into tasks
-- `bug_triage_workflow` - Systematic bug investigation
 - `project_setup_workflow` - New project initialization
 - `implementation_workflow` - Smart implementation workflow for tasks, features, and bugs
 
@@ -717,7 +716,6 @@ The `implementation_workflow` checks memory at these points:
 All workflows can benefit from memory:
 
 - **create_feature_workflow** - Default templates from memory
-- **bug_triage_workflow** - Custom bug investigation steps
 - **project_setup_workflow** - Team-specific project structure
 
 **Pattern**:

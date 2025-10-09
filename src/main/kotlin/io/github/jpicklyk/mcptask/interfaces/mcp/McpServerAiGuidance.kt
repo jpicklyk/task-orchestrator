@@ -99,9 +99,8 @@ object McpServerAiGuidance {
                             **Use workflow prompts** for automated guidance on complex scenarios:
                             - `create_feature_workflow` - Complete feature creation with templates and tasks
                             - `task_breakdown_workflow` - Break complex tasks into manageable pieces
-                            - `bug_triage_workflow` - Systematic bug investigation and resolution
                             - `project_setup_workflow` - Initialize new projects with proper structure
-                            - `implement_feature_workflow` - Smart implementation with git detection
+                            - `implementation_workflow` - Smart implementation with git detection for tasks, features, and bugs
                             
                             **Usage**: `task-orchestrator:workflow_name` then provide details or let AI guide you
                             """.trimIndent()

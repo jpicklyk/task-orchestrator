@@ -78,11 +78,8 @@ Task Orchestrator provides **user-invokable workflow prompts** for common scenar
 
 ### Feature Development Workflows
 - **`create_feature_workflow`**: Create features with templates and tasks
-- **`implement_feature_workflow`**: Smart implementation with git detection
+- **`implementation_workflow`**: Smart implementation with git detection for tasks, features, and bugs
 - **`task_breakdown_workflow`**: Decompose complex work
-
-### Issue Management Workflows
-- **`bug_triage_workflow`**: Systematic bug investigation and resolution
 
 ### Project Organization Workflows
 - **`project_setup_workflow`**: Initialize new projects with structure
@@ -162,8 +159,8 @@ With guidelines internalized, AI agents can recognize patterns:
 **User Says**: "Investigate why the API is timing out"
 **Agent Recognizes**:
 - Bug investigation scenario
-- Use `bug_triage_workflow` for systematic approach
 - Create task with Bug Investigation template
+- Use `implementation_workflow` to guide bug fix implementation
 
 ## Key Principles
 
@@ -1094,9 +1091,9 @@ AI: Invokes project_setup_workflow prompt for step-by-step guidance
 ```
 User: "Fix the authentication system"
 AI: "This sounds like either:
-     1. A bug investigation (if auth is broken)
+     1. A bug fix (if auth is broken - create task with Bug Investigation template)
      2. An enhancement task (if improving auth)
-     Which applies? Or would you like me to invoke bug_triage_workflow?"
+     Which applies?"
 ```
 
 ## Best Practices
@@ -1380,28 +1377,7 @@ If Workflow Invocation:
 - Establishes dependencies
 - Links to feature if beneficial
 
-### 4. bug_triage_workflow
-**Purpose**: Systematic bug investigation and resolution
-
-**When to Use** (Autonomous Mode):
-- User says "fix bug where [description]"
-- Clear bug fix intent with description
-- Bug investigation request
-
-**When to Invoke** (Explicit Mode)**:
-- Complex bug requiring systematic analysis
-- User wants comprehensive triage process
-- Learning bug investigation methodology
-- Critical bugs requiring careful handling
-
-**What It Does**:
-- Bug assessment and prioritization
-- Investigation task creation
-- Root cause analysis guidance
-- Resolution approach determination
-- Testing and verification planning
-
-### 5. project_setup_workflow
+### 4. project_setup_workflow
 **Purpose**: Initialize new project with proper structure
 
 **When to Use** (Autonomous Mode):
@@ -1422,11 +1398,11 @@ If Workflow Invocation:
 - Template strategy setup
 - Development workflow establishment
 
-### 6. implement_feature_workflow
-**Purpose**: Feature implementation with git detection and workflow integration
+### 5. implementation_workflow
+**Purpose**: Smart implementation workflow for tasks, features, and bugs with git detection
 
 **When to Use** (Autonomous Mode):
-- User says "implement [feature/task]"
+- User says "implement [feature/task/bug fix]"
 - Clear implementation intent
 - Standard implementation request
 
@@ -1439,7 +1415,7 @@ If Workflow Invocation:
 **What It Does**:
 - Current state check and git detection
 - Template application with smart detection
-- Implementation guidance with template integration
+- Implementation guidance with template integration (including bug-specific guidance)
 - Completion validation
 - Git workflow integration
 

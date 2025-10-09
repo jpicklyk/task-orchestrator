@@ -494,8 +494,7 @@ Templates work seamlessly with workflow prompts:
 - **PRD-Driven Development** ⭐: Analyzes PRD content to systematically apply appropriate templates across all features and tasks based on requirements and technical complexity
 - **create_feature_workflow**: Automatically suggests Context & Background + Requirements Specification
 - **task_breakdown_workflow**: Applies Task Implementation Workflow to subtasks
-- **bug_triage_workflow**: Uses Bug Investigation Workflow for systematic debugging
-- **implementation_workflow**: Auto-detects git and applies appropriate git workflows for any work type
+- **implementation_workflow**: Auto-detects git and applies appropriate git workflows for any work type (tasks, features, and bugs)
 
 > **Most Effective**: PRD-driven development provides optimal template selection by analyzing complete requirements. See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for how Claude intelligently applies templates during PRD breakdown.
 >

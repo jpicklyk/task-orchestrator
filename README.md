@@ -120,11 +120,10 @@ Task Orchestrator includes a comprehensive **AI Guidelines and Initialization Sy
 
 > **See**: [Templates Documentation](docs/templates.md) for AI-driven template discovery and composition patterns
 
-### Workflow Prompts (6 Built-in Workflows)
+### Workflow Prompts (5 Built-in Workflows)
 - `initialize_task_orchestrator` - AI initialization and guideline loading
 - `create_feature_workflow` - Comprehensive feature creation
 - `task_breakdown_workflow` - Complex task decomposition
-- `bug_triage_workflow` - Systematic bug management
 - `project_setup_workflow` - Complete project initialization
 - `implementation_workflow` - Git-aware implementation workflow for tasks, features, and bugs with completion validation
 
