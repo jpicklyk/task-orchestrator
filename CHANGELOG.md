@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Markdown transformation tools for exporting entities to markdown format with YAML frontmatter
+  - `task_to_markdown` - Transform tasks to markdown documents
+  - `feature_to_markdown` - Transform features to markdown documents
+  - `project_to_markdown` - Transform projects to markdown documents
+- Markdown resource provider with usage guide for markdown transformation capabilities
+- Clear separation between inspection tools (get_*) and transformation tools (*_to_markdown)
+
+### Changed
+- Removed `includeMarkdownView` parameter from get_task, get_feature, and get_project tools
+- Updated API reference documentation to reflect 40 total tools (was 37)
+- Updated tool category counts: Task Management (7 tools), Feature Management (6 tools), Project Management (6 tools)
+
+### Technical Details
+- Markdown transformation uses existing MarkdownRenderer from domain layer
+- Dedicated tools avoid content duplication in responses
+- Better use case clarity for AI agents: JSON for inspection, markdown for export/rendering
+
 ## [1.1.0-alpha-01]
 
 ### Dependencies
@@ -18,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Output schemas for all 5 Project Management tools (create_project, get_project, update_project, delete_project, search_projects)
 - Output schemas for all 10 Section Management tools (add_section, get_sections, update_section, delete_section, update_section_text, update_section_metadata, bulk_create_sections, bulk_update_sections, bulk_delete_sections, reorder_sections)
 - Output schemas for all 9 Template Management tools (create_template, get_template, list_templates, apply_template, update_template_metadata, delete_template, add_template_section, enable_template, disable_template)
-- Tool titles for all 39 MCP tools for better discoverability in clients
+- Tool titles for all MCP tools for better discoverability in clients
 - ToolDefinition interface enhancements: optional `title` and `outputSchema` properties
 - ToolRegistry now registers tool titles and output schemas with MCP server
 - Installation Guide (`docs/installation-guide.md`) - comprehensive setup guide for all platforms and installation methods
