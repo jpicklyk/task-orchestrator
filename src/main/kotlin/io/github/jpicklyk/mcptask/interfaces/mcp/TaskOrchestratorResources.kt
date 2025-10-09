@@ -198,6 +198,12 @@ With guidelines internalized, AI agents can recognize patterns:
 5. **Create dependencies** when tasks have ordering requirements
 6. **Leverage bulk operations** when working with multiple sections
 7. **Verify template compliance** before marking work complete
+8. **Write markdown-formatted content** when using contentFormat=MARKDOWN
+   - Use headings (##, ###) for structure
+   - Use lists (-, *) for items and requirements
+   - Use bold (**) for emphasis
+   - Use code blocks (\`\`\`) with language tags
+   - Include links [text](url) for references
 
 ## Getting Started
 
