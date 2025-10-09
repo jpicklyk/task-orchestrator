@@ -88,7 +88,8 @@ New to Task Orchestrator? Follow this path for the best experience:
 - **[API Reference](api-reference)** - Complete tool documentation
 
 ### For Developers
-- **[Database Migrations](database-migrations)** - Schema change management guide
+- **[Developer Guides](developer-guides)** - Architecture, contributing, and development setup
+- **[Database Migrations](developer-guides/database-migrations)** - Schema change management guide
 - **[Troubleshooting](troubleshooting)** - Comprehensive problem resolution
 - **[GitHub Repository](https://github.com/jpicklyk/task-orchestrator)** - Source code and contributing
 
