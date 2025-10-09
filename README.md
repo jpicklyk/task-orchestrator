@@ -36,16 +36,16 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 
 ## Quick Start (2 Minutes)
 
-Get Task Orchestrator running quickly:
+Get Task Orchestrator running with your MCP-compatible AI agent:
 
 **Step 1: Pull Docker Image**
 ```bash
 docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-**Step 2: Configure Claude Desktop**
+**Step 2: Configure Your AI Agent**
 
-Add to your `claude_desktop_config.json`:
+For **Claude Desktop**, add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -61,11 +61,18 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-**Step 3: Restart Claude Desktop**
+For **Claude Code**, use the MCP configuration command:
+```bash
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+```
+
+For **other MCP-compatible AI agents** (Cursor, Windsurf, etc.), use similar Docker configuration adapted to your agent's format.
+
+**Step 3: Restart/Reconnect Your AI Agent**
 
 **Step 4: Start Using**
 
-Ask Claude:
+Ask your AI agent:
 - "Create a new project for my web application"
 - "Show me the project overview"
 - "Apply the technical approach template to this task"

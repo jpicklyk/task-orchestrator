@@ -5,12 +5,12 @@ title: Quick Start
 
 # Quick Start Guide
 
-Get MCP Task Orchestrator running with Claude Desktop in under 2 minutes. This guide focuses on the fastest path to success.
+Get MCP Task Orchestrator running with your MCP-compatible AI agent in under 2 minutes. This guide shows configuration for Claude Desktop and Claude Code, but works with any AI that supports the Model Context Protocol.
 
 ## Prerequisites
 
 - **Docker Desktop** installed and running
-- **Claude Desktop** application, Claude Code, or other AI that supports MCP
+- **MCP-compatible AI agent** (Claude Desktop, Claude Code, Cursor, or other)
 - **Basic CLI access** (Terminal/Command Prompt)
 
 > **New to Docker?** [Download Docker Desktop](https://www.docker.com/products/docker-desktop/) - free for personal use.
@@ -41,17 +41,18 @@ You should see MCP server startup messages. Press `Ctrl+C` to stop.
 
 ---
 
-## Step 3: Configure Claude Desktop
+## Step 3: Configure Your AI Agent
 
-### Find Your Configuration File
+Choose your configuration method based on your AI agent:
 
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Linux**: `~/.config/Claude/claude_desktop_config.json`
+### Option A: Claude Desktop
 
-### Add Task Orchestrator
+**Find Your Configuration File**:
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-Open the file and add this configuration:
+**Add Task Orchestrator**:
 
 ```json
 {
@@ -73,21 +74,33 @@ Open the file and add this configuration:
 
 > **Already have MCP servers configured?** Add the `task-orchestrator` entry to your existing `mcpServers` object.
 
-### Restart Claude Desktop
+**Restart Claude Desktop**: Close and reopen to load the configuration.
 
-Close and reopen Claude Desktop to load the configuration.
+### Option B: Claude Code
+
+Use the MCP configuration command:
+
+```bash
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+```
+
+Claude Code will automatically configure and connect to the MCP server.
+
+### Option C: Other MCP-Compatible AI Agents
+
+For Cursor, Windsurf, or other MCP-supporting AI agents, consult their MCP configuration documentation. Use the Docker command configuration shown above, adapting to your agent's configuration format.
 
 ---
 
 ## Step 4: Verify the Connection
 
-Open Claude Desktop and ask:
+Open your AI agent and ask:
 
 ```
 Show me an overview of my current tasks
 ```
 
-Claude should respond confirming the task orchestrator is working (showing no tasks initially).
+Your AI agent should respond confirming the task orchestrator is working (showing no tasks initially).
 
 ---
 
@@ -95,7 +108,7 @@ Claude should respond confirming the task orchestrator is working (showing no ta
 
 ### Start Simple
 
-Try these commands in Claude Desktop:
+Try these commands with your AI agent:
 
 **Create a project**:
 ```
@@ -122,13 +135,13 @@ Show me an overview of my project structure
 
 ## AI Guidelines Initialization
 
-Claude will automatically initialize AI guidelines on first connection to Task Orchestrator. This enables:
+Your AI agent will automatically initialize guidelines on first connection to Task Orchestrator. This enables:
 
-- **Autonomous pattern recognition** - Claude understands your intent from natural language
+- **Autonomous pattern recognition** - AI understands your intent from natural language
 - **Smart template discovery** - Automatically finds and applies appropriate templates
 - **Workflow integration** - Seamless use of built-in workflow patterns
 
-> **Learn more**: See [AI Guidelines](ai-guidelines) for details on how Claude uses Task Orchestrator autonomously.
+> **Learn more**: See [AI Guidelines](ai-guidelines) for details on how AI agents use Task Orchestrator autonomously.
 
 ---
 
@@ -150,7 +163,7 @@ Claude will automatically initialize AI guidelines on first connection to Task O
 - Dependency management
 
 ### Natural Language Control
-Simply ask Claude:
+Simply ask your AI agent:
 - "Create a task to implement the login API"
 - "Show me all high-priority pending tasks"
 - "Apply the technical approach template to this task"
@@ -191,7 +204,7 @@ Create features to organize these tasks:
 Move the user-related tasks to the User Management feature
 ```
 
-Claude will organize your work, apply appropriate templates, and help you track progress on existing initiatives.
+Your AI agent will organize your work, apply appropriate templates, and help you track progress on existing initiatives.
 
 ---
 
@@ -211,7 +224,7 @@ Claude will organize your work, apply appropriate templates, and help you track 
 
 **Step 1: Provide Your PRD**
 
-Share your PRD file with Claude:
+Share your PRD file with your AI agent:
 ```
 I have a PRD for a new authentication system. Let me share it with you:
 
@@ -220,9 +233,9 @@ I have a PRD for a new authentication system. Let me share it with you:
 Please analyze this PRD and break it down into a project structure with features and tasks.
 ```
 
-**Step 2: Claude Analyzes and Plans**
+**Step 2: AI Analyzes and Plans**
 
-Claude will:
+Your AI agent will:
 1. Read and analyze the entire PRD
 2. Identify major features and functional areas
 3. Create a project structure
@@ -232,9 +245,9 @@ Claude will:
 
 **Step 3: Review and Refine**
 
-Claude presents the breakdown:
+Your AI agent presents the breakdown:
 ```
-Claude: "I've analyzed your authentication PRD. Here's the proposed structure:
+AI Agent: "I've analyzed your authentication PRD. Here's the proposed structure:
 
 Project: Authentication System v2
 
@@ -260,14 +273,14 @@ Should I proceed with creating this structure?"
 
 **Step 4: Create Structure**
 
-Approve and Claude creates:
+Approve and your AI agent creates:
 ```
 Yes, please create this structure with all templates and dependencies.
 ```
 
 **Step 5: Start Implementation**
 
-Claude creates everything and you're ready to work:
+Your AI agent creates everything and you're ready to work:
 ```
 Show me what tasks I should start with
 ```
@@ -298,11 +311,11 @@ and order confirmation.
 - Support 1000 concurrent users
 ```
 
-**Claude's Response**:
+**AI Agent's Response**:
 ```
 I'll analyze this PRD and create a comprehensive project structure.
 
-[Claude uses get_overview, creates project, creates features with templates,
+[AI agent uses get_overview, creates project, creates features with templates,
 creates tasks with dependencies, applies templates]
 
 Created project "E-commerce Checkout System" with:
@@ -369,13 +382,13 @@ How do we know it's complete?
 
 ### PRD Workflow Tips
 
-1. **Start with Overview**: Let Claude read the entire PRD before creating tasks
-2. **Review Before Creating**: Claude will propose structure - review and adjust
-3. **Trust AI Breakdown**: Claude analyzes technical dependencies intelligently
-4. **Iterate as Needed**: Refine features and tasks based on Claude's suggestions
-5. **Use Templates**: Claude automatically applies appropriate templates based on PRD content
+1. **Start with Overview**: Let your AI agent read the entire PRD before creating tasks
+2. **Review Before Creating**: Your AI agent will propose structure - review and adjust
+3. **Trust AI Breakdown**: AI analyzes technical dependencies intelligently
+4. **Iterate as Needed**: Refine features and tasks based on your AI agent's suggestions
+5. **Use Templates**: AI automatically applies appropriate templates based on PRD content
 
-> **Advanced**: For very large PRDs, break into sections and work incrementally. Claude can process sections and maintain context across the full scope.
+> **Advanced**: For very large PRDs, break into sections and work incrementally. Your AI agent can process sections and maintain context across the full scope.
 
 ---
 
