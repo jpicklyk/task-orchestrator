@@ -73,6 +73,8 @@ Ask Claude:
 > **📖 Full Quick Start Guide**: See [docs/quick-start.md](docs/quick-start.md) for detailed instructions including Claude Code setup, building from source, and troubleshooting.
 >
 > **🔧 Advanced Installation**: See [docs/installation-guide.md](docs/installation-guide.md) for all installation options, environment variables, and platform-specific instructions.
+>
+> **⭐ PRD-Driven Development**: For best results, provide Claude with Product Requirements Documents (PRDs) for intelligent breakdown into features and tasks with proper dependencies. See [PRD Workflow Guide](docs/quick-start.md#prd-driven-development-workflow).
 
 ## Core Concepts
 

@@ -10,7 +10,7 @@ Get MCP Task Orchestrator running with Claude Desktop in under 2 minutes. This g
 ## Prerequisites
 
 - **Docker Desktop** installed and running
-- **Claude Desktop** application
+- **Claude Desktop** application, Claude Code, or other AI that supports MCP
 - **Basic CLI access** (Terminal/Command Prompt)
 
 > **New to Docker?** [Download Docker Desktop](https://www.docker.com/products/docker-desktop/) - free for personal use.
@@ -158,6 +158,227 @@ Simply ask Claude:
 
 ---
 
+## Working with Existing Projects
+
+Already have a project in progress? Task Orchestrator integrates seamlessly with existing work.
+
+### Connect to Existing Work
+
+**Create a project for your existing codebase**:
+```
+Create a new project called "My Existing App" to track work on my current application
+```
+
+**Import existing work as tasks**:
+```
+Create tasks for the following work items:
+- Fix authentication timeout bug
+- Add user profile editing
+- Implement API rate limiting
+- Update documentation
+```
+
+**Organize by features**:
+```
+Create features to organize these tasks:
+- User Management feature
+- API Infrastructure feature
+- Documentation feature
+```
+
+**Link tasks to features**:
+```
+Move the user-related tasks to the User Management feature
+```
+
+Claude will organize your work, apply appropriate templates, and help you track progress on existing initiatives.
+
+---
+
+## PRD-Driven Development Workflow
+
+**Product Requirements Documents (PRDs) provide the most effective workflow** for AI-assisted development. This approach gives Claude comprehensive context for intelligent breakdown and planning.
+
+### Why PRD-Driven Development Works Best
+
+- **Complete Context**: AI analyzes entire requirements at once
+- **Intelligent Breakdown**: Automatic decomposition into features and tasks
+- **Consistent Documentation**: Templates applied systematically
+- **Proper Sequencing**: Dependencies created based on technical requirements
+- **Better Results**: AI makes more informed decisions with full context
+
+### Step-by-Step PRD Workflow
+
+**Step 1: Provide Your PRD**
+
+Share your PRD file with Claude:
+```
+I have a PRD for a new authentication system. Let me share it with you:
+
+[Paste PRD content or share file path]
+
+Please analyze this PRD and break it down into a project structure with features and tasks.
+```
+
+**Step 2: Claude Analyzes and Plans**
+
+Claude will:
+1. Read and analyze the entire PRD
+2. Identify major features and functional areas
+3. Create a project structure
+4. Break down features into specific tasks
+5. Apply appropriate templates for documentation
+6. Create dependencies based on technical requirements
+
+**Step 3: Review and Refine**
+
+Claude presents the breakdown:
+```
+Claude: "I've analyzed your authentication PRD. Here's the proposed structure:
+
+Project: Authentication System v2
+
+Features:
+1. OAuth Integration (5 tasks)
+   - Complexity: High
+   - Templates: Technical Approach, Requirements Specification
+
+2. Session Management (4 tasks)
+   - Complexity: Medium
+   - Templates: Technical Approach, Testing Strategy
+
+3. User Profile API (3 tasks)
+   - Complexity: Low
+   - Templates: Task Implementation Workflow
+
+Dependencies identified:
+- OAuth Integration BLOCKS Session Management
+- Session Management BLOCKS User Profile API
+
+Should I proceed with creating this structure?"
+```
+
+**Step 4: Create Structure**
+
+Approve and Claude creates:
+```
+Yes, please create this structure with all templates and dependencies.
+```
+
+**Step 5: Start Implementation**
+
+Claude creates everything and you're ready to work:
+```
+Show me what tasks I should start with
+```
+
+### Example PRD Workflow
+
+**User provides PRD**:
+```
+Analyze this PRD and create a complete project structure:
+
+# E-commerce Checkout System PRD
+
+## Overview
+Build a modern checkout system with payment processing, inventory validation,
+and order confirmation.
+
+## Requirements
+- Real-time inventory checking
+- Multiple payment methods (credit card, PayPal, Apple Pay)
+- Email confirmations
+- Order tracking
+- Admin order management
+
+## Technical Constraints
+- Must integrate with existing inventory API
+- Payment processing via Stripe
+- Email via SendGrid
+- Support 1000 concurrent users
+```
+
+**Claude's Response**:
+```
+I'll analyze this PRD and create a comprehensive project structure.
+
+[Claude uses get_overview, creates project, creates features with templates,
+creates tasks with dependencies, applies templates]
+
+Created project "E-commerce Checkout System" with:
+
+Features:
+1. Inventory Integration (3 tasks) - BLOCKS other features
+2. Payment Processing (5 tasks) - Core functionality
+3. Order Management (4 tasks) - Depends on Payment
+4. Email Notifications (2 tasks) - Can run in parallel
+5. Admin Dashboard (3 tasks) - Final integration
+
+Total: 5 features, 17 tasks
+Templates applied: Technical Approach, Requirements Specification, Testing Strategy
+Dependencies: 8 blocking relationships created
+
+Ready to start implementation. Recommended sequence:
+1. Begin with Inventory Integration (unblocks other work)
+2. Parallel: Email Notifications setup
+3. Payment Processing (depends on inventory)
+4. Order Management (depends on payment)
+5. Admin Dashboard (final integration)
+```
+
+### PRD Best Practices
+
+**What Makes a Good PRD for AI Breakdown**:
+- Clear functional requirements
+- Technical constraints specified
+- User flows described
+- Integration points identified
+- Success criteria defined
+
+**PRD Format Suggestions**:
+- **Structured Markdown**: Headers, lists, clear sections
+- **Technical Details**: APIs, libraries, constraints
+- **User Stories**: "As a user, I want to..."
+- **Acceptance Criteria**: Clear definition of done
+- **Non-Functional Requirements**: Performance, security, scalability
+
+**Example PRD Structure**:
+```markdown
+# Feature Name
+
+## Problem Statement
+What problem does this solve?
+
+## Requirements
+### Functional
+- Feature 1
+- Feature 2
+
+### Non-Functional
+- Performance targets
+- Security requirements
+
+## Technical Approach
+- Architecture overview
+- Key technologies
+- Integration points
+
+## Success Criteria
+How do we know it's complete?
+```
+
+### PRD Workflow Tips
+
+1. **Start with Overview**: Let Claude read the entire PRD before creating tasks
+2. **Review Before Creating**: Claude will propose structure - review and adjust
+3. **Trust AI Breakdown**: Claude analyzes technical dependencies intelligently
+4. **Iterate as Needed**: Refine features and tasks based on Claude's suggestions
+5. **Use Templates**: Claude automatically applies appropriate templates based on PRD content
+
+> **Advanced**: For very large PRDs, break into sections and work incrementally. Claude can process sections and maintain context across the full scope.
+
+---
+
 ## Next Steps
 
 ### Learn the System
@@ -194,17 +415,6 @@ Simply ask Claude:
 - Verify the image exists: `docker images | grep task-orchestrator`
 
 **Need detailed help?** See the [Troubleshooting Guide](troubleshooting) for comprehensive solutions.
-
----
-
-## Pre-Release Notice
-
-**⚠️ Current Version: Pre-1.0.0 (Development)**
-
-This is a pre-release version. The database schema may change between updates. For production use, wait for the stable 1.0.0 release.
-
-- 📋 [Track progress to 1.0.0](https://github.com/jpicklyk/task-orchestrator/milestone/1)
-- 🔔 [Get release notifications](https://github.com/jpicklyk/task-orchestrator/releases)
 
 ---
 

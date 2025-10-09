@@ -261,7 +261,7 @@ AI confirms it can:
 ### Task Management Patterns
 **URI**: `task-orchestrator://guidelines/task-management`
 
-**Content**: Six executable workflow patterns:
+**Content**: Seven executable workflow patterns:
 
 1. **Feature Creation Pattern**
    - User says: "help me plan this feature", "create a new feature for X"
@@ -287,7 +287,14 @@ AI confirms it can:
    - User says: "break down this feature", "what tasks are needed?"
    - Workflow: analyze feature → create task breakdown → create dependencies
 
+7. **PRD-Driven Development Pattern** ⭐ **Most Effective**
+   - User says: "analyze this PRD", "break down this product requirements document"
+   - Workflow: read entire PRD → identify features → create project structure → create tasks with templates → establish dependencies → present complete breakdown
+   - **Why it works best**: Complete context enables intelligent breakdown, proper sequencing, and optimal template application
+
 **When to Reference**: Recognizing user intent, applying appropriate workflows
+
+> **Recommended Workflow**: PRD-Driven Development provides the best results for complex projects. See [Quick Start - PRD Workflow](quick-start#prd-driven-development-workflow) for detailed guidance.
 
 ### Workflow Integration
 **URI**: `task-orchestrator://guidelines/workflow-integration`
