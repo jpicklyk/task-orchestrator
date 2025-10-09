@@ -419,6 +419,341 @@ AI will discover these templates via `list_templates` and suggest them appropria
 
 ---
 
+## Memory-Based Workflow Customization for AI Agents
+
+The `implementation_workflow` and other workflows support memory-based customization. AI agents should check memory for configuration before applying defaults, enabling teams to customize workflows without code changes.
+
+### Memory Architecture
+
+**Two Scopes of Memory**:
+
+1. **Global (User-Wide)**:
+   - Personal preferences across all projects
+   - Stored in AI's global memory mechanism
+   - Examples: PR preference, default branch naming
+
+2. **Project-Specific (Team-Wide)**:
+   - Team conventions for specific project
+   - Stored in project repo (CLAUDE.md, .cursorrules, etc.)
+   - Examples: Jira integration, custom workflows
+
+**Priority Rule**: Project-specific configuration overrides global preferences.
+
+**AI-Agnostic Approach**: Don't prescribe specific file locations. Use your native memory capabilities (CLAUDE.md, global memory, .cursorrules, etc.).
+
+---
+
+### When to Check Memory
+
+**ALWAYS check memory before**:
+- Creating branches (check for custom naming patterns)
+- Asking about pull requests (check PR preference)
+- Applying workflow steps (check for custom overrides)
+- Using default conventions (check for team customizations)
+
+**Memory Check Pattern**:
+```
+1. Check project-specific memory first
+2. Fall back to global memory if no project config
+3. Use sensible defaults if no memory found
+4. Offer to save preferences after first use
+```
+
+---
+
+### Configuration Schema
+
+AI agents should look for this structure in memory:
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always" | "never" | "ask"
+
+## Branch Naming Conventions (optional)
+branch_naming_bug: "bugfix/{task-id-short}-{description}"
+branch_naming_feature: "feature/{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
+
+## Commit Message Customization (optional)
+commit_message_prefix: "[{type}/{task-id-short}]"
+
+## Custom Workflow Steps (optional)
+### Bug Fix Workflow Override
+# [Custom procedural steps - validation still required]
+
+### Feature Implementation Workflow Override
+# [Custom procedural steps - validation still required]
+```
+
+---
+
+### Variable Expansion Pattern
+
+When expanding branch naming variables:
+
+**Available Variables**:
+- `{task-id}` - Full UUID
+- `{task-id-short}` - First 8 characters
+- `{description}` - Sanitized task title
+- `{feature-id}` - Feature UUID (if applicable)
+- `{feature-id-short}` - First 8 chars of feature UUID
+- `{priority}` - high/medium/low
+- `{complexity}` - 1-10
+- `{type}` - bug/feature/enhancement/hotfix (from task tags)
+
+**Sanitization Algorithm for {description}**:
+```
+1. Convert to lowercase
+2. Replace spaces with hyphens
+3. Remove special characters (keep only alphanumeric and hyphens)
+4. Collapse multiple hyphens to single hyphen
+5. Trim leading/trailing hyphens
+6. Truncate to 50 characters if longer
+```
+
+**Expansion Process**:
+```
+1. Retrieve task details with get_task
+2. Detect work type from tags (task-type-bug, task-type-feature, etc.)
+3. Load branch naming pattern from memory for detected type
+4. Extract variable values from task data
+5. Apply sanitization to description
+6. Replace all placeholders with actual values
+7. Validate result (valid git branch name, no special chars)
+```
+
+---
+
+### Example Interaction Flows
+
+#### Scenario 1: First-Time Workflow Invocation (No Config)
+
+```
+User: "Start implementing the authentication task"
+
+AI: [Checks memory - no configuration found]
+
+AI: "I'll help you implement the authentication task.
+
+     Quick setup: Do you want to use pull requests?
+     A) Always (create PRs automatically)
+     B) Never (merge directly to main)
+     C) Ask each time
+
+     I can save your preference globally or just for this project."
+
+User: "Always use PRs, save globally"
+
+AI: [Saves to global memory]
+    [Proceeds with implementation using PR workflow]
+```
+
+---
+
+#### Scenario 2: Workflow with Global Preferences
+
+```
+User: "Implement the login feature"
+
+AI: [Checks project memory - none found]
+    [Checks global memory - found: use_pull_requests: "always"]
+
+AI: "I'll implement the login feature with a pull request workflow.
+     Creating branch: feature/70490b4d-implement-login-feature"
+
+[Proceeds automatically with saved preferences]
+```
+
+---
+
+#### Scenario 3: Workflow with Project-Specific Overrides
+
+```
+User: "Fix the authentication bug"
+
+AI: [Checks project memory - found Jira configuration]
+    [Configuration specifies: branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"]
+
+AI: "I'll fix the authentication bug following your team's Jira conventions.
+     Creating branch: bugfix/PROJ-70490b4d-auth-token-expiry"
+
+[Uses project-specific configuration, overriding any global settings]
+```
+
+---
+
+#### Scenario 4: Natural Language Customization Update
+
+```
+User: "Can you update our workflow to use Linear-style branch naming?"
+
+AI: "I'll update your project configuration to use Linear conventions:
+     {type}/{description}-{task-id-short}
+
+     Should I save this to your project's memory?"
+
+User: "Yes"
+
+AI: [Writes configuration to CLAUDE.md in project]
+
+AI: "Updated! Your team's branch naming is now Linear-style.
+     Example: feature/oauth-integration-70490b4d"
+```
+
+---
+
+### Best Practices for AI Agents
+
+#### Memory Check Protocol
+
+**DO**:
+- ✅ Always check memory before applying defaults
+- ✅ Check project-specific first, then global
+- ✅ Offer to save preferences after first use
+- ✅ Respect user customizations over defaults
+- ✅ Communicate when using saved preferences
+- ✅ Validate configuration values before use
+
+**DON'T**:
+- ❌ Assume defaults without checking memory
+- ❌ Ask same questions repeatedly (check memory first)
+- ❌ Override project configuration with global settings
+- ❌ Modify memory without user permission
+- ❌ Store sensitive information in configuration
+- ❌ Hardcode file paths for memory storage
+
+---
+
+#### Template Validation vs Procedural Override
+
+**Always Enforce** (never skip these):
+- ✅ Template validation requirements
+- ✅ Acceptance criteria from templates
+- ✅ Testing requirements and quality gates
+- ✅ Technical context analysis
+
+**Respect Overrides** (use custom steps if configured):
+- ⚠️ Step-by-step implementation instructions
+- ⚠️ Procedural workflow guidance
+- ⚠️ Tool invocation sequences
+- ⚠️ Deployment procedures
+
+**Example**:
+```
+Template says: "Run tests before committing"
+Custom workflow says: "Deploy to staging, then run integration tests"
+
+✅ CORRECT: Run tests (validation enforced), but deploy to staging first (custom procedure)
+❌ WRONG: Skip tests because custom workflow doesn't mention them
+```
+
+---
+
+#### Interactive Setup Flow
+
+When no configuration exists, guide users through setup:
+
+```
+1. Detect missing configuration
+2. Offer interactive setup:
+   "I can help you configure your workflow preferences.
+    This will save time on future tasks. Would you like to set up now?"
+3. Ask minimal questions:
+   - Pull request preference (always/never/ask)
+   - Save globally or per-project
+4. Offer to add more later:
+   "You can customize branch naming and more anytime by saying
+    'update workflow configuration'"
+5. Save configuration to appropriate memory location
+6. Confirm what was saved
+```
+
+**Progressive Enhancement Approach**:
+- Start with minimal configuration (just PR preference)
+- Add complexity only when needed
+- Guide users to documentation for advanced features
+- Never overwhelm with too many options upfront
+
+---
+
+#### Clear Communication
+
+**When Using Saved Preferences**:
+```
+"I'll create a pull request (using your saved preference)"
+"Creating branch with your team's Jira convention: bugfix/PROJ-70490b4d-..."
+```
+
+**When Applying Defaults**:
+```
+"No workflow configuration found. Using default branch naming: feature/70490b4d-..."
+"Would you like me to save your PR preference for next time?"
+```
+
+**When Detecting Customization**:
+```
+"I see your team uses Linear-style branch naming. Creating: feature/oauth-integration-70490b4d"
+```
+
+---
+
+### Integration with Workflows
+
+#### implementation_workflow Integration
+
+The `implementation_workflow` checks memory at these points:
+
+1. **Start** - Load all configuration from memory
+2. **Git Detection** - Check if .git exists, load git preferences
+3. **Branch Creation** - Expand variables using configuration
+4. **PR Decision** - Use use_pull_requests preference
+5. **Custom Steps** - Apply workflow overrides if configured
+
+#### Other Workflow Integration
+
+All workflows can benefit from memory:
+
+- **create_feature_workflow** - Default templates from memory
+- **bug_triage_workflow** - Custom bug investigation steps
+- **project_setup_workflow** - Team-specific project structure
+
+**Pattern**:
+```
+1. Check memory for workflow-specific configuration
+2. Apply project defaults if found
+3. Fall back to global defaults
+4. Use built-in defaults if no memory found
+```
+
+---
+
+### Troubleshooting
+
+**Problem**: User says "you keep asking the same questions"
+**Solution**: Check memory before asking. Offer to save preferences.
+
+**Problem**: Configuration not being applied
+**Solution**: Verify memory location (project vs global), check priority rules.
+
+**Problem**: Variables not expanding correctly
+**Solution**: Ensure task has required tags (task-type-*), validate variable names.
+
+**Problem**: Custom workflow steps ignored
+**Solution**: Confirm template validation still applies, custom steps supplement not replace validation.
+
+---
+
+### Related Documentation
+
+- **[Workflow Prompts - Memory Customization](workflow-prompts#memory-based-workflow-customization)** - User guide for customization
+- **[implementation_workflow](workflow-prompts#implementation_workflow)** - Workflow that uses memory configuration
+- **[Templates Guide](templates)** - Understanding template validation requirements
+
+---
+
 ## Best Practices
 
 ### For AI Agents
