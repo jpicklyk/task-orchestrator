@@ -711,19 +711,228 @@ The `implementation_workflow` checks memory at these points:
 4. **PR Decision** - Use use_pull_requests preference
 5. **Custom Steps** - Apply workflow overrides if configured
 
-#### Other Workflow Integration
+#### Feature Creation Workflow Memory Integration
 
-All workflows can benefit from memory:
+**create_feature_workflow** can use memory for:
 
-- **create_feature_workflow** - Default templates from memory
-- **project_setup_workflow** - Team-specific project structure
+**Configuration Schema**:
+```markdown
+# Task Orchestrator - Feature Creation Configuration
 
-**Pattern**:
+## Default Templates
+feature_default_templates:
+  - "context-and-background"
+  - "requirements-specification"
+
+## Tag Conventions
+feature_tag_prefix: "feature-"
+feature_tags_auto_add: "needs-review,in-planning"
+
+## Auto-Task Creation
+feature_create_initial_tasks: true
+feature_initial_task_templates:
+  - "task-implementation-workflow"
 ```
-1. Check memory for workflow-specific configuration
-2. Apply project defaults if found
-3. Fall back to global defaults
-4. Use built-in defaults if no memory found
+
+**Memory Integration Pattern**:
+```
+1. Check memory for default feature templates
+2. If found, automatically apply templates during feature creation
+3. Apply tag conventions from memory
+4. If auto-task creation enabled, create foundation tasks with specified templates
+5. Fall back to user prompts if no memory configuration
+```
+
+**Example Usage**:
+```
+User: "Create a feature for user authentication"
+
+AI: [Checks memory - found feature_default_templates]
+    [Automatically applies Context & Background + Requirements templates]
+    [Adds feature-authentication, needs-review tags from conventions]
+    [Creates initial implementation task if auto-task enabled]
+
+    "Created feature 'User Authentication' with Context & Background and
+     Requirements templates. Added tags: feature-authentication, needs-review.
+
+     Also created initial implementation task with Task Implementation Workflow template."
+```
+
+---
+
+#### Project Setup Workflow Memory Integration
+
+**project_setup_workflow** can use memory for:
+
+**Configuration Schema**:
+```markdown
+# Task Orchestrator - Project Setup Configuration
+
+## Standard Features
+project_standard_features:
+  - name: "Project Infrastructure"
+    templates: ["technical-approach"]
+    tags: "infrastructure,foundation"
+  - name: "Documentation & Standards"
+    templates: ["context-and-background"]
+    tags: "documentation,standards"
+
+## Foundation Tasks
+project_foundation_tasks:
+  - title: "Setup development environment"
+    complexity: 3
+    templates: ["task-implementation-workflow"]
+  - title: "Configure CI/CD pipeline"
+    complexity: 5
+    templates: ["task-implementation-workflow", "local-git-branching-workflow"]
+
+## Documentation Standards
+project_doc_sections:
+  - "Architecture Overview"
+  - "Development Setup"
+  - "Coding Standards"
+  - "Testing Strategy"
+```
+
+**Memory Integration Pattern**:
+```
+1. Check memory for standard features list
+2. Create standard features automatically if configured
+3. Check for foundation tasks and create them
+4. Apply documentation sections to project
+5. Use team structure preferences
+6. Fall back to prompting user for details if no memory
+```
+
+**Example Usage**:
+```
+User: "Set up a new project for our mobile app"
+
+AI: [Checks memory - found project_standard_features and foundation_tasks]
+    [Creates standard features: Infrastructure, Documentation]
+    [Creates foundation tasks: dev environment, CI/CD]
+    [Applies documentation sections from memory]
+
+    "Created project 'Mobile App' with:
+     - 2 standard features (Infrastructure, Documentation)
+     - 2 foundation tasks (dev environment setup, CI/CD configuration)
+     - 4 documentation sections (Architecture, Setup, Standards, Testing)
+
+     All configured per your team's project setup template."
+```
+
+---
+
+#### Bug Handling Pattern
+
+**For bugs** (task-type-bug), `implementation_workflow` provides specialized handling:
+
+**Bug Detection**:
+```
+1. Detect task-type-bug or task-type-hotfix from tags
+2. Check if Bug Investigation template is applied
+3. If not applied, offer to apply it
+4. Verify investigation sections are complete before implementation
+```
+
+**Investigation Phase**:
+```
+1. Guide through Bug Investigation template sections:
+   - Problem symptoms and reproduction steps
+   - Technical investigation and root cause
+   - Impact assessment
+2. Ensure root cause is documented before allowing implementation
+3. If investigation incomplete, guide through it first
+```
+
+**Implementation Phase**:
+```
+1. Reproduce bug in tests first (test should fail with current code)
+2. Document reproduction steps in code comments or sections
+3. Implement fix addressing the root cause
+4. Verify test passes with the fix applied
+5. Create comprehensive regression tests (see Regression Testing below)
+```
+
+**Regression Testing Requirements** (MANDATORY):
+
+When fixing bugs, **you MUST create and verify regression tests** before marking complete:
+
+1. **Bug Reproduction Test** (Required):
+   - Test that fails with old code, passes with fix
+   - Documents what broke and how (BUG/ROOT CAUSE/FIX comments)
+   - Test name references task ID: `should X - regression for TASK-70490b4d`
+
+2. **Edge Case Tests** (Required if applicable):
+   - Boundary conditions that led to the bug
+   - Scenarios not previously tested
+
+3. **Integration Tests** (Required if bug crossed boundaries):
+   - Component interaction testing
+   - Realistic scenarios
+   - No cascading failures
+
+4. **Performance Tests** (Required if performance-related):
+   - Verify no performance regressions
+   - Load testing if load-related
+
+**Completion Validation**:
+```
+Before marking bug fix complete, verify:
+- ✅ Root cause documented
+- ✅ Bug Investigation sections complete (if template used)
+- ✅ Bug reproduction test exists and passes
+- ✅ Regression tests created for all scenarios
+- ✅ Test documentation complete (BUG/ROOT CAUSE/FIX comments)
+- ✅ Test names reference task ID
+- ✅ All tests passing
+- ✅ Code coverage increased
+
+CRITICAL: Do NOT mark bug fix as completed without regression tests.
+If user attempts to complete without tests, remind them of requirements.
+```
+
+**Example Bug Workflow**:
+```
+User: "Fix the authentication timeout bug"
+
+AI: [Detects task-type-bug from tags]
+    [Checks for Bug Investigation template - not applied]
+
+    "This is a bug fix. I recommend applying the Bug Investigation template
+     to guide systematic investigation and ensure proper root cause analysis.
+
+     Apply template now?"
+
+User: "Yes"
+
+AI: [Applies Bug Investigation template]
+    "Bug Investigation template applied. Let's start with documenting:
+     1. What symptoms are users experiencing?
+     2. How can we reproduce the issue?
+     3. What recent changes might have caused this?"
+
+User: [Provides investigation details]
+
+AI: "Root cause identified: token expiration not being checked properly.
+
+     I'll now create a reproduction test that fails with current code,
+     implement the fix, and create regression tests to prevent this from
+     recurring. This includes:
+     - Bug reproduction test
+     - Edge cases (null token, expired token, missing token)
+     - Integration test for full auth flow"
+
+[Implements fix with regression tests]
+
+AI: "Fix complete with 5 regression tests:
+     1. Bug reproduction: should handle token expiration - regression for AUTH-70490b4d
+     2. Edge case: should handle null token
+     3. Edge case: should handle missing token header
+     4. Integration: should complete full auth flow with expired token
+     5. Performance: should check expiration within 10ms
+
+     All tests passing. Root cause documented in investigation sections."
 ```
 
 ---
@@ -780,6 +989,20 @@ All workflows can benefit from memory:
    - Mark tasks as in-progress when starting
    - Mark completed when finished
    - Use get_overview to track progress
+
+6. **Handle bugs with regression testing**
+   - Detect bugs from task-type-bug or task-type-hotfix tags
+   - Offer Bug Investigation template if not applied
+   - Verify root cause documented before implementation
+   - **MANDATORY**: Create regression tests before marking complete
+   - Enforce test documentation (BUG/ROOT CAUSE/FIX comments)
+   - Cannot complete bug fix without comprehensive tests
+
+7. **Use implementation_workflow for all work types**
+   - Tasks, features, AND bugs use same workflow
+   - Workflow automatically adapts based on work type detection
+   - Bug-specific guidance kicks in for task-type-bug
+   - Memory configuration applies to all work types
 
 ### For Development Teams
 
