@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [1.1.0-alpha-01]
+
+### Dependencies
+
+- kotlin-sdk: 0.5.0 → 0.7.2
+- Kotlin: 2.1.20 → 2.2.0
+- Ktor: 3.3.0 (transitive dependency from kotlin-sdk)
 
 ### Added
 - Output schemas for all 6 Task Management tools (create_task, get_task, update_task, delete_task, search_tasks, get_overview)
@@ -36,12 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated templates.md with AI-driven template discovery and composition patterns
 - Improved api-reference.md with workflow-based tool patterns and usage examples
 - Expanded troubleshooting.md with Quick Reference table and AI-specific issues
-- Removed pre-release notices (project now v1.0.1)
-
-### Dependencies
-- kotlin-sdk: 0.5.0 → 0.7.2
-- Kotlin: 2.1.20 → 2.2.0
-- Ktor: 3.3.0 (transitive dependency from kotlin-sdk)
 
 ### Technical Details
 - Output schemas use Tool.Output from kotlin-sdk 0.7.x
