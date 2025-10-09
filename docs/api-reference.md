@@ -5,630 +5,418 @@ title: API Reference
 
 # MCP Tools API Reference
 
-The MCP Task Orchestrator provides **37 comprehensive MCP tools** organized into 6 main categories for complete task and project management. All tools are designed for context efficiency and support progressive loading of related data.
+The MCP Task Orchestrator provides **37 MCP tools** for AI-driven project management. This reference focuses on **when and why** AI uses each tool, not exhaustive parameter documentation (AI agents have access to complete MCP schemas).
 
 ## Table of Contents
 
-- [Task Management Tools (6 tools)](#task-management-tools)
-- [Feature Management Tools (5 tools)](#feature-management-tools)
-- [Project Management Tools (5 tools)](#project-management-tools)
-- [Dependency Management Tools (3 tools)](#dependency-management-tools)
-- [Section Management Tools (9 tools)](#section-management-tools)
-- [Template Management Tools (9 tools)](#template-management-tools)
+- [How AI Uses Tools](#how-ai-uses-tools)
+- [Workflow-Based Tool Patterns](#workflow-based-tool-patterns)
+- [Tool Categories](#tool-categories)
+- [Core Workflow Tools](#core-workflow-tools)
+- [Context Efficiency Features](#context-efficiency-features)
+- [Concurrent Access Protection](#concurrent-access-protection)
 
 ---
 
-## Task Management Tools
+## How AI Uses Tools
 
-Task management tools provide core functionality for creating, updating, and organizing individual work items. Tasks are the primary work units in the system and can exist independently or be associated with features and projects. These tools support comprehensive metadata including status tracking, priority levels, complexity scoring, and flexible tagging systems.
+### Autonomous Tool Discovery
 
-### `create_task`
-Create new tasks with comprehensive metadata and optional template application
+AI agents don't have hardcoded knowledge of tools - they **discover tools dynamically** through MCP:
 
-**Purpose**: Creates new tasks with full metadata support, template integration, and relationship establishment.
+1. **MCP Connection**: When Claude connects to Task Orchestrator, it receives the full tool catalog
+2. **Schema Access**: Each tool includes complete parameter schemas and descriptions
+3. **Pattern Recognition**: AI recognizes user intent and selects appropriate tools
+4. **Sequential Execution**: AI chains tools together for complex workflows
 
-**Key Features**:
-- Comprehensive metadata (title, summary, status, priority, complexity)
-- Template application during creation for structured documentation
-- Feature and project association
-- Flexible tagging system
-- Automatic section creation from templates
+### Tool Selection Intelligence
 
-**Common Use Cases**:
-- Creating implementation tasks for features
-- Bug tracking and resolution tasks
-- Research and investigation work
-- Maintenance and refactoring tasks
+AI chooses tools based on:
 
-### `update_task`
-Modify existing tasks with validation and relationship preservation
+- **User Intent**: Natural language understanding determines which tools are needed
+- **Workflow Context**: Current project state influences tool selection
+- **Template Availability**: Dynamic template discovery guides template application
+- **Git Detection**: File system analysis triggers git workflow tools
 
-**Purpose**: Updates task properties while maintaining data integrity and relationships.
+> **Learn More**: See [AI Guidelines - How AI Uses Tools](ai-guidelines#overview) for complete autonomous pattern documentation.
 
-**Key Features**:
-- Partial updates (only specify fields to change)
-- Status progression tracking (pending → in-progress → completed)
-- Priority adjustments
-- Complexity refinement
-- Tag management
-- Relationship preservation
-- **Concurrent access protection**: Prevents conflicts when multiple agents work in parallel
+### Natural Language to Tool Mapping
 
-### `get_task`
-Retrieve individual task details with optional related entity inclusion
+**User Says** → **AI Uses**
 
-**Purpose**: Fetch complete task information with configurable detail levels.
-
-**Key Features**:
-- Progressive loading options
-- Include sections for detailed content
-- Include dependencies for workflow context
-- Include feature information for organizational context
-- Summary view for context efficiency
-
-### `delete_task`
-Remove tasks with proper dependency cleanup
-
-**Purpose**: Safely delete tasks while maintaining data integrity.
-
-**Key Features**:
-- Automatic dependency cleanup
-- Cascade deletion options
-- Soft delete support
-- Section cleanup
-- Relationship validation
-- **Concurrent access protection**: Prevents conflicts during deletion operations
-
-### `search_tasks`
-Find tasks using flexible filtering by status, priority, tags, and text queries
-
-**Purpose**: Powerful task discovery and filtering for project management workflows.
-
-**Key Features**:
-- Multi-criteria filtering (status, priority, complexity, tags)
-- Full-text search across titles and summaries
-- Feature and project filtering
-- Flexible sorting options
-- Pagination support
-
-**Common Filters**:
-- `status="pending"` + `priority="high"` for work planning
-- `tag="task-type-bug"` for bug triage
-- `featureId="uuid"` for feature-specific work
-
-### `get_overview`
-Get hierarchical overview of all tasks organized by features, with token-efficient summaries
-
-**Purpose**: Provides a lightweight, hierarchical view of all project work for context efficiency.
-
-**Key Features**:
-- Hierarchical organization (Features → Tasks)
-- Orphaned task identification
-- Token-efficient summaries
-- Status distribution analysis
-- Quick project state assessment
+```
+"Show me my tasks" → get_overview or search_tasks
+"Create a task for implementing login" → list_templates + create_task
+"Update this task to in-progress" → update_task
+"What's blocking task X?" → get_task_dependencies
+"Apply testing template" → apply_template
+"Create a feature with templates" → list_templates + create_feature
+```
 
 ---
 
-## Feature Management Tools
+## Workflow-Based Tool Patterns
 
-Feature management tools enable grouping of related tasks into cohesive functional units. Features represent major functionality areas and provide organizational structure for complex projects. They support status tracking, priority management, and can contain multiple tasks while maintaining clear hierarchical relationships.
+### Project Initialization Pattern
 
-### `create_feature`
-Create new features with metadata and automatic task association capabilities
+**When**: Starting new projects or features
 
-**Purpose**: Creates feature containers for organizing related tasks with comprehensive documentation.
+**Tool Sequence**:
+1. `create_project` - Top-level container
+2. `bulk_create_sections` - Project documentation
+3. `create_feature` (multiple) - Major functional areas
+4. `create_task` (multiple) - Foundation tasks
+5. `create_dependency` - Sequencing relationships
 
-**Key Features**:
-- Template application for structured documentation
-- Project association
-- Status and priority tracking
-- Comprehensive tagging system
-- Automatic section creation from templates
-
-### `update_feature`
-Modify existing features while preserving task relationships
-
-**Purpose**: Updates feature properties without disrupting associated tasks.
-
-**Key Features**:
-- Partial updates
-- Status progression tracking
-- Priority adjustments
-- Task relationship preservation
-- Tag management
-- **Concurrent access protection**: Prevents conflicts when multiple agents work in parallel
-
-### `get_feature`
-Retrieve feature details with optional task listings and progressive loading
-
-**Purpose**: Fetch complete feature information with configurable detail levels.
-
-**Key Features**:
-- Include associated tasks
-- Include sections for detailed content
-- Task statistics and counts
-- Dependency information for tasks
-- Summary view options
-
-### `delete_feature`
-Remove features with configurable task handling (cascade or orphan)
-
-**Purpose**: Safely delete features with flexible task handling options.
-
-**Key Features**:
-- Cascade deletion of all tasks
-- Orphan tasks (remove feature association)
-- Force deletion override
-- Section cleanup
-- Relationship validation
-- **Concurrent access protection**: Prevents conflicts during deletion operations
-
-### `search_features`
-Find features using comprehensive filtering and text search capabilities
-
-**Purpose**: Feature discovery and filtering for project organization.
-
-**Key Features**:
-- Multi-criteria filtering (status, priority, project)
-- Full-text search across names and descriptions
-- Tag-based filtering
-- Date range filtering
-- Flexible sorting and pagination
+**AI Trigger**: "Create a new project for...", "Set up a project with..."
 
 ---
 
-## Project Management Tools
+### Implementation Planning Pattern
 
-Project management tools provide top-level organizational containers for large-scale work coordination. Projects can encompass multiple features and tasks, offering the highest level of organizational structure. These tools support complex relationship management and provide comprehensive views of project scope and progress.
+**When**: Creating tasks for implementation work
 
-### `create_project`
-Create new projects with comprehensive metadata and organizational structure
+**Tool Sequence**:
+1. `get_overview` - Understand current state
+2. `list_templates` - Discover appropriate templates
+3. `create_task` - With templates applied
+4. `create_dependency` (if needed) - Link related tasks
 
-**Purpose**: Creates top-level project containers for large initiatives with comprehensive documentation.
+**AI Trigger**: "Create a task to implement...", "Add a task for..."
 
-**Key Features**:
-- Comprehensive metadata and documentation
-- Status and priority tracking
-- Flexible tagging system
-- Template integration potential
-- Hierarchical organization setup
-
-### `get_project`
-Retrieve project details with configurable inclusion of features, tasks, and sections
-
-**Purpose**: Fetch complete project information with configurable detail levels.
-
-**Key Features**:
-- Include associated features
-- Include associated tasks
-- Include sections for detailed content
-- Progressive loading options
-- Summary view for context efficiency
-
-### `update_project`
-Modify existing projects with relationship preservation and validation
-
-**Purpose**: Updates project properties while maintaining organizational relationships.
-
-**Key Features**:
-- Partial updates
-- Status progression tracking
-- Priority adjustments
-- Relationship preservation
-- Tag management
-- **Concurrent access protection**: Prevents conflicts when multiple agents work in parallel
-
-### `delete_project`
-Remove projects with configurable cascade behavior for contained entities
-
-**Purpose**: Safely delete projects with flexible handling of contained features and tasks.
-
-**Key Features**:
-- Cascade deletion options
-- Force deletion override
-- Hard delete vs soft delete
-- Comprehensive cleanup
-- Relationship validation
-- **Concurrent access protection**: Prevents conflicts during deletion operations
-
-### `search_projects`
-Find projects using advanced filtering, tagging, and full-text search capabilities
-
-**Purpose**: Project discovery and filtering for portfolio management.
-
-**Key Features**:
-- Multi-criteria filtering (status, priority, tags)
-- Full-text search across names and summaries
-- Date range filtering
-- Flexible sorting and pagination
-- Advanced filtering combinations
+**Auto-Applied**: Git workflow templates if .git detected
 
 ---
 
-## Dependency Management Tools
+### Progress Tracking Pattern
 
-Dependency management tools enable modeling relationships between tasks to represent workflows, blocking conditions, and task interdependencies. The system supports multiple dependency types and includes automatic cycle detection to maintain data integrity. These tools help organize complex project workflows and track task prerequisites.
+**When**: Monitoring work status
 
-### Dependency Types Supported
+**Tool Sequence**:
+1. `get_overview` - Hierarchical project view
+2. `search_tasks` - Filtered task lists (by status, priority, tags)
+3. `get_task` or `get_feature` - Detailed individual items
 
-- **`BLOCKS`**: Source task blocks the target task from proceeding
-- **`IS_BLOCKED_BY`**: Source task is blocked by the target task  
-- **`RELATES_TO`**: General relationship between tasks without blocking semantics
+**AI Trigger**: "What should I work on?", "Show me pending tasks", "Project status?"
 
-### Key Features
+---
 
-- **Automatic Cycle Detection**: Prevents circular dependencies that would create invalid workflows
-- **Cascade Operations**: Dependencies are automatically cleaned up when tasks are deleted
-- **Relationship Validation**: Ensures dependencies are created between valid, existing tasks
-- **Flexible Querying**: Filter dependencies by type, direction, or relationship patterns
+### Task Completion Pattern
 
-### `create_dependency`
-Create dependencies between tasks with relationship type specification and automatic cycle detection
+**When**: Finishing work and marking complete
 
-**Purpose**: Establishes relationships between tasks to model workflows and dependencies.
+**Tool Sequence**:
+1. `get_sections` - Review all task sections for completion validation
+2. `update_task` - Set status to completed
+3. `get_task_dependencies` (optional) - Check what's unblocked
 
-**Key Features**:
-- Multiple dependency types (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
-- Automatic cycle detection
-- Duplicate prevention
-- Relationship validation
-- Task existence verification
+**AI Trigger**: "Mark task as complete", "I finished the login implementation"
 
-**Common Use Cases**:
+**Important**: AI validates template guidance completion before marking done
+
+---
+
+### Bug Triage Pattern
+
+**When**: Investigating and documenting bugs
+
+**Tool Sequence**:
+1. `search_tasks` (tag="task-type-bug") - Review existing bugs
+2. `create_task` - With Bug Investigation Workflow template
+3. `update_task` - Update priority based on severity
+4. `create_dependency` (if needed) - Link to related tasks
+
+**AI Trigger**: "I found a bug where...", "X isn't working"
+
+---
+
+### Feature Breakdown Pattern
+
+**When**: Decomposing complex features into tasks
+
+**Tool Sequence**:
+1. `get_feature` (includeSections=true) - Analyze feature requirements
+2. `create_task` (multiple) - Create focused subtasks
+3. `create_dependency` - Establish implementation order
+4. `update_feature` - Update status to in-development
+
+**AI Trigger**: "Break down this feature", "Create tasks for this feature"
+
+---
+
+## Tool Categories
+
+### Task Management (6 tools)
+
+**Core Workflow**:
+- `create_task` - Create tasks with templates
+- `update_task` - Status, priority, complexity updates
+- `get_task` - Fetch task details with progressive loading
+- `search_tasks` - Filter and find tasks
+- `get_overview` - Hierarchical project view
+- `delete_task` - Remove tasks with cleanup
+
+**When AI Uses**: Most frequently - tasks are primary work units
+
+**Key Feature**: Progressive loading (`includeSections`, `includeDependencies`, `includeFeature`)
+
+---
+
+### Feature Management (5 tools)
+
+**Core Workflow**:
+- `create_feature` - Group related tasks
+- `update_feature` - Feature status and metadata
+- `get_feature` - Feature details with task statistics
+- `search_features` - Find features by criteria
+- `delete_feature` - Remove with cascade or orphan options
+
+**When AI Uses**: Organizing 3+ related tasks, major functional areas
+
+**Key Feature**: Task aggregation and organizational hierarchy
+
+---
+
+### Project Management (5 tools)
+
+**Core Workflow**:
+- `create_project` - Top-level organizational containers
+- `update_project` - Project metadata and status
+- `get_project` - Project details with features and tasks
+- `search_projects` - Find projects by criteria
+- `delete_project` - Remove with cascade options
+
+**When AI Uses**: Large initiatives, multi-feature work, organizational hierarchy
+
+**Key Feature**: Highest-level organization and comprehensive scope management
+
+---
+
+### Dependency Management (3 tools)
+
+**Core Workflow**:
+- `create_dependency` - BLOCKS, IS_BLOCKED_BY, RELATES_TO relationships
+- `get_task_dependencies` - Analyze dependency chains
+- `delete_dependency` - Remove relationships
+
+**When AI Uses**: Implementation sequencing, blocking issue identification
+
+**Key Feature**: Workflow ordering and relationship modeling
+
+**Common Patterns**:
 - Database schema BLOCKS API implementation
-- Research task IS_BLOCKED_BY data availability
-- Related tasks for coordination
-
-### `get_task_dependencies`
-Retrieve dependency information for tasks including incoming and outgoing relationships with filtering options
-
-**Purpose**: Fetch comprehensive dependency information for workflow understanding.
-
-**Key Features**:
-- Filter by direction (incoming, outgoing, all)
-- Filter by dependency type
-- Include basic task information for related tasks
-- Dependency statistics and counts
-- Relationship chain analysis
-
-### `delete_dependency`
-Remove task dependencies with flexible selection criteria (by ID or task relationship)
-
-**Purpose**: Remove dependencies with flexible targeting options.
-
-**Key Features**:
-- Delete by specific dependency ID
-- Delete by task relationship (fromTaskId + toTaskId)
-- Delete all dependencies for a task
-- Type-specific deletion
-- Bulk deletion operations
+- Authentication setup BLOCKS feature development
+- Research task BLOCKS implementation decisions
 
 ---
 
-## Section Management Tools
+### Section Management (9 tools)
 
-Section management tools provide structured content capabilities for detailed documentation and information organization. Sections can be attached to any entity (projects, features, tasks) and support multiple content formats including markdown, plain text, and structured data. These tools enable rich documentation workflows and content organization.
+**Core Workflow**:
+- `add_section` - Add detailed content blocks
+- `bulk_create_sections` - Efficient multi-section creation
+- `get_sections` - Retrieve all sections for validation
+- `update_section` - Modify section content
+- `update_section_text` - Targeted text replacement
+- `update_section_metadata` - Title, format, ordinal changes
+- `bulk_update_sections` - Efficient multi-section updates
+- `reorder_sections` - Change section sequence
+- `delete_section` - Remove content blocks
 
-### Supported Content Formats
+**When AI Uses**: Detailed documentation, template application results
 
-- **MARKDOWN**: Rich text with formatting support (default)
-- **PLAIN_TEXT**: Simple unformatted text
-- **JSON**: Structured data and configuration
-- **CODE**: Source code examples and implementation snippets
+**Key Feature**: Structured content organization and context efficiency
 
-### `add_section`
-Add structured content sections to any entity with flexible formatting options
-
-**Purpose**: Creates detailed content blocks for comprehensive documentation.
-
-**Key Features**:
-- Multiple content formats (MARKDOWN, PLAIN_TEXT, JSON, CODE)
-- Flexible ordering with ordinals
-- Entity attachment (projects, features, tasks)
-- Usage descriptions for AI guidance
-- Tagging for categorization
-
-**Common Section Types**:
-- Requirements and acceptance criteria
-- Implementation notes and technical details
-- Testing strategies and coverage
-- Reference information and links
-
-### `get_sections`
-Retrieve sections for entities with ordering and filtering capabilities
-
-**Purpose**: Fetch all sections for an entity in proper order.
-
-**Key Features**:
-- Ordered by ordinal values
-- Complete section metadata
-- Content format identification
-- Tag-based organization
-- Creation and modification timestamps
-
-### `update_section`
-Modify existing sections with content validation and format preservation
-
-**Purpose**: Update section content and metadata with validation.
-
-**Key Features**:
-- Partial updates (content, metadata, or both)
-- Content format validation
-- Ordering adjustments
-- Tag management
-- Title and description updates
-
-### `delete_section`
-Remove sections with proper cleanup and ordering adjustment
-
-**Purpose**: Safely remove sections while maintaining organization.
-
-**Key Features**:
-- Individual section deletion
-- Automatic ordering adjustment
-- Soft delete options
-- Relationship cleanup
-- Validation checks
-
-### `bulk_update_sections`
-Efficiently update multiple sections in a single operation
-
-**Purpose**: Batch updates for efficient section management.
-
-**Key Features**:
-- Multiple section updates in one operation
-- Atomic transaction handling
-- Partial update support for each section
-- Error handling and rollback
-- Performance optimization
-
-### `bulk_create_sections`
-Create multiple sections simultaneously with proper ordering
-
-**Purpose**: Efficient creation of multiple sections (preferred over multiple add_section calls).
-
-**Key Features**:
-- Single operation for multiple sections
-- Automatic ordering assignment
-- Template integration support
-- Error handling and validation
-- Performance optimization
-
-### `bulk_delete_sections`
-Remove multiple sections with batch processing efficiency
-
-**Purpose**: Efficient deletion of multiple sections.
-
-**Key Features**:
-- Batch deletion operations
-- Hard vs soft delete options
-- Atomic operation handling
-- Ordering adjustment
-- Error handling
-
-### `update_section_text`
-Update only section text content for focused editing workflows
-
-**Purpose**: Efficient text-only updates without full section replacement.
-
-**Key Features**:
-- Text-only content updates
-- Find and replace operations
-- Content validation
-- Format preservation
-- Performance optimization
-
-### `update_section_metadata`
-Update section metadata (title, format, ordering) without content changes
-
-**Purpose**: Modify section properties without affecting content.
-
-**Key Features**:
-- Metadata-only updates
-- Title and description changes
-- Format adjustments
-- Ordering modifications
-- Tag management
-
-### `reorder_sections`
-Change section ordering and organization within entities
-
-**Purpose**: Reorganize section display order efficiently.
-
-**Key Features**:
-- Ordinal value adjustments
-- Bulk reordering operations
-- Entity-wide section management
-- Validation and error handling
-- Performance optimization
+**Efficiency Pattern**: Prefer `bulk_create_sections` over multiple `add_section` calls
 
 ---
 
-## Template Management Tools
+### Template Management (9 tools)
 
-Template management tools provide powerful workflow automation and standardization capabilities. The system includes 9 built-in templates organized into AI workflow instructions, documentation properties, and process & quality categories. Templates can be applied to any entity to create structured, consistent documentation and workflow guidance.
+**Core Workflow**:
+- `list_templates` - **Most Important**: Dynamic template discovery
+- `apply_template` - Add templates to existing entities
+- `get_template` - Template details with section structure
+- `create_template` - Custom template creation
+- `add_template_section` - Add sections to templates
+- `update_template_metadata` - Template properties
+- `enable_template` / `disable_template` - Availability control
+- `delete_template` - Remove custom templates
 
-### Built-in Template Categories
+**When AI Uses**: Before every task/feature creation for template discovery
 
-#### AI Workflow Instructions
-- **Local Git Branching Workflow**: Step-by-step git operations and branch management
-- **GitHub PR Workflow**: Pull request creation and management using GitHub MCP tools
-- **Task Implementation Workflow**: Systematic approach for implementing tasks
-- **Bug Investigation Workflow**: Structured debugging and bug resolution process
+**Key Feature**: Dynamic, database-driven template system
 
-#### Documentation Properties
-- **Technical Approach**: Architecture decisions and implementation strategy
-- **Requirements Specification**: Functional and non-functional requirements
-- **Context & Background**: Business context and stakeholder information
+**Critical Pattern**: AI ALWAYS uses `list_templates` before creating tasks/features
 
-#### Process & Quality
-- **Testing Strategy**: Comprehensive testing approach and quality gates
-- **Definition of Done**: Completion criteria and handoff requirements
-
-### `create_template`
-Create new custom templates with sections and metadata
-
-**Purpose**: Creates reusable templates for standardized documentation patterns.
-
-**Key Features**:
-- Template metadata definition
-- Target entity type specification (TASK, FEATURE)
-- Protection and enablement settings
-- Creator attribution
-- Tag-based categorization
-
-### `get_template`
-Retrieve template details including sections and usage information
-
-**Purpose**: Fetch complete template information with optional section details.
-
-**Key Features**:
-- Template metadata retrieval
-- Optional section inclusion
-- Usage instructions and descriptions
-- Protection status information
-- Creation and modification history
-
-### `apply_template`
-Apply templates to entities with customizable section creation
-
-**Purpose**: Apply one or more templates to create structured documentation.
-
-**Key Features**:
-- Single or multiple template application
-- Automatic section creation
-- Content format handling
-- Ordinal assignment
-- Template combination support
-
-### `list_templates`
-List available templates with filtering and categorization
-
-**Purpose**: Discover and filter available templates for entity creation.
-
-**Key Features**:
-- Filter by target entity type (TASK, FEATURE)
-- Filter by enabled status
-- Filter by built-in vs custom
-- Tag-based filtering
-- Category organization
-
-### `add_template_section`
-Add new sections to existing templates
-
-**Purpose**: Extend templates with additional section definitions.
-
-**Key Features**:
-- Section definition creation
-- Content sample provision
-- Format specification
-- Ordering assignment
-- Required vs optional designation
-
-### `update_template_metadata`
-Modify template information and categorization
-
-**Purpose**: Update template properties without affecting sections.
-
-**Key Features**:
-- Name and description updates
-- Target entity type changes
-- Enablement status modification
-- Tag management
-- Protection status (for custom templates)
-
-### `delete_template`
-Remove custom templates (built-in templates cannot be deleted)
-
-**Purpose**: Remove user-created templates with safety checks.
-
-**Key Features**:
-- Custom template deletion only
-- Built-in template protection
-- Force deletion override
-- Dependency checking
-- Alternative suggestion (disable vs delete)
-
-### `enable_template`
-Enable templates for use in entity creation and application
-
-**Purpose**: Activate templates for use in the system.
-
-**Key Features**:
-- Template activation
-- Availability for application
-- System-wide enablement
-- Usage restoration
-- Status validation
-
-### `disable_template`
-Disable templates to prevent usage while preserving definition
-
-**Purpose**: Temporarily disable templates without deletion.
-
-**Key Features**:
-- Template deactivation
-- Definition preservation
-- Usage prevention
-- Reversible operation
-- Status management
+> **See**: [Templates Guide](templates) for complete template system documentation
 
 ---
 
-## Usage Patterns and Best Practices
+## Core Workflow Tools
 
-### Progressive Detail Loading
-Many tools support progressive loading to optimize context usage:
-- Start with basic entity information
-- Add relationships (`includeTasks`, `includeFeatures`)
-- Include detailed content (`includeSections`)
-- Enable dependency analysis (`includeDependencies`)
+### Most Frequently Used Tools
 
-### Efficient Bulk Operations
-Use bulk operations when possible:
-- `bulk_create_sections` vs multiple `add_section` calls
-- `bulk_update_sections` vs multiple `update_section` calls
-- Template application during entity creation vs post-creation
+**Daily Operations** (AI uses constantly):
+1. `get_overview` - Start of every work session
+2. `list_templates` - Before every task/feature creation
+3. `create_task` - Primary work item creation
+4. `update_task` - Status tracking throughout work
+5. `search_tasks` - Finding specific work items
 
-### Context Optimization
-- Use summary views for overview operations
-- Filter searches to reduce result sets
-- Leverage pagination for large datasets
-- Apply templates early in the creation process
+**Feature Organization** (AI uses for structure):
+6. `create_feature` - Grouping related tasks
+7. `get_feature` - Understanding feature scope
+8. `create_dependency` - Establishing relationships
 
-### Workflow Integration
-- Start with `get_overview` to understand current state
-- Use `search_tasks` with specific filters for targeted work
-- Apply workflow prompts for structured process guidance
-- Combine multiple tools in logical sequences for complex operations
+**Template Application** (AI uses for documentation):
+9. `apply_template` - Adding structured documentation
+10. `get_sections` - Validating completion before marking done
+
+### Tool Chaining Examples
+
+**Example 1: Complete Feature Creation**
+```
+User: "Create a user authentication feature"
+
+AI Executes:
+1. get_overview (understand current state)
+2. list_templates --targetEntityType FEATURE (discover templates)
+3. create_feature (with Context, Requirements, Technical Approach templates)
+4. list_templates --targetEntityType TASK (find task templates)
+5. create_task (multiple tasks with Implementation + Git templates)
+6. create_dependency (establish implementation order)
+```
+
+**Example 2: Task Status Update with Validation**
+```
+User: "I finished implementing the login endpoint"
+
+AI Executes:
+1. search_tasks --query "login endpoint" (find the task)
+2. get_sections --entityType TASK --entityId [id] (validate completion)
+3. update_task --id [id] --status completed
+4. get_task_dependencies --taskId [id] (check what's now unblocked)
+```
+
+---
+
+## Context Efficiency Features
+
+### Progressive Loading
+
+Many tools support progressive detail loading to optimize context:
+
+**get_task**:
+- Basic: Just task metadata
+- +`includeSections`: Add detailed content
+- +`includeDependencies`: Add relationship info
+- +`includeFeature`: Add parent feature context
+- `summaryView`: Truncated for efficiency
+
+**get_feature**:
+- Basic: Feature metadata only
+- +`includeTasks`: Add associated tasks
+- +`includeSections`: Add documentation
+- +`includeTaskCounts`: Add statistics
+- +`includeTaskDependencies`: Full dependency analysis
+
+**Strategy**: AI starts basic, progressively loads as needed
+
+---
+
+### Bulk Operations
+
+**When to Use Bulk Tools**:
+
+✅ `bulk_create_sections` - Creating 2+ sections (more efficient than multiple `add_section`)
+✅ `bulk_update_sections` - Updating multiple sections simultaneously
+✅ `bulk_delete_sections` - Removing multiple sections at once
+
+**Performance Benefit**: Single database transaction, reduced network overhead
+
+---
+
+### Summary Views
+
+Tools with `summaryView` parameter:
+- `get_task`
+- `get_feature`
+- `get_project`
+
+**Use When**: Need overview without full content (token optimization)
+
+---
 
 ## Concurrent Access Protection
 
-The MCP Task Orchestrator includes built-in protection against sub-agent collisions when multiple AI agents work in parallel. The locking system automatically prevents conflicts on update and delete operations for projects, features, and tasks.
+### Built-In Collision Prevention
 
-### How It Works
+The system automatically prevents conflicts when multiple AI agents work in parallel.
 
-- **Automatic Protection**: No additional configuration needed - protection is built into the tools
-- **Conflict Detection**: Operations check for conflicts before proceeding
-- **Clear Error Messages**: Blocked operations receive descriptive error responses
-- **Timeout Protection**: Operations automatically expire after 2 minutes to prevent deadlocks from crashed agents
-
-### Protected Operations
-
-The following tools include concurrent access protection:
+**Protected Operations**:
 - `update_task` and `delete_task`
-- `update_feature` and `delete_feature` 
+- `update_feature` and `delete_feature`
 - `update_project` and `delete_project`
 
-### Handling Conflicts
+**How It Works**:
+- Automatic locking on update/delete operations
+- 2-minute timeout prevents deadlocks
+- Clear error messages when conflicts detected
+- No configuration needed
 
-When a conflict is detected, the tool returns an error response indicating that another operation is currently active on the same entity. The recommended approach is to wait briefly and retry the operation.
+**Best Practice**: Distribute work across different entities for parallel workflows
 
-### Best Practices
+---
 
-- **Parallel Workflows**: Multiple agents can safely work on different entities simultaneously
-- **Retry Logic**: Implement simple retry logic for conflict scenarios
-- **Entity Separation**: Distribute work across different projects, features, or tasks to minimize conflicts
+## Tool Usage Best Practices
 
-This comprehensive API provides all the tools needed for sophisticated project management workflows while maintaining context efficiency, supporting AI-driven automation, and ensuring safe parallel operation.
+### For AI Agents
+
+1. **Always start with `get_overview`** - Understand current state before creating work
+2. **Always use `list_templates`** - Discover templates before creating tasks/features
+3. **Use `get_sections` before completion** - Validate template guidance followed
+4. **Prefer bulk operations** - More efficient for multiple sections
+5. **Progressive loading** - Start basic, load details as needed
+
+### For Development Teams
+
+1. **Trust autonomous patterns** - AI knows when to use tools
+2. **Natural language works** - No need to specify tool names
+3. **Templates are dynamic** - Create custom templates, AI will discover them
+4. **Let AI chain tools** - Complex operations use multiple tools automatically
+5. **Review patterns** - Understand how AI sequences tools for your workflows
+
+---
+
+## Integration with Other Systems
+
+### MCP Tool Integration
+
+Task Orchestrator tools work seamlessly with:
+- **GitHub MCP**: PR creation, code review integration
+- **File System Tools**: Git detection, project analysis
+- **Web Search Tools**: Research task support
+
+### Workflow Prompt Integration
+
+Tools are automatically used by workflow prompts:
+- `create_feature_workflow` - Uses create_feature, create_task, create_dependency
+- `task_breakdown_workflow` - Uses create_task, create_dependency, update_task
+- `bug_triage_workflow` - Uses create_task, search_tasks, update_task
+- `implement_feature_workflow` - Uses get_overview, search_tasks, apply_template
+
+> **See**: [Workflow Prompts](workflow-prompts) for complete workflow automation details
+
+---
+
+## Additional Resources
+
+- **[AI Guidelines](ai-guidelines)** - Complete AI usage patterns and autonomous workflows
+- **[Templates Guide](templates)** - Dynamic template discovery and application
+- **[Workflow Prompts](workflow-prompts)** - Workflow automation integration
+- **[Quick Start](quick-start)** - Getting started with Task Orchestrator
+
+---
+
+**Questions About Tools?** Ask Claude directly - Claude understands the complete MCP schema and can explain any tool's parameters, usage, and integration patterns.
