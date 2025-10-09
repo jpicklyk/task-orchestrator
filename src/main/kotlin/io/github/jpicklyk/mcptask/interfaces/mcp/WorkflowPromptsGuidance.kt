@@ -24,7 +24,7 @@ object WorkflowPromptsGuidance {
         addTaskBreakdownPrompt(server)
         addBugTriageWorkflowPrompt(server)
         addProjectSetupPrompt(server)
-        addImplementFeatureWorkflowPrompt(server)
+        addImplementationWorkflowPrompt(server)
     }
 
     /**
@@ -944,12 +944,13 @@ object WorkflowPromptsGuidance {
     }
 
     /**
-     * Adds a prompt for implementing features with automatic git detection and proper development workflow integration.
+     * Adds a prompt for implementing work items (tasks, features, bugs) with AI memory-based workflow customization
+     * and automatic git detection.
      */
-    private fun addImplementFeatureWorkflowPrompt(server: Server) {
+    private fun addImplementationWorkflowPrompt(server: Server) {
         server.addPrompt(
-            name = "implement_feature_workflow",
-            description = "Guide for implementing features with automatic git detection and proper development workflow integration"
+            name = "implementation_workflow",
+            description = "Intelligent implementation workflow for tasks, features, and bugs with AI memory-based customization and automatic git detection"
         ) { _ ->
             GetPromptResult(
                 description = "Intelligent feature implementation guidance with automatic project context detection and workflow template suggestion",
@@ -958,11 +959,65 @@ object WorkflowPromptsGuidance {
                         role = Role.assistant,
                         content = TextContent(
                             text = """
-                            # Implement Feature Workflow
+                            # Implementation Workflow
 
-                            This workflow provides intelligent feature implementation guidance with automatic project context detection and workflow template suggestion.
+                            This workflow provides intelligent implementation guidance for tasks, features, and bugs with AI memory-based customization and automatic project context detection.
 
-                            ## Step 1: Check Current State & Git Detection
+                            ## Step 1: Load Workflow Configuration from Memory
+
+                            **Check your available memory systems** for workflow configuration:
+
+                            **Global Preferences** (user-wide):
+                            - Git provider preference
+                            - PR/MR usage preference (always/never/ask)
+                            - Default workflows
+
+                            **Project Configuration** (team-specific):
+                            - Team workflow requirements
+                            - Branch naming conventions
+                            - Testing and validation requirements
+
+                            **Use whatever memory mechanism you support**:
+                            - Don't hardcode file paths
+                            - Use your native memory capabilities (CLAUDE.md, global memory, etc.)
+                            - Store structured configuration data
+
+                            **Memory Configuration Schema** (what to look for):
+                            ```
+                            # Task Orchestrator - Implementation Workflow Configuration
+
+                            ## Pull Request Preference
+                            use_pull_requests: "always" | "never" | "ask"
+
+                            ## Branch Naming Conventions (optional - defaults provided)
+                            branch_naming_bug: "bugfix/{task-id-short}-{description}"
+                            branch_naming_feature: "feature/{task-id-short}-{description}"
+                            branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+                            branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
+
+                            ## Custom Workflow Steps (optional - leave empty to use templates)
+                            ### Bug Fix Workflow Override
+                            # [Custom steps override Bug Investigation template procedural guidance]
+                            # Template validation requirements still apply
+
+                            ### Feature Workflow Override
+                            # [Custom steps override template procedural guidance]
+
+                            ### Additional Validation Requirements
+                            # [Extra requirements beyond template validation]
+                            ```
+
+                            **If configuration found**:
+                            - Use configured preferences and workflow steps
+                            - Adapt to work type (bug/feature/enhancement)
+                            - Apply team-specific validation
+
+                            **If NOT found**:
+                            - Use sensible defaults
+                            - Offer to set up preferences during workflow
+                            - Ask: "Should I remember these preferences globally or just for this project?"
+
+                            ## Step 2: Check Current State & Git Detection
                             Start by understanding project context:
                             ```
                             Use get_overview to understand project context and current work priorities
@@ -971,128 +1026,153 @@ object WorkflowPromptsGuidance {
                             - Use file system tools to detect if project uses git (check for .git directory)
                             - If git detected, automatically suggest "Local Git Branching Workflow" template
 
-                            ## Step 2: Select Implementation Target
-                            Identify suitable work to implement:
+                            ## Step 3: Understand the Work & Detect Type
+
+                            Use get_task (or get_feature) to retrieve work details:
+                            - **Detect work type** from tags:
+                              - `task-type-bug` → Bug workflow
+                              - `task-type-feature` → Feature workflow
+                              - `task-type-enhancement` → Enhancement workflow
+                              - `task-type-hotfix` → Hotfix workflow
+                            - Load applied templates with get_sections
+                            - Review template guidance for this work type
+
+                            ## Step 4: Determine Workflow Steps
+
+                            **Check for custom workflow override in memory**:
+
+                            If memory contains custom steps for this work type (e.g., "Bug Fix Workflow Override"):
+                              ✓ Use custom steps from memory
+                              ✗ Template procedural sections provide context only
+
+                            If NO custom override:
+                              ✓ Use template sections as workflow steps
+                              ✓ Follow template procedural guidance
+
+                            **What's Always Used** (never overridden):
+                            - ✅ Validation requirements from templates
+                            - ✅ Acceptance criteria and definition of done
+                            - ✅ Testing requirements and quality gates
+                            - ✅ Technical context and background information
+
+                            **What Can Be Overridden** (custom workflow steps replace):
+                            - ⚠️ Step-by-step implementation instructions
+                            - ⚠️ Procedural workflow guidance (how to execute)
+                            - ⚠️ Tool invocation sequences
+
+                            ## Step 5: Execute Implementation
+
+                            **Follow the selected workflow** (custom override OR template guidance):
+
+                            1. Update task status to "in-progress"
+                            2. Execute each step from workflow source
+                            3. Apply any additional validations from memory
+                            4. Make incremental commits with descriptive messages
+
+                            ## Step 6: Git Workflow (if applicable)
+
+                            **Use memory overrides if specified, otherwise use defaults**:
+
+                            **Branch naming**:
+                            - Memory has custom branch_naming? → Use that pattern with variable expansion
+                            - No override? → Use default: `{work-type}/{task-id-short}-{description}`
+                            - Variables: {task-id}, {task-id-short}, {description}, {priority}, {complexity}
+
+                            **Example variable expansion**:
+                            - Pattern: `bugfix/{task-id-short}-{description}`
+                            - Task ID: `3bd10691-f40a-4d30-8fa6-02d00b666305`
+                            - Title: "Fix Docker CVE issues"
+                            - Result: `bugfix/3bd10691-fix-docker-cve-issues`
+
+                            **PR/MR Decision**:
+                            - Use memory preference (use_pull_requests)
+                            - If "always" → Create PR automatically
+                            - If "never" → Push directly
+                            - If "ask" or not set → Ask user, offer to remember preference
+
+                            **PR/MR Creation**:
+                            - Auto-detect GitHub MCP server → use `gh pr create`
+                            - Auto-detect GitLab MCP server → use `glab mr create`
+                            - No MCP available → guide manual creation
+
+                            ## Step 7: Validation
+
+                            **Combine template validation + memory validation**:
+
+                            1. **Template requirements** (from applied templates)
+                            2. **Additional validation from memory** (if specified)
+                            3. Both must pass before marking complete
+
+                            **Before marking work as completed**:
                             ```
-                            Use search_tasks with status="pending" and priority="high" to identify suitable work
-                            Use search_features for feature-level work opportunities
-                            ```
-                            - Suggest starting with highest priority, unblocked tasks
-                            - Verify prerequisites and dependencies are satisfied using get_task_dependencies
-
-                            ## Step 3: Apply Appropriate Templates with Smart Detection
-                            Apply templates based on detected project context:
-
-                            **Always Apply**: "Task Implementation Workflow" template for implementation tasks
-
-                            **If Git Detected**: Automatically apply "Local Git Branching Workflow" template
-
-                            **Ask user**: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
-
-                            **If GitHub MCP Available**: Mention GitHub MCP tools can automate PR creation and management
-
-                            **For Complex Tasks**: Consider "Technical Approach" template for architectural guidance
-
-                            ## Step 4: Execute Implementation with Template Guidance
-                            Follow structured implementation approach:
-                            - Follow template-provided step-by-step instructions from applied templates
-                            - Make incremental commits if using git workflows (following git template guidance)
-                            - Update task status to "in-progress" when starting work:
-                            ```json
-                            Use update_task to mark work as started:
-                            {
-                              "id": "[task-id]",
-                              "status": "in-progress"
-                            }
-                            ```
-                            - Use update_task to track progress and add implementation notes
-
-                            ## Step 5: Complete with Validation
-                            Ensure proper completion with validation:
-
-                            **Before marking task as completed**:
-                            ```
-                            Use get_sections to read all task sections
-                            ```
-                            - **Verify template compliance**: Ensure all instructional template guidance was followed
-                            - **Git workflow completion**: If using git templates, complete branch merge process
-                            - **Run tests and verification**: Follow testing guidance from applied templates
-                            - Update task status to "completed" only after full validation
-
-                            ## Git Integration Best Practices
-
-                            **Auto-Detection Logic**:
-                            - Check for .git directory in project root or parent directories
-                            - If found, always suggest "Local Git Branching Workflow" template
-                            - Ask about PR workflows rather than assuming (different teams have different practices)
-
-                            **GitHub Integration**:
-                            - Detect if GitHub MCP server is available in the environment
-                            - If available, mention it can automate PR creation, review management, and merge processes
-                            - Only suggest GitHub PR workflow template if user confirms they use PRs
-
-                            **Template Selection Strategy**:
-                            - Implementation tasks (complexity > 3): Task Implementation + Git Branching workflows
-                            - Complex features (complexity > 6): Task Implementation + Git Branching + Technical Approach templates
-                            - Bug fixes: Bug Investigation + Git Branching workflows
-
-                            ## Quality Validation Requirements
-
-                            **Task Completion Validation**:
-                            ```bash
-                            # Before marking any task as completed:
-                            get_sections --entityType TASK --entityId [task-id]
-
-                            # Review each section's guidance, especially:
-                            # - Requirements compliance
-                            # - Implementation approach validation  
-                            # - Testing strategy completion
-                            # - Git workflow steps (if applicable)
-                            ```
-
-                            **Feature Completion Validation**:
-                            ```bash
-                            # Before marking any feature as completed:
-                            get_sections --entityType FEATURE --entityId [feature-id]
-                            get_feature --id [feature-id] --includeTasks true --includeTaskCounts true
-
-                            # Verify:
-                            # - All associated tasks are completed
-                            # - Feature-level requirements satisfied
-                            # - Integration testing completed
-                            # - Documentation updated
+                            Use get_sections to read all task/feature sections
                             ```
 
-                            ## Integration with Other Workflows
+                            **For Bugs**:
+                            - ✅ Root cause documented
+                            - ✅ Regression test added
+                            - ✅ Bug investigation sections complete
+                            - ✅ Fix verified
 
-                            This workflow complements other workflow prompts:
-                            - Use with task_breakdown_workflow for complex features requiring decomposition
-                            - Apply bug_triage_workflow principles for bug-related implementation work
+                            **For Features**:
+                            - ✅ All feature tasks completed
+                            - ✅ Feature requirements satisfied
+                            - ✅ Integration testing done
+                            - ✅ Feature sections complete
 
-                            ## Common Implementation Patterns
+                            **For All Work**:
+                            - ✅ Template guidance followed (validation requirements)
+                            - ✅ Tests passing
+                            - ✅ Additional memory validations met (if specified)
+                            - ✅ Git workflow completed (if applicable)
 
-                            **Feature Implementation**:
-                            1. Review feature requirements from sections
-                            2. Break down into implementation tasks if needed
-                            3. Apply git branching workflow for development
-                            4. Follow incremental development with regular commits
-                            5. Complete testing and validation before marking done
+                            ## Step 8: Complete
 
-                            **Bug Fix Implementation**:
-                            1. Follow bug investigation template guidance
-                            2. Create fix implementation plan
-                            3. Apply git workflow for isolated development
-                            4. Include regression testing in validation
-                            5. Document resolution in bug task sections
+                            Mark work as completed only after all validation passes:
+                            ```
+                            Use update_task to set status="completed"
+                            ```
 
-                            **Enhancement Implementation**:
-                            1. Review technical approach guidance
-                            2. Plan backward compatibility considerations
-                            3. Follow development workflow templates
-                            4. Include impact testing and validation
-                            5. Update documentation and examples
+                            ---
 
-                            This workflow ensures systematic, well-documented implementation with proper version control integration and quality validation.
+                            ## Memory Configuration Setup Helper
+
+                            **If no configuration found during workflow, offer setup**:
+
+                            "I don't have workflow preferences stored. Let me help you set this up:
+
+                            1. Do you use pull requests? (yes/no/ask each time)
+                            2. Any custom branch naming? (or use defaults)
+                            3. Team-specific workflow steps? (or use templates)
+
+                            Should I remember these preferences:
+                            A) Globally (for all your projects)
+                            B) Just for this project
+                            C) Don't save (ask each time)"
+
+                            **Save preferences using your memory mechanism** (CLAUDE.md, global memory, etc.)
+
+                            ---
+
+                            ## Available Variables for Branch Naming
+
+                            - **{task-id}**: Full UUID
+                            - **{task-id-short}**: First 8 characters
+                            - **{description}**: Sanitized title (lowercase, hyphenated)
+                            - **{feature-id}**: Feature UUID (if applicable)
+                            - **{priority}**: high/medium/low
+                            - **{complexity}**: 1-10
+                            - **{type}**: bug/feature/enhancement/hotfix
+
+                            **Default Patterns**:
+                            - Bug: `bugfix/{task-id-short}-{description}`
+                            - Feature: `feature/{task-id-short}-{description}`
+                            - Hotfix: `hotfix/{task-id-short}-{description}`
+                            - Enhancement: `enhancement/{task-id-short}-{description}`
+
+                            ---
+
+                            This workflow provides simple defaults with full customization through AI memory, enabling team-specific workflows without code changes.
                             """.trimIndent()
                         )
                     )
