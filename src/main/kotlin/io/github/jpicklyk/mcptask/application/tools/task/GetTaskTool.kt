@@ -429,11 +429,11 @@ class GetTaskTool : BaseToolDefinition() {
                         if (includeDependencies) {
                             try {
                                 val allDependencies = context.dependencyRepository().findByTaskId(taskId)
-                                
+
                                 // Separate incoming and outgoing dependencies
                                 val incomingDependencies = allDependencies.filter { it.toTaskId == taskId }
                                 val outgoingDependencies = allDependencies.filter { it.fromTaskId == taskId }
-                                
+
                                 put("dependencies", buildJsonObject {
                                     put("incoming", buildJsonArray {
                                         incomingDependencies.forEach { dependency ->
