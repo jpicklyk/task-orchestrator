@@ -160,15 +160,6 @@ Claude creates the dependency relationship and understands:
 - **[Community Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** - Examples and community guides
 - **[Discussions](https://github.com/jpicklyk/task-orchestrator/discussions)** - Ask questions and share ideas
 
-## Pre-Release Notice
-
-**⚠️ Current Version: Pre-1.0.0 (Development)**
-
-This project is actively being developed toward a 1.0.0 release. The SQL database schema may change between updates. For production use, please wait for the stable 1.0.0 release.
-
-- 🔔 [Watch for releases](https://github.com/jpicklyk/task-orchestrator/releases)
-- 📋 [View changelog](https://github.com/jpicklyk/task-orchestrator/blob/main/CHANGELOG.md)
-
 ---
 
 <style>
