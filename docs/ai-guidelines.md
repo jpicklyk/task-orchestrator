@@ -173,6 +173,8 @@ AI: [Invokes project_setup_workflow prompt]
 
 ## Initialization Process
 
+> **New Users**: If you haven't set up Task Orchestrator yet, start with the [Quick Start Guide](quick-start) to configure Claude Desktop and connect to the MCP server. Initialization happens automatically once connected.
+
 ### For Claude Code
 
 Claude Code automatically initializes the AI Guidelines system when connecting to the Task Orchestrator MCP server.
@@ -297,6 +299,58 @@ AI confirms it can:
 - Custom workflow extension points
 
 **When to Reference**: Understanding system architecture, advanced usage
+
+---
+
+## What AI Sees After Initialization
+
+After initialization, AI agents internalize comprehensive guidance from all resource documents. Here's an example of what the **Task Management Patterns** resource contains:
+
+<details>
+<summary><strong>Example: Feature Creation Pattern (from task-management resource)</strong></summary>
+
+```markdown
+### Pattern 1: Feature Creation
+
+**User Intent Recognition**: AI should recognize these patterns as feature creation requests:
+- "help me plan this feature"
+- "create a new feature for X"
+- "I need to organize work for Y functionality"
+
+**Workflow Steps**:
+1. Run get_overview to understand current project state
+2. Run list_templates --targetEntityType FEATURE --isEnabled true
+3. Analyze templates and select appropriate ones:
+   - Context & Background (business justification)
+   - Requirements Specification (detailed requirements)
+   - Technical Approach (if complex/architectural)
+4. Run create_feature with templateIds parameter
+5. Confirm creation and suggest next steps
+
+**Quality Checks**:
+- Feature has descriptive name and comprehensive summary
+- Appropriate templates applied for documentation structure
+- Tags include functional area and priority indicators
+- Feature is linked to project if applicable
+
+**Example Conversation**:
+User: "Help me plan the user authentication feature"
+
+AI Response: "I'll create the User Authentication feature with comprehensive
+documentation. Applying Context & Background and Requirements Specification
+templates for complete coverage..."
+
+[AI executes: get_overview → list_templates → create_feature]
+
+AI Confirms: "Created User Authentication feature with:
+- Context & Background section for business justification
+- Requirements Specification for detailed requirements
+- Ready to add tasks when you need to start implementation"
+```
+
+</details>
+
+This pattern is just one of six available in the task-management resource. AI uses these patterns to recognize user intent and execute workflows autonomously without requiring explicit workflow invocation.
 
 ---
 
