@@ -1154,21 +1154,101 @@ object WorkflowPromptsGuidance {
 
                             ---
 
-                            ## Available Variables for Branch Naming
+                            ## Branch Naming Variable System
 
-                            - **{task-id}**: Full UUID
-                            - **{task-id-short}**: First 8 characters
-                            - **{description}**: Sanitized title (lowercase, hyphenated)
-                            - **{feature-id}**: Feature UUID (if applicable)
-                            - **{priority}**: high/medium/low
-                            - **{complexity}**: 1-10
-                            - **{type}**: bug/feature/enhancement/hotfix
+                            ### Available Variables
 
-                            **Default Patterns**:
-                            - Bug: `bugfix/{task-id-short}-{description}`
-                            - Feature: `feature/{task-id-short}-{description}`
-                            - Hotfix: `hotfix/{task-id-short}-{description}`
-                            - Enhancement: `enhancement/{task-id-short}-{description}`
+                            Use these standardized placeholders in branch naming patterns:
+
+                            | Variable | Description | Example Value |
+                            |----------|-------------|---------------|
+                            | `{task-id}` | Full task UUID | `70490b4d-f412-4c20-93f1-cacf038a2ee8` |
+                            | `{task-id-short}` | First 8 characters of UUID | `70490b4d` |
+                            | `{description}` | Sanitized task title | `rename-workflow-add-memory` |
+                            | `{feature-id}` | Feature UUID (if task belongs to feature) | `a3d0ab76-d93d-455c-ba54-459476633a3f` |
+                            | `{feature-id-short}` | First 8 characters of feature UUID | `a3d0ab76` |
+                            | `{priority}` | Task priority | `high`, `medium`, `low` |
+                            | `{complexity}` | Task complexity rating | `1` through `10` |
+                            | `{type}` | Work type detected from tags | `bug`, `feature`, `enhancement`, `hotfix` |
+
+                            ### Description Sanitization Rules
+
+                            The `{description}` variable applies these transformations to the task title:
+                            1. Convert to lowercase
+                            2. Replace spaces with hyphens
+                            3. Remove special characters (keep only alphanumeric and hyphens)
+                            4. Collapse multiple hyphens to single hyphen
+                            5. Trim leading/trailing hyphens
+                            6. Truncate to 50 characters if longer
+
+                            **Examples**:
+                            - `"Fix Authentication Bug"` → `fix-authentication-bug`
+                            - `"Add User Profile (with avatar)"` → `add-user-profile-with-avatar`
+                            - `"Update API: Version 2.0"` → `update-api-version-2-0`
+
+                            ### Default Branch Naming Patterns
+
+                            If no custom configuration exists in memory, use these defaults:
+
+                            | Work Type | Pattern | Example |
+                            |-----------|---------|---------|
+                            | Bug | `bugfix/{task-id-short}-{description}` | `bugfix/70490b4d-fix-auth-error` |
+                            | Feature | `feature/{task-id-short}-{description}` | `feature/a2a36aeb-user-profile` |
+                            | Hotfix | `hotfix/{task-id-short}-{description}` | `hotfix/12bf786d-security-patch` |
+                            | Enhancement | `enhancement/{task-id-short}-{description}` | `enhancement/6d115591-improve-performance` |
+
+                            ### Custom Pattern Examples
+
+                            **Team-Specific Conventions**:
+
+                            ```
+                            # Jira-style with ticket numbers
+                            branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"
+                            branch_naming_feature: "feature/PROJ-{task-id-short}-{description}"
+
+                            # Linear-style
+                            branch_naming_bug: "{type}/{description}-{task-id-short}"
+                            branch_naming_feature: "{type}/{description}-{task-id-short}"
+
+                            # Priority-based
+                            branch_naming_hotfix: "hotfix/{priority}-{description}"
+                            branch_naming_bug: "bug/{priority}-{complexity}-{description}"
+
+                            # Feature-grouped
+                            branch_naming_feature: "feature/{feature-id-short}/{description}"
+                            ```
+
+                            ### Variable Expansion Process
+
+                            When creating a branch:
+                            1. **Retrieve task details** using `get_task`
+                            2. **Detect work type** from task tags (`task-type-bug`, `task-type-feature`, etc.)
+                            3. **Load branch naming pattern** from memory for the detected type
+                            4. **Extract variable values** from task data
+                            5. **Apply sanitization** to description
+                            6. **Replace all placeholders** with actual values
+                            7. **Validate result** (no special chars, valid git branch name)
+
+                            **Example Expansion**:
+                            ```
+                            Task: "Implement OAuth2 Authentication"
+                            ID: 70490b4d-f412-4c20-93f1-cacf038a2ee8
+                            Type: feature
+                            Priority: high
+                            Complexity: 8
+
+                            Pattern: feature/{task-id-short}-{description}
+                            Result: feature/70490b4d-implement-oauth2-authentication
+                            ```
+
+                            ### Commit Message Variables
+
+                            Same variables can be used for commit message prefixes:
+                            ```
+                            commit_message_prefix: "[{type}/{task-id-short}]"
+
+                            Result: "[feature/70490b4d] feat: add OAuth2 authentication"
+                            ```
 
                             ---
 
