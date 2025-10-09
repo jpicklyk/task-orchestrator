@@ -218,9 +218,9 @@ Claude explicitly:
 
 ---
 
-### `implement_feature_workflow`
+### `implementation_workflow`
 
-**Purpose**: Smart feature implementation with automatic git detection and workflow integration
+**Purpose**: Smart implementation workflow for tasks, features, and bugs with automatic git detection and workflow integration
 
 **When to Use**:
 - Ready to start implementing a specific feature or task

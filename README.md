@@ -126,7 +126,7 @@ Task Orchestrator includes a comprehensive **AI Guidelines and Initialization Sy
 - `task_breakdown_workflow` - Complex task decomposition
 - `bug_triage_workflow` - Systematic bug management
 - `project_setup_workflow` - Complete project initialization
-- `implement_feature_workflow` - Git-aware feature implementation with completion validation
+- `implementation_workflow` - Git-aware implementation workflow for tasks, features, and bugs with completion validation
 
 > **See**: [Workflow Prompts Documentation](docs/workflow-prompts.md) for dual workflow model (autonomous vs. explicit)
 

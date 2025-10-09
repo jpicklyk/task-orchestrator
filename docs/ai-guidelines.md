@@ -84,7 +84,7 @@ The system uses three complementary layers to provide comprehensive guidance:
 - `task_breakdown_workflow` - Breaking complex work into tasks
 - `bug_triage_workflow` - Systematic bug investigation
 - `project_setup_workflow` - New project initialization
-- `implement_feature_workflow` - Smart implementation workflow
+- `implementation_workflow` - Smart implementation workflow for tasks, features, and bugs
 
 **Characteristics**:
 - User or AI invokable
