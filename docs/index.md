@@ -154,6 +154,25 @@ Claude creates the dependency relationship and understands:
 - What can be worked on in parallel
 - Blocking relationships in the critical path
 
+### PRD-Driven Development ⭐ Most Effective
+
+```
+"Analyze this PRD and create a complete project structure:
+
+# Payment Processing System PRD
+[PRD content...]"
+```
+
+Claude will:
+- Read and analyze the entire PRD
+- Identify major features and functional areas
+- Create project with features and tasks
+- Apply appropriate templates systematically
+- Establish dependencies based on technical requirements
+- Present complete breakdown with recommended implementation sequence
+
+> **Why it works best**: Complete context enables intelligent breakdown, proper sequencing, and optimal template application. See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for detailed instructions.
+
 ## Community Resources
 
 - **[GitHub Repository](https://github.com/jpicklyk/task-orchestrator)** - Source code and issues

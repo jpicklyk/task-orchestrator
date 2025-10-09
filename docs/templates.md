@@ -491,12 +491,15 @@ Custom templates are stored in the database and automatically available to:
 
 Templates work seamlessly with workflow prompts:
 
+- **PRD-Driven Development** ⭐: Analyzes PRD content to systematically apply appropriate templates across all features and tasks based on requirements and technical complexity
 - **create_feature_workflow**: Automatically suggests Context & Background + Requirements Specification
 - **task_breakdown_workflow**: Applies Task Implementation Workflow to subtasks
 - **bug_triage_workflow**: Uses Bug Investigation Workflow for systematic debugging
 - **implement_feature_workflow**: Auto-detects git and applies appropriate git workflows
 
-> **See**: [Workflow Prompts](workflow-prompts) for complete workflow integration details and [AI Guidelines](ai-guidelines#layer-3-dynamic-templates-database-driven) for template strategy patterns.
+> **Most Effective**: PRD-driven development provides optimal template selection by analyzing complete requirements. See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for how Claude intelligently applies templates during PRD breakdown.
+>
+> **See Also**: [Workflow Prompts](workflow-prompts) for complete workflow integration details and [AI Guidelines](ai-guidelines#layer-3-dynamic-templates-database-driven) for template strategy patterns.
 
 ---
 

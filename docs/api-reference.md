@@ -57,9 +57,36 @@ AI chooses tools based on:
 
 ## Workflow-Based Tool Patterns
 
+### PRD-Driven Development Pattern ⭐ Most Effective
+
+**When**: You have a Product Requirements Document (PRD) or comprehensive requirements
+
+**Tool Sequence**:
+1. AI reads entire PRD content
+2. `get_overview` - Understand current state
+3. `list_templates` - Discover all available templates
+4. `create_project` - Top-level container
+5. `create_feature` (multiple) - Major functional areas with appropriate templates
+6. `create_task` (multiple) - Specific implementation tasks with templates
+7. `create_dependency` (multiple) - Establish technical sequencing
+8. AI presents complete breakdown with recommended implementation order
+
+**AI Trigger**: "Analyze this PRD...", "Break down this product requirements document..."
+
+**Why Most Effective**:
+- Complete context enables intelligent breakdown
+- Optimal template selection based on PRD content
+- Proper technical dependency sequencing
+- Systematic coverage of all requirements
+- Best results from AI analysis
+
+> **Detailed Guide**: See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for complete instructions and examples.
+
+---
+
 ### Project Initialization Pattern
 
-**When**: Starting new projects or features
+**When**: Starting new projects without a comprehensive PRD
 
 **Tool Sequence**:
 1. `create_project` - Top-level container

@@ -353,6 +353,71 @@ User: "Apply the implement feature workflow to start working on the first task"
 
 ---
 
+### Pattern 5: PRD-Driven Development ⭐ Most Effective
+
+Provide Product Requirements Document for comprehensive intelligent breakdown:
+
+```
+User: "Analyze this PRD and break it down into a complete project structure:
+
+# Authentication System v2 PRD
+
+## Overview
+Modernize authentication with OAuth 2.0, social login, and MFA support.
+
+## Requirements
+- Email/password authentication
+- Google and GitHub OAuth
+- Two-factor authentication (TOTP)
+- Session management with JWT
+- Password reset flow
+
+## Technical Constraints
+- Must support 10,000 concurrent users
+- Session tokens expire after 24 hours
+- Integration with existing user database
+
+## Success Criteria
+- All authentication methods working
+- < 200ms login response time
+- 100% test coverage on auth flows"
+
+Claude: [Reads entire PRD]
+[Identifies 4 major features]
+[Creates project structure with 15 tasks]
+[Applies Technical Approach + Requirements templates]
+[Creates 8 blocking dependencies]
+
+Claude: "Created 'Authentication System v2' project with:
+
+Features:
+1. OAuth Integration (5 tasks) - BLOCKS other features
+2. Session Management (4 tasks) - Core dependency
+3. MFA Implementation (3 tasks) - Can run parallel after OAuth
+4. Password Management (3 tasks) - Independent
+
+Recommended sequence:
+1. Start: OAuth Integration (unblocks most work)
+2. Parallel: Password Management flow
+3. After OAuth: Session Management
+4. Final: MFA Implementation
+
+Ready to begin implementation?"
+```
+
+**Best For**: ⭐ **Most scenarios with defined requirements** - provides best results
+
+**Why It Works Best**:
+- Complete context enables intelligent breakdown
+- Proper technical dependency sequencing
+- Systematic template application based on PRD content
+- Optimal feature and task granularity
+- AI makes informed decisions with full scope
+
+> **Detailed Guide**: See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for complete instructions, examples, and PRD best practices.
+
+---
+
 ## Integration with Templates
 
 ### How Workflows Use Templates
