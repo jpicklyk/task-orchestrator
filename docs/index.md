@@ -15,6 +15,10 @@ Welcome to the comprehensive documentation for MCP Task Orchestrator - an AI-nat
     <p>Get running with Docker and Claude Desktop in 2 minutes</p>
   </div>
   <div class="grid-item">
+    <h3>🤖 <a href="ai-guidelines">AI Guidelines</a></h3>
+    <p>AI initialization and autonomous workflow patterns</p>
+  </div>
+  <div class="grid-item">
     <h3>🔧 <a href="api-reference">API Reference</a></h3>
     <p>Complete reference for all 37 MCP tools</p>
   </div>
@@ -61,9 +65,10 @@ Project (optional)
 
 ### For New Users
 - **[Quick Start Guide](quick-start)** - Get up and running immediately
+- **[AI Guidelines](ai-guidelines)** - AI initialization and autonomous workflow patterns
 - **[Core Concepts](#core-concepts)** - Understand the data model
 
-### For Developers  
+### For Developers
 - **[API Reference](api-reference)** - Complete tool documentation
 - **[Database Migrations](database-migrations)** - Schema change management guide
 - **[Templates System](templates)** - Built-in template reference
@@ -71,6 +76,7 @@ Project (optional)
 
 ### For Project Managers
 - **[Workflow Prompts](workflow-prompts)** - Comprehensive workflow automations
+- **[AI Guidelines](ai-guidelines)** - How AI agents work with Task Orchestrator
 - **[Best Practices](#)** - Recommended usage patterns (coming soon)
 
 ## Community Resources
