@@ -7,7 +7,21 @@ title: Developer Guides
 
 Comprehensive technical documentation for developers contributing to or extending MCP Task Orchestrator.
 
-## Available Guides
+### [Architecture Guide](architecture)
+
+Comprehensive overview of Task Orchestrator architecture, design patterns, and component interactions.
+
+**Topics Covered**:
+- Clean Architecture layers
+- Core components (Database Manager, Tool System, Repository Pattern)
+- Data flow and execution patterns
+- Design patterns (Adapter, Repository, Factory, Strategy, etc.)
+- Technology stack and dependencies
+- Extension points for adding tools, repositories, templates, migrations
+
+**When to Use**: Understanding system design, extending functionality, architectural decisions
+
+---
 
 ### [Database Migrations](database-migrations)
 
@@ -24,23 +38,6 @@ Complete guide to managing database schema changes in Task Orchestrator.
 
 ---
 
-## Coming Soon
-
-Additional developer guides in development:
-
-### Architecture Guide
-Deep dive into Task Orchestrator architecture, design decisions, and system components.
-
-### Contributing Guide
-How to contribute to the project, code standards, PR process, and development workflow.
-
-### Testing Guide
-Comprehensive testing strategies, test structure, and testing best practices.
-
-### Local Development Setup
-Detailed local development environment setup, debugging, and troubleshooting.
-
----
 
 ## Quick Links
 
