@@ -200,22 +200,62 @@ Claude explicitly:
 - Learning implementation best practices
 
 **What It Covers**:
-1. Current state check and git detection (automatic)
-2. Implementation target selection (what to work on)
-3. Smart template application based on context and git detection
-4. Implementation execution with template guidance
-5. Completion validation before marking done
+1. Memory-based configuration loading (PR preferences, branch naming, custom workflows)
+2. Current state check and git detection (automatic)
+3. Work type detection (task, feature, or **bug**) with specialized guidance
+4. **Bug-specific investigation** and root cause verification (for bugs)
+5. Smart template application based on context and git detection
+6. Implementation execution with template guidance
+7. **Mandatory regression testing** (for bug fixes)
+8. Completion validation before marking done
 
 **Key Decisions It Helps With**:
 - Which task to work on next
 - What templates to apply (automatic suggestions)
 - Whether to use git workflows (auto-detected)
+- **For bugs**: When investigation is complete and ready to implement
+- **For bugs**: What regression tests are needed
 - When task is truly complete
 
 **Special Features**:
 - **Git Detection**: Automatically detects .git directory and suggests git workflow templates
 - **GitHub Integration**: Asks about PR workflows if git detected
 - **Template Stacking**: Suggests combining multiple templates for comprehensive guidance
+- **Bug Investigation Integration**: Offers Bug Investigation template if not applied, verifies root cause before implementation
+- **Regression Testing Enforcement**: For bug fixes, requires comprehensive regression tests before completion
+
+**Bug Handling**:
+
+When working on bugs (task-type-bug), the workflow provides specialized guidance:
+
+1. **Investigation Phase**:
+   - Checks if Bug Investigation template is applied
+   - Offers to apply template if missing
+   - Verifies root cause is documented before allowing implementation
+   - Guides through systematic investigation if incomplete
+
+2. **Implementation Phase**:
+   - Reproduce bug in tests first (test should fail with current code)
+   - Document reproduction steps
+   - Implement fix addressing root cause
+   - Verify test passes with fix
+
+3. **Regression Testing** (MANDATORY):
+   - **Bug Reproduction Test**: Test that fails with old code, passes with fix
+   - **Edge Case Tests**: Boundary conditions that led to the bug
+   - **Integration Tests**: If bug crossed component boundaries
+   - **Performance Tests**: If bug was performance-related
+   - **Test Documentation**: BUG/ROOT CAUSE/FIX comments required
+
+4. **Completion Validation**:
+   - Root cause documented
+   - Bug investigation complete
+   - Regression tests created and passing
+   - Test names reference task ID
+   - Code coverage increased
+   - **Cannot complete without regression tests**
+
+See [Regression Testing Requirements](#regression-testing-requirements) below for detailed guidance.
 
 **Autonomous Alternative**: Ask "What should I work on next?" or "I'll start implementing the login feature" and Claude will guide implementation automatically
 
@@ -428,6 +468,183 @@ All workflow prompts integrate with the template system:
 - Technical Approach (for complex tasks)
 
 > **See**: [Templates Guide](templates) for complete template documentation and [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for discovery patterns
+
+---
+
+## Regression Testing Requirements
+
+When fixing bugs using `implementation_workflow`, **comprehensive regression tests are mandatory** to prevent the issue from recurring. The workflow enforces these requirements and will not allow completion without proper tests.
+
+### When Required
+
+**All bug fixes MUST include regression tests.** This applies to:
+- Tasks tagged with `task-type-bug`
+- Hotfixes (`task-type-hotfix`)
+- Any work addressing production issues or defects
+
+### Required Test Types
+
+#### 1. Bug Reproduction Test (Required)
+
+Create a test that **fails with the old code** and **passes with the fix**:
+
+```kotlin
+@Test
+fun `should handle null user token without NPE - regression for AUTH-70490b4d`() {
+    // BUG: User logout crashed when token was null
+    // ROOT CAUSE: user.token.invalidate() called without null check
+    // FIX: Changed to user.token?.invalidate()
+
+    val user = User(token = null)
+    assertDoesNotThrow {
+        authService.logout(user)
+    }
+}
+```
+
+**Requirements**:
+- Test name clearly describes the scenario and references task ID
+- Comments explain BUG, ROOT CAUSE, and FIX
+- Test reproduces exact conditions that caused the bug
+- Assertions verify bug condition doesn't cause failure
+
+#### 2. Edge Case Tests (Required if applicable)
+
+Test boundary conditions and scenarios not previously covered:
+
+```kotlin
+@Test
+fun `should handle empty token string - edge case for AUTH-70490b4d`() {
+    val user = User(token = "")
+    assertDoesNotThrow { authService.logout(user) }
+}
+
+@Test
+fun `should handle whitespace-only token - edge case for AUTH-70490b4d`() {
+    val user = User(token = "   ")
+    assertDoesNotThrow { authService.logout(user) }
+}
+```
+
+#### 3. Integration Tests (Required if bug crossed boundaries)
+
+Test component interactions where the bug occurred:
+
+```kotlin
+@Test
+fun `logout flow should complete when user has no active session`() {
+    // This bug affected the full logout flow
+    val user = createUserWithoutSession()
+
+    val result = authService.logout(user)
+
+    assertEquals(LogoutResult.SUCCESS, result.status)
+    verifySessionCleaned(user)
+    verifyAuditLogCreated(user, "logout")
+}
+```
+
+#### 4. Performance Tests (Required if performance-related)
+
+Verify fix doesn't introduce performance regressions:
+
+```kotlin
+@Test
+fun `logout should complete within 100ms even with null token`() {
+    val user = User(token = null)
+
+    val duration = measureTimeMillis {
+        authService.logout(user)
+    }
+
+    assertTrue(duration < 100, "Logout took ${duration}ms, expected < 100ms")
+}
+```
+
+### Test Naming Convention
+
+**Format**: `should [expected behavior] - regression for [TASK-ID-SHORT]`
+
+**Examples**:
+- `should handle null input - regression for TASK-70490b4d`
+- `should process concurrent requests - regression for TASK-a2a36aeb`
+- `should validate maximum value - regression for TASK-12bf786d`
+
+### Test Documentation Requirements
+
+Every regression test **MUST** include:
+
+1. **Descriptive test name** with task ID reference
+2. **Comment block** explaining:
+   - `BUG:` What went wrong and user impact
+   - `ROOT CAUSE:` Technical reason for the bug
+   - `FIX:` What code change fixed it
+3. **Clear assertions** verifying expected behavior
+
+### Completion Checklist
+
+Before marking a bug fix as completed, verify:
+
+- ✅ Bug reproduction test exists and fails on old code
+- ✅ Bug reproduction test passes with fix
+- ✅ Edge cases identified and tested
+- ✅ Integration tests added if bug crossed boundaries
+- ✅ Performance tests added if relevant
+- ✅ All tests have proper documentation comments
+- ✅ Test names reference task ID for traceability
+- ✅ Code coverage increased for affected code paths
+- ✅ All tests passing
+
+### Common Patterns
+
+**Null/Empty Input Bugs**:
+```kotlin
+@Test
+fun `should handle null input - regression for TASK-xxxxx`() {
+    assertDoesNotThrow { service.process(null) }
+}
+```
+
+**Race Condition Bugs**:
+```kotlin
+@Test
+fun `should handle concurrent access - regression for TASK-xxxxx`() {
+    val threads = (1..10).map { thread { service.processRequest(it) } }
+    threads.forEach { it.join() }
+    // Verify no corruption occurred
+}
+```
+
+**Boundary Value Bugs**:
+```kotlin
+@Test
+fun `should handle maximum value - regression for TASK-xxxxx`() {
+    val result = service.calculate(Int.MAX_VALUE)
+    assertTrue(result.isSuccess)
+}
+```
+
+**State Management Bugs**:
+```kotlin
+@Test
+fun `should handle state transition - regression for TASK-xxxxx`() {
+    service.initialize()
+    service.stop()
+    service.initialize() // Bug: second init failed
+    assertTrue(service.isRunning)
+}
+```
+
+### Enforcement
+
+The `implementation_workflow` **enforces** regression testing requirements:
+
+- **Step 3 (Bug Detection)**: Identifies bug fixes and prepares for regression testing
+- **Step 5 (Implementation)**: Guides through bug reproduction and test creation
+- **Step 7 (Validation)**: Checks for regression tests before allowing completion
+- **Critical Warning**: If user attempts to complete without tests, workflow reminds them of requirements
+
+**You cannot mark a bug fix as completed without regression tests.**
 
 ---
 
