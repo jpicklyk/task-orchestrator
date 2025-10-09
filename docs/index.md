@@ -11,20 +11,28 @@ Welcome to the comprehensive documentation for MCP Task Orchestrator - an AI-nat
 
 <div class="grid-container">
   <div class="grid-item">
-    <h3>📖 <a href="quick-start">Quick Start</a></h3>
+    <h3>⚡ <a href="quick-start">Quick Start</a></h3>
     <p>Get running with Docker and Claude Desktop in 2 minutes</p>
   </div>
   <div class="grid-item">
-    <h3>🔧 <a href="api-reference">API Reference</a></h3>
-    <p>Complete reference for all 37 MCP tools</p>
+    <h3>🔧 <a href="installation-guide">Installation Guide</a></h3>
+    <p>Comprehensive setup for all platforms and scenarios</p>
   </div>
   <div class="grid-item">
-    <h3>📋 <a href="workflow-prompts">Workflow Prompts</a></h3>
-    <p>6 built-in workflow automations for common scenarios</p>
+    <h3>🤖 <a href="ai-guidelines">AI Guidelines</a></h3>
+    <p>AI initialization and autonomous workflow patterns</p>
   </div>
   <div class="grid-item">
-    <h3>📝 <a href="templates">Templates</a></h3>
+    <h3>📋 <a href="templates">Templates</a></h3>
     <p>9 built-in templates for consistent documentation</p>
+  </div>
+  <div class="grid-item">
+    <h3>🔄 <a href="workflow-prompts">Workflow Prompts</a></h3>
+    <p>6 workflow automations for common scenarios</p>
+  </div>
+  <div class="grid-item">
+    <h3>🆘 <a href="troubleshooting">Troubleshooting</a></h3>
+    <p>Solutions to common issues and problems</p>
   </div>
 </div>
 
@@ -35,10 +43,10 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 ### Key Benefits
 
 - **🤖 AI-Native Design**: Built specifically for AI assistant interactions
-- **📊 Hierarchical Organization**: Projects → Features → Tasks with dependencies  
+- **📊 Hierarchical Organization**: Projects → Features → Tasks with dependencies
 - **🎯 Context-Efficient**: Progressive loading and token optimization
 - **📋 Template-Driven**: Consistent documentation with 9 built-in templates
-- **🔄 Workflow Automation**: 5 comprehensive workflow prompts
+- **🔄 Workflow Automation**: 6 comprehensive workflow prompts
 - **⚡ Complete API**: 37 MCP tools for full project orchestration
 
 ## Core Concepts
@@ -57,53 +65,119 @@ Project (optional)
 - **Sections**: Rich content blocks for detailed documentation
 - **Templates**: Standardized patterns for consistent project documentation
 
+## Getting Started Path
+
+New to Task Orchestrator? Follow this path for the best experience:
+
+1. **[Quick Start](quick-start)** (2 minutes) - Get Docker image and configure Claude Desktop
+2. **[AI Guidelines](ai-guidelines)** (5 minutes) - Understand how Claude uses the system autonomously
+3. **Create your first project** - Ask Claude: *"Create a new project for my web application"*
+4. **[Templates](templates)** (10 minutes) - Learn about structured documentation patterns
+5. **[Workflow Prompts](workflow-prompts)** - Explore workflow automations for complex scenarios
+
 ## Documentation Structure
 
 ### For New Users
-- **[Quick Start Guide](quick-start)** - Get up and running immediately
-- **[Core Concepts](#core-concepts)** - Understand the data model
+- **[Quick Start Guide](quick-start)** - Get up and running in 2 minutes
+- **[AI Guidelines](ai-guidelines)** - How Claude works with Task Orchestrator
+- **[Installation Guide](installation-guide)** - Detailed setup for all platforms
 
-### For Developers  
+### For Power Users
+- **[Templates System](templates)** - Built-in template reference and customization
+- **[Workflow Prompts](workflow-prompts)** - 6 comprehensive workflow automations
 - **[API Reference](api-reference)** - Complete tool documentation
-- **[Database Migrations](database-migrations)** - Schema change management guide
-- **[Templates System](templates)** - Built-in template reference
-- **[Troubleshooting](troubleshooting)** - Common issues and solutions
 
-### For Project Managers
-- **[Workflow Prompts](workflow-prompts)** - Comprehensive workflow automations
-- **[Best Practices](#)** - Recommended usage patterns (coming soon)
+### For Developers
+- **[Developer Guides](developer-guides)** - Architecture, contributing, and development setup
+- **[Database Migrations](developer-guides/database-migrations)** - Schema change management guide
+- **[Troubleshooting](troubleshooting)** - Comprehensive problem resolution
+- **[GitHub Repository](https://github.com/jpicklyk/task-orchestrator)** - Source code and contributing
+
+## Quick Examples
+
+### Natural Language Control
+
+Ask Claude directly - no complex commands needed:
+
+```
+"Create a new project for my web application with user authentication and payment features"
+```
+
+Claude will:
+- Create the project
+- Set up appropriate structure
+- Apply relevant templates automatically
+- Confirm creation with next steps
+
+```
+"Show me all high-priority tasks that are pending"
+```
+
+Claude will:
+- Search tasks by priority and status
+- Present organized results
+- Suggest what to work on next
+
+```
+"Create a task to implement the login API with technical approach and testing templates"
+```
+
+Claude will:
+- Create the task
+- Apply requested templates
+- Set appropriate metadata
+- Link to related features if applicable
+
+### Template-Driven Workflow
+
+Templates provide structured documentation automatically:
+
+```
+"Apply the bug investigation workflow to this authentication issue"
+```
+
+Claude will apply the template with sections for:
+- Problem description
+- Investigation steps
+- Root cause analysis
+- Resolution plan
+- Testing strategy
+
+### Dependency Management
+
+```
+"Task A blocks task B because the API must be ready first"
+```
+
+Claude creates the dependency relationship and understands:
+- Execution order constraints
+- What can be worked on in parallel
+- Blocking relationships in the critical path
+
+### PRD-Driven Development ⭐ Most Effective
+
+```
+"Analyze this PRD and create a complete project structure:
+
+# Payment Processing System PRD
+[PRD content...]"
+```
+
+Claude will:
+- Read and analyze the entire PRD
+- Identify major features and functional areas
+- Create project with features and tasks
+- Apply appropriate templates systematically
+- Establish dependencies based on technical requirements
+- Present complete breakdown with recommended implementation sequence
+
+> **Why it works best**: Complete context enables intelligent breakdown, proper sequencing, and optimal template application. See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for detailed instructions.
 
 ## Community Resources
 
 - **[GitHub Repository](https://github.com/jpicklyk/task-orchestrator)** - Source code and issues
 - **[Community Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** - Examples and community guides
 - **[Discussions](https://github.com/jpicklyk/task-orchestrator/discussions)** - Ask questions and share ideas
-
-## Quick Examples
-
-### Create Your First Project
-```
-Ask Claude: "Create a new project for my web application with user authentication and payment features"
-```
-
-### Apply Templates
-```
-Ask Claude: "Apply the technical approach template to this task and include testing strategy"
-```
-
-### Use Workflow Prompts
-```
-Ask Claude: "Use the sprint planning workflow to organize my current backlog"
-```
-
-## Pre-Release Notice
-
-**⚠️ Current Version: Pre-1.0.0 (Development)**
-
-This project is actively being developed toward a 1.0.0 release. The SQL database schema may change between updates. For production use, please wait for the stable 1.0.0 release.
-
-- 🔔 [Watch for releases](https://github.com/jpicklyk/task-orchestrator/releases)
-- 📋 [View changelog](https://github.com/jpicklyk/task-orchestrator/blob/main/CHANGELOG.md)
 
 ---
 

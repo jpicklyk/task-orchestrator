@@ -216,7 +216,9 @@ class ApplyTemplateTool(
             ]
           }
         }
-        
+
+        For template application patterns and strategies, see: task-orchestrator://guidelines/template-strategy
+
         Common error responses:
         - VALIDATION_ERROR: When provided parameters fail validation
         - RESOURCE_NOT_FOUND: When the template or entity doesn't exist

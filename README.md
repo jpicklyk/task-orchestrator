@@ -7,54 +7,45 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 
 ## 📚 Documentation
 
-- **[📖 Full Documentation](docs/)** - Complete guides and reference
-- **[🚀 Quick Start Guide](docs/quick-start.md)** - Get running in 2 minutes
-- **[🔧 API Reference](docs/api-reference.md)** - All 37 MCP tools detailed
-- **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 5 built-in workflow automations
+**Getting Started**:
+- **[🚀 Quick Start](docs/quick-start.md)** - Get running in 2 minutes
+- **[🔧 Installation Guide](docs/installation-guide.md)** - Comprehensive setup for all platforms
+- **[🤖 AI Guidelines](docs/ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
+
+**Using Task Orchestrator**:
 - **[📝 Templates](docs/templates.md)** - 9 built-in documentation templates
-- **[🗃️ Database Migrations](docs/database-migrations.md)** - Schema change management for developers
+- **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 6 workflow automations
+- **[🔧 API Reference](docs/api-reference.md)** - Complete MCP tools documentation
+- **[🆘 Troubleshooting](docs/troubleshooting.md)** - Solutions to common issues
+
+**For Developers**:
+- **[👨‍💻 Developer Guides](docs/developer-guides/)** - Architecture, contributing, development setup
+- **[🗃️ Database Migrations](docs/developer-guides/database-migrations.md)** - Schema change management
 - **[💬 Community Wiki](../../wiki)** - Examples, tips, and community guides
 
 ## Why Use MCP Task Orchestrator?
 
-- **🤖 AI-Native**: Designed specifically for AI assistant workflows
+- **🤖 AI-Native**: Designed specifically for AI assistant workflows with autonomous pattern recognition
 - **📊 Hierarchical Organization**: Projects → Features → Tasks with dependencies
 - **🎯 Context-Efficient**: Progressive loading and token optimization
 - **📋 Template-Driven**: 9 built-in templates for consistent documentation
-- **🔄 Workflow Automation**: 5 comprehensive workflow prompts
+- **🔄 Workflow Automation**: 6 comprehensive workflow prompts for common scenarios
 - **🔗 Rich Relationships**: Task dependencies with cycle detection
 - **🔒 Concurrent Access Protection**: Built-in sub-agent collision prevention
 - **⚡ 37 MCP Tools**: Complete task orchestration API
 
 ## Quick Start (2 Minutes)
 
-### 1. Pull or Build Docker Image
+Get Task Orchestrator running with your MCP-compatible AI agent:
 
-#### Option A: Production Image (Recommended)
+**Step 1: Pull Docker Image**
 ```bash
-# Pull latest release
 docker pull ghcr.io/jpicklyk/task-orchestrator:latest
-
-# Or specific version
-docker pull ghcr.io/jpicklyk/task-orchestrator:1.0.1
-
-# Or latest build from main branch
-docker pull ghcr.io/jpicklyk/task-orchestrator:main
 ```
 
-#### Option B: Build Locally (Development)
-```bash
-# Build locally
-./scripts/docker-clean-and-build.bat  # Windows
-# Or manually: docker build -t mcp-task-orchestrator:dev .
-```
+**Step 2: Configure Your AI Agent**
 
-### 2. Configure Claude Desktop or Claude Code
-
-#### For Claude Desktop
-Add to your `claude_desktop_config.json`:
-
-**Production Configuration**
+For **Claude Desktop**, add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -70,53 +61,27 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-**Local Development Configuration**
-```json
-{
-  "mcpServers": {
-    "task-orchestrator": {
-      "command": "docker",
-      "args": [
-        "run", "--rm", "-i",
-        "--volume", "mcp-task-data:/app/data",
-        "mcp-task-orchestrator:dev"
-      ]
-    }
-  }
-}
-```
-
-#### For Claude Code
-Use the JSON configuration command:
-
+For **Claude Code**, use the MCP configuration command:
 ```bash
-# Production version (latest release)
 claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
-
-# Specific version
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:1.0.1"]}'
-
-# Latest from main branch
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:main"]}'
-
-# Local development version (after building locally)
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","mcp-task-orchestrator:dev"]}'
 ```
 
-### 3. Test Connection (Optional)
-```bash
-# Test the Docker container runs correctly
-docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest
+For **other MCP-compatible AI agents** (Cursor, Windsurf, etc.), use similar Docker configuration adapted to your agent's format.
 
-# Test MCP connection (requires Node.js)
-node scripts/test-mcp-connection.js
-```
+**Step 3: Restart/Reconnect Your AI Agent**
 
-### 4. Start Using
-Ask Claude:
+**Step 4: Start Using**
+
+Ask your AI agent:
 - "Create a new project for my web application"
 - "Show me the project overview"
 - "Apply the technical approach template to this task"
+
+> **📖 Full Quick Start Guide**: See [docs/quick-start.md](docs/quick-start.md) for detailed instructions including Claude Code setup, building from source, and troubleshooting.
+>
+> **🔧 Advanced Installation**: See [docs/installation-guide.md](docs/installation-guide.md) for all installation options, environment variables, and platform-specific instructions.
+>
+> **⭐ PRD-Driven Development**: For best results, provide Claude with Product Requirements Documents (PRDs) for intelligent breakdown into features and tasks with proper dependencies. See [PRD Workflow Guide](docs/quick-start.md#prd-driven-development-workflow).
 
 ## Core Concepts
 
@@ -128,25 +93,42 @@ Project (optional)
 ```
 
 - **Projects**: Top-level organizational containers
-- **Features**: Group related tasks into functional units  
+- **Features**: Group related tasks into functional units
 - **Tasks**: Primary work units with status, priority, complexity
 - **Dependencies**: Relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
 - **Sections**: Rich content blocks for documentation
 - **Templates**: Standardized documentation patterns
 
+## AI-Native Design
+
+Task Orchestrator includes a comprehensive **AI Guidelines and Initialization System** that enables AI agents to use the system autonomously through natural language pattern recognition:
+
+- **Three-Layer Architecture**: MCP Resources (internalized knowledge) + Workflow Prompts (explicit guidance) + Dynamic Templates (database-driven)
+- **Autonomous Pattern Recognition**: AI recognizes user intent like "help me plan this feature" without explicit commands
+- **Dual Workflow Model**: Autonomous pattern application for speed + explicit workflow invocation for comprehensive guidance
+- **Template Discovery**: AI dynamically discovers and applies appropriate templates based on work type
+- **Git Workflow Detection**: Automatic .git directory detection triggers git workflow templates
+
+> **See**: [AI Guidelines Documentation](docs/ai-guidelines.md) for complete initialization process and autonomous workflow patterns
+
 ## Key Features
 
 ### Template System (9 Built-in Templates)
 - **AI Workflow Instructions**: Git workflows, PR management, task implementation, bug investigation
-- **Documentation Properties**: Technical approach, requirements, context & background  
+- **Documentation Properties**: Technical approach, requirements, context & background
 - **Process & Quality**: Testing strategy, definition of done
 
-### Workflow Prompts (5 Built-in Workflows)
+> **See**: [Templates Documentation](docs/templates.md) for AI-driven template discovery and composition patterns
+
+### Workflow Prompts (6 Built-in Workflows)
+- `initialize_task_orchestrator` - AI initialization and guideline loading
 - `create_feature_workflow` - Comprehensive feature creation
 - `task_breakdown_workflow` - Complex task decomposition
 - `bug_triage_workflow` - Systematic bug management
 - `project_setup_workflow` - Complete project initialization
 - `implement_feature_workflow` - Git-aware feature implementation with completion validation
+
+> **See**: [Workflow Prompts Documentation](docs/workflow-prompts.md) for dual workflow model (autonomous vs. explicit)
 
 ### MCP Tools (37 Total)
 - **6 Task Management Tools** - Core CRUD operations
@@ -156,35 +138,25 @@ Project (optional)
 - **9 Section Management Tools** - Rich documentation
 - **9 Template Management Tools** - Workflow automation
 
+> **See**: [API Reference](docs/api-reference.md) for workflow-based tool patterns and AI usage examples
+
 ## Alternative Installation Options
 
-### Option 1: Direct JAR (Without Docker)
+**Without Docker (Direct JAR)**:
 ```bash
-# Build
 ./gradlew build
-
-# Run
 java -jar build/libs/mcp-task-orchestrator-*.jar
 ```
 
-### Option 2: Development Environment Variables
+**Environment Variables**:
 ```bash
-# Configure environment for local development
-MCP_TRANSPORT=stdio
-DATABASE_PATH=data/tasks.db
-USE_FLYWAY=true
-MCP_DEBUG=true  # Enable debug logging
+MCP_TRANSPORT=stdio          # Transport type
+DATABASE_PATH=data/tasks.db  # SQLite database path
+USE_FLYWAY=true             # Enable migrations
+MCP_DEBUG=true              # Enable debug logging
 ```
 
-## Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MCP_TRANSPORT` | Transport type | `stdio` |
-| `DATABASE_PATH` | SQLite database path | `data/tasks.db` |
-| `USE_FLYWAY` | Enable Flyway database migrations | `true` |
-| `MCP_SERVER_NAME` | Server name | `mcp-task-orchestrator` |
-| `MCP_DEBUG` | Enable debug logging | `false` |
+> **📖 Complete Configuration Reference**: See [Installation Guide](docs/installation-guide.md) for all environment variables, platform-specific instructions, and advanced configuration options.
 
 ## Release Information
 
@@ -212,17 +184,19 @@ node scripts/test-mcp-connection.js
 MCP_DEBUG=true java -jar build/libs/mcp-task-orchestrator-*.jar
 ```
 
+> **👨‍💻 For Developers**: See [Developer Guides](docs/developer-guides/) for architecture, contributing guidelines, development setup, and database migration management.
+
 ## Troubleshooting
 
-### Common Issues
-- **JSON parsing errors**: Enable `MCP_DEBUG=true` and check logs in `logs/`
-- **Docker issues**: Ensure Docker Desktop is running and `docker volume inspect mcp-task-data`
-- **Connection problems**: Test with the echo tool (see [troubleshooting guide](docs/troubleshooting.md))
+**Quick Fixes**:
+- **Claude can't find tools**: Restart Claude Desktop
+- **Docker not running**: Start Docker Desktop, check with `docker version`
+- **Connection problems**: Enable `MCP_DEBUG=true` and check logs
 
-### Getting Help
-- 📖 [Full troubleshooting guide](docs/troubleshooting.md)
-- 💬 [Community discussions](../../discussions)
-- 🐛 [Report issues](../../issues)
+**Get Help**:
+- 📖 [Troubleshooting Guide](docs/troubleshooting.md) - Quick reference table, AI-specific issues, and comprehensive solutions
+- 💬 [Community Discussions](../../discussions) - Ask questions and share ideas
+- 🐛 [Report Issues](../../issues) - Bug reports and feature requests
 
 ## Contributing
 
