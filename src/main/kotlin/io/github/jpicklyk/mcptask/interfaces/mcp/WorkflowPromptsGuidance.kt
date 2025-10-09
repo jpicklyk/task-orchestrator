@@ -872,6 +872,24 @@ object WorkflowPromptsGuidance {
                             - Load applied templates with get_sections
                             - Review template guidance for this work type
 
+                            **For Bugs** (task-type-bug detected):
+                            - Check if "Bug Investigation Workflow" template is applied
+                            - If NOT applied:
+                              ```
+                              Offer to apply Bug Investigation template:
+                              "This is a bug fix. I recommend applying the Bug Investigation Workflow template
+                               to guide systematic investigation and ensure proper root cause analysis.
+
+                               Apply template now? (This adds sections for: Problem Analysis, Technical Investigation,
+                               Root Cause, Impact Assessment, Resolution Plan)"
+                              ```
+                            - If applied, verify investigation sections are documented:
+                              - Problem symptoms and reproduction steps
+                              - Root cause analysis
+                              - Impact assessment
+                            - **Before implementation**: Ensure root cause is documented
+                            - If investigation incomplete, guide through it first before implementing fix
+
                             ## Step 4: Determine Workflow Steps
 
                             **Check for custom workflow override in memory**:
@@ -903,6 +921,175 @@ object WorkflowPromptsGuidance {
                             2. Execute each step from workflow source
                             3. Apply any additional validations from memory
                             4. Make incremental commits with descriptive messages
+
+                            **For Bugs**: Follow bug-specific implementation approach:
+                            1. **Reproduce the bug** in tests first (test should fail with current code)
+                            2. **Document reproduction** steps in code comments or task sections
+                            3. **Implement the fix** addressing the root cause
+                            4. **Verify test passes** with the fix applied
+                            5. **Create regression tests** (see Regression Testing Requirements below)
+
+                            ---
+
+                            ## Regression Testing Requirements (MANDATORY for Bugs)
+
+                            When fixing bugs, you **MUST** create comprehensive regression tests to prevent the issue from recurring.
+
+                            ### Required Test Types
+
+                            **1. Bug Reproduction Test** (Required)
+                            - Test that **fails with the old code** and **passes with the fix**
+                            - Reproduces the exact conditions that caused the bug
+                            - Documents what broke and how it was fixed
+
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `should handle null user token without NPE - regression for AUTH-70490b4d`() {
+                                // BUG: User logout crashed when token was null
+                                // ROOT CAUSE: user.token.invalidate() called without null check
+                                // FIX: Changed to user.token?.invalidate()
+
+                                val user = User(token = null)
+                                assertDoesNotThrow {
+                                    authService.logout(user)
+                                }
+                            }
+                            ```
+
+                            **2. Edge Case Tests** (Required if applicable)
+                            - Test the boundary conditions that led to the bug
+                            - Cover scenarios that weren't previously tested
+                            - Validate fix doesn't break related functionality
+
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `should handle empty token string - edge case for AUTH-70490b4d`() {
+                                val user = User(token = "")
+                                assertDoesNotThrow { authService.logout(user) }
+                            }
+
+                            @Test
+                            fun `should handle whitespace-only token - edge case for AUTH-70490b4d`() {
+                                val user = User(token = "   ")
+                                assertDoesNotThrow { authService.logout(user) }
+                            }
+                            ```
+
+                            **3. Integration Tests** (Required if bug crossed component boundaries)
+                            - Test the interaction between components where bug occurred
+                            - Verify fix works in realistic scenarios
+                            - Ensure no cascading failures
+
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `logout flow should complete when user has no active session`() {
+                                // This bug affected the full logout flow
+                                val user = createUserWithoutSession()
+
+                                val result = authService.logout(user)
+
+                                assertEquals(LogoutResult.SUCCESS, result.status)
+                                verifySessionCleaned(user)
+                                verifyAuditLogCreated(user, "logout")
+                            }
+                            ```
+
+                            **4. Performance/Load Tests** (Required if bug was performance-related)
+                            - Verify fix doesn't introduce performance regressions
+                            - Test under load if original bug was load-related
+                            - Measure and assert performance metrics
+
+                            **Example**:
+                            ```kotlin
+                            @Test
+                            fun `logout should complete within 100ms even with null token`() {
+                                val user = User(token = null)
+
+                                val duration = measureTimeMillis {
+                                    authService.logout(user)
+                                }
+
+                                assertTrue(duration < 100, "Logout took ${'$'}{duration}ms, expected < 100ms")
+                            }
+                            ```
+
+                            ### Test Documentation Requirements
+
+                            Every regression test MUST include:
+
+                            1. **Test Name**: Clearly describe what's being tested and reference task ID
+                               - Format: `should [expected behavior] - regression for [TASK-ID-SHORT]`
+                               - Example: `should handle null token - regression for AUTH-70490b4d`
+
+                            2. **Bug Comment**: Explain what broke, root cause, and fix
+                               ```kotlin
+                               // BUG: [What went wrong and user impact]
+                               // ROOT CAUSE: [Technical reason for the bug]
+                               // FIX: [What code change fixed it]
+                               ```
+
+                            3. **Test Assertions**: Verify both:
+                               - Bug condition doesn't cause failure
+                               - Expected behavior occurs correctly
+
+                            ### Validation Checklist
+
+                            Before marking bug fix complete, verify:
+                            - ✅ Bug reproduction test exists and fails on old code
+                            - ✅ Bug reproduction test passes with fix
+                            - ✅ Edge cases identified and tested
+                            - ✅ Integration tests added if bug crossed boundaries
+                            - ✅ Performance tests added if relevant
+                            - ✅ All tests have proper documentation comments
+                            - ✅ Test names reference task ID for traceability
+                            - ✅ Code coverage increased for affected code paths
+
+                            ### Common Regression Test Patterns
+
+                            **Null/Empty Input Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle null input - regression for TASK-12345`() {
+                                assertDoesNotThrow { service.process(null) }
+                            }
+                            ```
+
+                            **Race Condition Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle concurrent access - regression for TASK-67890`() {
+                                val threads = (1..10).map {
+                                    thread { service.processRequest(it) }
+                                }
+                                threads.forEach { it.join() }
+                                // Verify no corruption occurred
+                            }
+                            ```
+
+                            **Boundary Value Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle maximum value - regression for TASK-11111`() {
+                                val result = service.calculate(Int.MAX_VALUE)
+                                assertTrue(result.isSuccess)
+                            }
+                            ```
+
+                            **State Management Bugs**:
+                            ```kotlin
+                            @Test
+                            fun `should handle state transition - regression for TASK-22222`() {
+                                service.initialize()
+                                service.stop()
+                                service.initialize() // Bug: second init failed
+                                assertTrue(service.isRunning)
+                            }
+                            ```
+
+                            ---
 
                             ## Step 6: Git Workflow (if applicable)
 
@@ -943,11 +1130,21 @@ object WorkflowPromptsGuidance {
                             Use get_sections to read all task/feature sections
                             ```
 
-                            **For Bugs**:
-                            - ✅ Root cause documented
-                            - ✅ Regression test added
-                            - ✅ Bug investigation sections complete
-                            - ✅ Fix verified
+                            **For Bugs** (MANDATORY - see Regression Testing Requirements above):
+                            - ✅ Root cause documented in task sections or code comments
+                            - ✅ Bug investigation sections complete (if Bug Investigation template used)
+                            - ✅ **Bug reproduction test exists** (must fail with old code, pass with fix)
+                            - ✅ **Regression tests created** for all scenarios:
+                              - Edge cases that led to the bug
+                              - Integration tests if bug crossed boundaries
+                              - Performance tests if performance-related
+                            - ✅ **Test documentation complete** (BUG/ROOT CAUSE/FIX comments in tests)
+                            - ✅ **Test names reference task ID** for traceability
+                            - ✅ All tests passing
+                            - ✅ Fix verified in affected scenarios
+                            - ✅ Code coverage increased for affected code paths
+
+                            **CRITICAL**: Do NOT mark bug fix as completed without regression tests. If user attempts to complete without tests, remind them of regression testing requirements and offer to help create them.
 
                             **For Features**:
                             - ✅ All feature tasks completed
