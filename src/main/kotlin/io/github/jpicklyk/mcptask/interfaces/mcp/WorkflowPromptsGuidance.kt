@@ -638,7 +638,55 @@ object WorkflowPromptsGuidance {
 
                             This workflow guides you through setting up a new project with proper structure, comprehensive documentation, and effective organization for long-term success.
 
-                            ## Step 1: Initialize AI Environment
+                            ## Step 1: Load Project Setup Configuration from Memory
+
+                            **Check your available memory systems** for project setup configuration:
+
+                            **Global Preferences** (user-wide):
+                            - Standard feature set for new projects
+                            - Default foundation tasks
+                            - Documentation section standards
+
+                            **Project Configuration** (team-specific):
+                            - Team-specific feature structure
+                            - Organization-standard foundation tasks
+                            - Company documentation requirements
+
+                            **Memory Configuration Schema** (what to look for):
+                            ```
+                            # Task Orchestrator - Project Setup Configuration
+
+                            ## Standard Features
+                            project_standard_features:
+                              - "User Management"
+                              - "Authentication & Authorization"
+                              - "Data Management"
+
+                            ## Foundation Tasks
+                            project_foundation_tasks:
+                              - title: "Project Infrastructure Setup"
+                                templates: ["task-implementation-workflow", "technical-approach"]
+                              - title: "Development Environment Configuration"
+                                templates: ["task-implementation-workflow"]
+
+                            ## Documentation Standards
+                            project_documentation_sections:
+                              - "Project Charter"
+                              - "Technical Architecture"
+                              - "Development Standards"
+                            ```
+
+                            **If configuration found**:
+                            - Use configured standard features
+                            - Auto-create foundation tasks
+                            - Apply documentation standards
+
+                            **If NOT found**:
+                            - Use manual feature identification
+                            - Create foundation tasks based on project needs
+                            - Offer to save preferences for future projects
+
+                            ## Step 2: Initialize AI Environment
                             **Before creating the project, set up AI guidelines for optimal task orchestrator usage.**
 
                             If you haven't already initialized Task Orchestrator guidelines in this AI session:
@@ -659,9 +707,9 @@ object WorkflowPromptsGuidance {
                             - Teaches dual workflow model (autonomous vs explicit)
                             - Prepares AI for effective project management
 
-                            **Note**: If already initialized in current session, skip to Step 2.
+                            **Note**: If already initialized in current session, skip to Step 3.
 
-                            ## Step 2: Project Foundation
+                            ## Step 3: Project Foundation
                             Create the top-level project container:
                             ```json
                             Use create_project:
@@ -679,7 +727,7 @@ object WorkflowPromptsGuidance {
                             - Mention key technologies and constraints
                             - State success criteria and completion definition
 
-                            ## Step 3: Project Documentation Structure
+                            ## Step 4: Project Documentation Structure
                             Add comprehensive project documentation:
                             ```json
                             Use bulk_create_sections for project-level documentation:
@@ -716,8 +764,24 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 4: Feature Planning and Structure
-                            Identify and create major features:
+                            ## Step 5: Feature Planning and Structure
+                            Identify and create major features using memory configuration (if available):
+
+                            **If memory configuration found with project_standard_features**:
+                            ```json
+                            Auto-create standard features from memory:
+                            {
+                              "name": "[Feature from project_standard_features list]",
+                              "summary": "[Feature description with user value and technical scope]",
+                              "status": "planning",
+                              "priority": "high",
+                              "projectId": "[project-id]",
+                              "templateIds": ["context-background", "requirements-specification"],
+                              "tags": "[feature-type,user-facing/internal,complexity-level]"
+                            }
+                            ```
+
+                            **If NO memory configuration**:
 
                             **Feature Identification Strategy**:
                             - Break project into 3-7 major functional areas
@@ -739,9 +803,25 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 5: Initial Task Creation
+                            ## Step 6: Initial Task Creation
                             **Git Detection**: Check for .git directory in project root using file system tools
-                            
+
+                            **If memory configuration found with project_foundation_tasks**:
+                            ```json
+                            Auto-create foundation tasks from memory:
+                            {
+                              "title": "[Title from project_foundation_tasks]",
+                              "summary": "[Task description based on project needs]",
+                              "projectId": "[project-id]",
+                              "priority": "high",
+                              "complexity": "[based on task scope]",
+                              "templateIds": ["[templates-from-memory]", "local-git-branching-workflow"],
+                              "tags": "task-type-infrastructure,setup,foundation"
+                            }
+                            ```
+
+                            **If NO memory configuration**:
+
                             Create foundational tasks for project setup:
 
                             **Infrastructure and Setup Tasks**:
@@ -770,12 +850,12 @@ object WorkflowPromptsGuidance {
                               "tags": "task-type-research,planning,technology-validation"
                             }
                             ```
-                            
+
                             **Template Selection Notes**:
                             - If git detected, include "local-git-branching-workflow" for implementation tasks
                             - Research tasks may not need git templates unless they involve code prototyping
 
-                            ## Step 6: Template Strategy Setup
+                            ## Step 7: Template Strategy Setup
                             Establish consistent documentation patterns:
 
                             **Review Available Templates**:
@@ -795,7 +875,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 7: Development Workflow Setup
+                            ## Step 8: Development Workflow Setup
                             Establish project workflows and standards:
 
                             **Git Workflow Configuration**:
@@ -819,7 +899,7 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 8: Initial Dependencies and Sequencing
+                            ## Step 9: Initial Dependencies and Sequencing
                             Establish logical task progression:
                             ```
                             Use create_dependency to establish foundational sequences:
@@ -828,7 +908,7 @@ object WorkflowPromptsGuidance {
                             - Research tasks BLOCK implementation decisions
                             - Architecture decisions BLOCK detailed design tasks
 
-                            ## Step 9: Project Monitoring Setup
+                            ## Step 10: Project Monitoring Setup
                             Prepare for ongoing project management:
 
                             **Create Project Views**:
@@ -842,6 +922,47 @@ object WorkflowPromptsGuidance {
                             - Task status distribution
                             - Complexity and effort tracking
                             - Priority balance monitoring
+
+                            ## Saving Memory Configuration
+
+                            **If user expressed preferences during workflow**:
+                            Offer to save configuration for future projects:
+                            ```
+                            "I noticed you prefer [standard features/foundation tasks/documentation structure].
+                             Would you like me to save these preferences to your memory
+                             for future project setup workflows?
+
+                             This will automatically:
+                             - Create standard features for new projects
+                             - Auto-create foundation tasks
+                             - Apply documentation section standards
+
+                             Save to: [Global memory / Project CLAUDE.md / .cursorrules]"
+                            ```
+
+                            **Configuration to save**:
+                            ```markdown
+                            # Task Orchestrator - Project Setup Configuration
+
+                            ## Standard Features
+                            project_standard_features:
+                              - "[feature-name-1]"
+                              - "[feature-name-2]"
+                              - "[feature-name-3]"
+
+                            ## Foundation Tasks
+                            project_foundation_tasks:
+                              - title: "[task-title-1]"
+                                templates: ["[template-id-1]", "[template-id-2]"]
+                              - title: "[task-title-2]"
+                                templates: ["[template-id]"]
+
+                            ## Documentation Standards
+                            project_documentation_sections:
+                              - "[section-title-1]"
+                              - "[section-title-2]"
+                              - "[section-title-3]"
+                            ```
 
                             ## Project Organization Best Practices
 
