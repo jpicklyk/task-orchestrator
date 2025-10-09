@@ -7,26 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Documentation
-
-#### Added
-- Installation Guide (`docs/installation-guide.md`) - comprehensive setup guide for all platforms and installation methods
-- Developer Guides directory (`docs/developer-guides/`) - organized developer-specific documentation
-- PRD-Driven Development Workflow - complete guide for using Product Requirements Documents with AI agents
-- Existing Project Integration guide - instructions for connecting Task Orchestrator to ongoing work
-- "What AI Sees After Initialization" section in AI Guidelines with example patterns
-
-#### Changed
-- Modernized all documentation with improved structure, cross-referencing, and natural language examples
-- Made documentation AI-agent agnostic - works with any MCP-compatible AI (Claude Desktop, Claude Code, Cursor, etc.)
-- Restructured quick-start.md with configuration options for multiple AI agents
-- Enhanced workflow-prompts.md with Dual Workflow Model and PRD development pattern
-- Updated templates.md with AI-driven template discovery and composition patterns
-- Improved api-reference.md with workflow-based tool patterns and usage examples
-- Expanded troubleshooting.md with Quick Reference table and AI-specific issues
-- Removed pre-release notices (project now v1.0.1)
-
-## [1.1.0-alpha-01] - 2025-10-08
+## [1.1.0-alpha-01]
 
 ### Added
 - Output schemas for all 6 Task Management tools (create_task, get_task, update_task, delete_task, search_tasks, get_overview)
@@ -36,10 +17,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tool titles for all 39 MCP tools for better discoverability in clients
 - ToolDefinition interface enhancements: optional `title` and `outputSchema` properties
 - ToolRegistry now registers tool titles and output schemas with MCP server
+- Installation Guide (`docs/installation-guide.md`) - comprehensive setup guide for all platforms and installation methods
+- Developer Guides directory (`docs/developer-guides/`) - organized developer-specific documentation
+- PRD-Driven Development Workflow - complete guide for using Product Requirements Documents with AI agents
+- Existing Project Integration guide - instructions for connecting Task Orchestrator to ongoing work
+- "What AI Sees After Initialization" section in AI Guidelines with example patterns
 
 ### Changed
+- Upgraded kotlin-sdk from 0.5.0 to 0.7.2
+- Updated Kotlin from 2.1.20 to 2.2.0 for SDK compatibility
+- Fixed test mock for addTool API signature change (now uses named parameters)
 - All tool implementations now include descriptive title properties
-- All MCP tools now provide structured output schemas for better agent integration (Task, Project, Section, Template, Feature, and Dependency management)
+- All MCP tools now provide structured output schemas for better agent integration
+- Modernized all documentation with improved structure, cross-referencing, and natural language examples
+- Made documentation AI-agent agnostic - works with any MCP-compatible AI (Claude Desktop, Claude Code, Cursor, etc.)
+- Restructured quick-start.md with configuration options for multiple AI agents
+- Enhanced workflow-prompts.md with Dual Workflow Model and PRD development pattern
+- Updated templates.md with AI-driven template discovery and composition patterns
+- Improved api-reference.md with workflow-based tool patterns and usage examples
+- Expanded troubleshooting.md with Quick Reference table and AI-specific issues
+- Removed pre-release notices (project now v1.0.1)
+
+### Dependencies
+- kotlin-sdk: 0.5.0 → 0.7.2
+- Kotlin: 2.1.20 → 2.2.0
+- Ktor: 3.3.0 (transitive dependency from kotlin-sdk)
 
 ### Technical Details
 - Output schemas use Tool.Output from kotlin-sdk 0.7.x
@@ -47,29 +49,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proper JSON Schema types, formats, and enum constraints
 - Support for nested structures (pagination, hierarchical data)
 - All changes maintain backward compatibility
-
-## [1.0.2] - 2025-10-08
-
-### Changed
-- Upgraded kotlin-sdk from 0.5.0 to 0.7.2
-- Updated Kotlin from 2.1.20 to 2.2.0 for SDK compatibility
-- Fixed test mock for addTool API signature change (now uses named parameters)
-
-### Dependencies
-- kotlin-sdk: 0.5.0 → 0.7.2
-- Kotlin: 2.1.20 → 2.2.0
-- Ktor: 3.3.0 (transitive dependency from kotlin-sdk)
-
-### Notes
-- SDK "breaking changes" (Kotlin-style callbacks, JSON serialization refactoring) did not affect codebase
-- All existing callbacks were already using proper Kotlin lambda syntax
-- JSON serialization patterns were already compatible with SDK 0.7.x changes
-- All tests pass successfully
-- Docker build validated and working
-- Build configuration validated with no deprecation warnings
-
-### Technical Details
-For detailed information about the upgrade process and validation:
-- See feature: Kotlin SDK 0.7.2 Integration (feature-branch: feature/kotlin-sdk-0.7.2-integration)
-- All validation tasks completed successfully
-- No runtime issues detected
