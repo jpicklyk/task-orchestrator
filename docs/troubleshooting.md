@@ -61,7 +61,7 @@ Top 5 most common issues with one-line fixes:
 3. **Provide Explicit Pattern Examples**
    - If autonomous mode isn't working, use explicit guidance:
      - "Use the feature creation pattern for this"
-     - "Follow the bug triage workflow"
+     - "Use the implementation workflow for this bug fix"
      - "Apply the task breakdown workflow"
 
 4. **Re-Initialize if Needed**
