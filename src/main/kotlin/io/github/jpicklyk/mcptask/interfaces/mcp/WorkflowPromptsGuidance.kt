@@ -276,13 +276,56 @@ object WorkflowPromptsGuidance {
 
                             This workflow guides you through creating a comprehensive feature with proper templates, documentation, and associated tasks.
 
-                            ## Step 1: Check Current State
+                            ## Step 1: Load Feature Creation Configuration from Memory
+
+                            **Check your available memory systems** for feature creation configuration:
+
+                            **Global Preferences** (user-wide):
+                            - Default feature templates
+                            - Feature tagging conventions
+                            - Auto-task creation preferences
+
+                            **Project Configuration** (team-specific):
+                            - Team-specific default templates
+                            - Project tag conventions
+                            - Standard task structure
+
+                            **Memory Configuration Schema** (what to look for):
+                            ```
+                            # Task Orchestrator - Feature Creation Configuration
+
+                            ## Default Templates
+                            feature_default_templates:
+                              - "context-and-background"
+                              - "requirements-specification"
+
+                            ## Tag Conventions
+                            feature_tag_prefix: "feature-"
+                            feature_tags_auto_add: "needs-review,in-planning"
+
+                            ## Auto-Task Creation
+                            feature_create_initial_tasks: true
+                            feature_initial_task_templates:
+                              - "task-implementation-workflow"
+                            ```
+
+                            **If configuration found**:
+                            - Use configured default templates
+                            - Apply tag conventions automatically
+                            - Auto-create initial tasks if enabled
+
+                            **If NOT found**:
+                            - Use manual template selection
+                            - Ask user about tagging preferences
+                            - Offer to save preferences for future
+
+                            ## Step 2: Check Current State
                             Start by understanding the current project state:
                             ```
                             Use get_overview to see existing features and work
                             ```
 
-                            ## Step 2: Find Appropriate Templates
+                            ## Step 3: Find Appropriate Templates
                             Identify templates for your feature:
                             ```
                             Use list_templates with targetEntityType="FEATURE" and isEnabled=true
@@ -292,10 +335,25 @@ object WorkflowPromptsGuidance {
                             - Requirements Specification (for detailed requirements)
                             - Technical Approach (for architecture planning)
 
-                            ## Step 3: Create the Feature
-                            Create your feature with templates:
+                            ## Step 4: Create the Feature
+                            Create your feature with configuration from memory (if available):
+
+                            **If memory configuration found**:
                             ```json
-                            Use create_feature with:
+                            Use create_feature with memory-based defaults:
+                            {
+                              "name": "[Descriptive feature name]",
+                              "summary": "[Comprehensive summary with business value]",
+                              "status": "planning",
+                              "priority": "[high/medium/low based on importance]",
+                              "templateIds": ["[templates-from-memory-or-step-3]"],
+                              "tags": "[feature_tag_prefix][feature-name],[feature_tags_auto_add-from-memory]"
+                            }
+                            ```
+
+                            **If NO memory configuration**:
+                            ```json
+                            Use create_feature with manual template selection:
                             {
                               "name": "[Descriptive feature name]",
                               "summary": "[Comprehensive summary with business value]",
@@ -306,44 +364,99 @@ object WorkflowPromptsGuidance {
                             }
                             ```
 
-                            ## Step 4: Review Created Structure
+                            **Tag Convention Examples**:
+                            - With prefix "feature-": `"feature-authentication,needs-review,in-planning"`
+                            - Without prefix: `"authentication,api,security,needs-review"`
+
+                            ## Step 5: Review Created Structure
                             Examine the feature with its sections:
                             ```
                             Use get_feature with includeSections=true to see the template structure
                             ```
 
-                            ## Step 5: Create Associated Tasks
+                            ## Step 6: Create Associated Tasks
                             **Git Detection**: Check for .git directory in project root using file system tools
-                            
-                            Break down the feature into specific tasks:
+
+                            **If memory configuration found with feature_create_initial_tasks=true**:
                             ```json
-                            For each major component, use create_task with:
+                            Automatically create foundation tasks using feature_initial_task_templates:
+                            {
+                              "title": "[Implementation task from template]",
+                              "summary": "[Task description with acceptance criteria]",
+                              "featureId": "[feature-id-from-step-4]",
+                              "complexity": "[1-10 based on effort estimate]",
+                              "priority": "[based on implementation order]",
+                              "templateIds": ["[templates-from-memory]", "local-git-branching-workflow"],
+                              "tags": "[inherit-feature-tags],[task-specific-tags]"
+                            }
+                            ```
+
+                            **If NO memory configuration OR feature_create_initial_tasks=false**:
+                            ```json
+                            Manually create tasks for each major component:
                             {
                               "title": "[Specific implementation task]",
                               "summary": "[Clear task description with acceptance criteria]",
-                              "featureId": "[feature-id-from-step-3]",
+                              "featureId": "[feature-id-from-step-4]",
                               "complexity": "[1-10 based on effort estimate]",
                               "priority": "[based on implementation order]",
                               "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
                               "tags": "[task-type-feature,component-type,technical-area]"
                             }
                             ```
-                            
+
                             **Template Selection Notes**:
                             - If git detected, automatically include "local-git-branching-workflow" template
                             - Ask user: "Do you use GitHub/GitLab PRs? If yes, I can also apply PR workflow template"
                             - For complex tasks (complexity > 6): Include "technical-approach" template
+                            - Apply tag conventions from memory to tasks (inherit feature tags + task-specific tags)
 
-                            ## Step 6: Establish Dependencies (if needed)
+                            ## Step 7: Establish Dependencies (if needed)
                             Link related tasks:
                             ```
                             Use create_dependency to establish task relationships
                             ```
 
-                            ## Step 7: Final Review
+                            ## Step 8: Final Review
                             Verify the complete feature structure:
                             ```
                             Use get_feature with includeTasks=true and includeSections=true
+                            ```
+
+                            ## Saving Memory Configuration
+
+                            **If user expressed preferences during workflow**:
+                            Offer to save configuration for future features:
+                            ```
+                            "I noticed you prefer [templates/tags/auto-task-creation].
+                             Would you like me to save these preferences to your memory
+                             for future feature creation workflows?
+
+                             This will automatically:
+                             - Apply these templates to new features
+                             - Use your tag naming conventions
+                             - Auto-create initial tasks if enabled
+
+                             Save to: [Global memory / Project CLAUDE.md / .cursorrules]"
+                            ```
+
+                            **Configuration to save**:
+                            ```markdown
+                            # Task Orchestrator - Feature Creation Configuration
+
+                            ## Default Templates
+                            feature_default_templates:
+                              - "[template-1-id]"
+                              - "[template-2-id]"
+
+                            ## Tag Conventions
+                            feature_tag_prefix: "[prefix-or-empty]"
+                            feature_tags_auto_add: "[comma-separated-tags]"
+
+                            ## Auto-Task Creation
+                            feature_create_initial_tasks: [true/false]
+                            feature_initial_task_templates:
+                              - "[task-template-id]"
                             ```
 
                             ## Best Practices
