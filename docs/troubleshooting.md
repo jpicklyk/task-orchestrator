@@ -9,6 +9,8 @@ This guide covers common issues and their solutions when using MCP Task Orchestr
 
 ## Table of Contents
 
+- [Quick Reference](#quick-reference)
+- [AI Guidelines Issues](#ai-guidelines-issues)
 - [Connection Issues](#connection-issues)
 - [Docker Problems](#docker-problems)
 - [Configuration Issues](#configuration-issues)
@@ -16,6 +18,116 @@ This guide covers common issues and their solutions when using MCP Task Orchestr
 - [Performance Issues](#performance-issues)
 - [Debug Mode](#debug-mode)
 - [Getting Help](#getting-help)
+
+---
+
+## Quick Reference
+
+Top 5 most common issues with one-line fixes:
+
+| Issue | Quick Fix | Details |
+|-------|-----------|---------|
+| **Claude can't find tools** | Restart Claude Desktop | [Connection Issues](#claude-cant-find-mcp-tools) |
+| **Docker not running** | Start Docker Desktop, check with `docker version` | [Docker Problems](#container-wont-start) |
+| **Invalid JSON config** | Validate at [jsonlint.com](https://jsonlint.com/) | [Configuration Issues](#invalid-json-syntax) |
+| **Container won't start** | Check Docker logs: `docker logs [container-id]` | [Docker Problems](#container-wont-start) |
+| **Templates not appearing** | Run `list_templates` to verify, check `isEnabled=true` | [AI Guidelines Issues](#templates-not-being-discovered) |
+
+> **For detailed installation issues**: See the [Installation Guide](installation-guide#troubleshooting-installation)
+
+---
+
+## AI Guidelines Issues
+
+### AI Not Using Patterns Autonomously
+
+**Symptoms**:
+- Claude asks for explicit instructions instead of recognizing patterns
+- Templates aren't being applied automatically
+- Claude doesn't suggest workflows for complex tasks
+
+**Solutions**:
+
+1. **Verify Initialization**
+   - Ask Claude: "Have you initialized the Task Orchestrator guidelines?"
+   - Claude should confirm it has loaded guideline resources
+   - If not: "Please initialize Task Orchestrator" (Claude will fetch guideline resources)
+
+2. **Check Resource Availability**
+   - Ensure MCP server is properly configured and running
+   - Verify Task Orchestrator tools are available: "Can you list your available tools?"
+   - Confirm Claude can access guideline resources
+
+3. **Provide Explicit Pattern Examples**
+   - If autonomous mode isn't working, use explicit guidance:
+     - "Use the feature creation pattern for this"
+     - "Follow the bug triage workflow"
+     - "Apply the task breakdown workflow"
+
+4. **Re-Initialize if Needed**
+   - Ask Claude: "Please re-fetch the Task Orchestrator guidelines"
+   - Claude will reload guideline resources and patterns
+
+> **See**: [AI Guidelines - Troubleshooting](ai-guidelines#troubleshooting) for complete AI-specific issue resolution
+
+---
+
+### Templates Not Being Discovered
+
+**Symptoms**:
+- Claude creates tasks/features without templates
+- Template suggestions aren't happening
+- Custom templates aren't being found
+
+**Solutions**:
+
+1. **Verify Templates Exist**
+   - Ask Claude: "List available templates"
+   - Claude should use `list_templates` and show all enabled templates
+   - Check that expected templates appear in the list
+
+2. **Check Template Status**
+   - Verify templates are enabled (not disabled)
+   - For custom templates, confirm they're properly created
+   - Ask: "Show me templates for TASK entities" or "Show me templates for FEATURE entities"
+
+3. **Ensure AI is Querying Templates**
+   - Claude should automatically run `list_templates` before creating tasks/features
+   - If not happening, remind: "Please check for applicable templates first"
+
+4. **Validate Template Targeting**
+   - Ensure templates have correct `targetEntityType`
+   - TASK templates only apply to tasks
+   - FEATURE templates only apply to features
+
+---
+
+### Workflow Not Following Best Practices
+
+**Symptoms**:
+- Missing steps in workflow execution
+- Incomplete documentation
+- Templates not being validated before completion
+
+**Solutions**:
+
+1. **Use Explicit Workflow Mode**
+   - For critical scenarios, invoke explicit workflow prompts:
+     - "Walk me through this using the create_feature_workflow"
+     - "Use the project_setup_workflow for this"
+   - Explicit mode guarantees comprehensive step-by-step coverage
+
+2. **Review Guideline Resources**
+   - Ask Claude to refresh pattern understanding
+   - Confirm Claude has latest workflow definitions
+   - Update custom patterns in project CLAUDE.md if behavior needs adjustment
+
+3. **Validate Task Completeness**
+   - Before marking complete, ask: "Have all template sections been filled?"
+   - Claude should use `get_sections` to validate
+   - Ensure summaries, tags, and metadata are complete
+
+> **Learn More**: [AI Guidelines](ai-guidelines) explains how AI discovers patterns and applies workflows autonomously
 
 ---
 
@@ -563,9 +675,28 @@ If the system becomes unusable:
    # Complete Docker cleanup
    docker system prune -a
    docker volume prune
-   
+
    # Rebuild from scratch
    ./scripts/docker-clean-and-build.bat
    ```
 
-Remember: The system is in pre-release status, so occasional issues are expected. Most problems can be resolved with the solutions in this guide.
+---
+
+## Additional Resources
+
+### Related Documentation
+
+- **[Installation Guide](installation-guide)** - Comprehensive setup and installation troubleshooting
+- **[Quick Start](quick-start)** - Basic setup verification
+- **[AI Guidelines](ai-guidelines)** - AI-specific behavior and patterns
+- **[Templates Guide](templates)** - Template system troubleshooting
+- **[Workflow Prompts](workflow-prompts)** - Workflow automation issues
+
+### Getting More Help
+
+**GitHub**:
+- [Issues](https://github.com/jpicklyk/task-orchestrator/issues) - Bug reports and feature requests
+- [Discussions](https://github.com/jpicklyk/task-orchestrator/discussions) - Questions and community support
+- [Wiki](https://github.com/jpicklyk/task-orchestrator/wiki) - Community guides and examples
+
+**Pre-Release Status**: The system is in pre-release status (pre-1.0.0), so occasional issues are expected. Most problems can be resolved with the solutions in this guide. For installation-specific issues, see the [Installation Guide - Troubleshooting](installation-guide#troubleshooting-installation) section.
