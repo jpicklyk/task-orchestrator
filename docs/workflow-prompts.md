@@ -460,6 +460,304 @@ All workflow prompts integrate with the template system:
 
 ---
 
+## Memory-Based Workflow Customization
+
+The `implementation_workflow` supports customization through AI memory configuration, allowing teams to adapt workflows to their specific processes without modifying code.
+
+### Overview
+
+**Memory-based customization** allows you to:
+- Define pull request preferences (always/never/ask)
+- Customize branch naming conventions with variables
+- Override procedural workflow steps while keeping validation
+- Configure team-specific processes
+- Store configuration globally (user-wide) or per-project (team-wide)
+
+**Key Benefits**:
+- ✅ **Zero-config default**: Works out of the box with sensible defaults
+- ✅ **Progressive enhancement**: Start minimal, add complexity as needed
+- ✅ **Version-controlled**: Project configuration lives in your repo
+- ✅ **Natural language**: Update via conversation with AI
+- ✅ **AI-agnostic**: Works with any AI memory mechanism
+
+---
+
+### Minimal Configuration
+
+The simplest customization is just your PR preference:
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+```
+
+That's it! The workflow will now always create pull requests without asking.
+
+**Options**:
+- `"always"` - Always create PRs (skip asking)
+- `"never"` - Never create PRs, merge directly to main
+- `"ask"` - Ask each time (default if not configured)
+
+---
+
+### Memory Configuration Schema
+
+Complete configuration schema with all available options:
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always" | "never" | "ask"
+
+## Branch Naming Conventions (optional - defaults provided)
+branch_naming_bug: "bugfix/{task-id-short}-{description}"
+branch_naming_feature: "feature/{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
+
+## Commit Message Customization (optional)
+commit_message_prefix: "[{type}/{task-id-short}]"
+
+## Custom Workflow Steps (optional - leave empty to use templates)
+### Bug Fix Workflow Override
+# [Custom steps override Bug Investigation template procedural guidance]
+# Template validation requirements still apply
+
+### Feature Implementation Workflow Override
+# [Custom steps override Task Implementation template procedural guidance]
+# Template validation requirements still apply
+```
+
+---
+
+### Branch Naming Variables
+
+Use these standardized variables in branch naming patterns:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{task-id}` | Full task UUID | `70490b4d-f412-4c20-93f1-cacf038a2ee8` |
+| `{task-id-short}` | First 8 characters of UUID | `70490b4d` |
+| `{description}` | Sanitized task title | `fix-authentication-bug` |
+| `{feature-id}` | Feature UUID (if applicable) | `a3d0ab76-d93d-455c-ba54-459476633a3f` |
+| `{feature-id-short}` | First 8 chars of feature UUID | `a3d0ab76` |
+| `{priority}` | Task priority | `high`, `medium`, `low` |
+| `{complexity}` | Task complexity | `1` through `10` |
+| `{type}` | Work type from tags | `bug`, `feature`, `enhancement`, `hotfix` |
+
+**Sanitization**: The `{description}` variable is automatically sanitized (lowercase, hyphenated, special chars removed, max 50 chars).
+
+---
+
+### Template Validation vs Procedural Override
+
+**What's Always Used** (never overridden):
+- ✅ Validation requirements from templates
+- ✅ Acceptance criteria and definition of done
+- ✅ Testing requirements and quality gates
+- ✅ Technical context and background information
+
+**What Can Be Overridden** (custom workflow steps replace):
+- ⚠️ Step-by-step implementation instructions
+- ⚠️ Procedural workflow guidance
+- ⚠️ Tool invocation sequences
+
+This ensures quality standards are maintained while allowing team-specific processes.
+
+---
+
+### Real-World Configuration Examples
+
+#### Example 1: Startup Team (Minimal Setup)
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "never"
+```
+
+**Use Case**: Fast-moving startup, direct commits to main, rapid iteration.
+
+---
+
+#### Example 2: Jira Integration with Custom Branch Naming
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+
+## Branch Naming (Jira-style)
+branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"
+branch_naming_feature: "feature/PROJ-{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/PROJ-{task-id-short}-{description}"
+
+## Commit Messages
+commit_message_prefix: "[PROJ-{task-id-short}]"
+```
+
+**Use Case**: Team using Jira with project prefix "PROJ", wants consistent ticket references.
+
+**Result**:
+- Branch: `feature/PROJ-70490b4d-oauth-authentication`
+- Commit: `[PROJ-70490b4d] feat: add OAuth2 authentication`
+
+---
+
+#### Example 3: Enterprise Team with Staging Deployment
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+
+## Branch Naming
+branch_naming_bug: "bugfix/{priority}-{task-id-short}-{description}"
+branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
+
+## Bug Fix Workflow Override
+### Custom Bug Fix Process
+1. Create branch from main
+2. Implement fix with tests
+3. Deploy to staging environment: `./deploy-staging.sh`
+4. Run integration test suite: `npm run test:integration:staging`
+5. Request QA approval in PR
+6. After QA approval, merge to main
+7. Deploy to production: `./deploy-production.sh`
+
+Note: Template validation still requires:
+- Bug Investigation template analysis completed
+- Root cause documented
+- Test coverage for bug fix
+- Regression tests passing
+```
+
+**Use Case**: Enterprise team with required staging deployment and QA approval.
+
+---
+
+#### Example 4: Priority-Based Branch Naming
+
+```markdown
+# Task Orchestrator - Implementation Workflow Configuration
+
+## Pull Request Preference
+use_pull_requests: "always"
+
+## Branch Naming (priority-based)
+branch_naming_bug: "bug/{priority}-{complexity}-{description}"
+branch_naming_feature: "feature/{feature-id-short}/{description}"
+branch_naming_hotfix: "hotfix/{description}"
+```
+
+**Use Case**: Team that prioritizes by severity and groups features together.
+
+**Result**:
+- Bug: `bug/high-8-security-vulnerability`
+- Feature: `feature/a3d0ab76/oauth-integration`
+- Hotfix: `hotfix/critical-data-leak`
+
+---
+
+### Natural Language Customization
+
+You can update configuration through natural conversation with your AI:
+
+**Example Conversation**:
+```
+User: "Can you update our workflow to use Linear-style branch naming?"
+
+AI: "I'll update your project configuration to use Linear conventions:
+     {type}/{description}-{task-id-short}
+
+     Should I save this to your project's memory?"
+
+User: "Yes, and we always use pull requests"
+
+AI: "Updated! I've saved:
+     - Linear-style branch naming
+     - use_pull_requests: always
+
+     Your team's configuration is now in CLAUDE.md"
+```
+
+The AI handles:
+- Schema generation
+- Variable substitution
+- Validation
+- Storage in appropriate memory location
+
+---
+
+### Global vs Project-Specific Configuration
+
+**Global (User-Wide)**:
+- Your personal preferences across all projects
+- Stored in AI's global memory
+- Examples: PR preference, default branch naming
+
+**Project-Specific (Team-Wide)**:
+- Team conventions for specific project
+- Stored in project repo (e.g., `CLAUDE.md`)
+- Examples: Jira integration, staging deployment steps
+
+**Priority**: Project-specific configuration overrides global preferences.
+
+---
+
+### Getting Started with Customization
+
+1. **Start Simple**: Just configure `use_pull_requests` preference
+2. **Add Branch Naming**: Customize patterns for your team's conventions
+3. **Override Workflows**: Add custom steps only if needed
+4. **Iterate**: Refine based on team feedback
+
+**First-Time Setup** (via AI conversation):
+```
+User: "Set up workflow customization for our team"
+
+AI: "I'll help you configure. A few questions:
+     1. Do you always use pull requests? (always/never/ask)
+     2. Do you use Jira or Linear for tickets?
+     3. Any specific branch naming conventions?"
+
+[AI creates configuration based on answers]
+```
+
+---
+
+### Best Practices
+
+**DO**:
+- ✅ Start with minimal configuration (just PR preference)
+- ✅ Use default branch naming patterns unless team has strong conventions
+- ✅ Store team configuration in version-controlled project files
+- ✅ Document custom workflow steps clearly
+- ✅ Test configuration with simple task first
+
+**DON'T**:
+- ❌ Override template validation requirements
+- ❌ Create overly complex branch naming patterns
+- ❌ Duplicate template guidance in custom workflow steps
+- ❌ Store sensitive information in configuration
+
+---
+
+### Related Documentation
+
+- **[implementation_workflow](workflow-prompts#implementation_workflow)** - Workflow that uses this configuration
+- **[AI Guidelines - Memory Patterns](ai-guidelines)** - How AI agents use memory
+- **[Quick Start](quick-start)** - Getting started examples
+- **[Templates Guide](templates)** - Understanding template validation
+
+---
+
 ## Customization
 
 ### Adding Team-Specific Patterns
