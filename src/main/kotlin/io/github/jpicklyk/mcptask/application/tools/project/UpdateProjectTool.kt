@@ -274,19 +274,12 @@ class UpdateProjectTool(
                     is Result.Success -> {
                         val project = updateResult.data
 
-                        // Build the response
+                        // Return minimal response to optimize bandwidth and performance
+                        // Only return essential fields: id, status, and modifiedAt
                         val responseBuilder = buildJsonObject {
                             put("id", project.id.toString())
-                            put("name", project.name)
-                            put("summary", project.summary)
                             put("status", project.status.name.lowercase().replace('_', '-'))
-                            put("createdAt", project.createdAt.toString())
                             put("modifiedAt", project.modifiedAt.toString())
-
-                            // Include tags if present
-                            if (project.tags.isNotEmpty()) {
-                                put("tags", JsonArray(project.tags.map { JsonPrimitive(it) }))
-                            }
                         }
 
                         successResponse(

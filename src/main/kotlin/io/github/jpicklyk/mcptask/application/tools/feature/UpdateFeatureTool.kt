@@ -258,20 +258,12 @@ class UpdateFeatureTool(
                     is Result.Success -> {
                         val savedFeature = updateResult.data
 
-                        // Create a response with feature information using the standardized format
+                        // Return minimal response to optimize bandwidth and performance
+                        // Only return essential fields: id, status, and modifiedAt
                         val responseData = buildJsonObject {
                             put("id", savedFeature.id.toString())
-                            put("name", savedFeature.name)
-                            put("summary", savedFeature.summary)
                             put("status", savedFeature.status.name.lowercase().replace('_', '-'))
-                            put("priority", savedFeature.priority.name.lowercase())
-                            put("createdAt", savedFeature.createdAt.toString())
                             put("modifiedAt", savedFeature.modifiedAt.toString())
-
-                            // Include tags if present
-                            if (savedFeature.tags.isNotEmpty()) {
-                                put("tags", savedFeature.tags.joinToString(", "))
-                            }
                         }
 
                         successResponse(

@@ -416,27 +416,14 @@ class UpdateTaskTool(
         // Save updated task to repository
         val updateResult = context.taskRepository().update(updatedTask)
 
-        // Return standardized response
+        // Return minimal response to optimize bandwidth and performance
+        // Only return essential fields: id (to identify what was updated),
+        // status (current state), and modifiedAt (timestamp of update)
         return handleRepositoryResult(updateResult, "Task updated successfully") { updatedTaskData ->
             buildJsonObject {
                 put("id", updatedTaskData.id.toString())
-                put("title", updatedTaskData.title)
-                put("summary", updatedTaskData.summary)
-                put("status", updatedTaskData.status.name.lowercase())
-                put("priority", updatedTaskData.priority.name.lowercase())
-                put("complexity", updatedTaskData.complexity)
-                put("createdAt", updatedTaskData.createdAt.toString())
+                put("status", updatedTaskData.status.name.lowercase().replace('_', '-'))
                 put("modifiedAt", updatedTaskData.modifiedAt.toString())
-
-                if (updatedTaskData.featureId != null) {
-                    put("featureId", updatedTaskData.featureId.toString())
-                } else {
-                    put("featureId", JsonNull)
-                }
-
-                put("tags", buildJsonArray {
-                    updatedTaskData.tags.forEach { add(it) }
-                })
             }
         }
     }

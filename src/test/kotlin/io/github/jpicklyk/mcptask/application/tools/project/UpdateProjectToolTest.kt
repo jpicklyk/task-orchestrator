@@ -140,15 +140,18 @@ class UpdateProjectToolTest {
         assertEquals(true, result.jsonObject["success"]?.jsonPrimitive?.boolean)
         assertEquals("Project updated successfully", result.jsonObject["message"]?.jsonPrimitive?.content)
 
-        // Check data
+        // Check data - verify minimal response format
         val data = result.jsonObject["data"]?.jsonObject
         assertNotNull(data)
         assertEquals(projectId.toString(), data!!["id"]?.jsonPrimitive?.content)
-        assertEquals("Updated Project", data["name"]?.jsonPrimitive?.content)
-        assertEquals("This is the original project", data["summary"]?.jsonPrimitive?.content)
         assertEquals("planning", data["status"]?.jsonPrimitive?.content)
-        assertNotNull(data["createdAt"])
         assertNotNull(data["modifiedAt"])
+
+        // Verify only minimal fields are returned (optimization)
+        assertEquals(3, data.size, "Response should only contain id, status, and modifiedAt")
+        assertNull(data["name"], "Name should not be in minimal response")
+        assertNull(data["summary"], "Summary should not be in minimal response")
+        assertNull(data["createdAt"], "CreatedAt should not be in minimal response")
     }
 
     @Test
@@ -191,11 +194,15 @@ class UpdateProjectToolTest {
         assertTrue(result is JsonObject)
         assertEquals(true, result.jsonObject["success"]?.jsonPrimitive?.boolean)
 
-        // Check data
+        // Check data - verify minimal response format
         val data = result.jsonObject["data"]?.jsonObject
         assertNotNull(data)
-        assertEquals("Original Project", data!!["name"]?.jsonPrimitive?.content)
-        assertEquals("This is the updated project summary", data["summary"]?.jsonPrimitive?.content)
+        assertEquals(projectId.toString(), data!!["id"]?.jsonPrimitive?.content)
+        assertEquals("planning", data["status"]?.jsonPrimitive?.content)
+        assertNotNull(data["modifiedAt"])
+
+        // Verify only minimal fields are returned (optimization)
+        assertEquals(3, data.size, "Response should only contain id, status, and modifiedAt")
     }
 
     @Test

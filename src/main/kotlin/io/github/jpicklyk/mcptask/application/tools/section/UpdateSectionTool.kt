@@ -244,8 +244,13 @@ class UpdateSectionTool(
 
             return when (updateResult) {
                 is Result.Success -> {
+                    val updatedSection = updateResult.data
+
+                    // Return minimal response to optimize bandwidth and performance
+                    // Sections don't have a status field, so only return id and modifiedAt
                     val data = buildJsonObject {
-                        put("section", serializeSection(updateResult.data))
+                        put("id", updatedSection.id.toString())
+                        put("modifiedAt", updatedSection.modifiedAt.toString())
                     }
                     successResponse(data, "Section updated successfully")
                 }
