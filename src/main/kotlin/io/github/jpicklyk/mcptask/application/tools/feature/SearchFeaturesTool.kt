@@ -45,7 +45,6 @@ class SearchFeaturesTool : BaseToolDefinition() {
                                                     mapOf(
                                                         "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
                                                         "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
@@ -321,14 +320,8 @@ class SearchFeaturesTool : BaseToolDefinition() {
                             add(buildJsonObject {
                                 put("id", feature.id.toString())
                                 put("name", feature.name)
-
-                                // Truncate summary if needed
-                                if (feature.summary.length > 100) {
-                                    put("summary", "${feature.summary.take(97)}...")
-                                } else {
-                                    put("summary", feature.summary)
-                                }
-
+                                // Summary excluded from search results for performance optimization
+                                // Use get_feature to retrieve full feature details
                                 put("status", feature.status.name.lowercase().replace('_', '-'))
                                 put("priority", feature.priority.name.lowercase())
                                 put("createdAt", feature.createdAt.toString())

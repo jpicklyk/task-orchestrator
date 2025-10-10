@@ -43,7 +43,6 @@ class SearchProjectsTool : BaseToolDefinition() {
                                                     mapOf(
                                                         "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
                                                         "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "createdAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
                                                         "modifiedAt" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("date-time"))),
@@ -275,14 +274,8 @@ class SearchProjectsTool : BaseToolDefinition() {
                             add(buildJsonObject {
                                 put("id", project.id.toString())
                                 put("name", project.name)
-
-                                // Truncate summary if needed
-                                if (project.summary.length > 100) {
-                                    put("summary", "${project.summary.take(97)}...")
-                                } else {
-                                    put("summary", project.summary)
-                                }
-
+                                // Summary excluded from search results for performance optimization
+                                // Use get_project to retrieve full project details
                                 put("status", project.status.name.lowercase().replace('_', '-'))
                                 put("createdAt", project.createdAt.toString())
                                 put("modifiedAt", project.modifiedAt.toString())
