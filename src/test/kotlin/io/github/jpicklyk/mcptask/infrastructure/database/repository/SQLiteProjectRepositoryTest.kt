@@ -76,16 +76,17 @@ class SQLiteProjectRepositoryTest {
             summary = "Original summary",
             status = ProjectStatus.PLANNING
         )
-        projectRepository.create(project)
+        val createResult = projectRepository.create(project)
+        val createdProject = (createResult as Result.Success).data
 
         // Act
-        val updatedProject = project.update(
+        val updatedProject = createdProject.update(
             name = "Updated Project",
             status = ProjectStatus.IN_DEVELOPMENT,
             tags = listOf("updated")
         )
         val updateResult = projectRepository.update(updatedProject)
-        val getResult = projectRepository.getById(project.id)
+        val getResult = projectRepository.getById(createdProject.id)
 
         // Assert
         assertTrue(updateResult is Result.Success)

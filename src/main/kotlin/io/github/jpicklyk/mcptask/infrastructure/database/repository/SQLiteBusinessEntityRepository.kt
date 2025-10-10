@@ -197,18 +197,39 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
             validateEntity(entity)
 
             val result = transaction {
-                // Update the entity
+                val entityId = getEntityId(entity)
+
+                // Check if entity exists first to distinguish NotFound from OptimisticLockError
+                val exists = table.selectAll().where { idColumn eq entityId }.count() > 0
+
+                // Update the entity (with optimistic locking check)
                 val rowsUpdated = updateEntityInternal(entity)
 
                 if (rowsUpdated == 0) {
-                    return@transaction null
+                    // 0 rows updated: either entity doesn't exist OR version conflict
+                    if (!exists) {
+                        // Entity doesn't exist
+                        return@transaction Result.Error(
+                            RepositoryError.NotFound(
+                                entityId,
+                                entityType,
+                                "${entityType.name} not found with id: $entityId"
+                            )
+                        )
+                    } else {
+                        // Entity exists but version doesn't match - optimistic lock conflict
+                        return@transaction Result.Error(
+                            RepositoryError.ConflictError(
+                                "Optimistic lock conflict: ${entityType.name} with id $entityId has been modified by another process"
+                            )
+                        )
+                    }
                 }
 
                 // Update search vector
                 updateSearchVector(entity)
 
                 // Update tags: delete old tags and insert new ones
-                val entityId = getEntityId(entity)
                 // Make sure we're using the correct entity type name here
                 EntityTagsTable.deleteWhere {
                     (EntityTagsTable.entityId eq entityId) and (EntityTagsTable.entityType eq entityType.name)
@@ -217,21 +238,11 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
                 insertEntityTags(entityId, tags)
 
                 // Return the updated entity
-                entity
+                Result.Success(entity)
             }
 
-            if (result != null) {
-                Result.Success(result)
-            } else {
-                val entityId = getEntityId(entity)
-                Result.Error(
-                    RepositoryError.NotFound(
-                        entityId,
-                        entityType,
-                        "${entityType.name} not found with id: $entityId"
-                    )
-                )
-            }
+            // Transaction returns Result<T>, so we just return it
+            result as Result<T>
         } catch (e: IllegalArgumentException) {
             Result.Error(RepositoryError.ValidationError(e.message ?: "Validation failed"))
         } catch (e: Exception) {

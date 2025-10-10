@@ -88,6 +88,7 @@ class SQLiteSectionRepository(
                         it[SectionsTable.tags] = updatedSection.tags.joinToString(",")
                         it[SectionsTable.createdAt] = updatedSection.createdAt
                         it[SectionsTable.modifiedAt] = updatedSection.modifiedAt
+                        it[SectionsTable.version] = updatedSection.version
                     } get SectionsTable.id
                 }
 
@@ -108,8 +109,14 @@ class SQLiteSectionRepository(
                 // Update modification time
                 val updatedSection = section.withUpdatedModificationTime()
 
-                val rowsUpdated = transaction {
-                    SectionsTable.update({ SectionsTable.id eq updatedSection.id }) {
+                val result = transaction {
+                    // Check if section exists first to distinguish NotFound from OptimisticLockError
+                    val exists = SectionsTable.selectAll().where { SectionsTable.id eq section.id }.count() > 0
+
+                    // Optimistic locking: only update if version matches
+                    val rowsUpdated = SectionsTable.update({
+                        (SectionsTable.id eq section.id) and (SectionsTable.version eq section.version)
+                    }) {
                         it[title] = updatedSection.title
                         it[usageDescription] = updatedSection.usageDescription
                         it[content] = updatedSection.content
@@ -117,14 +124,26 @@ class SQLiteSectionRepository(
                         it[ordinal] = updatedSection.ordinal
                         it[tags] = updatedSection.tags.joinToString(",")
                         it[modifiedAt] = updatedSection.modifiedAt
+                        it[version] = section.version + 1
+                    }
+
+                    if (rowsUpdated > 0) {
+                        Result.Success(updatedSection)
+                    } else {
+                        // 0 rows updated: either entity doesn't exist OR version conflict
+                        if (!exists) {
+                            Result.Error(RepositoryError.NotFound(section.id, EntityType.SECTION, "Section not found"))
+                        } else {
+                            Result.Error(
+                                RepositoryError.ConflictError(
+                                    "Optimistic lock conflict: Section with id ${section.id} has been modified by another process"
+                                )
+                            )
+                        }
                     }
                 }
 
-                if (rowsUpdated > 0) {
-                    Result.Success(updatedSection)
-                } else {
-                    Result.Error(RepositoryError.NotFound(section.id, EntityType.TASK, "Section not found"))
-                }
+                result
             } catch (e: IllegalArgumentException) {
                 Result.Error(RepositoryError.ValidationError(e.message ?: "Validation failed"))
             } catch (e: Exception) {
@@ -231,7 +250,8 @@ class SQLiteSectionRepository(
                 emptyList()
             },
             createdAt = row[SectionsTable.createdAt],
-            modifiedAt = row[SectionsTable.modifiedAt]
+            modifiedAt = row[SectionsTable.modifiedAt],
+            version = row[SectionsTable.version]
         )
     }
 }

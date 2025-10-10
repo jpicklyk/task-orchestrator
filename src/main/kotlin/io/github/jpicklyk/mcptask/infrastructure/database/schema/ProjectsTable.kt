@@ -19,6 +19,9 @@ object ProjectsTable : UUIDTable("projects") {
     // Tags are now handled by the unified EntityTagsTable
     // val tags = text("tags").default("")
 
+    // Optimistic locking
+    val version = long("version").default(1)
+
     // Search optimization for full-text search
     val searchVector = text("search_vector").nullable()
 
@@ -27,5 +30,6 @@ object ProjectsTable : UUIDTable("projects") {
         index(isUnique = false, status)
         index(isUnique = false, createdAt)
         index(isUnique = false, modifiedAt)
+        index(isUnique = false, version)
     }
 }

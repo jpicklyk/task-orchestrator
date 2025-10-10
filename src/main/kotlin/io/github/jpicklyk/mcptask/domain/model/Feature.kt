@@ -18,7 +18,9 @@ data class Feature(
     val priority: Priority = Priority.MEDIUM,
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    /** Optimistic concurrency version */
+    val version: Long = 1
 ) {
     init {
         validate()
@@ -52,7 +54,7 @@ data class Feature(
         // Ensure we always generate a new timestamp that's definitely after the current modifiedAt
         // by adding at least 1 millisecond
         val newModifiedAt = Instant.now().plusMillis(1).coerceAtLeast(modifiedAt.plusMillis(1))
-        
+
         return copy(
             name = name,
             projectId = projectId,

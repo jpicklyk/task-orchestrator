@@ -18,7 +18,9 @@ data class Section(
     val ordinal: Int,
     val tags: List<String> = emptyList(),
     val createdAt: Instant = Instant.now(),
-    val modifiedAt: Instant = Instant.now()
+    val modifiedAt: Instant = Instant.now(),
+    /** Optimistic concurrency version */
+    val version: Long = 1
 ) {
     /**
      * Validates the section data for consistency and completeness.
@@ -35,7 +37,9 @@ data class Section(
      * Use this when updating a section to ensure modification time is tracked.
      */
     fun withUpdatedModificationTime(): Section {
-        return this.copy(modifiedAt = Instant.now())
+        return this.copy(
+            modifiedAt = Instant.now()
+        )
     }
 }
 
