@@ -132,16 +132,25 @@ class MarkdownRenderer(
      */
     private fun renderSection(section: Section): String {
         return buildString {
-            // Section heading (## by default, adjusted by offset)
+            val content = renderSectionContent(section)
+
+            // Check if content already starts with a heading matching the section title
+            // This prevents duplicate headers when section content includes its own title
             val headingLevel = 2 + options.headingLevelOffset
-            append("#".repeat(headingLevel))
-            append(" ")
-            append(section.title)
-            append(options.lineEnding)
-            append(options.lineEnding)
+            val expectedHeading = "${"#".repeat(headingLevel)} ${section.title}"
+            val contentStartsWithTitle = content.trimStart().startsWith(expectedHeading)
+
+            if (!contentStartsWithTitle) {
+                // Only add heading if content doesn't already have it
+                append("#".repeat(headingLevel))
+                append(" ")
+                append(section.title)
+                append(options.lineEnding)
+                append(options.lineEnding)
+            }
 
             // Section content based on format
-            append(renderSectionContent(section))
+            append(content)
         }
     }
 
@@ -154,8 +163,9 @@ class MarkdownRenderer(
     private fun renderSectionContent(section: Section): String {
         return when (section.contentFormat) {
             ContentFormat.MARKDOWN -> {
-                // Pass through markdown as-is
-                section.content
+                // Handle nested markdown code blocks to prevent rendering issues
+                // If content contains ```markdown blocks, escape them with 4 backticks
+                escapeNestedMarkdownBlocks(section.content)
             }
             ContentFormat.PLAIN_TEXT -> {
                 // Plain text - no special formatting needed
@@ -170,6 +180,62 @@ class MarkdownRenderer(
                 "```${options.defaultCodeLanguage}${options.lineEnding}${section.content}${options.lineEnding}```"
             }
         }
+    }
+
+    /**
+     * Escapes nested markdown code blocks to prevent rendering issues.
+     *
+     * When markdown content contains code blocks with "markdown" language specifier,
+     * it creates confusing nesting. This method detects such blocks and re-escapes them
+     * using 4-backtick fences to properly display the markdown examples.
+     *
+     * @param content The markdown content to process
+     * @return Content with nested markdown blocks properly escaped
+     */
+    private fun escapeNestedMarkdownBlocks(content: String): String {
+        // Pattern to match code blocks with 'markdown' language specifier
+        // Matches: ```markdown or ``` markdown (with optional whitespace)
+        val markdownBlockPattern = Regex("```\\s*markdown\\s*\n", RegexOption.IGNORE_CASE)
+
+        // Check if content contains markdown-language code blocks
+        if (!markdownBlockPattern.containsMatchIn(content)) {
+            // No nested markdown blocks - pass through as-is
+            return content
+        }
+
+        // Content has nested markdown blocks - need to re-escape
+        // Strategy: Replace triple-backtick markdown blocks with 4-backtick blocks
+        // This allows proper rendering of markdown examples within markdown content
+
+        val lines = content.lines().toMutableList()
+        val result = mutableListOf<String>()
+        var inMarkdownBlock = false
+        var i = 0
+
+        while (i < lines.size) {
+            val line = lines[i]
+
+            // Check if this line starts a markdown code block
+            if (!inMarkdownBlock && line.trim().matches(Regex("```\\s*markdown\\s*", RegexOption.IGNORE_CASE))) {
+                // Start of markdown block - use 4 backticks instead
+                result.add(line.replace(Regex("```\\s*markdown", RegexOption.IGNORE_CASE), "````markdown"))
+                inMarkdownBlock = true
+            }
+            // Check if this line ends a code block while we're in a markdown block
+            else if (inMarkdownBlock && line.trim() == "```") {
+                // End of markdown block - use 4 backticks instead
+                result.add("````")
+                inMarkdownBlock = false
+            }
+            else {
+                // Regular line - pass through unchanged
+                result.add(line)
+            }
+
+            i++
+        }
+
+        return result.joinToString(options.lineEnding)
     }
 
     /**
