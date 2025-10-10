@@ -38,5 +38,8 @@ object FeaturesTable : UUIDTable("features") {
         index(isUnique = false, createdAt)
         index(isUnique = false, modifiedAt)
         index(isUnique = false, version)
+
+        // Performance index for search
+        index(isUnique = false, searchVector)
     }
 }
