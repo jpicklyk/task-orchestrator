@@ -104,11 +104,12 @@ object WorkflowPromptsGuidance {
 
                             **REQUIRED ACTION**: Write initialization results to a permanent file on disk.
 
-                            **Recommended Storage** (in priority order):
-                            1. **CLAUDE.md** (append to existing file if present) - Best for Claude Code
-                            2. **.cursorrules** (create/append if using Cursor IDE)
-                            3. **.github/copilot-instructions.md** (if using GitHub Copilot)
-                            4. **Project-specific .ai/ directory** (create if none of above exist)
+                            **Storage Options** - Use your AI agent's standard documentation file:
+                            - **CLAUDE.md** (Claude Code)
+                            - **.cursorrules** (Cursor IDE)
+                            - **.github/copilot-instructions.md** (GitHub Copilot)
+                            - **.windsurfrules** (Windsurf)
+                            - **.ai/INITIALIZATION.md** (fallback if your AI doesn't have a standard format)
 
                             **Required Format** - Use a clearly marked section:
                             ```markdown
@@ -153,13 +154,13 @@ object WorkflowPromptsGuidance {
                             ```
 
                             **File Writing Steps**:
-                            1. Check if CLAUDE.md (or equivalent) exists in project root
+                            1. Check if your AI's standard documentation file exists in project root
                             2. If exists: Read current content, check for existing initialization section
                             3. If section exists: Update with new timestamp
                             4. If section missing: Append new section at end of file
-                            5. If no file exists: Create CLAUDE.md with initialization section
+                            5. If no file exists: Create your AI's standard documentation file with initialization section
                             6. **Verify**: Read the file back to confirm successful write
-                            7. **Report**: Tell user where initialization was saved (file path and section)
+                            7. **Report**: Tell user where initialization was saved (specific file path and section)
 
                             ### Step 3: Understand Dual Workflow Usage Model
 
@@ -244,7 +245,7 @@ object WorkflowPromptsGuidance {
                                ✅ Verify all 4 guideline resources were successfully read and understood
 
                             2. **WRITE to Permanent Storage**:
-                               ✅ Write initialization summary to CLAUDE.md (or equivalent)
+                               ✅ Write initialization summary to your AI's standard documentation file
                                ✅ Include timestamp for tracking (YYYY-MM-DD format)
                                ✅ Use the exact format from Step 2 "Required Format"
                                ✅ Read the file back to verify successful write
@@ -253,7 +254,7 @@ object WorkflowPromptsGuidance {
                                ✅ Tell user where initialization was saved (specific file path)
                                ✅ Show which section was added/updated
                                ✅ Confirm one-time setup is complete
-                               ✅ Example: "Initialization complete. Added 'Task Orchestrator - AI Initialization' section to CLAUDE.md"
+                               ✅ Example: "Initialization complete. Added 'Task Orchestrator - AI Initialization' section to [your-doc-file]"
 
                             4. **Confirm Pattern Recognition**:
                                ✅ Demonstrate understanding by explaining how to handle a sample request
@@ -267,7 +268,7 @@ object WorkflowPromptsGuidance {
                             - Defeats the purpose of one-time setup
                             - Makes the initialization workflow fail its primary goal
 
-                            **✅ CORRECT: Writing guidelines to CLAUDE.md or equivalent**
+                            **✅ CORRECT: Writing guidelines to your AI's standard documentation file**
                             - Persists across all sessions
                             - Available to all AI agents working in this project
                             - True one-time initialization
@@ -278,7 +279,7 @@ object WorkflowPromptsGuidance {
                             - AI might not find guidelines later
                             - Duplicates effort
 
-                            **✅ CORRECT: Checking for and appending to existing CLAUDE.md**
+                            **✅ CORRECT: Checking for and appending to existing shared documentation**
                             - Consolidates all AI guidance in one location
                             - Standard location for project-wide AI instructions
                             - Easy to find and update
@@ -289,7 +290,7 @@ object WorkflowPromptsGuidance {
                             - Lost on next session
 
                             **✅ CORRECT: Reporting specific file path and verification**
-                            - "Added Task Orchestrator initialization to D:\Projects\myapp\CLAUDE.md at line 45"
+                            - "Added Task Orchestrator initialization to [your-documentation-file] at line 45"
                             - Shows exactly where it was saved
                             - Can be verified by reading the file
 
