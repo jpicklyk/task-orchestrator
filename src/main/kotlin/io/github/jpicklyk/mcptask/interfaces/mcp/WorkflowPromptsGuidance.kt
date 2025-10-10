@@ -805,6 +805,31 @@ object WorkflowPromptsGuidance {
                             - What technologies are being used?
                             - What features/components already exist?
 
+                            ### Step 3.5A: Check for Existing Projects (REQUIRED)
+
+                            **Before creating a new project**, search for existing projects:
+
+                            Use search_projects:
+                            - Search by project name extracted from documentation
+                            - Check if any results match
+
+                            **If existing project found**:
+                            Ask user: "I found an existing project '[name]' (UUID: [uuid], created: [date]).
+                            Is this the same project you want to set up?"
+
+                            - **If YES**:
+                              - Skip project creation (Step 4A)
+                              - Use the existing project UUID
+                              - Jump to Step 8A (save existing UUID to local memory)
+                              - Report: "Recovered existing project UUID to local memory"
+
+                            - **If NO** (different project with same name):
+                              - Ask user to provide a different name to avoid confusion
+                              - Continue to Step 4A with new name
+
+                            **If no existing project found**:
+                            - Continue to Step 4A (create new project)
+
                             ### Step 4A: Create Lightweight Project Entity
 
                             **Create minimal project container** in Task Orchestrator:
@@ -1048,6 +1073,31 @@ object WorkflowPromptsGuidance {
                             6. **Report**: "Created project documentation in [file-path]"
 
                             **Important**: This file should be committed to git so all team members can see it.
+
+                            ### Step 4.5B: Check for Existing Projects (REQUIRED)
+
+                            **Before creating a new project**, search for existing projects:
+
+                            Use search_projects:
+                            - Search by project name extracted from plan
+                            - Check if any results match
+
+                            **If existing project found**:
+                            Ask user: "I found an existing project '[name]' (UUID: [uuid], created: [date]).
+                            Is this the same project you want to set up?"
+
+                            - **If YES**:
+                              - Skip project creation (Step 5B)
+                              - Use the existing project UUID
+                              - Jump to Step 8B (save existing UUID to local memory)
+                              - Report: "Recovered existing project UUID to local memory"
+
+                            - **If NO** (different project with same name):
+                              - Ask user to provide a different name to avoid confusion
+                              - Continue to Step 5B with new name
+
+                            **If no existing project found**:
+                            - Continue to Step 5B (create new project)
 
                             ### Step 5B: Create Lightweight Project Entity
 
