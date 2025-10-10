@@ -20,7 +20,9 @@ import java.time.format.DateTimeFormatter
 class MarkdownRenderer(
     private val options: MarkdownOptions = MarkdownOptions()
 ) {
-    private val isoFormatter = DateTimeFormatter.ISO_INSTANT
+    // Use ISO format without milliseconds for cleaner, more readable dates
+    // Format: 2025-05-10T14:30:00Z (instead of 2025-05-10T14:30:00.123456789Z)
+    private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
     /**
      * Renders a task with its sections as a complete markdown document.
@@ -49,9 +51,14 @@ class MarkdownRenderer(
             append(options.lineEnding)
 
             // Sections
-            sections.sortedBy { it.ordinal }.forEach { section ->
+            sections.sortedBy { it.ordinal }.forEachIndexed { index, section ->
                 append(renderSection(section))
-                append(options.lineEnding)
+                // Add consistent spacing between sections (two line endings)
+                // Last section doesn't need extra spacing since trimEnd() removes trailing whitespace
+                if (index < sections.size - 1) {
+                    append(options.lineEnding)
+                    append(options.lineEnding)
+                }
             }
         }.trimEnd()
     }
@@ -83,9 +90,14 @@ class MarkdownRenderer(
             append(options.lineEnding)
 
             // Sections
-            sections.sortedBy { it.ordinal }.forEach { section ->
+            sections.sortedBy { it.ordinal }.forEachIndexed { index, section ->
                 append(renderSection(section))
-                append(options.lineEnding)
+                // Add consistent spacing between sections (two line endings)
+                // Last section doesn't need extra spacing since trimEnd() removes trailing whitespace
+                if (index < sections.size - 1) {
+                    append(options.lineEnding)
+                    append(options.lineEnding)
+                }
             }
         }.trimEnd()
     }
@@ -117,9 +129,14 @@ class MarkdownRenderer(
             append(options.lineEnding)
 
             // Sections
-            sections.sortedBy { it.ordinal }.forEach { section ->
+            sections.sortedBy { it.ordinal }.forEachIndexed { index, section ->
                 append(renderSection(section))
-                append(options.lineEnding)
+                // Add consistent spacing between sections (two line endings)
+                // Last section doesn't need extra spacing since trimEnd() removes trailing whitespace
+                if (index < sections.size - 1) {
+                    append(options.lineEnding)
+                    append(options.lineEnding)
+                }
             }
         }.trimEnd()
     }
@@ -163,9 +180,13 @@ class MarkdownRenderer(
     private fun renderSectionContent(section: Section): String {
         return when (section.contentFormat) {
             ContentFormat.MARKDOWN -> {
+                // Process markdown content for proper formatting
+                var content = section.content
                 // Handle nested markdown code blocks to prevent rendering issues
-                // If content contains ```markdown blocks, escape them with 4 backticks
-                escapeNestedMarkdownBlocks(section.content)
+                content = escapeNestedMarkdownBlocks(content)
+                // Enforce consistent header hierarchy to prevent structural issues
+                content = normalizeHeaderHierarchy(content)
+                content
             }
             ContentFormat.PLAIN_TEXT -> {
                 // Plain text - no special formatting needed
@@ -176,10 +197,124 @@ class MarkdownRenderer(
                 "```json${options.lineEnding}${section.content}${options.lineEnding}```"
             }
             ContentFormat.CODE -> {
-                // Wrap code in code fence with configured language
-                "```${options.defaultCodeLanguage}${options.lineEnding}${section.content}${options.lineEnding}```"
+                // Detect language from section context for better syntax highlighting
+                val language = detectCodeLanguage(section)
+                "```${language}${options.lineEnding}${section.content}${options.lineEnding}```"
             }
         }
+    }
+
+    /**
+     * Detects the code language from section metadata for syntax highlighting.
+     *
+     * Examines section title and tags to determine appropriate language specifier.
+     * Falls back to configured default if no language can be detected.
+     *
+     * @param section The section containing code
+     * @return Language identifier for code fence (e.g., "kotlin", "bash", "json")
+     */
+    private fun detectCodeLanguage(section: Section): String {
+        // Common language keywords to look for in title and tags
+        val languagePatterns = mapOf(
+            "kotlin" to listOf("kotlin", "kt"),
+            "java" to listOf("java"),
+            "python" to listOf("python", "py"),
+            "javascript" to listOf("javascript", "js"),
+            "typescript" to listOf("typescript", "ts"),
+            "bash" to listOf("bash", "shell", "sh"),
+            "sql" to listOf("sql"),
+            "json" to listOf("json"),
+            "yaml" to listOf("yaml", "yml"),
+            "xml" to listOf("xml"),
+            "markdown" to listOf("markdown", "md"),
+            "dockerfile" to listOf("dockerfile", "docker"),
+            "go" to listOf("go", "golang"),
+            "rust" to listOf("rust", "rs"),
+            "c++" to listOf("c++", "cpp"),
+            "c#" to listOf("c#", "csharp"),
+            "ruby" to listOf("ruby", "rb"),
+            "php" to listOf("php")
+        )
+
+        val titleLower = section.title.lowercase()
+        val tagsLower = section.tags.map { it.lowercase() }
+        val searchText = (listOf(titleLower) + tagsLower).joinToString(" ")
+
+        // Find first matching language
+        for ((language, patterns) in languagePatterns) {
+            if (patterns.any { pattern -> searchText.contains(pattern) }) {
+                return language
+            }
+        }
+
+        // No language detected - use configured default
+        return options.defaultCodeLanguage
+    }
+
+    /**
+     * Normalizes markdown header hierarchy to ensure proper nesting.
+     *
+     * Prevents structural issues by ensuring headers follow logical hierarchy
+     * (e.g., H2 → H3 → H4, not H2 → H4). Adjusts header levels to maintain
+     * a maximum jump of one level between adjacent headers.
+     *
+     * @param content The markdown content to normalize
+     * @return Content with properly nested headers
+     */
+    private fun normalizeHeaderHierarchy(content: String): String {
+        val lines = content.lines()
+        val result = mutableListOf<String>()
+        var previousLevel = 0
+        var inCodeBlock = false
+
+        for (line in lines) {
+            // Track code blocks to avoid processing headers inside them
+            if (line.trimStart().startsWith("```")) {
+                inCodeBlock = !inCodeBlock
+                result.add(line)
+                continue
+            }
+
+            // Skip header processing inside code blocks
+            if (inCodeBlock) {
+                result.add(line)
+                continue
+            }
+
+            // Check if line is a header (starts with # characters)
+            val trimmed = line.trimStart()
+            if (trimmed.startsWith("#") && trimmed.contains(" ")) {
+                val headerMatch = Regex("^(#+)\\s+(.*)").find(trimmed)
+                if (headerMatch != null) {
+                    val (hashes, text) = headerMatch.destructured
+                    val currentLevel = hashes.length
+
+                    // Determine appropriate level based on previous header
+                    val normalizedLevel = if (previousLevel == 0) {
+                        // First header - keep as-is
+                        currentLevel
+                    } else if (currentLevel > previousLevel + 1) {
+                        // Header jumps more than one level - normalize to previous + 1
+                        previousLevel + 1
+                    } else {
+                        // Header level is valid - keep as-is
+                        currentLevel
+                    }
+
+                    previousLevel = normalizedLevel
+                    val normalizedLine = "${line.substringBefore("#")}${"#".repeat(normalizedLevel)} $text"
+                    result.add(normalizedLine)
+                } else {
+                    // Malformed header - keep as-is
+                    result.add(line)
+                }
+            } else {
+                // Not a header - keep as-is
+                result.add(line)
+            }
+        }
+
+        return result.joinToString(options.lineEnding)
     }
 
     /**
@@ -289,10 +424,10 @@ class MarkdownRenderer(
             }
 
             append("created: ")
-            append(isoFormatter.format(task.createdAt))
+            append(dateFormatter.format(task.createdAt.atZone(java.time.ZoneOffset.UTC)))
             append(options.lineEnding)
             append("modified: ")
-            append(isoFormatter.format(task.modifiedAt))
+            append(dateFormatter.format(task.modifiedAt.atZone(java.time.ZoneOffset.UTC)))
             append(options.lineEnding)
             append("---")
         }
@@ -340,10 +475,10 @@ class MarkdownRenderer(
             }
 
             append("created: ")
-            append(isoFormatter.format(feature.createdAt))
+            append(dateFormatter.format(feature.createdAt.atZone(java.time.ZoneOffset.UTC)))
             append(options.lineEnding)
             append("modified: ")
-            append(isoFormatter.format(feature.modifiedAt))
+            append(dateFormatter.format(feature.modifiedAt.atZone(java.time.ZoneOffset.UTC)))
             append(options.lineEnding)
             append("---")
         }
@@ -382,10 +517,10 @@ class MarkdownRenderer(
             }
 
             append("created: ")
-            append(isoFormatter.format(project.createdAt))
+            append(dateFormatter.format(project.createdAt.atZone(java.time.ZoneOffset.UTC)))
             append(options.lineEnding)
             append("modified: ")
-            append(isoFormatter.format(project.modifiedAt))
+            append(dateFormatter.format(project.modifiedAt.atZone(java.time.ZoneOffset.UTC)))
             append(options.lineEnding)
             append("---")
         }
