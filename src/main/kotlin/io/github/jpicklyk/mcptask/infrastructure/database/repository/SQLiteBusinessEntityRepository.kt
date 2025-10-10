@@ -122,6 +122,12 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
      */
     protected abstract fun getEntityPriority(entity: T): TPriority?
 
+    /**
+     * Returns a copy of the entity with the version incremented by 1.
+     * Used after successful updates to reflect the database state.
+     */
+    protected abstract fun incrementEntityVersion(entity: T): T
+
     //======================================
     // Common CRUD Operations
     //======================================
@@ -237,8 +243,9 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
                 val tags = getEntityTags(entity)
                 insertEntityTags(entityId, tags)
 
-                // Return the updated entity
-                Result.Success(entity)
+                // Return the updated entity with incremented version
+                // Since update succeeded, we know version was incremented in the database
+                Result.Success(incrementEntityVersion(entity))
             }
 
             // Transaction returns Result<T>, so we just return it

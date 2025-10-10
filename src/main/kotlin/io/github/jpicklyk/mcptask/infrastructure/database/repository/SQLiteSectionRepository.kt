@@ -128,7 +128,8 @@ class SQLiteSectionRepository(
                     }
 
                     if (rowsUpdated > 0) {
-                        Result.Success(updatedSection)
+                        // Return section with incremented version since update succeeded
+                        Result.Success(updatedSection.copy(version = section.version + 1))
                     } else {
                         // 0 rows updated: either entity doesn't exist OR version conflict
                         if (!exists) {

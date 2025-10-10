@@ -104,6 +104,7 @@ class SQLiteProjectRepository(
     override fun getPriorityColumn(): Column<Nothing>? = null // Projects don't have priority
     override fun getEntityStatus(entity: Project): ProjectStatus? = entity.status
     override fun getEntityPriority(entity: Project): Nothing? = null // Projects don't have priority
+    override fun incrementEntityVersion(entity: Project): Project = entity.copy(version = entity.version + 1)
 
     //======================================
     // ProjectRepository Interface Implementation
