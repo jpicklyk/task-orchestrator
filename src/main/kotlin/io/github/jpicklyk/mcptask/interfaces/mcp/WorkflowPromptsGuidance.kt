@@ -98,30 +98,68 @@ object WorkflowPromptsGuidance {
                                - When to invoke workflow prompts
                                - Integration best practices
 
-                            ### Step 2: Store Guidelines in AI's Memory System
+                            ### Step 2: WRITE Guidelines to Permanent Storage
 
-                            After reading resources, AI agents should store the key principles and patterns in whatever memory mechanism they support:
+                            After reading resources, AI agents **MUST write** the key principles to persistent storage. This is a one-time setup that persists across all sessions.
 
-                            **Memory Storage Options** (AI-dependent):
-                            - Project-specific instruction files (e.g., CLAUDE.md, .cursorrules, .ai/*)
-                            - Memory MCP servers or similar persistent storage
-                            - Conversational context and session memory
-                            - AI-specific configuration systems
-                            - Any other AI-native memory mechanism
+                            **REQUIRED ACTION**: Write initialization results to a permanent file on disk.
 
-                            **What to Store**:
-                            - Key decision frameworks from usage-overview
-                            - Template discovery patterns from template-strategy
-                            - Intent recognition categories from task-management
-                            - Pattern application guidelines
-                            - Dual workflow model principles
+                            **Recommended Storage** (in priority order):
+                            1. **CLAUDE.md** (append to existing file if present) - Best for Claude Code
+                            2. **.cursorrules** (create/append if using Cursor IDE)
+                            3. **.github/copilot-instructions.md** (if using GitHub Copilot)
+                            4. **Project-specific .ai/ directory** (create if none of above exist)
 
-                            **Storage Best Practices**:
-                            - Summarize key principles rather than full text
-                            - Focus on actionable patterns and decision trees
-                            - Include examples of common intent → action mappings
-                            - Reference resource URIs for detailed lookup when needed
-                            - Store workflow invocation triggers and scenarios
+                            **Required Format** - Use a clearly marked section:
+                            ```markdown
+                            ## Task Orchestrator - AI Initialization
+
+                            Last initialized: YYYY-MM-DD
+
+                            ### Critical Patterns
+
+                            **Template Discovery** (NEVER skip this step):
+                            - Always: list_templates(targetEntityType, isEnabled=true)
+                            - Never: Assume templates exist
+                            - Apply: Use templateIds parameter during creation
+                            - Filter: By targetEntityType (TASK or FEATURE) and isEnabled=true
+
+                            **Session Start Routine**:
+                            1. Run get_overview() first to understand current state
+                            2. Check for in-progress tasks before starting new work
+                            3. Review priorities and dependencies
+
+                            **Intent Recognition Patterns**:
+                            - "Create feature for X" → Feature creation with template discovery
+                            - "Implement X" → Task creation with implementation templates
+                            - "Fix bug X" → Bug triage with Bug Investigation template
+                            - "Break down X" → Task decomposition pattern
+                            - "Set up project" → Project setup workflow
+
+                            **Dual Workflow Model**:
+                            - Autonomous: For common tasks with clear intent (faster, natural)
+                            - Explicit Workflows: For complex scenarios or learning (comprehensive)
+
+                            **Git Integration**:
+                            - Auto-detect .git directory presence
+                            - Suggest git workflow templates when detected
+                            - Ask about PR workflows (don't assume)
+
+                            **Quality Standards**:
+                            - Write descriptive titles and summaries
+                            - Use appropriate complexity ratings (1-10)
+                            - Apply consistent tagging conventions
+                            - Include acceptance criteria in summaries
+                            ```
+
+                            **File Writing Steps**:
+                            1. Check if CLAUDE.md (or equivalent) exists in project root
+                            2. If exists: Read current content, check for existing initialization section
+                            3. If section exists: Update with new timestamp
+                            4. If section missing: Append new section at end of file
+                            5. If no file exists: Create CLAUDE.md with initialization section
+                            6. **Verify**: Read the file back to confirm successful write
+                            7. **Report**: Tell user where initialization was saved (file path and section)
 
                             ### Step 3: Understand Dual Workflow Usage Model
 
@@ -198,21 +236,62 @@ object WorkflowPromptsGuidance {
                             - Plan template discovery approach
                             - Decide autonomous vs workflow prompt
 
-                            ### Step 6: Initialization Confirmation
+                            ### Step 6: Initialization Confirmation and File Persistence
 
-                            After completing initialization, AI agents should:
+                            After completing initialization, AI agents **MUST**:
 
                             1. **Confirm Resource Reading**:
-                               Verify all 4 guideline resources were successfully read and understood
+                               ✅ Verify all 4 guideline resources were successfully read and understood
 
-                            2. **Confirm Memory Storage**:
-                               Verify key principles stored in available memory mechanism
+                            2. **WRITE to Permanent Storage**:
+                               ✅ Write initialization summary to CLAUDE.md (or equivalent)
+                               ✅ Include timestamp for tracking (YYYY-MM-DD format)
+                               ✅ Use the exact format from Step 2 "Required Format"
+                               ✅ Read the file back to verify successful write
 
-                            3. **Confirm Pattern Recognition**:
-                               Demonstrate understanding by explaining how to handle a sample request
+                            3. **Report to User**:
+                               ✅ Tell user where initialization was saved (specific file path)
+                               ✅ Show which section was added/updated
+                               ✅ Confirm one-time setup is complete
+                               ✅ Example: "Initialization complete. Added 'Task Orchestrator - AI Initialization' section to CLAUDE.md"
 
-                            4. **Ready for Use**:
-                               Signal readiness to use Task Orchestrator tools effectively
+                            4. **Confirm Pattern Recognition**:
+                               ✅ Demonstrate understanding by explaining how to handle a sample request
+                               ✅ Show template discovery pattern in action
+
+                            ## ⚠️ Common Mistakes to Avoid
+
+                            **❌ WRONG: Storing guidelines only in session/conversational context**
+                            - This is lost when the session ends
+                            - Requires re-initialization every time
+                            - Defeats the purpose of one-time setup
+                            - Makes the initialization workflow fail its primary goal
+
+                            **✅ CORRECT: Writing guidelines to CLAUDE.md or equivalent**
+                            - Persists across all sessions
+                            - Available to all AI agents working in this project
+                            - True one-time initialization
+                            - Verifiable by reading the file
+
+                            **❌ WRONG: Creating a new separate file without checking existing files**
+                            - Creates fragmentation
+                            - AI might not find guidelines later
+                            - Duplicates effort
+
+                            **✅ CORRECT: Checking for and appending to existing CLAUDE.md**
+                            - Consolidates all AI guidance in one location
+                            - Standard location for project-wide AI instructions
+                            - Easy to find and update
+
+                            **❌ WRONG: Saying "I've stored this in my memory" without file write**
+                            - Vague and unverifiable
+                            - Doesn't create persistent storage
+                            - Lost on next session
+
+                            **✅ CORRECT: Reporting specific file path and verification**
+                            - "Added Task Orchestrator initialization to D:\Projects\myapp\CLAUDE.md at line 45"
+                            - Shows exactly where it was saved
+                            - Can be verified by reading the file
 
                             ## Ongoing Best Practices
 
@@ -620,389 +699,559 @@ object WorkflowPromptsGuidance {
 
 
     /**
-     * Adds a prompt for setting up a new project with proper structure and organization.
+     * Adds an AI-agnostic prompt for setting up projects with Task Orchestrator.
+     * Works with existing codebases or new projects, using AI's native memory systems.
      */
     private fun addProjectSetupPrompt(server: Server) {
         server.addPrompt(
             name = "project_setup_workflow",
-            description = "Complete guide for setting up a new project with proper structure, features, and initial tasks"
+            description = "AI-agnostic guide for setting up Task Orchestrator with existing or new projects"
         ) { _ ->
             GetPromptResult(
-                description = "Comprehensive workflow for initializing a new project with optimal organization",
+                description = "Universal workflow for Task Orchestrator project setup across any AI agent",
                 messages = listOf(
                     PromptMessage(
                         role = Role.assistant,
                         content = TextContent(
                             text = """
-                            # Project Setup Workflow
+                            # Project Setup Workflow (AI-Agnostic)
 
-                            This workflow guides you through setting up a new project with proper structure, comprehensive documentation, and effective organization for long-term success.
+                            This workflow helps you set up Task Orchestrator for project management, whether you're working with an existing codebase or starting a brand new project. It works with any AI agent by using abstract storage patterns rather than prescribing specific files.
 
-                            ## Step 1: Load Project Setup Configuration from Memory
+                            ## Understanding Storage Categories
 
-                            **Check your available memory systems** for project setup configuration:
+                            Task Orchestrator uses three storage layers:
 
-                            **Global Preferences** (user-wide):
-                            - Standard feature set for new projects
-                            - Default foundation tasks
-                            - Documentation section standards
+                            **1. Shared Project Documentation** (committed to git):
+                            - Purpose: Team-wide guidance visible to all developers
+                            - Content: Technical implementation, architecture, build commands, development standards
+                            - AI-specific formats: CLAUDE.md, .cursorrules, .github/copilot-instructions.md, .windsurfrules
+                            - Fallback: .ai/PROJECT.md if your AI doesn't have a standard format
 
-                            **Project Configuration** (team-specific):
-                            - Team-specific feature structure
-                            - Organization-standard foundation tasks
-                            - Company documentation requirements
+                            **2. Local Developer Memory** (gitignored, never committed):
+                            - Purpose: Developer-specific context and preferences
+                            - Content: Project UUID, personal workflow preferences, local configurations
+                            - AI-specific formats: CLAUDE.local.md, .cursor/local, .ai/local.config
+                            - Why local: Each developer may use different AI tools with different Task Orchestrator project instances
 
-                            **Memory Configuration Schema** (what to look for):
-                            ```
-                            # Task Orchestrator - Project Setup Configuration
+                            **3. Task Orchestrator Database** (managed by MCP):
+                            - Purpose: Structured work planning and tracking
+                            - Content: Features, tasks, dependencies, progress, templates
+                            - Access: Through MCP tools (get_overview, create_task, etc.)
 
-                            ## Standard Features
-                            project_standard_features:
-                              - "User Management"
-                              - "Authentication & Authorization"
-                              - "Data Management"
+                            ## Key Principle: AI Agent Agnostic
 
-                            ## Foundation Tasks
-                            project_foundation_tasks:
-                              - title: "Project Infrastructure Setup"
-                                templates: ["task-implementation-workflow", "technical-approach"]
-                              - title: "Development Environment Configuration"
-                                templates: ["task-implementation-workflow"]
+                            This workflow provides **what to store** and **why**, but lets your AI agent decide **where** and **how** using its native capabilities.
 
-                            ## Documentation Standards
-                            project_documentation_sections:
-                              - "Project Charter"
-                              - "Technical Architecture"
-                              - "Development Standards"
-                            ```
+                            Your AI agent should:
+                            - Use its preferred file formats and locations
+                            - Store shared docs in git-committed files
+                            - Store local context in gitignored files
+                            - Report where it stored information
 
-                            **If configuration found**:
-                            - Use configured standard features
-                            - Auto-create foundation tasks
-                            - Apply documentation standards
+                            ## Step 1: Detect Scenario
 
-                            **If NOT found**:
-                            - Use manual feature identification
-                            - Create foundation tasks based on project needs
-                            - Offer to save preferences for future projects
+                            **Determine which setup scenario applies:**
 
-                            ## Step 2: Initialize AI Environment
-                            **Before creating the project, set up AI guidelines for optimal task orchestrator usage.**
+                            Use file system tools to check:
+                            - Does project documentation exist? (CLAUDE.md, .cursorrules, .github/copilot-instructions.md, .ai/PROJECT.md)
+                            - Does code exist in src/, lib/, or similar directories?
 
-                            If you haven't already initialized Task Orchestrator guidelines in this AI session:
-                            ```
-                            Invoke the initialize_task_orchestrator prompt to set up guidelines
-                            ```
+                            **Scenario A: Existing Codebase**
+                            - Project documentation exists
+                            - Code files present
+                            - Use existing docs as context
+                            - Create Task Orchestrator structure referencing existing architecture
 
-                            **Why This Matters**:
-                            - Ensures AI understands best practices for task/feature creation
-                            - Enables intelligent template discovery and application
-                            - Provides natural language pattern recognition throughout project
-                            - Establishes proper workflow integration from the start
-                            - Optimizes task orchestrator usage for entire project lifecycle
+                            **Scenario B: New Project with Plan**
+                            - No project documentation OR minimal code
+                            - User has a project plan/PRD document
+                            - Extract info from plan → write to shared documentation
+                            - Create Task Orchestrator structure from plan
 
-                            **What It Does**:
-                            - Guides reading all guideline resources (usage, templates, workflows, patterns)
-                            - Sets up guidelines in AI's memory system
-                            - Teaches dual workflow model (autonomous vs explicit)
-                            - Prepares AI for effective project management
+                            **Ask user if unclear**:
+                            "I see [existing docs/no docs]. Are you:
+                            A) Setting up Task Orchestrator for existing codebase
+                            B) Starting a brand new project with a project plan"
 
-                            **Note**: If already initialized in current session, skip to Step 3.
+                            ## Step 2: Check Task Orchestrator Initialization
 
-                            ## Step 3: Project Foundation
-                            Create the top-level project container:
-                            ```json
+                            **Verify AI initialization** before proceeding:
+
+                            Check your memory for "Task Orchestrator - AI Initialization" section:
+                            - If found: Continue to scenario-specific steps
+                            - If NOT found: Recommend running initialize_task_orchestrator first
+
+                            **Why**: Initialization ensures you understand template discovery, intent recognition, and workflow patterns.
+
+                            ---
+
+                            ## SCENARIO A: Existing Codebase
+
+                            Use this path when project documentation and code already exist.
+
+                            ### Step 3A: Review Existing Documentation
+
+                            **Read existing project documentation** to understand the codebase:
+
+                            Use file system tools to read:
+                            - CLAUDE.md, .cursorrules, .github/copilot-instructions.md, or similar
+                            - README.md for project overview
+                            - Architecture documentation if available
+
+                            **Extract context**:
+                            - What is the project building?
+                            - What technologies are being used?
+                            - What features/components already exist?
+
+                            ### Step 4A: Create Lightweight Project Entity
+
+                            **Create minimal project container** in Task Orchestrator:
+
                             Use create_project:
+                            ```json
                             {
-                              "name": "[Descriptive project name]",
-                              "summary": "[Comprehensive project description with goals, scope, and success criteria]",
-                              "status": "planning",
-                              "tags": "[project-type,technology-stack,business-domain,timeline]"
+                              "name": "[Project name from docs]",
+                              "summary": "[1-2 sentence description from docs]",
+                              "status": "in-development",
+                              "tags": "[main-tech-stack,project-type]"
                             }
                             ```
 
-                            **Project Summary Best Practices**:
-                            - Include business objectives and user value
-                            - Define scope boundaries (what's included/excluded)
-                            - Mention key technologies and constraints
-                            - State success criteria and completion definition
+                            **Keep it simple**:
+                            - Summary: Just the essence from existing docs
+                            - Tags: Technology stack and type
+                            - Status: Likely "in-development" since code exists
+                            - **DO NOT create project sections** - docs already exist in files
 
-                            ## Step 4: Project Documentation Structure
-                            Add comprehensive project documentation:
+                            ### Step 5A: Identify Features from Codebase
+
+                            **Analyze existing structure** to identify features:
+
+                            Use file system tools to:
+                            - Read source code structure
+                            - Review existing documentation
+                            - Identify major functional areas
+
+                            **Ask user to confirm features**:
+                            "Based on the codebase, I see these major features:
+                            - [Feature 1]
+                            - [Feature 2]
+                            - [Feature 3]
+
+                            Should I create Task Orchestrator features for these?"
+
+                            ### Step 6A: Create Features
+
+                            **For each confirmed feature**, use create_feature:
+
                             ```json
-                            Use bulk_create_sections for project-level documentation:
                             {
-                              "sections": [
-                                {
-                                  "entityType": "PROJECT",
-                                  "entityId": "[project-id]",
-                                  "title": "Project Charter",
-                                  "usageDescription": "High-level project goals, stakeholders, and success criteria",
-                                  "content": "[Business goals, target users, key stakeholders, success metrics]",
-                                  "ordinal": 0,
-                                  "tags": "charter,goals,stakeholders"
-                                },
-                                {
-                                  "entityType": "PROJECT",
-                                  "entityId": "[project-id]",
-                                  "title": "Technical Architecture",
-                                  "usageDescription": "Overall system architecture and technology decisions",
-                                  "content": "[Architecture overview, technology stack, key design decisions]",
-                                  "ordinal": 1,
-                                  "tags": "architecture,technical,decisions"
-                                },
-                                {
-                                  "entityType": "PROJECT",
-                                  "entityId": "[project-id]",
-                                  "title": "Development Standards",
-                                  "usageDescription": "Coding standards, workflows, and quality requirements",
-                                  "content": "[Coding guidelines, git workflow, testing requirements, review process]",
-                                  "ordinal": 2,
-                                  "tags": "standards,workflow,quality"
-                                }
-                              ]
+                              "name": "[Feature name]",
+                              "summary": "[What it does and current state]",
+                              "status": "[planning/in-development/completed based on code]",
+                              "priority": "medium",
+                              "projectId": "[project-id-from-step-4A]",
+                              "templateIds": ["requirements-specification"],
+                              "tags": "[feature-area,tech-stack]"
                             }
                             ```
 
-                            ## Step 5: Feature Planning and Structure
-                            Identify and create major features using memory configuration (if available):
+                            **Minimal templates**:
+                            - Use just "requirements-specification" for existing features
+                            - Can add more detail later if needed
 
-                            **If memory configuration found with project_standard_features**:
+                            ### Step 7A: Create Initial Tasks (Optional)
+
+                            **Ask user**: "Would you like me to create tasks for upcoming work?"
+
+                            If yes, create tasks for:
+                            - Planned features not yet implemented
+                            - Known bugs or improvements
+                            - Technical debt items
+
+                            **Git Detection**: Check for .git directory
+
+                            Use create_task:
                             ```json
-                            Auto-create standard features from memory:
                             {
-                              "name": "[Feature from project_standard_features list]",
-                              "summary": "[Feature description with user value and technical scope]",
-                              "status": "planning",
-                              "priority": "high",
+                              "title": "[Specific task]",
+                              "summary": "[What to do and why]",
+                              "featureId": "[feature-id]",
                               "projectId": "[project-id]",
-                              "templateIds": ["context-background", "requirements-specification"],
-                              "tags": "[feature-type,user-facing/internal,complexity-level]"
+                              "priority": "[high/medium/low]",
+                              "complexity": "[3-7]",
+                              "templateIds": ["task-implementation-workflow", "local-git-branching-workflow"],
+                              "tags": "task-type-feature,[area]"
                             }
                             ```
 
-                            **If NO memory configuration**:
+                            **Template notes**:
+                            - Include "local-git-branching-workflow" if git detected
+                            - Ask about PR workflows if uncertain
 
-                            **Feature Identification Strategy**:
-                            - Break project into 3-7 major functional areas
-                            - Each feature should represent cohesive user functionality
-                            - Features should be independently deliverable when possible
-                            - Consider technical architecture boundaries
+                            ### Step 8A: Save Project UUID to Local Memory
 
-                            **Create Core Features**:
+                            **REQUIRED ACTION**: Write project UUID to local developer memory.
+
+                            **Storage location** - Your AI agent's local memory:
+                            - CLAUDE.local.md (Claude Code)
+                            - .cursor/local (Cursor)
+                            - .ai/local.config (fallback)
+
+                            **Required format**:
+                            ```markdown
+                            ## Task Orchestrator - Project Context
+
+                            Project UUID: [uuid-from-step-4A]
+                            Project Name: [name]
+                            Last synced: YYYY-MM-DD
+
+                            Quick commands:
+                            - View overview: get_overview()
+                            - View project: get_project(id="[uuid]", includeFeatures=true, includeTasks=true)
+                            ```
+
+                            **File Writing Steps**:
+                            1. Check if local config file exists
+                            2. If exists: Check for "Task Orchestrator - Project Context" section
+                            3. If section exists: Update UUID and timestamp
+                            4. If section missing: Append at end
+                            5. If file doesn't exist: Create with this section
+                            6. **Verify**: Read file back to confirm write
+                            7. **Report**: "Saved project UUID to [file-path]"
+
+                            ### Step 9A: Ensure Local Memory is Gitignored
+
+                            **REQUIRED ACTION**: Verify local storage is gitignored.
+
+                            **Check .gitignore**:
+                            1. Read .gitignore file
+                            2. Check if your local config file is listed
+                            3. If NOT listed: Add it
+
+                            **Common entries to add**:
+                            ```
+                            # Task Orchestrator local context
+                            CLAUDE.local.md
+                            .cursor/local
+                            .ai/local.config
+                            *.local.md
+                            ```
+
+                            **If .gitignore doesn't exist**: Create it with these entries
+
+                            **Verify**: Read .gitignore back to confirm
+
+                            **Report**: "Added [your-local-file] to .gitignore"
+
+                            ### Step 10A: Completion
+
+                            **Report to user**:
+                            ```
+                            ✅ Task Orchestrator setup complete for existing codebase!
+
+                            Project: [name] ([uuid])
+                            UUID saved to: [local-file] (gitignored)
+                            Features created: [count]
+                            Tasks created: [count]
+
+                            Next steps:
+                            - Run get_overview() to see your project structure
+                            - Start creating tasks for upcoming work
+                            - Use implementation_workflow when ready to code
+
+                            Your existing documentation remains the source of truth in [CLAUDE.md/etc].
+                            Task Orchestrator now tracks your work planning and progress.
+                            ```
+
+                            ---
+
+                            ## SCENARIO B: New Project with Plan
+
+                            Use this path when starting a brand new project with a project plan document.
+
+                            ### Step 3B: Get Project Plan
+
+                            **Ask user for project plan**:
+
+                            "How would you like to provide the project plan?
+                            A) File path (I'll read the document)
+                            B) Paste content (provide inline)
+                            C) Describe verbally (I'll ask questions)
+                            D) Already documented elsewhere (skip extraction)"
+
+                            **If A (File path)**:
+                            - Use file reading tools to load document
+                            - Support: .md, .txt, .pdf, .docx, etc.
+
+                            **If B (Paste content)**:
+                            - User provides plan content directly
+                            - Process the provided text
+
+                            **If C (Describe verbally)**:
+                            - Ask structured questions:
+                              - What are you building and why?
+                              - Who are the target users?
+                              - What technologies will you use?
+                              - What are the main features?
+                              - What are success criteria?
+
+                            **If D (Already documented)**:
+                            - Skip to Step 5B (create project entity directly)
+
+                            ### Step 4B: Extract Project Information to Shared Docs
+
+                            **Extract key information from project plan**:
+                            - Project overview (what/why)
+                            - Technology stack decisions
+                            - Architecture approach
+                            - Development standards
+                            - Core features/capabilities
+
+                            **Write to shared project documentation**:
+
+                            **Use your AI agent's preferred format**:
+                            - CLAUDE.md (Claude Code - append or create)
+                            - .cursorrules (Cursor - append or create)
+                            - .github/copilot-instructions.md (GitHub Copilot)
+                            - .ai/PROJECT.md (fallback if no standard format)
+
+                            **Required format** - Append this section:
+                            ```markdown
+                            # [Project Name]
+
+                            ## Project Overview
+
+                            [Extracted overview from plan]
+
+                            ## Technology Stack
+
+                            [Extracted technologies and architecture decisions]
+
+                            ## Core Features
+
+                            [High-level feature list from plan]
+
+                            ## Development Standards
+
+                            [Extracted guidelines, workflows, testing requirements]
+                            ```
+
+                            **File Writing Steps**:
+                            1. Check if preferred doc file exists
+                            2. If exists: Append project information
+                            3. If doesn't exist: Create file with project info
+                            4. **Verify**: Read file back to confirm write
+                            5. **Verify**: File is NOT in .gitignore (should be committed)
+                            6. **Report**: "Created project documentation in [file-path]"
+
+                            **Important**: This file should be committed to git so all team members can see it.
+
+                            ### Step 5B: Create Lightweight Project Entity
+
+                            **Create minimal project container** in Task Orchestrator:
+
+                            Use create_project:
                             ```json
-                            Use create_feature for each major area:
                             {
-                              "name": "[Feature name representing user functionality]",
-                              "summary": "[Feature description with user value and technical scope]",
+                              "name": "[Project name from plan]",
+                              "summary": "[1-2 sentence essence from plan]",
                               "status": "planning",
-                              "priority": "[high for core features, medium for enhancements]",
-                              "projectId": "[project-id]",
-                              "templateIds": ["context-background", "requirements-specification"],
-                              "tags": "[feature-type,user-facing/internal,complexity-level]"
+                              "tags": "[tech-stack,project-type]"
                             }
                             ```
 
-                            ## Step 6: Initial Task Creation
-                            **Git Detection**: Check for .git directory in project root using file system tools
+                            **Keep it simple**:
+                            - Summary: Just the core value proposition
+                            - Tags: Planned technology stack
+                            - Status: "planning" for new projects
+                            - **DO NOT create project sections** - info already in shared docs
 
-                            **If memory configuration found with project_foundation_tasks**:
+                            ### Step 6B: Create Features from Plan
+
+                            **Identify 3-7 core features** from project plan:
+
+                            Ask user to confirm:
+                            "From your plan, I identified these core features:
+                            - [Feature 1]
+                            - [Feature 2]
+                            - [Feature 3]
+
+                            Should I create these in Task Orchestrator?"
+
+                            **For each confirmed feature**, use create_feature:
+
                             ```json
-                            Auto-create foundation tasks from memory:
                             {
-                              "title": "[Title from project_foundation_tasks]",
-                              "summary": "[Task description based on project needs]",
-                              "projectId": "[project-id]",
-                              "priority": "high",
-                              "complexity": "[based on task scope]",
-                              "templateIds": ["[templates-from-memory]", "local-git-branching-workflow"],
-                              "tags": "task-type-infrastructure,setup,foundation"
+                              "name": "[Feature name from plan]",
+                              "summary": "[What it will do and why it's needed]",
+                              "status": "planning",
+                              "priority": "[high for foundation, medium for enhancements]",
+                              "projectId": "[project-id-from-step-5B]",
+                              "templateIds": ["requirements-specification"],
+                              "tags": "[feature-area,user-facing/internal]"
                             }
                             ```
 
-                            **If NO memory configuration**:
+                            **Minimal templates**:
+                            - Use just "requirements-specification" to start
+                            - Keeps overhead low for new projects
 
-                            Create foundational tasks for project setup:
+                            ### Step 7B: Create Foundation Tasks
 
-                            **Infrastructure and Setup Tasks**:
+                            **Create initial implementation tasks**:
+
+                            **Git Detection**: Check for .git directory
+                            - If exists: Include git workflow templates
+                            - If not: Ask if user wants to initialize git
+
+                            **Foundation tasks to create**:
                             ```json
-                            Use create_task for project foundation:
                             {
                               "title": "Project Infrastructure Setup",
-                              "summary": "Set up development environment, CI/CD, and project tooling",
+                              "summary": "Initialize repository, configure build tools, set up CI/CD",
                               "projectId": "[project-id]",
                               "priority": "high",
-                              "complexity": 6,
-                              "templateIds": ["task-implementation-workflow", "local-git-branching-workflow", "technical-approach"],
+                              "complexity": 5,
+                              "templateIds": ["task-implementation-workflow", "technical-approach"],
                               "tags": "task-type-infrastructure,setup,foundation"
                             }
                             ```
 
-                            **Research and Planning Tasks**:
+                            **If git detected**:
                             ```json
                             {
-                              "title": "[Technology/Approach] Research",
-                              "summary": "Research and validate [specific technology or approach] for [specific use case]",
+                              "title": "Establish Development Workflow",
+                              "summary": "Set up branching strategy, PR process, commit conventions",
                               "projectId": "[project-id]",
                               "priority": "high",
-                              "complexity": 4,
-                              "templateIds": ["technical-approach"],
-                              "tags": "task-type-research,planning,technology-validation"
-                            }
-                            ```
-
-                            **Template Selection Notes**:
-                            - If git detected, include "local-git-branching-workflow" for implementation tasks
-                            - Research tasks may not need git templates unless they involve code prototyping
-
-                            ## Step 7: Template Strategy Setup
-                            Establish consistent documentation patterns:
-
-                            **Review Available Templates**:
-                            ```
-                            Use list_templates to understand available templates
-                            ```
-                            Identify templates that align with your project needs.
-
-                            **Consider Custom Templates**:
-                            For project-specific patterns, create custom templates:
-                            ```json
-                            Use create_template for project-specific needs:
-                            {
-                              "name": "[Project-Specific] Documentation Template",
-                              "description": "Standardized documentation for [specific project context]",
-                              "targetEntityType": "TASK"
-                            }
-                            ```
-
-                            ## Step 8: Development Workflow Setup
-                            Establish project workflows and standards:
-
-                            **Git Workflow Configuration**:
-                            Create tasks for workflow setup:
-                            ```json
-                            {
-                              "title": "Establish Git Workflow Standards",
-                              "summary": "Set up branching strategy, commit conventions, and PR process",
+                              "complexity": 3,
                               "templateIds": ["local-git-branching-workflow", "github-pr-workflow"],
-                              "tags": "task-type-process,git-workflow,standards"
+                              "tags": "task-type-process,git-workflow"
                             }
                             ```
 
-                            **Quality Assurance Setup**:
+                            **Create 1-2 tasks per feature** for initial work:
                             ```json
                             {
-                              "title": "Quality Assurance Framework",
-                              "summary": "Establish testing strategy, code review process, and quality gates",
-                              "templateIds": ["testing-strategy", "definition-of-done"],
-                              "tags": "task-type-process,qa,testing,standards"
+                              "title": "[Specific implementation task]",
+                              "summary": "[What to build with acceptance criteria]",
+                              "featureId": "[feature-id]",
+                              "projectId": "[project-id]",
+                              "priority": "medium",
+                              "complexity": "[3-6]",
+                              "templateIds": ["task-implementation-workflow"],
+                              "tags": "task-type-feature,[component]"
                             }
                             ```
 
-                            ## Step 9: Initial Dependencies and Sequencing
-                            Establish logical task progression:
-                            ```
-                            Use create_dependency to establish foundational sequences:
-                            ```
-                            - Infrastructure setup BLOCKS feature development
-                            - Research tasks BLOCK implementation decisions
-                            - Architecture decisions BLOCK detailed design tasks
+                            ### Step 8B: Save Project UUID to Local Memory
 
-                            ## Step 10: Project Monitoring Setup
-                            Prepare for ongoing project management:
+                            **REQUIRED ACTION**: Write project UUID to local developer memory.
 
-                            **Create Project Views**:
-                            ```
-                            Use search_tasks with projectId="[project-id]"
-                            Use search_features with projectId="[project-id]"
-                            ```
+                            **Storage location** - Your AI agent's local memory:
+                            - CLAUDE.local.md (Claude Code)
+                            - .cursor/local (Cursor)
+                            - .ai/local.config (fallback)
 
-                            **Define Progress Tracking**:
-                            - Feature completion metrics
-                            - Task status distribution
-                            - Complexity and effort tracking
-                            - Priority balance monitoring
-
-                            ## Saving Memory Configuration
-
-                            **If user expressed preferences during workflow**:
-                            Offer to save configuration for future projects:
-                            ```
-                            "I noticed you prefer [standard features/foundation tasks/documentation structure].
-                             Would you like me to save these preferences to your memory
-                             for future project setup workflows?
-
-                             This will automatically:
-                             - Create standard features for new projects
-                             - Auto-create foundation tasks
-                             - Apply documentation section standards
-
-                             Save to: [Global memory / Project CLAUDE.md / .cursorrules]"
-                            ```
-
-                            **Configuration to save**:
+                            **Required format**:
                             ```markdown
-                            # Task Orchestrator - Project Setup Configuration
+                            ## Task Orchestrator - Project Context
 
-                            ## Standard Features
-                            project_standard_features:
-                              - "[feature-name-1]"
-                              - "[feature-name-2]"
-                              - "[feature-name-3]"
+                            Project UUID: [uuid-from-step-5B]
+                            Project Name: [name]
+                            Last synced: YYYY-MM-DD
 
-                            ## Foundation Tasks
-                            project_foundation_tasks:
-                              - title: "[task-title-1]"
-                                templates: ["[template-id-1]", "[template-id-2]"]
-                              - title: "[task-title-2]"
-                                templates: ["[template-id]"]
-
-                            ## Documentation Standards
-                            project_documentation_sections:
-                              - "[section-title-1]"
-                              - "[section-title-2]"
-                              - "[section-title-3]"
+                            Quick commands:
+                            - View overview: get_overview()
+                            - View project: get_project(id="[uuid]", includeFeatures=true, includeTasks=true)
                             ```
 
-                            ## Project Organization Best Practices
+                            **File Writing Steps**:
+                            1. Check if local config file exists
+                            2. If exists: Check for "Task Orchestrator - Project Context" section
+                            3. If section exists: Update UUID and timestamp
+                            4. If section missing: Append at end
+                            5. If file doesn't exist: Create with this section
+                            6. **Verify**: Read file back to confirm write
+                            7. **Report**: "Saved project UUID to [file-path]"
 
-                            **Naming Conventions**:
-                            - Projects: Business/product focused names
-                            - Features: User-functionality focused names
-                            - Tasks: Implementation-action focused names
+                            ### Step 9B: Ensure Local Memory is Gitignored
 
-                            **Tagging Strategy**:
-                            - **Project-level**: Domain, technology stack, business area
-                            - **Feature-level**: User impact, complexity, dependencies
-                            - **Task-level**: Type, component, skill requirements
+                            **REQUIRED ACTION**: Verify local storage is gitignored.
 
-                            **Documentation Standards**:
-                            - Keep project-level docs high-level and stable
-                            - Feature docs should focus on user value and requirements
-                            - Task docs should be implementation-focused and actionable
+                            **Check .gitignore**:
+                            1. Read .gitignore file (or create if missing)
+                            2. Check if your local config file is listed
+                            3. If NOT listed: Add it
 
-                            **Scalability Planning**:
-                            - Design feature structure for team growth
-                            - Plan for feature independence and parallel development
-                            - Establish clear interfaces between features
-                            - Consider long-term maintenance and evolution
+                            **Common entries to add**:
+                            ```
+                            # Task Orchestrator local context
+                            CLAUDE.local.md
+                            .cursor/local
+                            .ai/local.config
+                            *.local.md
+                            ```
 
-                            ## Success Metrics
+                            **Verify**: Read .gitignore back to confirm
 
-                            **Project Setup Completion Indicators**:
-                            - Project has clear charter and architecture documentation
-                            - All major features identified and documented
-                            - Foundation tasks created and prioritized
-                            - Development workflow established
-                            - Team understands project structure and conventions
+                            **Report**: "Added [your-local-file] to .gitignore"
 
-                            **Ongoing Health Indicators**:
-                            - Tasks are consistently well-documented with templates
-                            - Features show steady progression
-                            - Dependencies are managed and don't create bottlenecks
-                            - Project overview shows balanced work distribution
+                            ### Step 10B: Completion
 
-                            This comprehensive setup ensures your project starts with solid foundations and maintains organization as it scales.
+                            **Report to user**:
+                            ```
+                            ✅ New project setup complete!
+
+                            Project: [name] ([uuid])
+                            Documentation: [shared-doc-file] (committed to git)
+                            UUID saved to: [local-file] (gitignored)
+                            Features created: [count]
+                            Foundation tasks created: [count]
+
+                            Next steps:
+                            - Run get_overview() to see your project structure
+                            - Start with foundation tasks (infrastructure, workflow setup)
+                            - Begin feature implementation
+
+                            Documentation split:
+                            - Technical guidance: [shared-doc-file] (all developers)
+                            - Work planning: Task Orchestrator database (this MCP)
+                            - Local context: [local-file] (just you)
+
+                            Ready to start building! 🚀
+                            ```
+
+                            ---
+
+                            ## Best Practices Summary
+
+                            **Clear Division of Documentation**:
+                            - **Shared Docs** (git): Technical how-to, architecture, build commands
+                            - **Task Orchestrator**: Work planning, task tracking, progress
+                            - **Local Memory** (gitignored): Project UUID, personal preferences
+
+                            **Keep It Simple**:
+                            - Minimal project entity (just container)
+                            - No database sections that duplicate file docs
+                            - Lightweight templates (1-2 max per entity)
+                            - Focus on work tracking, not documentation duplication
+
+                            **AI Agent Agnostic**:
+                            - Let AI choose its preferred storage format
+                            - Provide WHAT to store, not WHERE
+                            - Work with any AI tool (Claude, Cursor, Copilot, etc.)
+                            - Report actual storage locations to user
+
+                            **Gitignore Discipline**:
+                            - Always ensure local memory is gitignored
+                            - Project UUIDs are developer-specific
+                            - Each developer may use different AI tools
+                            - Verify .gitignore before completing setup
+
+                            This streamlined approach works for vibe coding and small teams, avoiding enterprise bureaucracy while maintaining effective project management.
                             """.trimIndent()
                         )
                     )
