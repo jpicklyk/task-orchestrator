@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.interfaces.mcp.McpServerAiGuidance.configureAiGuidance
+import io.github.jpicklyk.mcptask.interfaces.mcp.MarkdownResourceProvider.configureMarkdownResources
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -132,6 +133,9 @@ class McpServer(
         // Configure AI guidance
         server.configureAiGuidance()
 
+        // Configure markdown resources
+        server.configureMarkdownResources(repositoryProvider)
+
         // Note: You may see an error in the logs like:
         // "Error handling notification: notifications/initialized - java.util.NoSuchElementException: Key method is missing in the map."
         // This appears to be an internal issue with the Kotlin SDK's notification handling system.
@@ -200,6 +204,7 @@ class McpServer(
             DeleteTaskTool(null, null),
             SearchTasksTool(),
             GetOverviewTool(),
+            TaskToMarkdownTool(),
 
             // Dependency management tools
             CreateDependencyTool(),
@@ -212,6 +217,7 @@ class McpServer(
             GetFeatureTool(),
             DeleteFeatureTool(),
             SearchFeaturesTool(),
+            FeatureToMarkdownTool(),
 
             // Project management tools
             CreateProjectTool(),
@@ -219,6 +225,7 @@ class McpServer(
             UpdateProjectTool(),
             DeleteProjectTool(),
             SearchProjectsTool(),
+            ProjectToMarkdownTool(),
 
             // Section management tools
             AddSectionTool(null, null),

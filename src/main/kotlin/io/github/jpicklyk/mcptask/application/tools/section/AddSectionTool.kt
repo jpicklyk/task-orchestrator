@@ -124,6 +124,29 @@ class AddSectionTool(
         - **PLAIN_TEXT**: Simple text without formatting needs
         - **JSON**: Structured data, configuration, API specifications
         - **CODE**: Source code examples, implementation snippets
+
+        **Writing Markdown Content**:
+        When using MARKDOWN format, write actual markdown syntax for better readability:
+        - Use headings: `## Section`, `### Subsection`
+        - Use lists: `- Item` or `1. Numbered`
+        - Use emphasis: `**bold**` or `*italic*`
+        - Use code: \`inline\` or \`\`\`kotlin code block\`\`\`
+        - Use links: `[text](url)`
+
+        **Example - Plain Text (❌ Avoid)**:
+        ```
+        Requirements
+        Must support OAuth
+        Should handle tokens
+        ```
+
+        **Example - Good Markdown (✅ Prefer)**:
+        ```markdown
+        ## Requirements
+        - **Must** support OAuth 2.0
+        - **Should** handle token refresh automatically
+        - See [OAuth spec](https://oauth.net/2/)
+        ```
         
         ## Integration with Workflow
         

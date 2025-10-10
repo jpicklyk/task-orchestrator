@@ -29,6 +29,61 @@
    - Include acceptance criteria in summaries when helpful
    - Reference related tasks, features, or projects when applicable
 
+### Section Content Formatting Guidelines
+
+When creating or updating sections with `contentFormat=MARKDOWN`, use proper markdown syntax:
+
+**Structure Content with Headings**:
+- Use `##` for section titles (will render as H2 in markdown view)
+- Use `###` for subsections
+- Use `####` for detailed breakdowns
+
+**Organize with Lists**:
+- Use `-` or `*` for unordered lists
+- Use `1.` for ordered steps or sequences
+- Indent with 2 spaces for nested items
+
+**Emphasize Important Content**:
+- Use `**text**` for bold (important points, requirements)
+- Use `*text*` for italic (slight emphasis)
+- Use `> ` for blockquotes (warnings, notes)
+
+**Include Code Examples**:
+- Use \`code\` for inline code references
+- Use \`\`\`language for code blocks with syntax highlighting
+- Specify language: kotlin, java, json, yaml, bash, sql
+
+**Add References**:
+- Use `[text](url)` for external links
+- Link to relevant documentation or specs
+
+**Example Task Section**:
+````markdown
+## Implementation Approach
+
+### Phase 1: Core Infrastructure
+- Create `MarkdownRenderer` class
+- Implement **YAML frontmatter** generation
+- Handle all `ContentFormat` types
+
+### Key Decisions
+> **Note**: Using YAML frontmatter for metadata follows CommonMark best practices
+
+```kotlin
+class MarkdownRenderer {
+    fun render(task: Task): String { ... }
+}
+```
+
+See [CommonMark Spec](https://commonmark.org/) for details.
+````
+
+**Why Markdown Matters**:
+- Content is directly readable without AI translation
+- Exports cleanly to documentation tools
+- Renders properly in markdown viewers
+- Supports markdown-based MCP resource views
+
 ### Template Usage Protocol
 
 **Always Check and Use Available Templates:**

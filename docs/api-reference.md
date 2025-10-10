@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference
 
-The MCP Task Orchestrator provides **37 MCP tools** for AI-driven project management. This reference focuses on **when and why** AI uses each tool, not exhaustive parameter documentation (AI agents have access to complete MCP schemas).
+The MCP Task Orchestrator provides **40 MCP tools** for AI-driven project management. This reference focuses on **when and why** AI uses each tool, not exhaustive parameter documentation (AI agents have access to complete MCP schemas).
 
 ## Table of Contents
 
@@ -173,7 +173,7 @@ AI chooses tools based on:
 
 ## Tool Categories
 
-### Task Management (6 tools)
+### Task Management (7 tools)
 
 **Core Workflow**:
 - `create_task` - Create tasks with templates
@@ -182,6 +182,7 @@ AI chooses tools based on:
 - `search_tasks` - Filter and find tasks
 - `get_overview` - Hierarchical project view
 - `delete_task` - Remove tasks with cleanup
+- `task_to_markdown` - Transform task to markdown format
 
 **When AI Uses**: Most frequently - tasks are primary work units
 
@@ -189,7 +190,7 @@ AI chooses tools based on:
 
 ---
 
-### Feature Management (5 tools)
+### Feature Management (6 tools)
 
 **Core Workflow**:
 - `create_feature` - Group related tasks
@@ -197,6 +198,7 @@ AI chooses tools based on:
 - `get_feature` - Feature details with task statistics
 - `search_features` - Find features by criteria
 - `delete_feature` - Remove with cascade or orphan options
+- `feature_to_markdown` - Transform feature to markdown format
 
 **When AI Uses**: Organizing 3+ related tasks, major functional areas
 
@@ -204,7 +206,7 @@ AI chooses tools based on:
 
 ---
 
-### Project Management (5 tools)
+### Project Management (6 tools)
 
 **Core Workflow**:
 - `create_project` - Top-level organizational containers
@@ -212,6 +214,7 @@ AI chooses tools based on:
 - `get_project` - Project details with features and tasks
 - `search_projects` - Find projects by criteria
 - `delete_project` - Remove with cascade options
+- `project_to_markdown` - Transform project to markdown format
 
 **When AI Uses**: Large initiatives, multi-feature work, organizational hierarchy
 
@@ -277,6 +280,34 @@ AI chooses tools based on:
 **Critical Pattern**: AI ALWAYS uses `list_templates` before creating tasks/features
 
 > **See**: [Templates Guide](templates) for complete template system documentation
+
+---
+
+### Markdown Transformation (3 tools)
+
+**Core Workflow**:
+- `task_to_markdown` - Transform task to markdown with YAML frontmatter
+- `feature_to_markdown` - Transform feature to markdown with YAML frontmatter
+- `project_to_markdown` - Transform project to markdown with YAML frontmatter
+
+**When AI Uses**:
+- File export and documentation generation
+- Systems that can render markdown directly
+- Version control and diff-friendly storage
+- Human-readable archives
+
+**Key Feature**: Separate transformation tools for clear use case distinction
+
+**Important Pattern**:
+- Use `get_*` tools (get_task, get_feature, get_project) for JSON inspection
+- Use `*_to_markdown` tools for markdown export/rendering
+- Avoids content duplication in responses
+
+**Use Cases**:
+- "Export this task to markdown" → `task_to_markdown`
+- "Create a markdown document for this feature" → `feature_to_markdown`
+- "Generate project documentation" → `project_to_markdown`
+- For terminal inspection, use `get_*` tools instead
 
 ---
 
