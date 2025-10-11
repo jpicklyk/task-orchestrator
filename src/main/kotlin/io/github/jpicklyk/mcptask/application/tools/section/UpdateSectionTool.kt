@@ -106,39 +106,39 @@ class UpdateSectionTool(
                 "title" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New section title")
+                        "description" to JsonPrimitive("(optional) New section title")
                     )
                 ),
                 "usageDescription" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New usage description for the section")
+                        "description" to JsonPrimitive("(optional) New usage description for the section")
                     )
                 ),
                 "content" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New section content")
+                        "description" to JsonPrimitive("(optional) New section content")
                     )
                 ),
                 "contentFormat" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New format of the content (MARKDOWN, PLAIN_TEXT, JSON, CODE)"),
+                        "description" to JsonPrimitive("(optional) New format of the content (MARKDOWN, PLAIN_TEXT, JSON, CODE)"),
                         "enum" to JsonArray(ContentFormat.entries.map { JsonPrimitive(it.name) })
                     )
                 ),
                 "ordinal" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("integer"),
-                        "description" to JsonPrimitive("New display order position (0-based)"),
+                        "description" to JsonPrimitive("(optional) New display order position (0-based)"),
                         "minimum" to JsonPrimitive(0)
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Comma-separated list of new tags")
+                        "description" to JsonPrimitive("(optional) Comma-separated list of new tags")
                     )
                 )
             )

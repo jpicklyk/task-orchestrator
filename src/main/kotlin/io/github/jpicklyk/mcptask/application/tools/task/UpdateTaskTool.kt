@@ -241,33 +241,33 @@ class UpdateTaskTool(
                 "title" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("The title of the task")
+                        "description" to JsonPrimitive("(optional) New title for the task")
                     )
                 ),
                 "description" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Detailed description of the task")
+                        "description" to JsonPrimitive("(optional) New detailed description of the task")
                     )
                 ),
                 "status" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Task status (pending, in-progress, completed, cancelled, deferred)"),
+                        "description" to JsonPrimitive("(optional) New task status (pending, in-progress, completed, cancelled, deferred)"),
                         "enum" to JsonArray(TaskStatus.entries.map { JsonPrimitive(it.name.lowercase()) })
                     )
                 ),
                 "priority" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Task priority (high, medium, low)"),
+                        "description" to JsonPrimitive("(optional) New task priority (high, medium, low)"),
                         "enum" to JsonArray(Priority.entries.map { JsonPrimitive(it.name.lowercase()) })
                     )
                 ),
                 "complexity" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("integer"),
-                        "description" to JsonPrimitive("Task complexity on a scale from 1-10"),
+                        "description" to JsonPrimitive("(optional) New task complexity on a scale from 1-10"),
                         "minimum" to JsonPrimitive(1),
                         "maximum" to JsonPrimitive(10)
                     )
@@ -275,14 +275,14 @@ class UpdateTaskTool(
                 "featureId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Optional ID of the feature this task belongs to"),
+                        "description" to JsonPrimitive("(optional) New feature ID to associate this task with"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Comma-separated list of tags")
+                        "description" to JsonPrimitive("(optional) New comma-separated list of tags")
                     )
                 )
             )

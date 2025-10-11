@@ -117,38 +117,38 @@ class UpdateFeatureTool(
                 "name" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New feature name")
+                        "description" to JsonPrimitive("(optional) New feature name")
                     )
                 ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New feature summary")
+                        "description" to JsonPrimitive("(optional) New feature summary")
                     )
                 ),
                 "status" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New status (planning, in-development, completed, archived)")
+                        "description" to JsonPrimitive("(optional) New status (planning, in-development, completed, archived)")
                     )
                 ),
                 "priority" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New priority level (high, medium, low)")
+                        "description" to JsonPrimitive("(optional) New priority level (high, medium, low)")
                     )
                 ),
                 "projectId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project ID (UUID) to associate this feature with"),
+                        "description" to JsonPrimitive("(optional) New project ID (UUID) to associate this feature with"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New comma-separated list of tags")
+                        "description" to JsonPrimitive("(optional) New comma-separated list of tags")
                     )
                 )
             )

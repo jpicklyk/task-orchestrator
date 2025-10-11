@@ -150,19 +150,19 @@ class UpdateProjectTool(
                 "name" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project name")
+                        "description" to JsonPrimitive("(optional) New project name")
                     )
                 ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project summary describing its purpose and scope")
+                        "description" to JsonPrimitive("(optional) New project summary describing its purpose and scope")
                     )
                 ),
                 "status" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project status. Valid values: 'planning', 'in-development', 'completed', 'archived'"),
+                        "description" to JsonPrimitive("(optional) New project status. Valid values: 'planning', 'in-development', 'completed', 'archived'"),
                         "enum" to JsonArray(
                             listOf(
                                 "planning",
@@ -175,7 +175,7 @@ class UpdateProjectTool(
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New comma-separated list of tags for categorization")
+                        "description" to JsonPrimitive("(optional) New comma-separated list of tags for categorization")
                     )
                 )
             )
