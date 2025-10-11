@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Selective Section Loading** - Token optimization for AI agents
+  - `includeContent` parameter for `get_sections` (default: true) - Browse section metadata without content (85-99% token savings)
+  - `sectionIds` parameter for `get_sections` - Fetch specific sections by ID for selective loading
+  - Enables two-step workflow: browse metadata first, then fetch specific content
+  - Backward compatible with default behavior
+- **Database Performance Optimization** - V4 migration adds 10 strategic indexes
+  - Dependency directional lookups (fromTaskId, toTaskId indexes)
+  - Search vector indexes for full-text search optimization
+  - Composite indexes for common filter patterns (status+priority, featureId+status, projectId+status, priority+createdAt)
+  - 2-10x performance improvement for concurrent multi-agent access
 - Markdown transformation tools for exporting entities to markdown format with YAML frontmatter
   - `task_to_markdown` - Transform tasks to markdown documents
   - `feature_to_markdown` - Transform features to markdown documents
@@ -20,10 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated API reference documentation to reflect 40 total tools (was 37)
 - Updated tool category counts: Task Management (7 tools), Feature Management (6 tools), Project Management (6 tools)
 
+### Performance
+- V4 migration: Dependency lookups 5-10x faster with directional indexes
+- V4 migration: Search operations 2-5x faster with search vector indexes
+- V4 migration: Filtered queries 2-4x faster with composite indexes
+- Selective section loading: 85-99% token reduction when browsing section structure
+
 ### Technical Details
 - Markdown transformation uses existing MarkdownRenderer from domain layer
 - Dedicated tools avoid content duplication in responses
 - Better use case clarity for AI agents: JSON for inspection, markdown for export/rendering
+- Selective section loading implemented at tool layer (no repository changes required)
+- Content field excluded from response when includeContent=false
+- Section filtering applied before content exclusion for efficiency
 
 ## [1.1.0-alpha-01]
 

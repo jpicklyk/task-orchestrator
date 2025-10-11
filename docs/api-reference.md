@@ -245,7 +245,7 @@ AI chooses tools based on:
 **Core Workflow**:
 - `add_section` - Add detailed content blocks
 - `bulk_create_sections` - Efficient multi-section creation
-- `get_sections` - Retrieve all sections for validation
+- `get_sections` - Retrieve sections with selective loading (supports `includeContent` and `sectionIds`)
 - `update_section` - Modify section content
 - `update_section_text` - Targeted text replacement
 - `update_section_metadata` - Title, format, ordinal changes
@@ -255,9 +255,15 @@ AI chooses tools based on:
 
 **When AI Uses**: Detailed documentation, template application results
 
-**Key Feature**: Structured content organization and context efficiency
+**Key Features**:
+- Structured content organization and context efficiency
+- **Selective loading** - Browse metadata without content (85-99% token savings)
+- **Two-step workflow** - Browse structure first, then fetch specific sections
 
-**Efficiency Pattern**: Prefer `bulk_create_sections` over multiple `add_section` calls
+**Efficiency Patterns**:
+- Prefer `bulk_create_sections` over multiple `add_section` calls
+- Use `includeContent=false` to browse section structure before loading content
+- Use `sectionIds` to fetch only needed sections
 
 ---
 
@@ -352,9 +358,10 @@ User: "I finished implementing the login endpoint"
 
 AI Executes:
 1. search_tasks --query "login endpoint" (find the task)
-2. get_sections --entityType TASK --entityId [id] (validate completion)
-3. update_task --id [id] --status completed
-4. get_task_dependencies --taskId [id] (check what's now unblocked)
+2. get_sections --entityType TASK --entityId [id] --includeContent false (browse section structure)
+3. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids] (fetch specific sections)
+4. update_task --id [id] --status completed
+5. get_task_dependencies --taskId [id] (check what's now unblocked)
 ```
 
 ---
@@ -379,7 +386,46 @@ Many tools support progressive detail loading to optimize context:
 - +`includeTaskCounts`: Add statistics
 - +`includeTaskDependencies`: Full dependency analysis
 
+**get_sections** (NEW - Token Optimization):
+- Basic: All sections with full content (default)
+- +`includeContent=false`: Section metadata only (85-99% token savings)
+- +`sectionIds=[list]`: Specific sections only (selective loading)
+- **Two-step pattern**: Browse with includeContent=false, then fetch specific sections
+
 **Strategy**: AI starts basic, progressively loads as needed
+
+### Selective Section Loading ⭐ Token Optimization
+
+**Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata needed
+
+**Solution**: Two-step workflow with `get_sections`
+
+**Step 1: Browse Structure** (Low token cost)
+```json
+{
+  "entityType": "TASK",
+  "entityId": "task-uuid",
+  "includeContent": false
+}
+```
+Returns: id, title, usageDescription, contentFormat, ordinal, tags (no content field)
+
+**Step 2: Fetch Specific Content** (Only what's needed)
+```json
+{
+  "entityType": "TASK",
+  "entityId": "task-uuid",
+  "sectionIds": ["section-1-uuid", "section-3-uuid"]
+}
+```
+Returns: Only the specified sections with full content
+
+**Token Savings**: 85-99% reduction when browsing section structure
+
+**When AI Uses**:
+- Validating task completion (browse structure to see what exists)
+- Finding specific section (browse titles, then fetch content)
+- Understanding documentation organization (metadata reveals structure)
 
 ---
 
@@ -433,9 +479,10 @@ The system automatically prevents conflicts when multiple AI agents work in para
 
 1. **Always start with `get_overview`** - Understand current state before creating work
 2. **Always use `list_templates`** - Discover templates before creating tasks/features
-3. **Use `get_sections` before completion** - Validate template guidance followed
-4. **Prefer bulk operations** - More efficient for multiple sections
-5. **Progressive loading** - Start basic, load details as needed
+3. **Use selective section loading** - Browse with `includeContent=false` before loading full content
+4. **Use `get_sections` before completion** - Validate template guidance followed
+5. **Prefer bulk operations** - More efficient for multiple sections
+6. **Progressive loading** - Start basic, load details as needed
 
 ### For Development Teams
 

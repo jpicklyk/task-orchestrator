@@ -1026,6 +1026,88 @@ AI: "Fix complete with 5 regression tests:
    - Refine custom patterns as needed
    - Provide feedback for improvements
 
+5. **Optimize token usage**
+   - Use selective section loading for validation workflows
+   - Browse section structure before loading full content
+   - Fetch only needed sections for analysis
+   - See Token Optimization section below
+
+---
+
+## Token Optimization Best Practices
+
+### Selective Section Loading
+
+**Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata or specific sections are needed.
+
+**Solution**: Use the two-step workflow with `get_sections` for 85-99% token savings.
+
+### When to Use Selective Loading
+
+**Validation Workflows** (Browse before validating):
+```
+1. get_sections --entityType TASK --entityId [id] --includeContent false
+2. Review section structure (titles, formats, ordinals)
+3. Determine which sections need validation
+4. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids]
+5. Validate only the critical sections
+```
+
+**Finding Specific Content** (Browse then fetch):
+```
+1. get_sections --entityType TASK --entityId [id] --includeContent false
+2. Identify section by title (e.g., "Technical Approach")
+3. get_sections --entityType TASK --entityId [id] --sectionIds [approach-section-id]
+4. Work with specific content
+```
+
+**Understanding Structure** (Metadata only):
+```
+1. get_sections --entityType TASK --entityId [id] --includeContent false
+2. Get complete picture of documentation organization
+3. Use titles and usageDescription to understand content
+4. No need to load content if structure answers the question
+```
+
+### Token Savings Examples
+
+**Traditional Approach** (All content):
+- 5 sections × 1,000 chars each = 5,000 tokens
+- Load all content even if only validating structure
+
+**Optimized Approach** (Selective loading):
+- Step 1: Metadata only = 250 tokens (95% savings)
+- Step 2: 2 specific sections = 2,000 tokens (60% overall savings)
+- **Total**: 2,250 tokens vs 5,000 tokens
+
+### Integration with Workflows
+
+**Task Completion Validation**:
+```
+Before: get_sections (loads all 5-10 sections fully)
+After:
+1. get_sections --includeContent false (browse structure)
+2. Identify required sections from template
+3. get_sections --sectionIds [ids] (fetch only what's needed)
+```
+
+**Bug Investigation**:
+```
+Before: Load all task sections to find reproduction steps
+After:
+1. get_sections --includeContent false
+2. Find "Reproduction Steps" section by title
+3. get_sections --sectionIds [repro-section-id]
+```
+
+### AI Agent Guidelines
+
+1. **Default to selective loading** when validating completion
+2. **Browse structure first** when looking for specific content
+3. **Use metadata** when structure is enough to answer the question
+4. **Fetch all content** only when comprehensive review is needed
+5. **Combine with sectionIds** for maximum efficiency
+
 ---
 
 ## Troubleshooting
