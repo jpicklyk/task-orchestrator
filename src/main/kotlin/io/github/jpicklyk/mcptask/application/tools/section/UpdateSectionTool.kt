@@ -57,7 +57,41 @@ class UpdateSectionTool(
         )
     )
 
-    override val description = "Updates an existing section by its ID"
+    override val description = """Updates an existing section by its ID.
+
+        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+        For content-only changes, use 'update_section_text' (more efficient). Example: {"id": "uuid", "title": "New Title"}
+
+        ## Efficient vs Inefficient Updates
+
+        ❌ **INEFFICIENT** (wastes ~300+ characters):
+        ```json
+        {
+          "id": "section-uuid",
+          "title": "Existing Title",                        // Unchanged - unnecessary
+          "usageDescription": "Existing description...",    // Unchanged - unnecessary
+          "content": "Long existing content...",            // Unchanged - 300+ chars wasted
+          "contentFormat": "MARKDOWN",                      // Unchanged - unnecessary
+          "ordinal": 0,                                     // Unchanged - unnecessary
+          "tags": "tag1,tag2"                              // ✓ Only this changed
+        }
+        ```
+
+        ✅ **EFFICIENT** (uses ~40 characters):
+        ```json
+        {
+          "id": "section-uuid",
+          "tags": "tag1,tag2,tag3"  // Only send what changed!
+        }
+        ```
+
+        **Token Savings**: 88% reduction by only sending changed fields!
+
+        ## Alternative Efficient Tools
+        - For content changes: Use `update_section_text` (90%+ more efficient)
+        - For metadata only: Use `update_section_metadata` (excludes content)
+        - For full replacement: Use this tool with selective fields
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

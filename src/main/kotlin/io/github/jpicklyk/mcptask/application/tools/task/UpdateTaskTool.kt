@@ -118,7 +118,10 @@ class UpdateTaskTool(
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing task with the specified properties.
-        
+
+        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "completed"}
+
         ## Purpose
         Modifies specific fields of an existing task without affecting other properties.
         Critical for task lifecycle management and maintaining accurate project state.
@@ -176,7 +179,32 @@ class UpdateTaskTool(
           "complexity": 8
         }
         ```
-        
+
+        ## Efficient vs Inefficient Updates
+
+        ❌ **INEFFICIENT** (wastes ~500+ characters):
+        ```json
+        {
+          "id": "task-uuid",
+          "title": "Existing Title",              // Unchanged - unnecessary
+          "summary": "Long existing summary...",   // Unchanged - 500+ chars wasted
+          "status": "completed",                   // ✓ Only this changed
+          "priority": "medium",                    // Unchanged - unnecessary
+          "complexity": 5,                         // Unchanged - unnecessary
+          "tags": "tag1,tag2,tag3"                // Unchanged - unnecessary
+        }
+        ```
+
+        ✅ **EFFICIENT** (uses ~30 characters):
+        ```json
+        {
+          "id": "task-uuid",
+          "status": "completed"  // Only send what changed!
+        }
+        ```
+
+        **Token Savings**: 94% reduction by only sending changed fields!
+
         ## Field Update Guidelines
         
         **Partial Updates**: Only specify fields you want to change. Unspecified fields remain unchanged.
