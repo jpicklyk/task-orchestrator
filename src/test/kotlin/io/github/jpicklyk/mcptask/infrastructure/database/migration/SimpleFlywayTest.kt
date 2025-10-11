@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.infrastructure.database.migration
 
+import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
+import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteSectionRepository
+import io.github.jpicklyk.mcptask.infrastructure.database.repository.SQLiteTemplateRepository
 import io.github.jpicklyk.mcptask.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -87,5 +91,126 @@ class SimpleFlywayTest {
         }
         
         println("=== Simple Flyway Migration Test Complete ===")
+    }
+
+    @Test
+    fun `V5 migration should create simplified template sections`() {
+        println("=== Testing V5 Simplified Templates Migration ===")
+
+        // Run migrations up to V5
+        val migrationResult = schemaManager.updateSchema()
+        assertTrue(migrationResult, "Migrations should succeed")
+
+        val version = schemaManager.getCurrentVersion()
+        println("Schema version after migrations: $version")
+        assertTrue(version >= 5, "Schema should be at least version 5")
+
+        // Initialize templates (this creates the template records that V6 will update)
+        println("Initializing templates...")
+        val databaseManager = DatabaseManager(database)
+        val sectionRepository = SQLiteSectionRepository(databaseManager)
+        val templateRepository = SQLiteTemplateRepository(sectionRepository)
+        val templateInitializer = TemplateInitializerImpl(templateRepository)
+        templateInitializer.initializeTemplates()
+        println("Templates initialized")
+
+        // Now run V5 migration specifically (schema manager will skip already-applied migrations)
+        // V5 should update the template sections to simplified versions
+        val v5Result = schemaManager.updateSchema()
+        assertTrue(v5Result, "V5 migration should succeed")
+
+        val finalVersion = schemaManager.getCurrentVersion()
+        println("Final schema version: $finalVersion")
+        assertTrue(finalVersion >= 5, "Schema should be at version 5 after V5 migration")
+
+        // Verify simplified template sections were created
+        transaction(database) {
+            val connection = this.connection.connection as Connection
+
+            // Test 1: Check total section count for simplified templates
+            val countStmt = connection.prepareStatement("""
+                SELECT COUNT(*) as total FROM template_sections ts
+                JOIN templates t ON ts.template_id = t.id
+                WHERE t.name IN (
+                    'Definition of Done',
+                    'GitHub PR Workflow',
+                    'Context & Background',
+                    'Testing Strategy',
+                    'Requirements Specification',
+                    'Local Git Branching Workflow'
+                )
+            """)
+            val countRs = countStmt.executeQuery()
+            countRs.next()
+            val totalSections = countRs.getInt("total")
+            countRs.close()
+            countStmt.close()
+
+            println("Total sections for simplified templates: $totalSections")
+            assertTrue(totalSections == 17, "Should have exactly 17 sections (2+3+3+3+3+3)")
+
+            // Test 2: Verify Definition of Done has 2 sections with simplified titles
+            val dodStmt = connection.prepareStatement("""
+                SELECT ts.title FROM template_sections ts
+                JOIN templates t ON ts.template_id = t.id
+                WHERE t.name = 'Definition of Done'
+                ORDER BY ts.ordinal
+            """)
+            val dodRs = dodStmt.executeQuery()
+
+            val dodTitles = mutableListOf<String>()
+            while (dodRs.next()) {
+                dodTitles.add(dodRs.getString("title"))
+            }
+            dodRs.close()
+            dodStmt.close()
+
+            println("Definition of Done sections: $dodTitles")
+            assertTrue(dodTitles.size == 2, "Definition of Done should have 2 sections")
+            assertTrue(dodTitles[0] == "Implementation Complete", "First section should be 'Implementation Complete'")
+            assertTrue(dodTitles[1] == "Production Ready", "Second section should be 'Production Ready'")
+
+            // Test 3: Verify GitHub PR Workflow has 3 sections
+            val prStmt = connection.prepareStatement("""
+                SELECT ts.title FROM template_sections ts
+                JOIN templates t ON ts.template_id = t.id
+                WHERE t.name = 'GitHub PR Workflow'
+                ORDER BY ts.ordinal
+            """)
+            val prRs = prStmt.executeQuery()
+
+            val prTitles = mutableListOf<String>()
+            while (prRs.next()) {
+                prTitles.add(prRs.getString("title"))
+            }
+            prRs.close()
+            prStmt.close()
+
+            println("GitHub PR Workflow sections: $prTitles")
+            assertTrue(prTitles.size == 3, "GitHub PR Workflow should have 3 sections")
+            assertTrue(prTitles[0] == "Pre-Push Validation", "First section should be 'Pre-Push Validation'")
+            assertTrue(prTitles[1] == "Create Pull Request", "Second section should be 'Create Pull Request'")
+            assertTrue(prTitles[2] == "Review & Merge", "Third section should be 'Review & Merge'")
+
+            // Test 4: Verify content is simplified (check one section for brevity)
+            val contentStmt = connection.prepareStatement("""
+                SELECT LENGTH(ts.content_sample) as content_length FROM template_sections ts
+                JOIN templates t ON ts.template_id = t.id
+                WHERE t.name = 'Definition of Done' AND ts.title = 'Implementation Complete'
+            """)
+            val contentRs = contentStmt.executeQuery()
+            contentRs.next()
+            val contentLength = contentRs.getInt("content_length")
+            contentRs.close()
+            contentStmt.close()
+
+            println("Implementation Complete section length: $contentLength chars")
+            // Simplified content should be much shorter (< 1500 chars vs > 3000 for old version)
+            assertTrue(contentLength < 1500, "Simplified content should be < 1500 characters")
+
+            println("✓ All simplified template section validations passed!")
+        }
+
+        println("=== V6 Simplified Templates Migration Test Complete ===")
     }
 }
