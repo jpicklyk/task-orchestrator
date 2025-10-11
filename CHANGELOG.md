@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Template Caching** - In-memory caching for template operations
+  - CachedTemplateRepository decorator wraps SQLiteTemplateRepository
+  - Caches individual templates, template lists, and template sections
+  - Automatic cache invalidation on modifications (create, update, delete, enable/disable)
+  - Significant performance improvement for `list_templates` and template application
+  - Thread-safe using ConcurrentHashMap
+  - No configuration needed - enabled by default
 - **Selective Section Loading** - Token optimization for AI agents
   - `includeContent` parameter for `get_sections` (default: true) - Browse section metadata without content (85-99% token savings)
   - `sectionIds` parameter for `get_sections` - Fetch specific sections by ID for selective loading

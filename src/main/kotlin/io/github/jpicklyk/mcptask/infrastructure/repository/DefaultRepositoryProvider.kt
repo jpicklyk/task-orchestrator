@@ -24,8 +24,11 @@ class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : 
         SQLiteSectionRepository(databaseManager)
     }
 
-    private val templateRepository: SQLiteTemplateRepository by lazy {
-        SQLiteTemplateRepository(sectionRepository)
+    private val templateRepository: TemplateRepository by lazy {
+        // Wrap the SQLite repository with caching for performance
+        CachedTemplateRepository(
+            SQLiteTemplateRepository(sectionRepository)
+        )
     }
 
     private val dependencyRepository: SQLiteDependencyRepository by lazy {

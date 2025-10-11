@@ -285,6 +285,8 @@ AI chooses tools based on:
 
 **Critical Pattern**: AI ALWAYS uses `list_templates` before creating tasks/features
 
+**Performance Optimization**: Template operations use in-memory caching for fast repeated access. No configuration needed - enabled by default.
+
 > **See**: [Templates Guide](templates) for complete template system documentation
 
 ---
