@@ -28,118 +28,73 @@ object LocalGitBranchingWorkflowTemplateCreator {
         val sections = listOf(
             TemplateSection(
                 templateId = templateId,
-                title = "Branch Creation Process",
-                usageDescription = "Step-by-step process for creating and setting up a new git branch for this work",
-                contentSample = """### Branch Creation Process
+                title = "Create Branch",
+                usageDescription = "Creating and setting up a new git branch for local development",
+                contentSample = """### Branch Naming
+Choose appropriate branch prefix:
+- `feature/[description]` - New features or enhancements
+- `bugfix/[description]` - Bug fixes
+- `hotfix/[description]` - Critical production fixes
+- `docs/[description]` - Documentation changes
 
-### Pre-Branch Analysis
-Before creating a new branch, analyze the current task to determine:
-- **Branch Type**: feature/, bugfix/, hotfix/, or docs/
-- **Branch Scope**: Is this a single task or part of a larger feature?
-- **Dependencies**: Are there any other branches this work depends on?
+Examples: `feature/user-auth`, `bugfix/search-crash`
 
-### Branch Naming Convention
-Create a concise, descriptive branch name following this pattern:
-- `feature/[short-description]` - For new features or enhancements
-- `bugfix/[issue-description]` - For bug fixes
-- `hotfix/[critical-issue]` - For critical production fixes
-- `docs/[documentation-update]` - For documentation changes
+### Create Branch
+```bash
+# Update main
+git checkout main
+git pull origin main
 
-**Examples**:
-- `feature/user-authentication`
-- `bugfix/search-empty-results`
-- `hotfix/memory-leak-fix`
+# Create and switch to new branch
+git checkout -b [branch-name]
 
-### Branch Creation Commands
-1. **Ensure clean working directory**:
-   ```bash
-   git status
-   # If there are uncommitted changes, either commit or stash them
-   git stash push -m "WIP before branch creation"
-   ```
-
-2. **Update main branch**:
-   ```bash
-   git checkout main
-   git pull origin main
-   ```
-
-3. **Create and switch to new branch**:
-   ```bash
-   git checkout -b [branch-name]
-   ```
-
-4. **Verify branch creation**:
-   ```bash
-   git branch --show-current
-   git log --oneline -n 3
-   ```
-
-### Initial Setup
-- Set up branch tracking if working with remote repository
-- Verify the starting point is correct
-- Note the commit hash where the branch was created for reference""",
+# Verify
+git branch --show-current
+```""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("git", "branch-creation", "setup")
+                tags = listOf("git", "branch-creation")
             ),
             TemplateSection(
                 templateId = templateId,
-                title = "Implementation Steps",
-                usageDescription = "Structured approach to implementing changes while maintaining good git hygiene",
-                contentSample = """### Implementation Steps
+                title = "Implement & Commit",
+                usageDescription = "Making changes and committing with good git hygiene",
+                contentSample = """### Development Workflow
+1. **Make focused changes**: One logical change at a time
+2. **Check status frequently**: `git status` and `git diff`
+3. **Commit incrementally**: Logical chunks, not everything at once
 
-### Development Workflow
-Follow these steps during implementation to maintain clean git history:
+### Before Committing
+```bash
+# Build and test
+./gradlew build test
 
-1. **Make Focused Changes**
-   - Work on one logical change at a time
-   - Keep changes related to the current task scope
-   - Avoid mixing different types of changes (features, bug fixes, refactoring)
+# Review changes
+git status
+git diff
+```
 
-2. **Regular Status Checks**
-   ```bash
-   git status
-   git diff
-   ```
-   - Review changes before committing
-   - Ensure only intended files are modified
+### Commit Changes
+```bash
+# Stage changes
+git add [files]  # or git add . for all
 
-3. **Incremental Commits**
-   - Commit logically related changes together
-   - Use descriptive commit messages
-   - Commit early and often for complex changes
+# Commit with clear message
+git commit -m "[type]: [description]"
+```
 
-4. **Commit Message Format**
-   ```
-   [type]: [short description]
-   
-   [optional longer description]
-   
-   [optional references to issues/tasks]
-   ```
-   
-   **Types**: feat, fix, docs, style, refactor, test, chore
-   
-   **Examples**:
-   ```
-   feat: add user authentication endpoint
-   
-   fix: resolve search returning empty results
-   
-   refactor: extract validation logic to separate class
-   ```
+**Commit types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 
-### File Management
-- Use `git add -p` for selective staging when multiple changes exist
-- Review diffs before staging: `git diff --cached`
-- Use `.gitignore` appropriately for generated files
+**Examples**:
+- `feat: add user authentication endpoint`
+- `fix: resolve search returning empty results`
+- `refactor: extract validation logic`
 
-### Progress Tracking
-- Document significant milestones in commit messages
-- Use git tags for important versions if applicable
-- Keep notes of decisions made during implementation""",
+### Commit Message Best Practices
+- Subject: 50 chars or less, imperative mood ("add" not "added")
+- Body: Explain what and why (optional for small changes)
+- Reference: Include task IDs or issue numbers if applicable""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
@@ -147,146 +102,39 @@ Follow these steps during implementation to maintain clean git history:
             ),
             TemplateSection(
                 templateId = templateId,
-                title = "Testing & Verification",
-                usageDescription = "Process for testing changes and verifying implementation before finalizing commits",
-                contentSample = """### Testing & Verification
+                title = "Verify & Finalize",
+                usageDescription = "Final verification before pushing branch",
+                contentSample = """### Pre-Push Checklist
+- [ ] All commits have clear messages
+- [ ] Build succeeds: `./gradlew build`
+- [ ] All tests pass: `./gradlew test`
+- [ ] Code follows project style
+- [ ] Documentation updated if needed
+- [ ] Only intended changes included
 
-### Pre-Commit Testing
-Before committing changes, ensure:
+### Review Commits
+```bash
+# View commit history
+git log --oneline -n 5
 
-1. **Build Verification**
-   ```bash
-   ./gradlew build
-   ```
-   - Verify code compiles without errors
-   - Address any compilation warnings
-   - Ensure all dependencies are properly configured
+# Review latest commit
+git show HEAD
 
-2. **Test Execution**
-   ```bash
-   # Run all tests
-   ./gradlew test
-   
-   # Run specific test class if targeting particular functionality
-   ./gradlew test --tests "ClassName"
-   
-   # Run tests with specific pattern
-   ./gradlew test --tests "*IntegrationTest"
-   ```
+# Check branch status
+git status
+git branch -v
+```
 
-3. **Code Quality Checks**
-   - Review code formatting and style
-   - Check for unused imports and variables
-   - Verify proper error handling
-   - Ensure code follows project conventions
-
-### Functionality Verification
-- Test the specific functionality implemented
-- Verify edge cases and error conditions
-- Check integration with existing features
-- Ensure no regressions in related functionality
-
-### Documentation Updates
-- Update inline code documentation as needed
-- Verify README or other docs reflect changes
-- Update API documentation if applicable
-
-### Pre-Commit Checklist
-- [ ] Code compiles successfully
-- [ ] All tests pass
-- [ ] No obvious code style violations
-- [ ] Functionality works as expected
-- [ ] No unintended side effects
-- [ ] Documentation is current
-- [ ] Git status shows only intended changes""",
+### Ready for Push
+When branch is ready:
+- All planned work is committed
+- Tests pass
+- Code is ready for review
+- Ready to create PR (see GitHub PR Workflow template)""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("testing", "verification", "quality-assurance")
-            ),
-            TemplateSection(
-                templateId = templateId,
-                title = "Commit Preparation",
-                usageDescription = "Final steps for preparing and making commits with proper documentation",
-                contentSample = """### Commit Preparation
-
-### Final Review Process
-Before making the final commit:
-
-1. **Review All Changes**
-   ```bash
-   git diff HEAD
-   git status
-   ```
-   - Confirm all intended changes are included
-   - Verify no unintended files or changes are staged
-   - Check for any forgotten files or cleanup
-
-2. **Staging Strategy**
-   ```bash
-   # Stage all changes
-   git add .
-   
-   # Or stage selectively
-   git add [specific-files]
-   
-   # Review staged changes
-   git diff --cached
-   ```
-
-3. **Commit Execution**
-   ```bash
-   git commit -m "[type]: [clear, concise description]"
-   
-   # For complex changes, use detailed commit message
-   git commit
-   # This opens editor for multi-line commit message
-   ```
-
-### Commit Message Best Practices
-- **Subject line**: 50 characters or less, imperative mood
-- **Body**: Explain what and why, not how
-- **References**: Include task IDs, issue numbers, or related context
-
-**Good Examples**:
-```
-feat: implement OAuth2 authentication flow
-
-Add Google and Apple sign-in integration with proper error
-handling and token refresh mechanisms. Includes unit tests
-and integration with existing user management system.
-
-Addresses task requirements for secure authentication.
-```
-
-### Post-Commit Actions
-1. **Verify Commit**
-   ```bash
-   git log --oneline -n 3
-   git show HEAD
-   ```
-
-2. **Branch Status Check**
-   ```bash
-   git status
-   git branch -v
-   ```
-
-3. **Next Steps Planning**
-   - Determine if more commits are needed
-   - Plan for potential branch push and PR creation
-   - Consider if testing in different environment is needed
-
-### Ready for Push
-When the branch is ready for sharing:
-- All commits are clean and well-documented
-- All tests pass
-- Code is ready for review
-- Documentation is current""",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 3,
-                isRequired = true,
-                tags = listOf("commit", "documentation", "finalization")
+                tags = listOf("verification", "finalization")
             )
         )
 
