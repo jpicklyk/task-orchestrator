@@ -30,7 +30,7 @@ object TaskImplementationWorkflowTemplateCreator {
                 templateId = templateId,
                 title = "Implementation Analysis",
                 usageDescription = "Systematic analysis of the task before beginning implementation, including context gathering and planning",
-                contentSample = """## Implementation Analysis
+                contentSample = """### Implementation Analysis
 
 ### Task Context Review
 Before starting implementation, gather complete context:
@@ -92,7 +92,7 @@ Update task with analysis findings using MCP tools:
                 templateId = templateId,
                 title = "Step-by-Step Implementation",
                 usageDescription = "Detailed implementation process with checkpoints and validation steps",
-                contentSample = """## Step-by-Step Implementation
+                contentSample = """### Step-by-Step Implementation
 
 ### Implementation Execution Process
 Follow systematic approach for reliable implementation:
@@ -173,7 +173,7 @@ At each major step:
                 templateId = templateId,
                 title = "Testing & Validation",
                 usageDescription = "Comprehensive testing approach to ensure implementation meets requirements and maintains quality",
-                contentSample = """## Testing & Validation
+                contentSample = """### Testing & Validation
 
 ### Testing Strategy Implementation
 Execute comprehensive testing to validate implementation:

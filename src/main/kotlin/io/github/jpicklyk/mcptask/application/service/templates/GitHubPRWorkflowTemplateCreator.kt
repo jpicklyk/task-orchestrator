@@ -31,9 +31,7 @@ object GitHubPRWorkflowTemplateCreator {
                 templateId = templateId,
                 title = "Pre-Push Validation & Sync",
                 usageDescription = "Best practices for validating changes and syncing with latest main before creating PR",
-                contentSample = """## Pre-Push Validation & Sync
-
-### Prerequisites Check
+                contentSample = """### Prerequisites Check
 Before pushing branch and creating PR, ensure GitHub MCP server is available:
 
 1. **GitHub MCP Server Status**
@@ -104,7 +102,7 @@ Before pushing branch and creating PR, ensure GitHub MCP server is available:
                 templateId = templateId,
                 title = "Branch Push & PR Creation with MCP",
                 usageDescription = "Process for pushing branch and creating pull request using GitHub MCP server tools",
-                contentSample = """## Branch Push & PR Creation with MCP
+                contentSample = """### Branch Push & PR Creation with MCP
 
 ### Push Branch to GitHub
 1. **Push with Tracking**
@@ -209,7 +207,7 @@ Use GitHub MCP server tools to configure the PR:
                 templateId = templateId,
                 title = "Review Management & Updates",
                 usageDescription = "Managing pull request reviews, addressing feedback, and handling updates using GitHub MCP tools",
-                contentSample = """## Review Management & Updates
+                contentSample = """### Review Management & Updates
 
 ### Monitor PR Status with GitHub MCP
 Track PR progress using GitHub MCP server tools:
@@ -330,7 +328,7 @@ Are you referring to specific exception types or the error message format?
                 templateId = templateId,
                 title = "PR Approval & Merge Process",
                 usageDescription = "Final steps for PR approval, merging, and cleanup using GitHub MCP tools and git commands",
-                contentSample = """## PR Approval & Merge Process
+                contentSample = """### PR Approval & Merge Process
 
 ### Pre-Merge Final Validation
 Before merging, ensure all requirements are met using GitHub MCP tools:

@@ -30,7 +30,7 @@ object RequirementsSpecificationTemplateCreator {
                 templateId = templateId,
                 title = "Must-Have Requirements",
                 usageDescription = "Critical functional requirements that must be implemented for successful delivery",
-                contentSample = """## Must-Have Requirements
+                contentSample = """### Must-Have Requirements
 
 ### Core Functionality
 1. **[Requirement ID]**: [Requirement Name]
@@ -81,7 +81,7 @@ object RequirementsSpecificationTemplateCreator {
                 templateId = templateId,
                 title = "Nice-to-Have Features",
                 usageDescription = "Optional features and enhancements that would improve the solution but aren't critical",
-                contentSample = """## Nice-to-Have Features
+                contentSample = """### Nice-to-Have Features
 
 ### Enhanced Functionality
 1. **[Feature Name]**: [Description of optional feature]
@@ -132,7 +132,7 @@ object RequirementsSpecificationTemplateCreator {
                 templateId = templateId,
                 title = "Constraints & Limitations",
                 usageDescription = "Technical constraints, business limitations, and non-functional requirements that must be considered",
-                contentSample = """## Constraints & Limitations
+                contentSample = """### Constraints & Limitations
 
 ### Technical Constraints
 - **Technology Stack**: [Required technologies, frameworks, or platforms]

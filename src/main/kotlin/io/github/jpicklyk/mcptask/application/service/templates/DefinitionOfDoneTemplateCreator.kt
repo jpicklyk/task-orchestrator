@@ -30,9 +30,7 @@ object DefinitionOfDoneTemplateCreator {
                 templateId = templateId,
                 title = "Completion Criteria",
                 usageDescription = "Specific, measurable criteria that must be met for the work to be considered complete",
-                contentSample = """## Completion Criteria
-
-### Functional Completeness
+                contentSample = """### Functional Completeness
 - [ ] **Core Functionality**: All required features are implemented and working
 - [ ] **User Stories**: All user stories in scope are completed and accepted
 - [ ] **Acceptance Criteria**: All defined acceptance criteria are met
@@ -82,9 +80,7 @@ object DefinitionOfDoneTemplateCreator {
                 templateId = templateId,
                 title = "Quality Checklist",
                 usageDescription = "Comprehensive quality checklist covering all aspects of software delivery",
-                contentSample = """## Quality Checklist
-
-### Code Quality
+                contentSample = """### Code Quality
 - [ ] **Readability**: Code is clean, readable, and well-organized
 - [ ] **Maintainability**: Code is structured for easy maintenance and extension
 - [ ] **Reusability**: Common functionality is properly abstracted and reusable
@@ -139,9 +135,7 @@ object DefinitionOfDoneTemplateCreator {
                 templateId = templateId,
                 title = "Handoff Requirements",
                 usageDescription = "Requirements for transitioning completed work to operations, users, or other teams",
-                contentSample = """## Handoff Requirements
-
-### Knowledge Transfer
+                contentSample = """### Knowledge Transfer
 - [ ] **Documentation**: All relevant documentation is complete and accessible
 - [ ] **Knowledge Sharing**: Key knowledge has been shared with relevant team members
 - [ ] **Training Materials**: Training materials are prepared if needed

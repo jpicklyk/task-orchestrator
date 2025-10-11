@@ -30,7 +30,7 @@ object TestingStrategyTemplateCreator {
                 templateId = templateId,
                 title = "Test Case Definitions",
                 usageDescription = "Detailed test cases covering functional, edge case, and error condition testing",
-                contentSample = """## Test Case Definitions
+                contentSample = """### Test Case Definitions
 
 ### Unit Tests
 #### Test Class: [ComponentName]Test
@@ -92,7 +92,7 @@ object TestingStrategyTemplateCreator {
                 templateId = templateId,
                 title = "Acceptance Criteria",
                 usageDescription = "Clear, measurable criteria that must be met for the implementation to be considered complete",
-                contentSample = """## Acceptance Criteria
+                contentSample = """### Acceptance Criteria
 
 ### Functional Acceptance Criteria
 1. **Core Functionality**
@@ -158,7 +158,7 @@ object TestingStrategyTemplateCreator {
                 templateId = templateId,
                 title = "Quality Gates",
                 usageDescription = "Checkpoints and criteria that must be passed before proceeding to next phase or deployment",
-                contentSample = """## Quality Gates
+                contentSample = """### Quality Gates
 
 ### Development Quality Gates
 

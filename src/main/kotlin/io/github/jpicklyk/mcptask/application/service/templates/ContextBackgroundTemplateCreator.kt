@@ -30,9 +30,7 @@ object ContextBackgroundTemplateCreator {
                 templateId = templateId,
                 title = "Business Context",
                 usageDescription = "Business rationale, strategic alignment, and organizational context for the work",
-                contentSample = """## Business Context
-
-### Strategic Alignment
+                contentSample = """### Strategic Alignment
 - **Business Objective**: [How this work aligns with broader business goals]
 - **Strategic Initiative**: [Which company strategy or initiative this supports]
 - **Key Performance Indicators**: [Metrics this work is expected to impact]
@@ -81,9 +79,7 @@ object ContextBackgroundTemplateCreator {
                 templateId = templateId,
                 title = "User Needs & Goals",
                 usageDescription = "Understanding of user requirements, pain points, and desired outcomes",
-                contentSample = """## User Needs & Goals
-
-### Target Users
+                contentSample = """### Target Users
 - **Primary Users**: [Main user group this work serves]
   - **Role/Title**: [Who they are in the organization]
   - **Responsibilities**: [What they do in their job]
@@ -141,9 +137,7 @@ object ContextBackgroundTemplateCreator {
                 templateId = templateId,
                 title = "Related Work & Dependencies",
                 usageDescription = "Context about related projects, dependencies, and coordination requirements",
-                contentSample = """## Related Work & Dependencies
-
-### Related Projects
+                contentSample = """### Related Projects
 - **[Project Name]**: [Brief description and relationship to this work]
   - **Status**: [Current status of the related project]
   - **Impact**: [How this project affects or is affected by the related work]

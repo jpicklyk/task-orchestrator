@@ -180,27 +180,45 @@ class BulkCreateSectionsTool : BaseToolDefinition() {
         - **CODE**: Implementation examples, code snippets
 
         **Writing Markdown Content**:
-        When using MARKDOWN format, write actual markdown syntax for better readability:
-        - Use headings: `## Section`, `### Subsection`
+
+        **CRITICAL - Section Title Handling**:
+        - The `title` field becomes the section heading (rendered as ## H2 in markdown output)
+        - **DO NOT** duplicate the section title as a heading in the `content` field
+        - Content should start directly with the information, NOT with another heading
+        - For subsections within content, use ### (H3) or lower headings
+
+        **Markdown Formatting**:
+        - Use subsection headings: `### Subsection` (H3 or lower, never H2)
         - Use lists: `- Item` or `1. Numbered`
         - Use emphasis: `**bold**` or `*italic*`
         - Use code: \`inline\` or \`\`\`kotlin code block\`\`\`
         - Use links: `[text](url)`
 
-        **Example - Plain Text (❌ Avoid)**:
-        ```
-        Requirements
-        Must support OAuth
-        Should handle tokens
-        ```
-
-        **Example - Good Markdown (✅ Prefer)**:
+        **Example - WRONG (❌ Creates Duplicate Headings)**:
         ```markdown
         ## Requirements
+        - **Must** support OAuth 2.0
+        ```
+        *Problem: Title field "Requirements" + content heading "## Requirements" = duplicate*
+
+        **Example - CORRECT (✅ No Duplicate)**:
+        ```markdown
         - **Must** support OAuth 2.0
         - **Should** handle token refresh automatically
         - See [OAuth spec](https://oauth.net/2/)
         ```
+        *Correct: Title field "Requirements" provides the heading, content starts directly*
+
+        **Example - With Subsections (✅ Also Correct)**:
+        ```markdown
+        ### Current Behavior
+        The system currently...
+
+        ### Proposed Changes
+        - Change 1...
+        - Change 2...
+        ```
+        *Correct: Uses H3 for subsections, not H2*
 
         **Tagging Strategy**:
         - Use consistent tags across similar section types

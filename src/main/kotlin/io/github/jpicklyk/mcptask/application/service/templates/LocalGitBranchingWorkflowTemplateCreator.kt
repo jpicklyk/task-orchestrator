@@ -30,7 +30,7 @@ object LocalGitBranchingWorkflowTemplateCreator {
                 templateId = templateId,
                 title = "Branch Creation Process",
                 usageDescription = "Step-by-step process for creating and setting up a new git branch for this work",
-                contentSample = """## Branch Creation Process
+                contentSample = """### Branch Creation Process
 
 ### Pre-Branch Analysis
 Before creating a new branch, analyze the current task to determine:
@@ -88,7 +88,7 @@ Create a concise, descriptive branch name following this pattern:
                 templateId = templateId,
                 title = "Implementation Steps",
                 usageDescription = "Structured approach to implementing changes while maintaining good git hygiene",
-                contentSample = """## Implementation Steps
+                contentSample = """### Implementation Steps
 
 ### Development Workflow
 Follow these steps during implementation to maintain clean git history:
@@ -149,7 +149,7 @@ Follow these steps during implementation to maintain clean git history:
                 templateId = templateId,
                 title = "Testing & Verification",
                 usageDescription = "Process for testing changes and verifying implementation before finalizing commits",
-                contentSample = """## Testing & Verification
+                contentSample = """### Testing & Verification
 
 ### Pre-Commit Testing
 Before committing changes, ensure:
@@ -208,7 +208,7 @@ Before committing changes, ensure:
                 templateId = templateId,
                 title = "Commit Preparation",
                 usageDescription = "Final steps for preparing and making commits with proper documentation",
-                contentSample = """## Commit Preparation
+                contentSample = """### Commit Preparation
 
 ### Final Review Process
 Before making the final commit:

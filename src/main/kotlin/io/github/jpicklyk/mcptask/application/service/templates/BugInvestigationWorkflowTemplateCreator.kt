@@ -30,9 +30,7 @@ object BugInvestigationWorkflowTemplateCreator {
                 templateId = templateId,
                 title = "Investigation Process",
                 usageDescription = "Systematic approach to investigating bug reports and gathering diagnostic information",
-                contentSample = """## Investigation Process
-
-### Initial Information Gathering
+                contentSample = """### Initial Information Gathering
 Start investigation with comprehensive information collection:
 
 1. **Bug Context Retrieval**
@@ -104,9 +102,7 @@ Gather technical evidence:
                 templateId = templateId,
                 title = "Root Cause Analysis",
                 usageDescription = "Structured approach to identifying the underlying cause of the bug through systematic analysis",
-                contentSample = """## Root Cause Analysis
-
-### Systematic Analysis Process
+                contentSample = """### Systematic Analysis Process
 Apply structured approach to identify root cause:
 
 1. **Code Review and Analysis**
@@ -189,9 +185,7 @@ Document findings clearly:
                 templateId = templateId,
                 title = "Fix Implementation & Verification",
                 usageDescription = "Structured approach to implementing bug fixes and thoroughly verifying the resolution",
-                contentSample = """## Fix Implementation & Verification
-
-### Fix Strategy Development
+                contentSample = """### Fix Strategy Development
 Plan fix approach based on root cause analysis:
 
 1. **Solution Design**
