@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.application.tools.UpdateEfficiencyMetrics
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
@@ -384,6 +385,10 @@ class UpdateTaskTool(
         context: ToolExecutionContext,
         taskId: UUID
     ): JsonElement {
+        // Analyze update efficiency and log metrics
+        val efficiencyMetrics = UpdateEfficiencyMetrics.analyzeUpdate("update_task", params)
+        logger.debug("Update efficiency metrics: $efficiencyMetrics")
+
         // Get an existing task from repository
         val existingTaskResult = context.taskRepository().getById(taskId)
         val existingTask = when (existingTaskResult) {
