@@ -1108,6 +1108,109 @@ After:
 4. **Fetch all content** only when comprehensive review is needed
 5. **Combine with sectionIds** for maximum efficiency
 
+### Bulk Operations for Multi-Entity Updates
+
+**Problem**: Updating multiple tasks individually wastes 90-95% tokens through repeated tool calls and responses.
+
+**Solution**: Use `bulk_update_tasks` for 3+ task updates to achieve 70-95% token savings.
+
+### When to Use Bulk Updates
+
+**Feature Completion** (Marking multiple tasks as done):
+```
+❌ INEFFICIENT: 10 individual update_task calls
+✅ EFFICIENT: Single bulk_update_tasks call
+
+Token Savings: 95% (11,850 characters saved)
+```
+
+**Priority Adjustments** (Updating urgency across tasks):
+```
+❌ INEFFICIENT:
+update_task({"id": "task-1", "priority": "high"})
+update_task({"id": "task-2", "priority": "high"})
+update_task({"id": "task-3", "priority": "high"})
+
+✅ EFFICIENT:
+bulk_update_tasks({
+  "tasks": [
+    {"id": "task-1", "priority": "high"},
+    {"id": "task-2", "priority": "high"},
+    {"id": "task-3", "priority": "high"}
+  ]
+})
+```
+
+**Status Progression** (Moving tasks through workflow):
+```
+bulk_update_tasks({
+  "tasks": [
+    {"id": "task-1", "status": "in-progress"},
+    {"id": "task-2", "status": "in-progress"},
+    {"id": "task-3", "status": "completed"},
+    {"id": "task-4", "status": "completed"}
+  ]
+})
+```
+
+### Token Savings Examples
+
+**Scenario**: Mark 10 tasks as completed after feature implementation
+
+**Individual Calls** (INEFFICIENT):
+- 10 tool calls × ~250 chars each = ~2,500 characters
+- 10 responses × ~1,000 chars each = ~10,000 characters
+- **Total: ~12,500 characters**
+
+**Bulk Operation** (EFFICIENT):
+- Single tool call with 10 updates = ~350 characters
+- Single response with minimal fields = ~300 characters
+- **Total: ~650 characters**
+- **Token Savings: 95% (11,850 characters saved!)**
+
+### Integration with Workflows
+
+**Task Completion Pattern**:
+```
+After completing feature implementation:
+1. search_tasks --featureId [id] --status in-progress
+2. bulk_update_tasks with all task IDs → status: completed
+3. update_feature --id [id] --status completed
+```
+
+**Priority Triage Pattern**:
+```
+After discovering blocker:
+1. get_task_dependencies --taskId [blocked-task]
+2. bulk_update_tasks with dependent task IDs → priority: high
+3. create_dependency relationships as needed
+```
+
+**Sprint Planning Pattern**:
+```
+When starting sprint:
+1. search_tasks --status pending --priority high
+2. bulk_update_tasks with selected task IDs → status: in-progress
+3. Track progress with get_overview
+```
+
+### AI Agent Guidelines
+
+1. **Use bulk operations for 3+ task updates** - Single operation vs multiple calls
+2. **Combine with search_tasks** - Find tasks then bulk update in one call
+3. **Minimal field updates** - Only send id + changed fields per task
+4. **Leverage partial updates** - Each task can update different fields
+5. **Atomic operations** - All succeed or detailed failure info provided
+
+### Other Bulk Operations
+
+**Section Management**:
+- `bulk_create_sections` - Creating 2+ sections (prefer over multiple `add_section`)
+- `bulk_update_sections` - Updating multiple sections simultaneously
+- `bulk_delete_sections` - Removing multiple sections at once
+
+**Performance Benefit**: Single database transaction, reduced network overhead, 70-95% token savings
+
 ---
 
 ## Troubleshooting
