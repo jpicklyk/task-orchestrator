@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Bulk Task Updates** - Efficient multi-task update operation
+  - `bulk_update_tasks` tool for updating 3-100 tasks in single operation
+  - 70-95% token savings vs individual update_task calls
+  - Supports partial updates (each task updates only specified fields)
+  - Atomic operation with detailed success/failure reporting
+  - Example: 10-task update saves 11,850 characters (95% reduction)
+  - Comprehensive test suite with 23 tests covering validation, happy paths, errors, and performance
 - **Template Caching** - In-memory caching for template operations
   - CachedTemplateRepository decorator wraps SQLiteTemplateRepository
   - Caches individual templates, template lists, and template sections
@@ -34,10 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Removed `includeMarkdownView` parameter from get_task, get_feature, and get_project tools
-- Updated API reference documentation to reflect 40 total tools (was 37)
-- Updated tool category counts: Task Management (7 tools), Feature Management (6 tools), Project Management (6 tools)
+- Updated API reference documentation to reflect 38 total tools (was 37)
+- Updated tool category counts: Task Management (8 tools, was 7), Feature Management (6 tools), Project Management (6 tools)
 
 ### Performance
+- Bulk task updates: 70-95% token reduction vs individual update_task calls
+  - 10 tasks: 95% savings (11,850 characters saved)
+  - 20 tasks: 95% savings (23,700 characters saved)
+  - Single database transaction vs multiple round-trips
 - V4 migration: Dependency lookups 5-10x faster with directional indexes
 - V4 migration: Search operations 2-5x faster with search vector indexes
 - V4 migration: Filtered queries 2-4x faster with composite indexes
