@@ -292,21 +292,68 @@ DON'T DO THIS:
 
 ### ❌ Anti-Pattern 3: Batch Inefficiency
 
-**❌ Inefficient Batch Update:**
-```
-For each of 20 tasks:
-  1. Fetch full task (800 chars)
-  2. Update with full entity (600 chars)
-Total: 20 × 1,400 = 28,000 characters
+**❌ INEFFICIENT** - Multiple individual update_task calls:
+```json
+// 20 separate calls!
+update_task({"id": "task-1-uuid", "status": "completed"})
+update_task({"id": "task-2-uuid", "status": "completed"})
+update_task({"id": "task-3-uuid", "status": "completed"})
+...
+update_task({"id": "task-20-uuid", "status": "completed"})
+
+// Cost calculation:
+// 20 calls × ~250 chars each = ~5,000 characters
+// Plus 20 response roundtrips = ~20,000 additional characters
+// Total: ~25,000 characters
 ```
 
-**✅ Efficient Batch Update:**
-```
-For each of 20 tasks:
-  Update with id + status only (30 chars)
-Total: 20 × 30 = 600 characters
+**✅ EFFICIENT** - Single bulk_update_tasks call:
+```json
+{
+  "tasks": [
+    {"id": "task-1-uuid", "status": "completed"},
+    {"id": "task-2-uuid", "status": "completed"},
+    {"id": "task-3-uuid", "status": "completed"},
+    ...
+    {"id": "task-20-uuid", "status": "completed"}
+  ]
+}
 
-Savings: 96% (27,400 characters)
+// Cost calculation:
+// Single call with 20 minimal updates = ~700 characters
+// Single response with minimal fields = ~600 characters
+// Total: ~1,300 characters
+//
+// Token Savings: 95% (23,700 characters saved)
+```
+
+**Real-World Example:**
+
+Marking 10 tasks as completed after feature implementation:
+
+```json
+// ❌ INEFFICIENT: 10 individual calls (~2,500 chars + responses ~10,000 chars = 12,500 total)
+update_task({"id": "a1b2c3...", "status": "completed"})
+update_task({"id": "d4e5f6...", "status": "completed"})
+...
+
+// ✅ EFFICIENT: Single bulk call (~350 chars + response ~300 chars = 650 total)
+bulk_update_tasks({
+  "tasks": [
+    {"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "status": "completed"},
+    {"id": "d4e5f6a7-b8c9-0123-def4-567890abcdef", "status": "completed"},
+    {"id": "f6a7b8c9-d0e1-2345-6789-0abcdef12345", "status": "completed"},
+    {"id": "a7b8c9d0-e1f2-3456-7890-abcdef123456", "status": "completed"},
+    {"id": "b8c9d0e1-f2a3-4567-890a-bcdef1234567", "status": "completed"},
+    {"id": "c9d0e1f2-a3b4-5678-90ab-cdef12345678", "status": "completed"},
+    {"id": "d0e1f2a3-b4c5-6789-0abc-def123456789", "status": "completed"},
+    {"id": "e1f2a3b4-c5d6-7890-abcd-ef123456789a", "status": "completed"},
+    {"id": "f2a3b4c5-d6e7-890a-bcde-f123456789ab", "status": "completed"},
+    {"id": "a3b4c5d6-e7f8-90ab-cdef-123456789abc", "status": "completed"}
+  ]
+})
+
+// Savings: 95% (11,850 characters saved!)
 ```
 
 ---
@@ -329,9 +376,11 @@ Savings: 96% (27,400 characters)
    - You know the ID and what to change
    - No need to read first
 
-4. **Batch efficiently**
-   - Send minimal updates for each entity
-   - Avoid fetching if not needed
+4. **Use bulk operations for multiple updates**
+   - Use `bulk_update_tasks` for 3+ task updates
+   - Use `bulk_update_sections` for 3+ section updates
+   - Use `bulk_create_sections` for creating multiple sections
+   - Achieves 70-95% token savings vs individual calls
 
 5. **Trust partial updates**
    - Unchanged fields are preserved
@@ -373,6 +422,8 @@ Savings: 96% (27,400 characters)
 | Update content | `update_section_text` | `id`, `oldText`, `newText` | - | 90-99% |
 | Change metadata | `update_section_metadata` | `id` | `title`, `ordinal`, etc. | 85-95% |
 | Multiple properties | Any update tool | `id` | Only changed fields | 80-90% |
+| Bulk task updates | `bulk_update_tasks` | `tasks` array | Per-task fields | 70-95% |
+| Bulk section updates | `bulk_update_sections` | `sections` array | Per-section fields | 70-90% |
 
 ### Common Update Patterns
 
@@ -395,18 +446,41 @@ Savings: 96% (27,400 characters)
   "oldText": "old value",
   "newText": "new value"
 }
+
+// Bulk task updates (3+ tasks)
+{
+  "tasks": [
+    {"id": "task-1-uuid", "status": "completed"},
+    {"id": "task-2-uuid", "status": "completed"},
+    {"id": "task-3-uuid", "priority": "high"}
+  ]
+}
+
+// Bulk section updates (3+ sections)
+{
+  "sections": [
+    {"id": "section-1-uuid", "ordinal": 0},
+    {"id": "section-2-uuid", "ordinal": 1},
+    {"id": "section-3-uuid", "title": "Updated Title"}
+  ]
+}
 ```
 
 ### Decision Tree
 
 ```
-Need to update an entity?
+Need to update entities?
+├─ Updating multiple entities (3+)?
+│  ├─ Multiple tasks? → use bulk_update_tasks
+│  ├─ Multiple sections? → use bulk_update_sections
+│  └─ Creating multiple sections? → use bulk_create_sections
+│
 ├─ Updating section content?
 │  ├─ Just a small text change? → use update_section_text
 │  ├─ Just metadata? → use update_section_metadata
 │  └─ Multiple properties? → use update_section (partial)
 │
-└─ Updating task/feature/project?
+└─ Updating single task/feature/project?
    ├─ One field? → Send id + that field only
    ├─ 2-3 fields? → Send id + those fields only
    └─ Many fields? → Send id + changed fields only
