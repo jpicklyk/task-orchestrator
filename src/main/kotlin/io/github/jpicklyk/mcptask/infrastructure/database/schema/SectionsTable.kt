@@ -18,6 +18,7 @@ object SectionsTable : Table("sections") {
     val tags = text("tags") // Stored as comma-separated values
     val createdAt = timestamp("created_at")
     val modifiedAt = timestamp("modified_at")
+    val version = long("version").default(1)
 
     override val primaryKey = PrimaryKey(id)
 
@@ -26,5 +27,6 @@ object SectionsTable : Table("sections") {
         index(isUnique = false, entityType, entityId)
         index(isUnique = false, entityId)
         index(isUnique = true, entityType, entityId, ordinal)
+        index(isUnique = false, version)
     }
 }

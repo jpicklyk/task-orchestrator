@@ -191,8 +191,25 @@ class UpdateFeatureToolTest {
         // Check that the result is a success response
         val resultObj = result as JsonObject
         assertEquals(true, (resultObj["success"] as JsonPrimitive).content.toBoolean())
-        assertNotNull(resultObj["data"])
         assertEquals("Feature updated successfully", (resultObj["message"] as JsonPrimitive).content)
+
+        // Verify minimal response format: only id, status, and modifiedAt
+        val data = resultObj["data"]?.jsonObject
+        assertNotNull(data, "Data object should not be null")
+        assertNotNull(data!!["id"], "ID should be present")
+        assertNotNull(data["status"], "Status should be present")
+        assertNotNull(data["modifiedAt"], "ModifiedAt should be present")
+
+        // Verify that only these 3 fields are returned (optimization)
+        assertEquals(3, data.size, "Response should only contain id, status, and modifiedAt")
+
+        // Verify other fields are NOT returned (to confirm optimization)
+        assertNull(data["name"], "Name should not be in minimal response")
+        assertNull(data["summary"], "Summary should not be in minimal response")
+        assertNull(data["priority"], "Priority should not be in minimal response")
+        assertNull(data["createdAt"], "CreatedAt should not be in minimal response")
+        assertNull(data["tags"], "Tags should not be in minimal response")
+        assertNull(data["projectId"], "ProjectId should not be in minimal response")
     }
 
     @Test

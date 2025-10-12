@@ -78,11 +78,38 @@ class UpdateProjectTool(
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing project's properties.
-        
-        This tool modifies properties of an existing project. It supports partial updates, meaning you only need to specify 
+
+        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
+
+        ## Efficient vs Inefficient Updates
+
+        ❌ **INEFFICIENT** (wastes ~400+ characters):
+        ```json
+        {
+          "id": "project-uuid",
+          "name": "Existing Project Name",        // Unchanged - unnecessary
+          "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
+          "status": "in-development",             // ✓ Only this changed
+          "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
+        }
+        ```
+
+        ✅ **EFFICIENT** (uses ~40 characters):
+        ```json
+        {
+          "id": "project-uuid",
+          "status": "in-development"  // Only send what changed!
+        }
+        ```
+
+        **Token Savings**: 90% reduction by only sending changed fields!
+
+        ## Partial Updates
+        This tool modifies properties of an existing project. It supports partial updates, meaning you only need to specify
         the fields you want to change. Any fields not included in the request will retain their current values.
-        
-        Projects are top-level organizational containers that group related features and tasks together. Updating a project 
+
+        Projects are top-level organizational containers that group related features and tasks together. Updating a project
         allows you to change its name, summary, status, or tags without affecting its relationships with features and tasks.
         
         Example successful response:
@@ -123,19 +150,19 @@ class UpdateProjectTool(
                 "name" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project name")
+                        "description" to JsonPrimitive("(optional) New project name")
                     )
                 ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project summary describing its purpose and scope")
+                        "description" to JsonPrimitive("(optional) New project summary describing its purpose and scope")
                     )
                 ),
                 "status" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project status. Valid values: 'planning', 'in-development', 'completed', 'archived'"),
+                        "description" to JsonPrimitive("(optional) New project status. Valid values: 'planning', 'in-development', 'completed', 'archived'"),
                         "enum" to JsonArray(
                             listOf(
                                 "planning",
@@ -148,7 +175,7 @@ class UpdateProjectTool(
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New comma-separated list of tags for categorization")
+                        "description" to JsonPrimitive("(optional) New comma-separated list of tags for categorization")
                     )
                 )
             )
@@ -274,19 +301,12 @@ class UpdateProjectTool(
                     is Result.Success -> {
                         val project = updateResult.data
 
-                        // Build the response
+                        // Return minimal response to optimize bandwidth and performance
+                        // Only return essential fields: id, status, and modifiedAt
                         val responseBuilder = buildJsonObject {
                             put("id", project.id.toString())
-                            put("name", project.name)
-                            put("summary", project.summary)
                             put("status", project.status.name.lowercase().replace('_', '-'))
-                            put("createdAt", project.createdAt.toString())
                             put("modifiedAt", project.modifiedAt.toString())
-
-                            // Include tags if present
-                            if (project.tags.isNotEmpty()) {
-                                put("tags", JsonArray(project.tags.map { JsonPrimitive(it) }))
-                            }
                         }
 
                         successResponse(

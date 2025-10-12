@@ -30,7 +30,7 @@ object RequirementsSpecificationTemplateCreator {
                 templateId = templateId,
                 title = "Must-Have Requirements",
                 usageDescription = "Critical functional requirements that must be implemented for successful delivery",
-                contentSample = """## Must-Have Requirements
+                contentSample = """### Must-Have Requirements
 
 ### Core Functionality
 1. **[Requirement ID]**: [Requirement Name]
@@ -81,7 +81,7 @@ object RequirementsSpecificationTemplateCreator {
                 templateId = templateId,
                 title = "Nice-to-Have Features",
                 usageDescription = "Optional features and enhancements that would improve the solution but aren't critical",
-                contentSample = """## Nice-to-Have Features
+                contentSample = """### Nice-to-Have Features
 
 ### Enhanced Functionality
 1. **[Feature Name]**: [Description of optional feature]
@@ -130,61 +130,43 @@ object RequirementsSpecificationTemplateCreator {
             ),
             TemplateSection(
                 templateId = templateId,
-                title = "Constraints & Limitations",
-                usageDescription = "Technical constraints, business limitations, and non-functional requirements that must be considered",
-                contentSample = """## Constraints & Limitations
-
-### Technical Constraints
+                title = "Constraints & Non-Functional Requirements",
+                usageDescription = "Technical constraints and non-functional requirements that must be considered",
+                contentSample = """### Technical Constraints
 - **Technology Stack**: [Required technologies, frameworks, or platforms]
-- **Legacy System Compatibility**: [Existing systems that must be supported]
-- **Infrastructure Limitations**: [Hardware, network, or cloud limitations]
-- **Database Constraints**: [Database technology, size, or performance limits]
+- **Legacy Compatibility**: [Existing systems that must be supported]
+- **Infrastructure**: [Hardware, network, or cloud limitations]
 - **Third-party Dependencies**: [External services or APIs that must be used]
 
 ### Performance Requirements
-- **Response Time**: [Maximum acceptable response times for different operations]
+- **Response Time**: [Maximum acceptable response times]
 - **Throughput**: [Required transactions per second or concurrent users]
-- **Availability**: [Uptime requirements (e.g., 99.9% availability)]
-- **Scalability**: [Expected growth in users, data, or transaction volume]
-- **Resource Usage**: [Memory, CPU, storage, or bandwidth limitations]
+- **Scalability**: [Expected growth in users, data, or transactions]
 
 ### Security Requirements
-- **Compliance Standards**: [GDPR, HIPAA, SOX, or other regulatory requirements]
-- **Data Protection**: [Encryption requirements, data residency, privacy rules]
-- **Authentication**: [Required authentication methods, password policies]
-- **Authorization**: [Role-based access control, permission models]
-- **Audit Logging**: [What must be logged for security and compliance]
+- **Authentication**: [Required authentication methods]
+- **Authorization**: [Access control and permission model]
+- **Data Protection**: [Encryption and data handling requirements]
+- **Audit Logging**: [What must be logged for security]
 
-### Business Constraints
-- **Budget Limitations**: [Financial constraints affecting implementation choices]
-- **Timeline Constraints**: [Hard deadlines that cannot be moved]
-- **Resource Availability**: [Limited development team, expertise constraints]
-- **Operational Constraints**: [Deployment windows, maintenance schedules]
-- **Regulatory Requirements**: [Industry regulations that must be followed]
+### User Experience Requirements
+- **Browser/Platform Support**: [Supported browsers and devices]
+- **Accessibility**: [WCAG level or specific accessibility needs]
+- **Offline Capability**: [Any offline functionality requirements]
 
-### User Experience Constraints
-- **Browser Support**: [Minimum browser versions that must be supported]
-- **Accessibility Requirements**: [WCAG level, specific accessibility needs]
-- **Mobile Support**: [Required mobile device support]
-- **Offline Requirements**: [Any offline functionality requirements]
-- **User Training**: [Limitations on user training time or complexity]
-
-### Data Constraints
-- **Data Volume**: [Expected data sizes, growth rates]
-- **Data Retention**: [How long data must be kept, archival requirements]
-- **Data Quality**: [Data accuracy, completeness requirements]
-- **Data Migration**: [Constraints on migrating existing data]
-- **Backup/Recovery**: [Data backup and disaster recovery requirements]
+### Data Requirements
+- **Data Volume**: [Expected data sizes and growth rates]
+- **Data Retention**: [How long data must be kept]
+- **Backup/Recovery**: [Data backup and recovery requirements]
 
 ### Integration Constraints
 - **API Limitations**: [Rate limits, data format restrictions]
-- **Network Constraints**: [Bandwidth, latency, connectivity requirements]
-- **Synchronization Requirements**: [Real-time vs. batch data synchronization]
+- **Network Requirements**: [Bandwidth, latency requirements]
 - **Error Handling**: [How integration failures must be handled]""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("constraints", "limitations", "non-functional", "compliance")
+                tags = listOf("constraints", "non-functional", "performance", "security")
             )
         )
 

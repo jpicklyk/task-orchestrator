@@ -27,12 +27,13 @@ A Kotlin implementation of the Model Context Protocol (MCP) server for comprehen
 
 - **🤖 AI-Native**: Designed specifically for AI assistant workflows with autonomous pattern recognition
 - **📊 Hierarchical Organization**: Projects → Features → Tasks with dependencies
-- **🎯 Context-Efficient**: Progressive loading and token optimization
+- **🎯 Context-Efficient**: Progressive loading, token optimization, and template caching
+- **⚡ Bulk Operations**: 70-90% token reduction for multi-task updates
 - **📋 Template-Driven**: 9 built-in templates for consistent documentation
 - **🔄 Workflow Automation**: 6 comprehensive workflow prompts for common scenarios
 - **🔗 Rich Relationships**: Task dependencies with cycle detection
 - **🔒 Concurrent Access Protection**: Built-in sub-agent collision prevention
-- **⚡ 37 MCP Tools**: Complete task orchestration API
+- **🚀 38 MCP Tools**: Complete task orchestration API
 
 ## Quick Start (2 Minutes)
 

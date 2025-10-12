@@ -362,4 +362,230 @@ class GetSectionsToolTest {
             "Error details should not be empty"
         )
     }
+
+    @Test
+    fun `should retrieve sections without content when includeContent is false`() = runBlocking {
+        // Arrange
+        val task = Task.create {
+            it.copy(
+                title = "Test Task",
+                summary = "Task for testing",
+                status = TaskStatus.PENDING,
+                priority = Priority.MEDIUM
+            )
+        }
+        mockTaskRepository.create(task)
+
+        val section1 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Implementation Details",
+            usageDescription = "Technical notes for developers",
+            content = "This is a very long content that would consume many tokens in the response",
+            contentFormat = ContentFormat.MARKDOWN,
+            ordinal = 0,
+            tags = listOf("technical", "implementation")
+        )
+
+        val section2 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Test Strategy",
+            usageDescription = "Testing approach for this task",
+            content = "Another long content that should be excluded when includeContent=false",
+            contentFormat = ContentFormat.PLAIN_TEXT,
+            ordinal = 1
+        )
+
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section1)
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section2)
+
+        val params = buildJsonObject {
+            put("entityType", EntityType.TASK.name)
+            put("entityId", task.id.toString())
+            put("includeContent", false)
+        }
+
+        // Act
+        val result = tool.execute(params, context)
+
+        // Assert
+        val data = ResponseAssertions.assertSuccessResponse(result)
+        val sectionsArray = ResponseAssertions.assertCollectionSize(data, 2, "sections")
+
+        // Verify that content field is NOT present
+        val firstSection = sectionsArray!![0].jsonObject
+        assertEquals("Implementation Details", firstSection["title"]?.jsonPrimitive?.content)
+        assertEquals("MARKDOWN", firstSection["contentFormat"]?.jsonPrimitive?.content)
+        assertEquals(null, firstSection["content"], "Content should not be included when includeContent=false")
+
+        val secondSection = sectionsArray[1].jsonObject
+        assertEquals("Test Strategy", secondSection["title"]?.jsonPrimitive?.content)
+        assertEquals("PLAIN_TEXT", secondSection["contentFormat"]?.jsonPrimitive?.content)
+        assertEquals(null, secondSection["content"], "Content should not be included when includeContent=false")
+
+        // Verify other fields are still present
+        assertEquals("Technical notes for developers", firstSection["usageDescription"]?.jsonPrimitive?.content)
+        assertEquals(0, firstSection["ordinal"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun `should retrieve only specified sections when sectionIds provided`() = runBlocking {
+        // Arrange
+        val task = Task.create {
+            it.copy(
+                title = "Test Task",
+                summary = "Task for testing",
+                status = TaskStatus.PENDING,
+                priority = Priority.MEDIUM
+            )
+        }
+        mockTaskRepository.create(task)
+
+        val section1 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Section 1",
+            usageDescription = "First section",
+            content = "Content 1",
+            contentFormat = ContentFormat.MARKDOWN,
+            ordinal = 0
+        )
+
+        val section2 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Section 2",
+            usageDescription = "Second section",
+            content = "Content 2",
+            contentFormat = ContentFormat.MARKDOWN,
+            ordinal = 1
+        )
+
+        val section3 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Section 3",
+            usageDescription = "Third section",
+            content = "Content 3",
+            contentFormat = ContentFormat.MARKDOWN,
+            ordinal = 2
+        )
+
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section1)
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section2)
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section3)
+
+        val params = buildJsonObject {
+            put("entityType", EntityType.TASK.name)
+            put("entityId", task.id.toString())
+            put("sectionIds", JsonArray(listOf(
+                JsonPrimitive(section1.id.toString()),
+                JsonPrimitive(section3.id.toString())
+            )))
+        }
+
+        // Act
+        val result = tool.execute(params, context)
+
+        // Assert
+        val data = ResponseAssertions.assertSuccessResponse(result)
+        val sectionsArray = ResponseAssertions.assertCollectionSize(data, 2, "sections")
+
+        // Verify only specified sections are returned
+        val returnedTitles = sectionsArray!!.map { it.jsonObject["title"]?.jsonPrimitive?.content }
+        assertTrue(returnedTitles.contains("Section 1"), "Section 1 should be included")
+        assertTrue(returnedTitles.contains("Section 3"), "Section 3 should be included")
+        assertTrue(!returnedTitles.contains("Section 2"), "Section 2 should NOT be included")
+
+        // Verify count is correct
+        assertEquals(2, (data as JsonObject)["count"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun `should combine includeContent false with sectionIds filtering`() = runBlocking {
+        // Arrange
+        val task = Task.create {
+            it.copy(
+                title = "Test Task",
+                summary = "Task for testing",
+                status = TaskStatus.PENDING,
+                priority = Priority.MEDIUM
+            )
+        }
+        mockTaskRepository.create(task)
+
+        val section1 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Section 1",
+            usageDescription = "First section",
+            content = "Large content 1 that should be excluded",
+            contentFormat = ContentFormat.MARKDOWN,
+            ordinal = 0
+        )
+
+        val section2 = Section(
+            entityType = EntityType.TASK,
+            entityId = task.id,
+            title = "Section 2",
+            usageDescription = "Second section",
+            content = "Large content 2 that should be excluded",
+            contentFormat = ContentFormat.MARKDOWN,
+            ordinal = 1
+        )
+
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section1)
+        mockSectionRepository.addSection(EntityType.TASK, task.id, section2)
+
+        val params = buildJsonObject {
+            put("entityType", EntityType.TASK.name)
+            put("entityId", task.id.toString())
+            put("includeContent", false)
+            put("sectionIds", JsonArray(listOf(JsonPrimitive(section1.id.toString()))))
+        }
+
+        // Act
+        val result = tool.execute(params, context)
+
+        // Assert
+        val data = ResponseAssertions.assertSuccessResponse(result)
+        val sectionsArray = ResponseAssertions.assertCollectionSize(data, 1, "sections")
+
+        // Verify only specified section is returned and content is excluded
+        val firstSection = sectionsArray!![0].jsonObject
+        assertEquals("Section 1", firstSection["title"]?.jsonPrimitive?.content)
+        assertEquals(null, firstSection["content"], "Content should not be included")
+        assertEquals("First section", firstSection["usageDescription"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `should return error for invalid sectionIds format`() = runBlocking {
+        // Arrange
+        val task = Task.create {
+            it.copy(
+                title = "Test Task",
+                summary = "Task for testing",
+                status = TaskStatus.PENDING,
+                priority = Priority.MEDIUM
+            )
+        }
+        mockTaskRepository.create(task)
+
+        val params = buildJsonObject {
+            put("entityType", EntityType.TASK.name)
+            put("entityId", task.id.toString())
+            put("sectionIds", JsonArray(listOf(JsonPrimitive("not-a-uuid"))))
+        }
+
+        // Act
+        val result = tool.execute(params, context)
+
+        // Assert
+        val errorResponse = ResponseAssertions.assertErrorResponse(result, null, "VALIDATION_ERROR")
+        assertTrue(
+            (errorResponse as JsonObject)["details"]?.jsonPrimitive?.content?.contains("UUID") ?: false,
+            "Error should mention UUID format issue"
+        )
+    }
 }

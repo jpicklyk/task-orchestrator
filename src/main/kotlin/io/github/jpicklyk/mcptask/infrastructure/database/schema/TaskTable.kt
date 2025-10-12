@@ -47,5 +47,12 @@ object TaskTable : UUIDTable("tasks") {
         index(isUnique = false, version)
         index(isUnique = false, lockStatus)
         index(isUnique = false, lastModifiedBy)
+
+        // Performance indexes for search and filtering
+        index(isUnique = false, searchVector)
+        index(isUnique = false, status, priority)
+        index(isUnique = false, featureId, status)
+        index(isUnique = false, projectId, status)
+        // Note: priority descending + createdAt ascending index created in migration
     }
 }

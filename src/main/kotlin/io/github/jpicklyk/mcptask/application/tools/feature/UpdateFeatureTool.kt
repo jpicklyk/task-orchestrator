@@ -71,7 +71,39 @@ class UpdateFeatureTool(
         )
     )
 
-    override val description: String = "Update an existing feature's properties"
+    override val description: String = """Update an existing feature's properties.
+
+        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
+
+        ## Efficient vs Inefficient Updates
+
+        ❌ **INEFFICIENT** (wastes ~400+ characters):
+        ```json
+        {
+          "id": "feature-uuid",
+          "name": "Existing Feature Name",        // Unchanged - unnecessary
+          "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
+          "status": "in-development",             // ✓ Only this changed
+          "priority": "high",                     // Unchanged - unnecessary
+          "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
+        }
+        ```
+
+        ✅ **EFFICIENT** (uses ~40 characters):
+        ```json
+        {
+          "id": "feature-uuid",
+          "status": "in-development"  // Only send what changed!
+        }
+        ```
+
+        **Token Savings**: 90% reduction by only sending changed fields!
+
+        ## Partial Updates
+        Only specify fields you want to change. Unspecified fields remain unchanged.
+        This tool supports partial updates for all fields except 'id' (which is required).
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(
@@ -85,38 +117,38 @@ class UpdateFeatureTool(
                 "name" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New feature name")
+                        "description" to JsonPrimitive("(optional) New feature name")
                     )
                 ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New feature summary")
+                        "description" to JsonPrimitive("(optional) New feature summary")
                     )
                 ),
                 "status" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New status (planning, in-development, completed, archived)")
+                        "description" to JsonPrimitive("(optional) New status (planning, in-development, completed, archived)")
                     )
                 ),
                 "priority" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New priority level (high, medium, low)")
+                        "description" to JsonPrimitive("(optional) New priority level (high, medium, low)")
                     )
                 ),
                 "projectId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New project ID (UUID) to associate this feature with"),
+                        "description" to JsonPrimitive("(optional) New project ID (UUID) to associate this feature with"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New comma-separated list of tags")
+                        "description" to JsonPrimitive("(optional) New comma-separated list of tags")
                     )
                 )
             )
@@ -258,20 +290,12 @@ class UpdateFeatureTool(
                     is Result.Success -> {
                         val savedFeature = updateResult.data
 
-                        // Create a response with feature information using the standardized format
+                        // Return minimal response to optimize bandwidth and performance
+                        // Only return essential fields: id, status, and modifiedAt
                         val responseData = buildJsonObject {
                             put("id", savedFeature.id.toString())
-                            put("name", savedFeature.name)
-                            put("summary", savedFeature.summary)
                             put("status", savedFeature.status.name.lowercase().replace('_', '-'))
-                            put("priority", savedFeature.priority.name.lowercase())
-                            put("createdAt", savedFeature.createdAt.toString())
                             put("modifiedAt", savedFeature.modifiedAt.toString())
-
-                            // Include tags if present
-                            if (savedFeature.tags.isNotEmpty()) {
-                                put("tags", savedFeature.tags.joinToString(", "))
-                            }
                         }
 
                         successResponse(

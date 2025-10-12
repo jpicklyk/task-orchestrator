@@ -22,6 +22,9 @@ object FeaturesTable : UUIDTable("features") {
     // Tags are now handled by the unified EntityTagsTable
     // val tags = text("tags").default("")
 
+    // Optimistic locking
+    val version = long("version").default(1)
+
     // Search optimization for full-text search
     val searchVector = text("search_vector").nullable()
 
@@ -34,5 +37,9 @@ object FeaturesTable : UUIDTable("features") {
         index(isUnique = false, priority)
         index(isUnique = false, createdAt)
         index(isUnique = false, modifiedAt)
+        index(isUnique = false, version)
+
+        // Performance index for search
+        index(isUnique = false, searchVector)
     }
 }

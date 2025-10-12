@@ -1026,6 +1026,191 @@ AI: "Fix complete with 5 regression tests:
    - Refine custom patterns as needed
    - Provide feedback for improvements
 
+5. **Optimize token usage**
+   - Use selective section loading for validation workflows
+   - Browse section structure before loading full content
+   - Fetch only needed sections for analysis
+   - See Token Optimization section below
+
+---
+
+## Token Optimization Best Practices
+
+### Selective Section Loading
+
+**Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata or specific sections are needed.
+
+**Solution**: Use the two-step workflow with `get_sections` for 85-99% token savings.
+
+### When to Use Selective Loading
+
+**Validation Workflows** (Browse before validating):
+```
+1. get_sections --entityType TASK --entityId [id] --includeContent false
+2. Review section structure (titles, formats, ordinals)
+3. Determine which sections need validation
+4. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids]
+5. Validate only the critical sections
+```
+
+**Finding Specific Content** (Browse then fetch):
+```
+1. get_sections --entityType TASK --entityId [id] --includeContent false
+2. Identify section by title (e.g., "Technical Approach")
+3. get_sections --entityType TASK --entityId [id] --sectionIds [approach-section-id]
+4. Work with specific content
+```
+
+**Understanding Structure** (Metadata only):
+```
+1. get_sections --entityType TASK --entityId [id] --includeContent false
+2. Get complete picture of documentation organization
+3. Use titles and usageDescription to understand content
+4. No need to load content if structure answers the question
+```
+
+### Token Savings Examples
+
+**Traditional Approach** (All content):
+- 5 sections × 1,000 chars each = 5,000 tokens
+- Load all content even if only validating structure
+
+**Optimized Approach** (Selective loading):
+- Step 1: Metadata only = 250 tokens (95% savings)
+- Step 2: 2 specific sections = 2,000 tokens (60% overall savings)
+- **Total**: 2,250 tokens vs 5,000 tokens
+
+### Integration with Workflows
+
+**Task Completion Validation**:
+```
+Before: get_sections (loads all 5-10 sections fully)
+After:
+1. get_sections --includeContent false (browse structure)
+2. Identify required sections from template
+3. get_sections --sectionIds [ids] (fetch only what's needed)
+```
+
+**Bug Investigation**:
+```
+Before: Load all task sections to find reproduction steps
+After:
+1. get_sections --includeContent false
+2. Find "Reproduction Steps" section by title
+3. get_sections --sectionIds [repro-section-id]
+```
+
+### AI Agent Guidelines
+
+1. **Default to selective loading** when validating completion
+2. **Browse structure first** when looking for specific content
+3. **Use metadata** when structure is enough to answer the question
+4. **Fetch all content** only when comprehensive review is needed
+5. **Combine with sectionIds** for maximum efficiency
+
+### Bulk Operations for Multi-Entity Updates
+
+**Problem**: Updating multiple tasks individually wastes 90-95% tokens through repeated tool calls and responses.
+
+**Solution**: Use `bulk_update_tasks` for 3+ task updates to achieve 70-95% token savings.
+
+### When to Use Bulk Updates
+
+**Feature Completion** (Marking multiple tasks as done):
+```
+❌ INEFFICIENT: 10 individual update_task calls
+✅ EFFICIENT: Single bulk_update_tasks call
+
+Token Savings: 95% (11,850 characters saved)
+```
+
+**Priority Adjustments** (Updating urgency across tasks):
+```
+❌ INEFFICIENT:
+update_task({"id": "task-1", "priority": "high"})
+update_task({"id": "task-2", "priority": "high"})
+update_task({"id": "task-3", "priority": "high"})
+
+✅ EFFICIENT:
+bulk_update_tasks({
+  "tasks": [
+    {"id": "task-1", "priority": "high"},
+    {"id": "task-2", "priority": "high"},
+    {"id": "task-3", "priority": "high"}
+  ]
+})
+```
+
+**Status Progression** (Moving tasks through workflow):
+```
+bulk_update_tasks({
+  "tasks": [
+    {"id": "task-1", "status": "in-progress"},
+    {"id": "task-2", "status": "in-progress"},
+    {"id": "task-3", "status": "completed"},
+    {"id": "task-4", "status": "completed"}
+  ]
+})
+```
+
+### Token Savings Examples
+
+**Scenario**: Mark 10 tasks as completed after feature implementation
+
+**Individual Calls** (INEFFICIENT):
+- 10 tool calls × ~250 chars each = ~2,500 characters
+- 10 responses × ~1,000 chars each = ~10,000 characters
+- **Total: ~12,500 characters**
+
+**Bulk Operation** (EFFICIENT):
+- Single tool call with 10 updates = ~350 characters
+- Single response with minimal fields = ~300 characters
+- **Total: ~650 characters**
+- **Token Savings: 95% (11,850 characters saved!)**
+
+### Integration with Workflows
+
+**Task Completion Pattern**:
+```
+After completing feature implementation:
+1. search_tasks --featureId [id] --status in-progress
+2. bulk_update_tasks with all task IDs → status: completed
+3. update_feature --id [id] --status completed
+```
+
+**Priority Triage Pattern**:
+```
+After discovering blocker:
+1. get_task_dependencies --taskId [blocked-task]
+2. bulk_update_tasks with dependent task IDs → priority: high
+3. create_dependency relationships as needed
+```
+
+**Sprint Planning Pattern**:
+```
+When starting sprint:
+1. search_tasks --status pending --priority high
+2. bulk_update_tasks with selected task IDs → status: in-progress
+3. Track progress with get_overview
+```
+
+### AI Agent Guidelines
+
+1. **Use bulk operations for 3+ task updates** - Single operation vs multiple calls
+2. **Combine with search_tasks** - Find tasks then bulk update in one call
+3. **Minimal field updates** - Only send id + changed fields per task
+4. **Leverage partial updates** - Each task can update different fields
+5. **Atomic operations** - All succeed or detailed failure info provided
+
+### Other Bulk Operations
+
+**Section Management**:
+- `bulk_create_sections` - Creating 2+ sections (prefer over multiple `add_section`)
+- `bulk_update_sections` - Updating multiple sections simultaneously
+- `bulk_delete_sections` - Removing multiple sections at once
+
+**Performance Benefit**: Single database transaction, reduced network overhead, 70-95% token savings
+
 ---
 
 ## Troubleshooting

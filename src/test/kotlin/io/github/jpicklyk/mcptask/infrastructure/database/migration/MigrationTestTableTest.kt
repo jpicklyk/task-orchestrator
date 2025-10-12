@@ -79,7 +79,7 @@ class MigrationTestTableTest {
             val (description, version, testData) = recordData!!
             
             assertTrue(description.contains("validates that the migration_test_table was created successfully"))
-            assertEquals(2, version, "Initial record should be from migration version 2")
+            assertEquals(2, version, "Initial record should be from migration version 2 (V2)")
             assertTrue(testData.contains("schema_validation"), "Test data should contain validation marker")
         }
     }
@@ -237,7 +237,7 @@ class MigrationTestTableTest {
             val (totalRecords, maxVersion, earliestRecord) = migrationValidationRecord!!
             
             assertTrue(totalRecords > 0, "Should have at least one test record for validation")
-            assertTrue(maxVersion >= 2, "Should reflect the migration version that created test data")
+            assertTrue(maxVersion >= 2, "Should reflect the migration version that created test data (V2)")
             assertTrue(earliestRecord.isNotEmpty(), "Should have timestamp data for tracking")
 
             // Insert a test record to validate that future migrations could use this table

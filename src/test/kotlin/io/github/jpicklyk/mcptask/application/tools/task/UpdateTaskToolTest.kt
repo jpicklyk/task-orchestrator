@@ -207,14 +207,23 @@ class UpdateTaskToolTest {
 
         val data = responseObj["data"]?.jsonObject
         assertNotNull(data, "Data object should not be null")
-        assertEquals(validTaskId, data!!["id"]?.jsonPrimitive?.content)
 
-        // Skip detailed field validation for now as the content might vary
-        // Just check that basic fields exist
-        assertNotNull(data["title"])
-        assertNotNull(data["status"])
-        assertNotNull(data["priority"])
-        assertNotNull(data["complexity"])
+        // Verify minimal response format: only id, status, and modifiedAt
+        assertEquals(validTaskId, data!!["id"]?.jsonPrimitive?.content)
+        assertNotNull(data["status"], "Status should be present")
+        assertNotNull(data["modifiedAt"], "ModifiedAt should be present")
+
+        // Verify that only these 3 fields are returned (optimization)
+        assertEquals(3, data.size, "Response should only contain id, status, and modifiedAt")
+
+        // Verify other fields are NOT returned (to confirm optimization)
+        assertNull(data["title"], "Title should not be in minimal response")
+        assertNull(data["summary"], "Summary should not be in minimal response")
+        assertNull(data["priority"], "Priority should not be in minimal response")
+        assertNull(data["complexity"], "Complexity should not be in minimal response")
+        assertNull(data["createdAt"], "CreatedAt should not be in minimal response")
+        assertNull(data["tags"], "Tags should not be in minimal response")
+        assertNull(data["featureId"], "FeatureId should not be in minimal response")
 
         // Error should be null on success
         assertTrue(

@@ -22,7 +22,9 @@ data class Project(
     val status: ProjectStatus = ProjectStatus.PLANNING,
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    /** Optimistic concurrency version */
+    val version: Long = 1
 ) {
     init {
         validate()

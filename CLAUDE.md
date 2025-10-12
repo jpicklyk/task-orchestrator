@@ -1,174 +1,359 @@
-# Claude Code Project Memory
+# CLAUDE.md
 
-## Task-Orchestrator MCP Tools Usage Guidelines
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-### Task Management Protocol
+## Project Overview
 
-**Always Use MCP Task Tools for Substantial Work:**
-1. **Use `create_task`** instead of TodoWrite for any non-trivial work items:
-   - Multi-step implementations (3+ steps)
-   - Complexity rating > 2
-   - Testing suites for components
-   - Bug fixes requiring investigation
-   - Feature enhancements
-   - Integration work
-   - Any work benefiting from tracking and documentation
+MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that provides comprehensive task management capabilities for AI assistants. It implements a hierarchical task management system (Projects → Features → Tasks) with dependency tracking, templates, and workflow automation.
 
-2. **Task Workflow Process:**
-   - Start with `get_overview` to check current work and priorities
-   - If no suitable task exists, use `create_task` with proper metadata
-   - Use `update_task` to set status to "in_progress" when starting work
-   - Work incrementally with regular git commits following conventional commit format
-   - Use `update_task` to set status to "completed" when finished
-   - Use TodoWrite only for simple tracking within larger tasks
+**Key Technologies:**
+- Kotlin 2.2.0 with Coroutines
+- Exposed ORM v1 for SQLite database
+- MCP SDK 0.7.2 for protocol implementation
+- Flyway for database migrations
+- Gradle with Kotlin DSL
+- Docker for deployment
 
-3. **Task Quality Standards:**
-   - Write descriptive titles and summaries
-   - Use appropriate complexity ratings (1-10 scale)
-   - Add relevant tags for categorization and searchability
-   - Include acceptance criteria in summaries when helpful
-   - Reference related tasks, features, or projects when applicable
+## Build Commands
 
-### Section Content Formatting Guidelines
+### Local Development
+```bash
+# Build the project (creates fat JAR)
+./gradlew build
 
-When creating or updating sections with `contentFormat=MARKDOWN`, use proper markdown syntax:
+# Run tests
+./gradlew test
 
-**Structure Content with Headings**:
-- Use `##` for section titles (will render as H2 in markdown view)
-- Use `###` for subsections
-- Use `####` for detailed breakdowns
+# Run specific test
+./gradlew test --tests "ClassName"
 
-**Organize with Lists**:
-- Use `-` or `*` for unordered lists
-- Use `1.` for ordered steps or sequences
-- Indent with 2 spaces for nested items
+# Run all migration tests
+./gradlew test --tests "*migration*"
 
-**Emphasize Important Content**:
-- Use `**text**` for bold (important points, requirements)
-- Use `*text*` for italic (slight emphasis)
-- Use `> ` for blockquotes (warnings, notes)
+# Clean build
+./gradlew clean build
 
-**Include Code Examples**:
-- Use \`code\` for inline code references
-- Use \`\`\`language for code blocks with syntax highlighting
-- Specify language: kotlin, java, json, yaml, bash, sql
+# Run locally (after build)
+java -jar build/libs/mcp-task-orchestrator-*.jar
 
-**Add References**:
-- Use `[text](url)` for external links
-- Link to relevant documentation or specs
+# Run with environment variables
+DATABASE_PATH=data/tasks.db USE_FLYWAY=true MCP_DEBUG=true java -jar build/libs/mcp-task-orchestrator-*.jar
+```
 
-**Example Task Section**:
-````markdown
-## Implementation Approach
+### Docker Development
+```bash
+# Build Docker image (from project root)
+docker build -t mcp-task-orchestrator:dev .
 
-### Phase 1: Core Infrastructure
-- Create `MarkdownRenderer` class
-- Implement **YAML frontmatter** generation
-- Handle all `ContentFormat` types
+# Run Docker container
+docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
 
-### Key Decisions
-> **Note**: Using YAML frontmatter for metadata follows CommonMark best practices
+# Clean and rebuild Docker
+./scripts/docker-clean-and-build.bat
 
+# Debug with logs
+docker run --rm -i -v mcp-task-data:/app/data -e MCP_DEBUG=true mcp-task-orchestrator:dev
+```
+
+## Architecture
+
+The codebase follows **Clean Architecture** with four distinct layers:
+
+### 1. Domain Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/domain/`)
+- **Pure business logic**, framework-agnostic
+- `model/` - Core entities (Task, Feature, Project, Template, Section, Dependency)
+- `repository/` - Repository interfaces defining data access contracts
+- No dependencies outside Kotlin stdlib and kotlinx.serialization
+
+### 2. Application Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/application/`)
+- **Business logic orchestration and use cases**
+- `tools/` - 37 MCP tool implementations organized by category:
+  - `task/` - Task management (6 tools)
+  - `feature/` - Feature management (5 tools)
+  - `project/` - Project management (5 tools)
+  - `template/` - Template management (9 tools)
+  - `section/` - Section management (9 tools)
+  - `dependency/` - Dependency management (3 tools)
+- `service/` - Services like TemplateInitializer
+- `service/templates/` - 9 built-in template creators
+
+### 3. Infrastructure Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/`)
+- **External concerns and framework implementations**
+- `database/` - DatabaseManager, schema management
+- `database/repository/` - SQLite repository implementations
+- `database/schema/` - Exposed ORM table definitions
+- `database/migration/` - Flyway migration management
+- `util/` - ErrorCodes, logging utilities
+
+### 4. Interface Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/`)
+- **MCP protocol adaptation**
+- `McpServer.kt` - Main server, tool registration, lifecycle
+- `McpToolAdapter.kt` - Bridges tools to MCP protocol
+- `McpServerAiGuidance.kt` - AI guidance configuration
+- `TaskOrchestratorResources.kt` - MCP Resources for AI
+- `WorkflowPromptsGuidance.kt` - Workflow automation prompts
+
+**Entry Point:** `src/main/kotlin/Main.kt`
+
+## Key Design Patterns
+
+1. **Repository Pattern** - Domain defines interfaces, infrastructure implements
+2. **Adapter Pattern** - McpToolAdapter separates MCP protocol from business logic
+3. **Dependency Injection** - ToolExecutionContext provides repositories to tools
+4. **Factory Pattern** - SchemaManagerFactory creates appropriate schema manager
+5. **Template Method** - BaseToolDefinition provides structure for all tools
+6. **Result Pattern** - Type-safe error handling with `Result<T>` sealed class
+
+## Adding New Components
+
+### Adding a New MCP Tool
+
+1. Create tool class in appropriate package under `application/tools/`:
 ```kotlin
-class MarkdownRenderer {
-    fun render(task: Task): String { ... }
+package io.github.jpicklyk.mcptask.application.tools.task
+
+class MyNewTool : BaseToolDefinition() {
+    override val category = ToolCategory.TASK_MANAGEMENT
+    override val name = "my_new_tool"
+    override val title = "My New Tool"
+    override val description = "..."
+    override val parameterSchema = Tool.Input(...)
+    override val outputSchema = Tool.Output(...)
+
+    override fun validateParams(params: JsonElement) {
+        requireString(params, "param1")
+    }
+
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
+        val repository = context.taskRepository()
+        // Business logic here
+        return successResponse(data = buildJsonObject { }, message = "Success")
+    }
 }
 ```
 
-See [CommonMark Spec](https://commonmark.org/) for details.
-````
-
-**Why Markdown Matters**:
-- Content is directly readable without AI translation
-- Exports cleanly to documentation tools
-- Renders properly in markdown viewers
-- Supports markdown-based MCP resource views
-
-### Template Usage Protocol
-
-**Always Check and Use Available Templates:**
-1. **Before creating tasks or features**, run `list_templates` to check available templates
-2. **Filter templates by target entity type** (TASK or FEATURE) and enabled status
-3. **Apply appropriate templates** using the `templateIds` parameter in `create_task` or `create_feature`
-4. **Use templates for consistency** in documentation structure and content organization
-
-**Template Selection Guidelines:**
-- **For Tasks:** Look for templates matching the work type (implementation, testing, bug-fix, etc.)
-- **For Features:** Use feature-level templates that provide comprehensive documentation structure
-- **Match template tags** to the work being done (e.g., "testing", "implementation", "documentation")
-- **Prefer built-in templates** for standard workflows when available
-
-**Template Application Examples:**
-```bash
-# Check available templates first
-list_templates --targetEntityType TASK --isEnabled true
-
-# Create task with appropriate template
-create_task --title "Implement API endpoint" --summary "..." --templateIds ["template-uuid"]
-
-# Check available feature templates
-list_templates --targetEntityType FEATURE --isEnabled true
-
-# Create feature with template
-create_feature --name "User Authentication" --summary "..." --templateIds ["feature-template-uuid"]
+2. Register in `McpServer.createTools()`:
+```kotlin
+private fun createTools(): List<ToolDefinition> {
+    return listOf(
+        // ... existing tools
+        MyNewTool(),
+    )
+}
 ```
 
-### Git Workflow Integration
+3. Add tests in `src/test/kotlin/application/tools/`
 
-**Commit Standards:**
-- Follow conventional commit format: `type: description`
-- Include template application in commit messages when templates are used
-- Commit incrementally as tasks progress
-- Always include co-authorship attribution:
-  ```
-  🤖 Generated with [Claude Code](https://claude.ai/code)
-  
-  Co-Authored-By: Claude <noreply@anthropic.com>
-  ```
+### Adding a Database Migration
 
-### Testing Protocol
+**For Production (Flyway):**
+1. Create file: `src/main/resources/db/migration/V{N}__{Description}.sql`
+2. Use sequential numbering (next available version)
+3. Follow SQLite patterns:
+   - UUIDs as BLOB: `id BLOB PRIMARY KEY DEFAULT (randomblob(16))`
+   - Timestamps: `created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`
+   - Foreign keys: `FOREIGN KEY (parent_id) REFERENCES parent_table(id)`
+   - Add indexes for queried columns
+4. Include rollback instructions in comments
+5. Restart server - Flyway applies automatically
 
-**When Creating Test Tasks:**
-1. Create separate tasks for different test suites (unit, integration, component)
-2. Use appropriate complexity ratings based on test scope
-3. Include coverage requirements in task summaries
-4. Tag tests with relevant categories ("unit-tests", "integration", "mocking", etc.)
-5. Update mock repositories as needed to support new functionality
+**For Development (Direct):**
+1. Update table in `infrastructure/database/schema/`
+2. Update `DirectDatabaseSchemaManager.kt`
 
-### Priority and Dependency Management
+See [database-migrations.md](docs/developer-guides/database-migrations.md) for detailed guide.
 
-**Task Prioritization:**
-- Use "high" priority for critical functionality and blocking issues
-- Use "medium" priority for enhancements and non-blocking features  
-- Use "low" priority for optimization and nice-to-have features
-- Consider dependency relationships when setting priorities
+### Adding a New Template
 
-**Dependency Integration:**
-- Always test that new dependency features work with existing tools
-- Update mock repositories when adding new repository interfaces
-- Ensure backward compatibility in API enhancements
-- Run full test suite after significant changes
+1. Create template creator in `application/service/templates/`:
+```kotlin
+object MyTemplateCreator {
+    fun create(): Pair<Template, List<TemplateSection>> {
+        val template = Template.create { ... }
+        val sections = listOf( ... )
+        return template to sections
+    }
+}
+```
 
-### Error Handling and Quality
+2. Register in `TemplateInitializerImpl.kt`:
+   - Add to `initializeTemplate()` when statement
+   - Add private creation method
+   - Add to initialization list
 
-**Code Quality Standards:**
-- Implement comprehensive error handling for all tools
-- Provide clear, actionable error messages
-- Use appropriate error codes from ErrorCodes utility
-- Include proper logging for debugging support
+### Adding a Repository Method
 
-**Testing Requirements:**
-- Achieve comprehensive test coverage for new functionality
-- Test both success and failure scenarios
-- Include edge case testing
-- Validate error responses and status codes
+1. Add method to repository interface in `domain/repository/`
+2. Implement in SQLite repository in `infrastructure/database/repository/`
+3. Use in tools via `context.{repository}()`
 
-### Project Structure Awareness
+## Database Management
 
-This is a **Kotlin-based MCP (Model Context Protocol) server** that provides task orchestration tools. Key architectural components:
-- **Domain layer:** Core business models and repository interfaces
-- **Infrastructure layer:** Database implementations and utilities
-- **Application layer:** MCP tools and business logic
-- **Interface layer:** MCP server and API definitions
+**Environment Variables:**
+- `DATABASE_PATH` - SQLite database file path (default: `data/tasks.db`)
+- `USE_FLYWAY` - Enable Flyway migrations (default: `true` in Docker)
+- `MCP_DEBUG` - Enable debug logging
 
-When working on this project, maintain the architectural boundaries and follow the established patterns for consistency.
+**Schema Management:**
+- **Flyway** (Production) - Versioned SQL migrations with history tracking
+- **Direct** (Development) - Exposed ORM schema updates for faster iteration
+
+**Migration Files:** `src/main/resources/db/migration/`
+- `V1__initial_schema.sql` - Initial database schema
+- `V2__template_section_ordinal.sql` - Template section ordering
+
+## Dependency Management
+
+**IMPORTANT:** When adding new dependencies:
+1. Check Maven Central for the latest stable version
+2. Add version to `gradle/libs.versions.toml` under `[versions]`
+3. Add library to `[libraries]` section with version reference
+4. Add to `build.gradle.kts` using `libs.{name}` notation
+
+Example:
+```toml
+# gradle/libs.versions.toml
+[versions]
+newlib = "1.2.3"
+
+[libraries]
+newlib = { module = "com.example:newlib", version.ref = "newlib" }
+```
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(libs.newlib)
+}
+```
+
+## Testing
+
+**Test Structure:**
+- Tests mirror main source structure under `src/test/kotlin/`
+- Use JUnit 5 with Kotlin Test
+- MockK for mocking
+- H2 in-memory database for repository tests
+
+**Running Tests:**
+```bash
+./gradlew test                              # All tests
+./gradlew test --tests "ClassName"          # Specific class
+./gradlew test --tests "*migration*"        # Migration tests
+./gradlew test --tests "*ToolTest"          # All tool tests
+```
+
+## Version Management
+
+Version follows semantic versioning with git-based build numbers:
+- Format: `{major}.{minor}.{patch}.{git-commit-count}-{qualifier}`
+- Configured in `build.gradle.kts`
+- Generated `VersionInfo.kt` available at runtime
+- Example: `1.1.0.123-alpha-01`
+
+To change version, edit `build.gradle.kts`:
+```kotlin
+val majorVersion = "1"
+val minorVersion = "1"
+val patchVersion = "0"
+val qualifier = "alpha-01"  // Empty for stable releases
+```
+
+## Common File Locations
+
+- **Main entry:** `src/main/kotlin/Main.kt`
+- **MCP Server:** `src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/McpServer.kt`
+- **Tool definitions:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/tools/`
+- **Domain models:** `src/main/kotlin/io/github/jpicklyk/mcptask/domain/model/`
+- **Repositories:** `src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/database/repository/`
+- **Database schema:** `src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/database/schema/`
+- **Migrations:** `src/main/resources/db/migration/`
+- **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
+- **Tests:** `src/test/kotlin/` (mirrors main structure)
+
+## Tool Development Guidelines
+
+**Tool Implementation Checklist:**
+1. Extend `BaseToolDefinition` or `SimpleLockAwareToolDefinition`
+2. Define clear parameter and output schemas
+3. Implement `validateParams()` with proper validation
+4. Implement `execute()` with business logic
+5. Use `successResponse()` and `errorResponse()` helpers
+6. Handle `Result<T>` from repositories properly
+7. Add comprehensive tests
+8. Register in `McpServer.createTools()`
+9. Document in tool description for AI agents
+
+**Tool Categories:**
+- TASK_MANAGEMENT - Task CRUD operations
+- FEATURE_MANAGEMENT - Feature CRUD operations
+- PROJECT_MANAGEMENT - Project CRUD operations
+- TEMPLATE_MANAGEMENT - Template operations
+- SECTION_MANAGEMENT - Section content operations
+- DEPENDENCY_MANAGEMENT - Task dependency operations
+
+## Documentation
+
+**Developer Guides:** `docs/developer-guides/`
+- [architecture.md](docs/developer-guides/architecture.md) - Comprehensive architecture guide
+- [database-migrations.md](docs/developer-guides/database-migrations.md) - Migration management
+
+**User Documentation:** `docs/`
+- [quick-start.md](docs/quick-start.md) - Getting started
+- [ai-guidelines.md](docs/ai-guidelines.md) - How AI uses Task Orchestrator
+- [api-reference.md](docs/api-reference.md) - Complete MCP tools documentation
+- [templates.md](docs/templates.md) - Template system guide
+- [workflow-prompts.md](docs/workflow-prompts.md) - Workflow automation
+
+## Git Workflow
+
+When making commits or PRs:
+- Main branch: `main`
+- Follow conventional commits style
+- Reference issue numbers where applicable
+- Ensure all tests pass before committing
+- Database migrations require special attention
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+## Task Orchestrator - AI Initialization
+
+Last initialized: 2025-10-10
+
+### Critical Patterns
+
+**Template Discovery** (NEVER skip this step):
+- Always: list_templates(targetEntityType, isEnabled=true)
+- Never: Assume templates exist
+- Apply: Use templateIds parameter during creation
+- Filter: By targetEntityType (TASK or FEATURE) and isEnabled=true
+
+**Session Start Routine**:
+1. Run get_overview() first to understand current state
+2. Check for in-progress tasks before starting new work
+3. Review priorities and dependencies
+
+**Intent Recognition Patterns**:
+- "Create feature for X" → Feature creation with template discovery
+- "Implement X" → Task creation with implementation templates
+- "Fix bug X" → Bug triage with Bug Investigation template
+- "Break down X" → Task decomposition pattern
+- "Set up project" → Project setup workflow
+
+**Dual Workflow Model**:
+- Autonomous: For common tasks with clear intent (faster, natural)
+- Explicit Workflows: For complex scenarios or learning (comprehensive)
+
+**Git Integration**:
+- Auto-detect .git directory presence
+- Suggest git workflow templates when detected
+- Ask about PR workflows (don't assume)
+
+**Quality Standards**:
+- Write descriptive titles and summaries
+- Use appropriate complexity ratings (1-10)
+- Apply consistent tagging conventions
+- Include acceptance criteria in summaries

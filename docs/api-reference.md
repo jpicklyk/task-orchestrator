@@ -173,11 +173,12 @@ AI chooses tools based on:
 
 ## Tool Categories
 
-### Task Management (7 tools)
+### Task Management (8 tools)
 
 **Core Workflow**:
 - `create_task` - Create tasks with templates
 - `update_task` - Status, priority, complexity updates
+- `bulk_update_tasks` - Update multiple tasks efficiently (70-95% token savings)
 - `get_task` - Fetch task details with progressive loading
 - `search_tasks` - Filter and find tasks
 - `get_overview` - Hierarchical project view
@@ -245,7 +246,7 @@ AI chooses tools based on:
 **Core Workflow**:
 - `add_section` - Add detailed content blocks
 - `bulk_create_sections` - Efficient multi-section creation
-- `get_sections` - Retrieve all sections for validation
+- `get_sections` - Retrieve sections with selective loading (supports `includeContent` and `sectionIds`)
 - `update_section` - Modify section content
 - `update_section_text` - Targeted text replacement
 - `update_section_metadata` - Title, format, ordinal changes
@@ -255,9 +256,15 @@ AI chooses tools based on:
 
 **When AI Uses**: Detailed documentation, template application results
 
-**Key Feature**: Structured content organization and context efficiency
+**Key Features**:
+- Structured content organization and context efficiency
+- **Selective loading** - Browse metadata without content (85-99% token savings)
+- **Two-step workflow** - Browse structure first, then fetch specific sections
 
-**Efficiency Pattern**: Prefer `bulk_create_sections` over multiple `add_section` calls
+**Efficiency Patterns**:
+- Prefer `bulk_create_sections` over multiple `add_section` calls
+- Use `includeContent=false` to browse section structure before loading content
+- Use `sectionIds` to fetch only needed sections
 
 ---
 
@@ -278,6 +285,8 @@ AI chooses tools based on:
 **Key Feature**: Dynamic, database-driven template system
 
 **Critical Pattern**: AI ALWAYS uses `list_templates` before creating tasks/features
+
+**Performance Optimization**: Template operations use in-memory caching for fast repeated access. No configuration needed - enabled by default.
 
 > **See**: [Templates Guide](templates) for complete template system documentation
 
@@ -352,9 +361,10 @@ User: "I finished implementing the login endpoint"
 
 AI Executes:
 1. search_tasks --query "login endpoint" (find the task)
-2. get_sections --entityType TASK --entityId [id] (validate completion)
-3. update_task --id [id] --status completed
-4. get_task_dependencies --taskId [id] (check what's now unblocked)
+2. get_sections --entityType TASK --entityId [id] --includeContent false (browse section structure)
+3. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids] (fetch specific sections)
+4. update_task --id [id] --status completed
+5. get_task_dependencies --taskId [id] (check what's now unblocked)
 ```
 
 ---
@@ -379,7 +389,46 @@ Many tools support progressive detail loading to optimize context:
 - +`includeTaskCounts`: Add statistics
 - +`includeTaskDependencies`: Full dependency analysis
 
+**get_sections** (NEW - Token Optimization):
+- Basic: All sections with full content (default)
+- +`includeContent=false`: Section metadata only (85-99% token savings)
+- +`sectionIds=[list]`: Specific sections only (selective loading)
+- **Two-step pattern**: Browse with includeContent=false, then fetch specific sections
+
 **Strategy**: AI starts basic, progressively loads as needed
+
+### Selective Section Loading ⭐ Token Optimization
+
+**Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata needed
+
+**Solution**: Two-step workflow with `get_sections`
+
+**Step 1: Browse Structure** (Low token cost)
+```json
+{
+  "entityType": "TASK",
+  "entityId": "task-uuid",
+  "includeContent": false
+}
+```
+Returns: id, title, usageDescription, contentFormat, ordinal, tags (no content field)
+
+**Step 2: Fetch Specific Content** (Only what's needed)
+```json
+{
+  "entityType": "TASK",
+  "entityId": "task-uuid",
+  "sectionIds": ["section-1-uuid", "section-3-uuid"]
+}
+```
+Returns: Only the specified sections with full content
+
+**Token Savings**: 85-99% reduction when browsing section structure
+
+**When AI Uses**:
+- Validating task completion (browse structure to see what exists)
+- Finding specific section (browse titles, then fetch content)
+- Understanding documentation organization (metadata reveals structure)
 
 ---
 
@@ -387,11 +436,25 @@ Many tools support progressive detail loading to optimize context:
 
 **When to Use Bulk Tools**:
 
+✅ `bulk_update_tasks` - Updating 3+ tasks simultaneously (70-95% token savings vs individual calls)
 ✅ `bulk_create_sections` - Creating 2+ sections (more efficient than multiple `add_section`)
 ✅ `bulk_update_sections` - Updating multiple sections simultaneously
 ✅ `bulk_delete_sections` - Removing multiple sections at once
 
-**Performance Benefit**: Single database transaction, reduced network overhead
+**Performance Benefit**: Single database transaction, reduced network overhead, massive token savings
+
+**Example Scenarios**:
+- Marking 10 tasks as completed after feature implementation
+- Updating priority on multiple related tasks
+- Batch status changes across feature tasks
+- Updating complexity ratings after task analysis
+
+**Token Savings Example**:
+```
+Individual calls: 10 × update_task = ~12,500 characters
+Bulk operation: 1 × bulk_update_tasks = ~650 characters
+Savings: 95% (11,850 characters saved!)
+```
 
 ---
 
@@ -433,9 +496,10 @@ The system automatically prevents conflicts when multiple AI agents work in para
 
 1. **Always start with `get_overview`** - Understand current state before creating work
 2. **Always use `list_templates`** - Discover templates before creating tasks/features
-3. **Use `get_sections` before completion** - Validate template guidance followed
-4. **Prefer bulk operations** - More efficient for multiple sections
-5. **Progressive loading** - Start basic, load details as needed
+3. **Use selective section loading** - Browse with `includeContent=false` before loading full content
+4. **Use `get_sections` before completion** - Validate template guidance followed
+5. **Prefer bulk operations** - More efficient for multiple sections
+6. **Progressive loading** - Start basic, load details as needed
 
 ### For Development Teams
 

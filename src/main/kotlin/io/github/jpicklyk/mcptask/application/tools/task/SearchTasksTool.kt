@@ -59,7 +59,6 @@ class SearchTasksTool : BaseToolDefinition() {
                                                     mapOf(
                                                         "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
                                                         "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                                         "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
@@ -210,8 +209,9 @@ class SearchTasksTool : BaseToolDefinition() {
         - search_tasks: Detailed filtering and analysis of specific task subsets
         
         ## Context Efficiency Features
-        
-        **Lightweight Results**: Returns essential metadata without full content or sections
+
+        **Lightweight Results**: Returns essential metadata without summary, full content, or sections
+        **Excluded Fields**: Summary field excluded from search results (use get_task to retrieve)
         **Paginated Results**: Controls token usage for large datasets
         **Flexible Sorting**: Enables different analytical perspectives
         **Multiple Filters**: Precise targeting reduces noise
@@ -225,7 +225,6 @@ class SearchTasksTool : BaseToolDefinition() {
               {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "title": "Implement OAuth Authentication API",
-                "summary": "Create secure authentication flow with OAuth 2.0 and JWT tokens...",
                 "status": "in-progress",
                 "priority": "high",
                 "complexity": 8,
@@ -526,15 +525,8 @@ class SearchTasksTool : BaseToolDefinition() {
                             add(buildJsonObject {
                                 put("id", task.id.toString())
                                 put("title", task.title)
-
-                                // Provide a truncated summary for search results
-                                val summaryPreview = if (task.summary.length > 100) {
-                                    "${task.summary.take(97)}..."
-                                } else {
-                                    task.summary
-                                }
-                                put("summary", summaryPreview)
-
+                                // Summary excluded from search results for performance optimization
+                                // Use get_task with includeSections=true to retrieve full task details
                                 put("status", task.status.name.lowercase())
                                 put("priority", task.priority.name.lowercase())
                                 put("complexity", task.complexity)

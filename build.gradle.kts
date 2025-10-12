@@ -73,6 +73,7 @@ dependencies {
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)
     testImplementation(libs.junit.api)
+    testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.engine)
     
     // Mockito for additional mocking support

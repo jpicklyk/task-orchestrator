@@ -187,16 +187,19 @@ class UpdateSectionToolTest {
             "Message should contain 'Section updated successfully'"
         )
 
-        // Verify data
+        // Verify data - verify minimal response format for sections
         val data = responseObj["data"]?.jsonObject
         assertNotNull(data, "Data object should not be null")
 
-        // Verify section data
-        val section = data?.get("section")?.jsonObject
-        assertNotNull(section, "Section should not be null")
-        assertEquals(testSectionId.toString(), section?.get("id")?.jsonPrimitive?.content)
-        assertEquals("Updated Title", section?.get("title")?.jsonPrimitive?.content)
-        assertEquals("plain_text", section?.get("contentFormat")?.jsonPrimitive?.content)
+        // Sections don't have status, so only id and modifiedAt are returned
+        assertEquals(testSectionId.toString(), data?.get("id")?.jsonPrimitive?.content)
+        assertNotNull(data?.get("modifiedAt"), "ModifiedAt should be present")
+
+        // Verify only minimal fields are returned (optimization)
+        assertEquals(2, data!!.size, "Response should only contain id and modifiedAt")
+        assertNull(data["title"], "Title should not be in minimal response")
+        assertNull(data["contentFormat"], "ContentFormat should not be in minimal response")
+        assertNull(data["content"], "Content should not be in minimal response")
     }
 
     @Test

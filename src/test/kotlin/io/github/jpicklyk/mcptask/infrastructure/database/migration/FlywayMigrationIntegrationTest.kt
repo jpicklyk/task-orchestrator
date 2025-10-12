@@ -153,7 +153,7 @@ class FlywayMigrationIntegrationTest {
         // Version should be updated
         val migratedVersion = schemaManager.getCurrentVersion()
         assertTrue(migratedVersion > initialVersion, "Version should increase after migration")
-        assertTrue(migratedVersion >= 2, "Should have at least version 2 (V1 + V2 migrations)")
+        assertTrue(migratedVersion >= 5, "Should have at least version 5 (V1 through V5 migrations)")
     }
 
     @Test

@@ -57,7 +57,41 @@ class UpdateSectionTool(
         )
     )
 
-    override val description = "Updates an existing section by its ID"
+    override val description = """Updates an existing section by its ID.
+
+        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+        For content-only changes, use 'update_section_text' (more efficient). Example: {"id": "uuid", "title": "New Title"}
+
+        ## Efficient vs Inefficient Updates
+
+        ❌ **INEFFICIENT** (wastes ~300+ characters):
+        ```json
+        {
+          "id": "section-uuid",
+          "title": "Existing Title",                        // Unchanged - unnecessary
+          "usageDescription": "Existing description...",    // Unchanged - unnecessary
+          "content": "Long existing content...",            // Unchanged - 300+ chars wasted
+          "contentFormat": "MARKDOWN",                      // Unchanged - unnecessary
+          "ordinal": 0,                                     // Unchanged - unnecessary
+          "tags": "tag1,tag2"                              // ✓ Only this changed
+        }
+        ```
+
+        ✅ **EFFICIENT** (uses ~40 characters):
+        ```json
+        {
+          "id": "section-uuid",
+          "tags": "tag1,tag2,tag3"  // Only send what changed!
+        }
+        ```
+
+        **Token Savings**: 88% reduction by only sending changed fields!
+
+        ## Alternative Efficient Tools
+        - For content changes: Use `update_section_text` (90%+ more efficient)
+        - For metadata only: Use `update_section_metadata` (excludes content)
+        - For full replacement: Use this tool with selective fields
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(
@@ -72,39 +106,39 @@ class UpdateSectionTool(
                 "title" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New section title")
+                        "description" to JsonPrimitive("(optional) New section title")
                     )
                 ),
                 "usageDescription" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New usage description for the section")
+                        "description" to JsonPrimitive("(optional) New usage description for the section")
                     )
                 ),
                 "content" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New section content")
+                        "description" to JsonPrimitive("(optional) New section content")
                     )
                 ),
                 "contentFormat" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("New format of the content (MARKDOWN, PLAIN_TEXT, JSON, CODE)"),
+                        "description" to JsonPrimitive("(optional) New format of the content (MARKDOWN, PLAIN_TEXT, JSON, CODE)"),
                         "enum" to JsonArray(ContentFormat.entries.map { JsonPrimitive(it.name) })
                     )
                 ),
                 "ordinal" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("integer"),
-                        "description" to JsonPrimitive("New display order position (0-based)"),
+                        "description" to JsonPrimitive("(optional) New display order position (0-based)"),
                         "minimum" to JsonPrimitive(0)
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Comma-separated list of new tags")
+                        "description" to JsonPrimitive("(optional) Comma-separated list of new tags")
                     )
                 )
             )
@@ -244,8 +278,13 @@ class UpdateSectionTool(
 
             return when (updateResult) {
                 is Result.Success -> {
+                    val updatedSection = updateResult.data
+
+                    // Return minimal response to optimize bandwidth and performance
+                    // Sections don't have a status field, so only return id and modifiedAt
                     val data = buildJsonObject {
-                        put("section", serializeSection(updateResult.data))
+                        put("id", updatedSection.id.toString())
+                        put("modifiedAt", updatedSection.modifiedAt.toString())
                     }
                     successResponse(data, "Section updated successfully")
                 }

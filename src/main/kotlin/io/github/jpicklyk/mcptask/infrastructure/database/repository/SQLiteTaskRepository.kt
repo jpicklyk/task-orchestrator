@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.infrastructure.database.schema.TaskTable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -53,7 +54,8 @@ class SQLiteTaskRepository(
             complexity = row[TaskTable.complexity],
             createdAt = row[TaskTable.createdAt],
             modifiedAt = row[TaskTable.modifiedAt],
-            tags = emptyList() // Tags are loaded separately
+            tags = emptyList(), // Tags are loaded separately
+            version = row[TaskTable.version]
         )
     }
 
@@ -99,11 +101,15 @@ class SQLiteTaskRepository(
             it[complexity] = entity.complexity
             it[createdAt] = entity.createdAt
             it[modifiedAt] = entity.modifiedAt
+            it[version] = entity.version
         }
     }
 
     override fun updateEntityInternal(entity: Task): Int {
-        return TaskTable.update({ TaskTable.id eq entity.id }) {
+        // Optimistic locking: only update if version matches
+        return TaskTable.update({
+            (TaskTable.id eq entity.id) and (TaskTable.version eq entity.version)
+        }) {
             it[featureId] = entity.featureId
             it[projectId] = entity.projectId
             it[title] = entity.title
@@ -112,6 +118,7 @@ class SQLiteTaskRepository(
             it[priority] = entity.priority
             it[complexity] = entity.complexity
             it[modifiedAt] = entity.modifiedAt
+            it[version] = entity.version + 1
         }
     }
 
@@ -122,6 +129,7 @@ class SQLiteTaskRepository(
     override fun getPriorityColumn(): Column<Priority>? = TaskTable.priority
     override fun getEntityStatus(entity: Task): TaskStatus? = entity.status
     override fun getEntityPriority(entity: Task): Priority? = entity.priority
+    override fun incrementEntityVersion(entity: Task): Task = entity.copy(version = entity.version + 1)
 
     //======================================
     // TaskRepository Interface Implementation

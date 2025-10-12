@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.infrastructure.database.schema.TaskTable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -52,7 +53,8 @@ class SQLiteFeatureRepository(
             priority = row[FeaturesTable.priority],
             createdAt = row[FeaturesTable.createdAt],
             modifiedAt = row[FeaturesTable.modifiedAt],
-            tags = emptyList() // Tags are loaded separately
+            tags = emptyList(), // Tags are loaded separately
+            version = row[FeaturesTable.version]
         )
     }
 
@@ -93,17 +95,22 @@ class SQLiteFeatureRepository(
             it[priority] = entity.priority
             it[createdAt] = entity.createdAt
             it[modifiedAt] = entity.modifiedAt
+            it[version] = entity.version
         }
     }
 
     override fun updateEntityInternal(entity: Feature): Int {
-        return FeaturesTable.update({ FeaturesTable.id eq entity.id }) {
+        // Optimistic locking: only update if version matches
+        return FeaturesTable.update({
+            (FeaturesTable.id eq entity.id) and (FeaturesTable.version eq entity.version)
+        }) {
             it[projectId] = entity.projectId
             it[name] = entity.name
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
             it[modifiedAt] = entity.modifiedAt
+            it[version] = entity.version + 1
         }
     }
 
@@ -114,6 +121,7 @@ class SQLiteFeatureRepository(
     override fun getPriorityColumn(): Column<Priority>? = FeaturesTable.priority
     override fun getEntityStatus(entity: Feature): FeatureStatus? = entity.status
     override fun getEntityPriority(entity: Feature): Priority? = entity.priority
+    override fun incrementEntityVersion(entity: Feature): Feature = entity.copy(version = entity.version + 1)
 
     //======================================
     // FeatureRepository Interface Implementation

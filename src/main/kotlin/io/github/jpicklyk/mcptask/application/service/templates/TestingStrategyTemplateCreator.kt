@@ -28,248 +28,114 @@ object TestingStrategyTemplateCreator {
         val sections = listOf(
             TemplateSection(
                 templateId = templateId,
-                title = "Test Case Definitions",
-                usageDescription = "Detailed test cases covering functional, edge case, and error condition testing",
-                contentSample = """## Test Case Definitions
+                title = "Test Coverage",
+                usageDescription = "Test cases and coverage areas for thorough validation",
+                contentSample = """### Unit Tests
+**Test Class**: `[ComponentName]Test`
 
-### Unit Tests
-#### Test Class: [ComponentName]Test
-1. **Test**: `should [expected behavior] when [specific condition]`
-   - **Given**: [Initial state or preconditions]
-   - **When**: [Action or trigger]
-   - **Then**: [Expected outcome]
-   - **Test Data**: [Required test data or mocks]
+Test format: `should [expected behavior] when [specific condition]`
+- Given: [Initial state]
+- When: [Action]
+- Then: [Expected result]
 
-2. **Test**: `should [expected behavior] when [specific condition]`
-   - **Given**: [Initial state or preconditions]
-   - **When**: [Action or trigger]
-   - **Then**: [Expected outcome]
-   - **Test Data**: [Required test data or mocks]
-
-#### Edge Cases
-- **Empty Input**: [How system handles empty or null inputs]
-- **Boundary Values**: [Testing at limits of valid input ranges]
-- **Invalid Data**: [How system handles malformed or invalid data]
-- **Large Data Sets**: [Performance with large amounts of data]
+**Coverage Areas**:
+- Happy path scenarios
+- Edge cases (empty input, boundary values, invalid data)
+- Error conditions and exception handling
 
 ### Integration Tests
-1. **Integration**: [Component A] ↔ [Component B]
-   - **Test Scenario**: [What integration is being tested]
-   - **Data Flow**: [How data moves between components]
-   - **Expected Behavior**: [What should happen in the integration]
-   - **Failure Cases**: [What happens when integration fails]
+**Component Integration**:
+- [Component A] ↔ [Component B]: [What's being tested]
+- Data flow and transformations
+- Failure handling
 
-2. **Database Integration**
-   - **CRUD Operations**: [Create, Read, Update, Delete testing]
-   - **Transaction Handling**: [Testing transaction rollback and commit]
-   - **Data Integrity**: [Foreign key constraints, data validation]
-   - **Performance**: [Query performance with realistic data volumes]
+**Database Integration** (if applicable):
+- CRUD operations
+- Transaction handling
+- Data integrity and constraints
 
 ### API Tests
-#### Endpoint: [HTTP Method] /api/[endpoint]
-- **Success Cases**:
-  - **Request**: `[Example valid request]`
-  - **Response**: `[Expected response format and data]`
-  - **Status Code**: `[Expected HTTP status]`
+**Endpoint**: `[METHOD] /api/[endpoint]`
+- **Success**: Valid request → Expected response + status code
+- **Errors**: Invalid input, auth failures, permission issues
 
-- **Error Cases**:
-  - **Invalid Input**: `[Example invalid request and expected error]`
-  - **Authentication**: `[Testing with invalid/missing credentials]`
-  - **Authorization**: `[Testing access with insufficient permissions]`
-
-### User Interface Tests
-- **User Workflows**: [Key user journeys that must work end-to-end]
-- **Form Validation**: [Testing form fields, validation messages]
-- **Responsive Design**: [Testing on different screen sizes]
-- **Browser Compatibility**: [Testing across supported browsers]
-- **Accessibility**: [Screen reader, keyboard navigation, color contrast]""",
+### End-to-End Tests
+- Key user workflows that must work completely
+- Critical business processes
+- Integration between multiple components""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("unit-tests", "integration-tests", "api-tests", "ui-tests")
+                tags = listOf("testing", "coverage", "unit-tests", "integration-tests")
             ),
             TemplateSection(
                 templateId = templateId,
                 title = "Acceptance Criteria",
-                usageDescription = "Clear, measurable criteria that must be met for the implementation to be considered complete",
-                contentSample = """## Acceptance Criteria
+                usageDescription = "Measurable criteria that define completion",
+                contentSample = """### Functional Criteria
+- [ ] Core functionality works as specified
+- [ ] All acceptance criteria from requirements are met
+- [ ] User workflows complete successfully
+- [ ] Data validation and error handling work correctly
+- [ ] Integration points function as expected
 
-### Functional Acceptance Criteria
-1. **Core Functionality**
-   - [ ] [Specific functional requirement] works as specified
-   - [ ] [Another functional requirement] produces expected results
-   - [ ] All required API endpoints return correct data formats
-   - [ ] User interface displays information correctly
-   - [ ] Data validation prevents invalid input
+### Quality Criteria
+- [ ] Unit test coverage meets project standard ([X]%)
+- [ ] All tests pass consistently
+- [ ] Code passes static analysis without critical issues
+- [ ] Performance meets requirements (response time, throughput)
+- [ ] Security best practices followed
 
-2. **User Experience**
-   - [ ] User can complete primary workflow without confusion
-   - [ ] Error messages are clear and actionable
-   - [ ] Loading states provide appropriate feedback
-   - [ ] Navigation is intuitive and consistent
-   - [ ] Responsive design works on mobile and desktop
-
-3. **Integration Requirements**
-   - [ ] Integration with [External System] works correctly
-   - [ ] Data synchronization maintains consistency
-   - [ ] Authentication and authorization work as expected
-   - [ ] Error handling provides graceful degradation
-
-### Performance Acceptance Criteria
-- [ ] **Response Time**: [Specific operation] completes in under [X] seconds
-- [ ] **Throughput**: System handles [X] concurrent users without degradation
-- [ ] **Load Time**: Page loads in under [X] seconds with typical data volume
-- [ ] **Database Performance**: Queries execute in under [X] milliseconds
-- [ ] **Memory Usage**: Application uses less than [X] MB memory under normal load
-
-### Security Acceptance Criteria
-- [ ] **Authentication**: Only authenticated users can access protected resources
-- [ ] **Authorization**: Users can only access data they have permission for
-- [ ] **Input Validation**: All user input is properly validated and sanitized
-- [ ] **Data Protection**: Sensitive data is encrypted in transit and at rest
-- [ ] **Audit Logging**: Security-relevant actions are logged appropriately
-
-### Quality Acceptance Criteria
-- [ ] **Code Coverage**: Unit test coverage is at least [X]%
-- [ ] **Code Quality**: Code passes static analysis without critical issues
-- [ ] **Documentation**: All public APIs and complex logic are documented
-- [ ] **Error Handling**: All error conditions have appropriate handling
-- [ ] **Logging**: Sufficient logging for debugging and monitoring
-
-### Deployment Acceptance Criteria
-- [ ] **Build Process**: Application builds successfully in CI/CD pipeline
-- [ ] **Database Migration**: Database schema changes apply without errors
-- [ ] **Configuration**: All environment-specific configuration works correctly
-- [ ] **Rollback**: Changes can be safely rolled back if issues occur
-- [ ] **Monitoring**: Application health can be monitored in production
-
-### Accessibility Acceptance Criteria
-- [ ] **Screen Reader**: All content is accessible via screen reader
-- [ ] **Keyboard Navigation**: All functionality accessible via keyboard
-- [ ] **Color Contrast**: Text meets WCAG contrast requirements
-- [ ] **Focus Management**: Focus indicators are visible and logical
-- [ ] **Alternative Text**: Images have appropriate alt text""",
+### Deployment Criteria
+- [ ] Builds successfully in CI/CD pipeline
+- [ ] Can be deployed without errors
+- [ ] Monitoring and logging in place
+- [ ] Rollback procedure tested and documented""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("acceptance-criteria", "functional", "performance", "security", "quality")
+                tags = listOf("acceptance-criteria", "completion", "quality")
             ),
             TemplateSection(
                 templateId = templateId,
-                title = "Quality Gates",
-                usageDescription = "Checkpoints and criteria that must be passed before proceeding to next phase or deployment",
-                contentSample = """## Quality Gates
+                title = "Testing Checkpoints",
+                usageDescription = "Key validation checkpoints during development and deployment",
+                contentSample = """### During Development
+**Before PR**:
+- [ ] All new/modified code has tests
+- [ ] Unit tests pass locally
+- [ ] Code follows style guidelines
+- [ ] No obvious bugs or issues
 
-### Development Quality Gates
+**Before Merge**:
+- [ ] Code review approved
+- [ ] All CI/CD checks passing
+- [ ] Integration tests pass
+- [ ] Documentation updated
 
-#### Gate 1: Code Completion
-**Criteria to Pass**:
-- [ ] All planned functionality is implemented
-- [ ] Code follows project style guidelines and conventions
-- [ ] All compiler warnings are resolved
-- [ ] No obvious code smells or technical debt introduced
-- [ ] Complex logic is properly documented
-
-**Actions if Failed**:
-- Address code quality issues before proceeding
-- Refactor code to meet standards
-- Add missing documentation
-
-#### Gate 2: Unit Testing
-**Criteria to Pass**:
-- [ ] Unit test coverage meets minimum threshold ([X]%)
-- [ ] All unit tests pass consistently
-- [ ] Tests cover happy path, edge cases, and error conditions
-- [ ] Mock dependencies are used appropriately
-- [ ] Test code is maintainable and clear
-
-**Actions if Failed**:
-- Add missing test coverage
-- Fix failing tests
-- Improve test quality and clarity
-
-### Integration Quality Gates
-
-#### Gate 3: Integration Testing
-**Criteria to Pass**:
-- [ ] All integration tests pass
-- [ ] API contracts are validated
-- [ ] Database operations work correctly
-- [ ] External service integrations function as expected
-- [ ] Error scenarios are handled properly
-
-**Actions if Failed**:
-- Fix integration issues
-- Update API contracts if needed
-- Resolve data consistency problems
-
-#### Gate 4: System Testing
-**Criteria to Pass**:
-- [ ] End-to-end workflows complete successfully
-- [ ] Performance requirements are met
-- [ ] Security scanning shows no critical vulnerabilities
-- [ ] Browser/platform compatibility verified
-- [ ] Accessibility requirements satisfied
-
-**Actions if Failed**:
-- Address performance bottlenecks
-- Fix security vulnerabilities
-- Resolve compatibility issues
-
-### Pre-Production Quality Gates
-
-#### Gate 5: User Acceptance Testing
-**Criteria to Pass**:
-- [ ] All acceptance criteria verified
-- [ ] Key stakeholders approve functionality
-- [ ] User workflows tested with real or realistic data
-- [ ] Documentation is complete and accurate
-- [ ] Training materials prepared if needed
-
-**Actions if Failed**:
-- Address user feedback
-- Update documentation
-- Refine functionality based on stakeholder input
-
-#### Gate 6: Production Readiness
-**Criteria to Pass**:
-- [ ] Deployment process tested in staging environment
-- [ ] Monitoring and alerting configured
-- [ ] Rollback procedure tested and documented
+### Before Deployment
+**Pre-deployment Validation**:
+- [ ] All tests pass in staging environment
 - [ ] Performance tested under realistic load
-- [ ] Security review completed
+- [ ] Security scan shows no critical issues
+- [ ] Monitoring and alerts configured
+- [ ] Rollback plan ready
 
-**Actions if Failed**:
-- Fix deployment issues
-- Set up proper monitoring
-- Test rollback procedures
-- Address performance or security concerns
+### After Deployment
+**Production Validation** (within 24-48 hours):
+- [ ] Critical functionality working
+- [ ] No error rate increase
+- [ ] Performance metrics healthy
+- [ ] Monitoring shows expected behavior
 
-### Post-Deployment Quality Gates
-
-#### Gate 7: Production Validation
-**Criteria to Pass** (within 24-48 hours of deployment):
-- [ ] All critical functionality working in production
-- [ ] No increase in error rates or performance degradation
-- [ ] Monitoring shows healthy system metrics
-- [ ] User feedback is positive or neutral
-- [ ] No security incidents related to deployment
-
-**Actions if Failed**:
-- Immediate rollback if critical issues detected
-- Hot fixes for minor issues
-- Incident response procedures if needed
-
-### Continuous Quality Monitoring
-- **Code Quality**: Automated code analysis on every commit
-- **Test Results**: All tests must pass before merge to main
-- **Performance**: Continuous performance monitoring in production
-- **Security**: Regular security scans and vulnerability assessments
-- **User Experience**: Ongoing monitoring of user satisfaction and usage patterns""",
+**If Issues Detected**:
+- Critical issues → Immediate rollback
+- Minor issues → Hot fix if needed
+- Monitor closely for first 24-48 hours""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("quality-gates", "checkpoints", "deployment", "monitoring")
+                tags = listOf("checkpoints", "validation", "deployment")
             )
         )
 

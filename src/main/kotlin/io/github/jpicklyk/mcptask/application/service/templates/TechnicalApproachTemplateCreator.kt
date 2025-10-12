@@ -30,7 +30,7 @@ object TechnicalApproachTemplateCreator {
                 templateId = templateId,
                 title = "Architecture Overview",
                 usageDescription = "High-level technical architecture and design decisions for the implementation",
-                contentSample = """## Architecture Overview
+                contentSample = """### Architecture Overview
 
 ### System Design
 [Describe the overall system design and how this component fits into the larger architecture]
@@ -69,7 +69,7 @@ object TechnicalApproachTemplateCreator {
                 templateId = templateId,
                 title = "Key Dependencies",
                 usageDescription = "External dependencies, libraries, and services required for implementation",
-                contentSample = """## Key Dependencies
+                contentSample = """### Key Dependencies
 
 ### External Libraries
 | Library | Version | Purpose | Justification |
@@ -108,7 +108,7 @@ object TechnicalApproachTemplateCreator {
                 templateId = templateId,
                 title = "Implementation Strategy",
                 usageDescription = "Detailed implementation plan, phases, and technical considerations",
-                contentSample = """## Implementation Strategy
+                contentSample = """### Implementation Strategy
 
 ### Implementation Phases
 1. **Phase 1: [Phase Name]**

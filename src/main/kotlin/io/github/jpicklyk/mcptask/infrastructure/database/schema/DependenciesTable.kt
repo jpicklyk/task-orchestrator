@@ -17,5 +17,9 @@ object DependenciesTable : UUIDTable("dependencies") {
         uniqueIndex("unique_dependency", fromTaskId, toTaskId, type)
         foreignKey(fromTaskId to TaskTable.id)
         foreignKey(toTaskId to TaskTable.id)
+
+        // Performance indexes for directional dependency lookups
+        index(isUnique = false, fromTaskId)
+        index(isUnique = false, toTaskId)
     }
 }

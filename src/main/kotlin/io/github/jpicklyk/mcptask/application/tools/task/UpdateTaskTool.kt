@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.application.tools.UpdateEfficiencyMetrics
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
@@ -118,7 +119,10 @@ class UpdateTaskTool(
     override fun shouldUseLocking(): Boolean = true
 
     override val description: String = """Updates an existing task with the specified properties.
-        
+
+        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "completed"}
+
         ## Purpose
         Modifies specific fields of an existing task without affecting other properties.
         Critical for task lifecycle management and maintaining accurate project state.
@@ -176,7 +180,32 @@ class UpdateTaskTool(
           "complexity": 8
         }
         ```
-        
+
+        ## Efficient vs Inefficient Updates
+
+        ❌ **INEFFICIENT** (wastes ~500+ characters):
+        ```json
+        {
+          "id": "task-uuid",
+          "title": "Existing Title",              // Unchanged - unnecessary
+          "summary": "Long existing summary...",   // Unchanged - 500+ chars wasted
+          "status": "completed",                   // ✓ Only this changed
+          "priority": "medium",                    // Unchanged - unnecessary
+          "complexity": 5,                         // Unchanged - unnecessary
+          "tags": "tag1,tag2,tag3"                // Unchanged - unnecessary
+        }
+        ```
+
+        ✅ **EFFICIENT** (uses ~30 characters):
+        ```json
+        {
+          "id": "task-uuid",
+          "status": "completed"  // Only send what changed!
+        }
+        ```
+
+        **Token Savings**: 94% reduction by only sending changed fields!
+
         ## Field Update Guidelines
         
         **Partial Updates**: Only specify fields you want to change. Unspecified fields remain unchanged.
@@ -213,33 +242,33 @@ class UpdateTaskTool(
                 "title" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("The title of the task")
+                        "description" to JsonPrimitive("(optional) New title for the task")
                     )
                 ),
                 "description" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Detailed description of the task")
+                        "description" to JsonPrimitive("(optional) New detailed description of the task")
                     )
                 ),
                 "status" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Task status (pending, in-progress, completed, cancelled, deferred)"),
+                        "description" to JsonPrimitive("(optional) New task status (pending, in-progress, completed, cancelled, deferred)"),
                         "enum" to JsonArray(TaskStatus.entries.map { JsonPrimitive(it.name.lowercase()) })
                     )
                 ),
                 "priority" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Task priority (high, medium, low)"),
+                        "description" to JsonPrimitive("(optional) New task priority (high, medium, low)"),
                         "enum" to JsonArray(Priority.entries.map { JsonPrimitive(it.name.lowercase()) })
                     )
                 ),
                 "complexity" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("integer"),
-                        "description" to JsonPrimitive("Task complexity on a scale from 1-10"),
+                        "description" to JsonPrimitive("(optional) New task complexity on a scale from 1-10"),
                         "minimum" to JsonPrimitive(1),
                         "maximum" to JsonPrimitive(10)
                     )
@@ -247,14 +276,14 @@ class UpdateTaskTool(
                 "featureId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Optional ID of the feature this task belongs to"),
+                        "description" to JsonPrimitive("(optional) New feature ID to associate this task with"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Comma-separated list of tags")
+                        "description" to JsonPrimitive("(optional) New comma-separated list of tags")
                     )
                 )
             )
@@ -356,6 +385,10 @@ class UpdateTaskTool(
         context: ToolExecutionContext,
         taskId: UUID
     ): JsonElement {
+        // Analyze update efficiency and log metrics
+        val efficiencyMetrics = UpdateEfficiencyMetrics.analyzeUpdate("update_task", params)
+        logger.debug("Update efficiency metrics: $efficiencyMetrics")
+
         // Get an existing task from repository
         val existingTaskResult = context.taskRepository().getById(taskId)
         val existingTask = when (existingTaskResult) {
@@ -416,27 +449,14 @@ class UpdateTaskTool(
         // Save updated task to repository
         val updateResult = context.taskRepository().update(updatedTask)
 
-        // Return standardized response
+        // Return minimal response to optimize bandwidth and performance
+        // Only return essential fields: id (to identify what was updated),
+        // status (current state), and modifiedAt (timestamp of update)
         return handleRepositoryResult(updateResult, "Task updated successfully") { updatedTaskData ->
             buildJsonObject {
                 put("id", updatedTaskData.id.toString())
-                put("title", updatedTaskData.title)
-                put("summary", updatedTaskData.summary)
-                put("status", updatedTaskData.status.name.lowercase())
-                put("priority", updatedTaskData.priority.name.lowercase())
-                put("complexity", updatedTaskData.complexity)
-                put("createdAt", updatedTaskData.createdAt.toString())
+                put("status", updatedTaskData.status.name.lowercase().replace('_', '-'))
                 put("modifiedAt", updatedTaskData.modifiedAt.toString())
-
-                if (updatedTaskData.featureId != null) {
-                    put("featureId", updatedTaskData.featureId.toString())
-                } else {
-                    put("featureId", JsonNull)
-                }
-
-                put("tags", buildJsonArray {
-                    updatedTaskData.tags.forEach { add(it) }
-                })
             }
         }
     }

@@ -94,11 +94,13 @@ class GetSectionsTool : BaseToolDefinition() {
         allows retrieving all sections for a specified entity.
         
         ## Parameters
-        
+
         | Parameter | Type | Required | Default | Description |
         |-----------|------|----------|---------|-------------|
         | entityType | string | Yes | - | Type of entity to retrieve sections for: 'PROJECT', 'TASK', or 'FEATURE' |
         | entityId | UUID string | Yes | - | ID of the entity to retrieve sections for (e.g., '550e8400-e29b-41d4-a716-446655440000') |
+        | includeContent | boolean | No | true | Whether to include section content. Set false to get only metadata (saves 85-99% tokens) |
+        | sectionIds | array | No | all | Optional list of specific section IDs to retrieve. Allows selective loading of sections |
         
         ## Response Format
         
@@ -184,28 +186,49 @@ class GetSectionsTool : BaseToolDefinition() {
         - INTERNAL_ERROR (500): For unexpected system errors during execution
         
         ## Usage Examples
-        
-        1. Get sections for a task:
+
+        1. Get all sections with full content (default behavior):
            ```json
            {
              "entityType": "TASK",
              "entityId": "550e8400-e29b-41d4-a716-446655440000"
            }
            ```
-           
-        2. Get sections for a feature:
+
+        2. Browse section structure without content (85-99% token savings):
            ```json
            {
-             "entityType": "FEATURE",
-             "entityId": "661e8511-f30c-41d4-a716-557788990000"
+             "entityType": "TASK",
+             "entityId": "550e8400-e29b-41d4-a716-446655440000",
+             "includeContent": false
            }
            ```
-           
-        3. Get sections for a project:
+           Returns only: id, title, usageDescription, contentFormat, ordinal, tags
+
+        3. Get specific sections by ID (selective loading):
            ```json
            {
-             "entityType": "PROJECT",
-             "entityId": "772f9622-g41d-52e5-b827-668899101111"
+             "entityType": "TASK",
+             "entityId": "550e8400-e29b-41d4-a716-446655440000",
+             "sectionIds": ["section-id-1", "section-id-3"]
+           }
+           ```
+
+        4. Two-step workflow - browse then fetch:
+           Step 1: Get section metadata
+           ```json
+           {
+             "entityType": "TASK",
+             "entityId": "550e8400-e29b-41d4-a716-446655440000",
+             "includeContent": false
+           }
+           ```
+           Step 2: Fetch specific sections with content
+           ```json
+           {
+             "entityType": "TASK",
+             "entityId": "550e8400-e29b-41d4-a716-446655440000",
+             "sectionIds": ["requirements-section-id", "testing-section-id"]
            }
            ```
         
@@ -243,6 +266,25 @@ class GetSectionsTool : BaseToolDefinition() {
                         "type" to JsonPrimitive("string"),
                         "description" to JsonPrimitive("ID of the entity to retrieve sections for (e.g., '550e8400-e29b-41d4-a716-446655440000')"),
                         "format" to JsonPrimitive("uuid")
+                    )
+                ),
+                "includeContent" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Whether to include section content. Set to false to retrieve only section metadata (title, ordinal, format) without content, saving significant tokens. Default: true"),
+                        "default" to JsonPrimitive(true)
+                    )
+                ),
+                "sectionIds" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("array"),
+                        "description" to JsonPrimitive("Optional list of specific section IDs to retrieve. If provided, only sections with these IDs will be returned. Use with includeContent=false to first browse available sections, then fetch specific ones."),
+                        "items" to JsonObject(
+                            mapOf(
+                                "type" to JsonPrimitive("string"),
+                                "format" to JsonPrimitive("uuid")
+                            )
+                        )
                     )
                 )
             )
@@ -290,6 +332,20 @@ class GetSectionsTool : BaseToolDefinition() {
                 )
             }
 
+            // Parse optional parameters
+            val includeContent = paramsObj["includeContent"]?.jsonPrimitive?.booleanOrNull ?: true
+
+            val sectionIds = paramsObj["sectionIds"]?.jsonArray?.let { array ->
+                try {
+                    array.map { UUID.fromString(it.jsonPrimitive.content) }
+                } catch (_: IllegalArgumentException) {
+                    return errorResponse(
+                        message = "Invalid section ID format in sectionIds array. All IDs must be valid UUIDs.",
+                        code = ErrorCodes.VALIDATION_ERROR
+                    )
+                }
+            }
+
             // Verify the entity exists before getting sections for it
             when (entityType) {
                 EntityType.TASK -> {
@@ -321,37 +377,48 @@ class GetSectionsTool : BaseToolDefinition() {
 
             return when (result) {
                 is Result.Success -> {
-                    val sections = result.data
+                    val allSections = result.data
+
+                    // Apply sectionIds filter if provided
+                    val filteredSections = if (sectionIds != null) {
+                        allSections.filter { section -> section.id in sectionIds }
+                    } else {
+                        allSections
+                    }
 
                     val sectionsArray = JsonArray(
-                        sections.map { section ->
-                            JsonObject(
-                                mapOf(
-                                    "id" to JsonPrimitive(section.id.toString()),
-                                    "title" to JsonPrimitive(section.title),
-                                    "usageDescription" to JsonPrimitive(section.usageDescription),
-                                    "content" to JsonPrimitive(section.content),
-                                    "contentFormat" to JsonPrimitive(section.contentFormat.name),
-                                    "ordinal" to JsonPrimitive(section.ordinal),
-                                    "tags" to JsonArray(section.tags.map { JsonPrimitive(it) }),
-                                    "createdAt" to JsonPrimitive(section.createdAt.toString()),
-                                    "modifiedAt" to JsonPrimitive(section.modifiedAt.toString())
-                                )
+                        filteredSections.map { section ->
+                            val baseFields = mutableMapOf(
+                                "id" to JsonPrimitive(section.id.toString()),
+                                "title" to JsonPrimitive(section.title),
+                                "usageDescription" to JsonPrimitive(section.usageDescription),
+                                "contentFormat" to JsonPrimitive(section.contentFormat.name),
+                                "ordinal" to JsonPrimitive(section.ordinal),
+                                "tags" to JsonArray(section.tags.map { JsonPrimitive(it) }),
+                                "createdAt" to JsonPrimitive(section.createdAt.toString()),
+                                "modifiedAt" to JsonPrimitive(section.modifiedAt.toString())
                             )
+
+                            // Only include content if requested
+                            if (includeContent) {
+                                baseFields["content"] = JsonPrimitive(section.content)
+                            }
+
+                            JsonObject(baseFields)
                         }
                     )
 
                     successResponse(
                         message = when {
-                            sections.isEmpty() -> "No sections found for ${entityType.name.lowercase()}"
-                            sections.size == 1 -> "Retrieved 1 section"
-                            else -> "Retrieved ${sections.size} sections"
+                            filteredSections.isEmpty() -> "No sections found for ${entityType.name.lowercase()}"
+                            filteredSections.size == 1 -> "Retrieved 1 section"
+                            else -> "Retrieved ${filteredSections.size} sections"
                         },
                         data = buildJsonObject {
                             put("sections", sectionsArray)
                             put("entityType", entityType.name)
                             put("entityId", entityId.toString())
-                            put("count", sections.size)
+                            put("count", filteredSections.size)
                         }
                     )
                 }

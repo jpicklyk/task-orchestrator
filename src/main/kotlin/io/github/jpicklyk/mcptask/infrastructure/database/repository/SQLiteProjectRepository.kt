@@ -16,6 +16,7 @@ import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -50,7 +51,8 @@ class SQLiteProjectRepository(
             status = row[ProjectsTable.status],
             createdAt = row[ProjectsTable.createdAt],
             modifiedAt = row[ProjectsTable.modifiedAt],
-            tags = emptyList() // Tags are loaded separately
+            tags = emptyList(), // Tags are loaded separately
+            version = row[ProjectsTable.version]
         )
     }
 
@@ -78,15 +80,20 @@ class SQLiteProjectRepository(
             it[status] = entity.status
             it[createdAt] = entity.createdAt
             it[modifiedAt] = entity.modifiedAt
+            it[version] = entity.version
         }
     }
 
     override fun updateEntityInternal(entity: Project): Int {
-        return ProjectsTable.update({ ProjectsTable.id eq entity.id }) {
+        // Optimistic locking: only update if version matches
+        return ProjectsTable.update({
+            (ProjectsTable.id eq entity.id) and (ProjectsTable.version eq entity.version)
+        }) {
             it[name] = entity.name
             it[summary] = entity.summary
             it[status] = entity.status
             it[modifiedAt] = entity.modifiedAt
+            it[version] = entity.version + 1
         }
     }
 
@@ -97,6 +104,7 @@ class SQLiteProjectRepository(
     override fun getPriorityColumn(): Column<Nothing>? = null // Projects don't have priority
     override fun getEntityStatus(entity: Project): ProjectStatus? = entity.status
     override fun getEntityPriority(entity: Project): Nothing? = null // Projects don't have priority
+    override fun incrementEntityVersion(entity: Project): Project = entity.copy(version = entity.version + 1)
 
     //======================================
     // ProjectRepository Interface Implementation
