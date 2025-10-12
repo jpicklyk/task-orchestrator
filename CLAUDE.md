@@ -357,3 +357,13 @@ Last initialized: 2025-10-10
 - Use appropriate complexity ratings (1-10)
 - Apply consistent tagging conventions
 - Include acceptance criteria in summaries
+
+**Bulk Operations** (Token Optimization):
+- Use `bulk_update_tasks` for 3+ task updates (70-95% savings)
+- Use `bulk_create_sections` for 2+ sections (preferred over multiple add_section)
+- Use `bulk_update_sections` for multiple section updates
+- Combine with search_tasks to find then bulk update
+- Examples:
+  - Feature completion: search + bulk update all tasks to completed
+  - Priority triage: find dependent tasks + bulk update priority
+  - Sprint planning: select pending tasks + bulk update to in-progress
