@@ -200,6 +200,7 @@ class McpServer(
             // Task management tools
             CreateTaskTool(),
             UpdateTaskTool(null, null),
+            BulkUpdateTasksTool(),
             GetTaskTool(),
             DeleteTaskTool(null, null),
             SearchTasksTool(),
