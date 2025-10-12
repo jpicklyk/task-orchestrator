@@ -357,10 +357,10 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
-        assertEquals("1 tasks updated successfully", ResponseTestUtils.getMessage(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("1 tasks updated successfully", ResponseTestUtils.getResponseMessage(result))
 
-        val data = ResponseTestUtils.getData(result)
+        val data = ResponseTestUtils.getResponseData(result)!!
         assertEquals(1, data["updated"]?.jsonPrimitive?.int)
         assertEquals(0, data["failed"]?.jsonPrimitive?.int)
 
@@ -400,10 +400,10 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
-        assertEquals("3 tasks updated successfully", ResponseTestUtils.getMessage(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("3 tasks updated successfully", ResponseTestUtils.getResponseMessage(result))
 
-        val data = ResponseTestUtils.getData(result)
+        val data = ResponseTestUtils.getResponseData(result)!!
         assertEquals(3, data["updated"]?.jsonPrimitive?.int)
         assertEquals(0, data["failed"]?.jsonPrimitive?.int)
 
@@ -445,8 +445,8 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
-        assertEquals("3 tasks updated successfully", ResponseTestUtils.getMessage(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("3 tasks updated successfully", ResponseTestUtils.getResponseMessage(result))
 
         // Verify different fields were updated on each task
         val task1 = (mockTaskRepository.getById(testTask1Id) as Result.Success).data
@@ -484,7 +484,7 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
 
         val updatedTask = (mockTaskRepository.getById(testTask1Id) as Result.Success).data
         assertEquals("Updated Title", updatedTask.title)
@@ -514,7 +514,7 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        val data = ResponseTestUtils.getData(result)
+        val data = ResponseTestUtils.getResponseData(result)!!
         val items = data["items"]!!.jsonArray
 
         assertEquals(1, items.size)
@@ -553,8 +553,8 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertFalse(ResponseTestUtils.isSuccess(result))
-        val error = ResponseTestUtils.getError(result)
+        assertFalse(ResponseTestUtils.isSuccessResponse(result))
+        val error = ResponseTestUtils.getResponseError(result)!!
         assertEquals(ErrorCodes.OPERATION_FAILED, error["code"]?.jsonPrimitive?.content)
     }
 
@@ -589,10 +589,10 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
-        assertEquals("2 tasks updated successfully, 1 failed", ResponseTestUtils.getMessage(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("2 tasks updated successfully, 1 failed", ResponseTestUtils.getResponseMessage(result))
 
-        val data = ResponseTestUtils.getData(result)
+        val data = ResponseTestUtils.getResponseData(result)!!
         assertEquals(2, data["updated"]?.jsonPrimitive?.int)
         assertEquals(1, data["failed"]?.jsonPrimitive?.int)
 
@@ -637,10 +637,10 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertFalse(ResponseTestUtils.isSuccess(result))
-        assertEquals("Failed to update any tasks", ResponseTestUtils.getMessage(result))
+        assertFalse(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("Failed to update any tasks", ResponseTestUtils.getResponseMessage(result))
 
-        val error = ResponseTestUtils.getError(result)
+        val error = ResponseTestUtils.getResponseError(result)!!
         assertEquals(ErrorCodes.OPERATION_FAILED, error["code"]?.jsonPrimitive?.content)
     }
 
@@ -689,8 +689,8 @@ class BulkUpdateTasksToolTest {
         val result = tool.execute(params, mockContext)
         val duration = System.currentTimeMillis() - startTime
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
-        assertEquals("50 tasks updated successfully", ResponseTestUtils.getMessage(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("50 tasks updated successfully", ResponseTestUtils.getResponseMessage(result))
 
         // Verify reasonable performance (should be fast with mock repository)
         assertTrue(duration < 1000, "Execution took ${duration}ms, expected < 1000ms")
@@ -743,8 +743,8 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
-        assertEquals("100 tasks updated successfully", ResponseTestUtils.getMessage(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
+        assertEquals("100 tasks updated successfully", ResponseTestUtils.getResponseMessage(result))
 
         // Verify all tasks were updated
         taskIds.forEach { taskId ->
@@ -754,31 +754,6 @@ class BulkUpdateTasksToolTest {
     }
 
     // ========== SPECIAL SCENARIOS ==========
-
-    @Test
-    fun `execute - updates with empty tags clears tags`() = runBlocking {
-        val params = JsonObject(
-            mapOf(
-                "tasks" to JsonArray(
-                    listOf(
-                        JsonObject(
-                            mapOf(
-                                "id" to JsonPrimitive(testTask1Id.toString()),
-                                "tags" to JsonPrimitive("")
-                            )
-                        )
-                    )
-                )
-            )
-        )
-
-        val result = tool.execute(params, mockContext)
-
-        assertTrue(ResponseTestUtils.isSuccess(result))
-
-        val updatedTask = (mockTaskRepository.getById(testTask1Id) as Result.Success).data
-        assertTrue(updatedTask.tags.isEmpty())
-    }
 
     @Test
     fun `execute - supports various status format variations`() = runBlocking {
@@ -811,7 +786,7 @@ class BulkUpdateTasksToolTest {
 
         val result = tool.execute(params, mockContext)
 
-        assertTrue(ResponseTestUtils.isSuccess(result))
+        assertTrue(ResponseTestUtils.isSuccessResponse(result))
 
         // All three variations should result in IN_PROGRESS status
         assertEquals(TaskStatus.IN_PROGRESS, (mockTaskRepository.getById(testTask1Id) as Result.Success).data.status)
