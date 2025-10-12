@@ -173,11 +173,12 @@ AI chooses tools based on:
 
 ## Tool Categories
 
-### Task Management (7 tools)
+### Task Management (8 tools)
 
 **Core Workflow**:
 - `create_task` - Create tasks with templates
 - `update_task` - Status, priority, complexity updates
+- `bulk_update_tasks` - Update multiple tasks efficiently (70-95% token savings)
 - `get_task` - Fetch task details with progressive loading
 - `search_tasks` - Filter and find tasks
 - `get_overview` - Hierarchical project view
@@ -435,11 +436,25 @@ Returns: Only the specified sections with full content
 
 **When to Use Bulk Tools**:
 
+✅ `bulk_update_tasks` - Updating 3+ tasks simultaneously (70-95% token savings vs individual calls)
 ✅ `bulk_create_sections` - Creating 2+ sections (more efficient than multiple `add_section`)
 ✅ `bulk_update_sections` - Updating multiple sections simultaneously
 ✅ `bulk_delete_sections` - Removing multiple sections at once
 
-**Performance Benefit**: Single database transaction, reduced network overhead
+**Performance Benefit**: Single database transaction, reduced network overhead, massive token savings
+
+**Example Scenarios**:
+- Marking 10 tasks as completed after feature implementation
+- Updating priority on multiple related tasks
+- Batch status changes across feature tasks
+- Updating complexity ratings after task analysis
+
+**Token Savings Example**:
+```
+Individual calls: 10 × update_task = ~12,500 characters
+Bulk operation: 1 × bulk_update_tasks = ~650 characters
+Savings: 95% (11,850 characters saved!)
+```
 
 ---
 
