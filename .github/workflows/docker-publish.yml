@@ -25,6 +25,9 @@ jobs:
     - name: Validate version consistency
       if: github.ref_type == 'tag'
       run: |
+        # Make gradlew executable
+        chmod +x gradlew
+
         # Get version from Gradle task (most reliable - single source of truth)
         GRADLE_VERSION=$(./gradlew -q printTagVersion)
 
