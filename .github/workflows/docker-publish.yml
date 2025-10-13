@@ -25,25 +25,16 @@ jobs:
     - name: Validate version consistency
       if: github.ref_type == 'tag'
       run: |
-        # Extract version components from build.gradle.kts
-        MAJOR=$(grep '^val majorVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-        MINOR=$(grep '^val minorVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-        PATCH=$(grep '^val patchVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-        QUALIFIER=$(grep '^val qualifier' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-
-        # Build gradle version with qualifier if present
-        if [ -z "$QUALIFIER" ]; then
-          GRADLE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-        else
-          GRADLE_VERSION="${MAJOR}.${MINOR}.${PATCH}-${QUALIFIER}"
-        fi
-
+        # Extract version from build.gradle.kts
+        GRADLE_VERSION=$(grep -E '^val (majorVersion|minorVersion|patchVersion)' build.gradle.kts | \
+          sed 's/.*= "\(.*\)"/\1/' | paste -sd '.' -)
+        
         # Extract tag version (remove 'v' prefix)
         TAG_VERSION=${GITHUB_REF_NAME#v}
-
+        
         echo "Gradle version: $GRADLE_VERSION"
         echo "Git tag version: $TAG_VERSION"
-
+        
         if [ "$GRADLE_VERSION" != "$TAG_VERSION" ]; then
           echo "ERROR: Version mismatch! Gradle version ($GRADLE_VERSION) does not match git tag ($TAG_VERSION)"
           exit 1
