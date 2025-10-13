@@ -145,6 +145,18 @@ tasks.register("printVersion") {
     }
 }
 
+// Print tag version (without build number) for git tag validation
+tasks.register("printTagVersion") {
+    doLast {
+        val tagVersion = if (qualifier.isNotEmpty()) {
+            "$baseVersion-$qualifier"
+        } else {
+            baseVersion
+        }
+        println(tagVersion)
+    }
+}
+
 kotlin {
     jvmToolchain(23)
     sourceSets.main {
