@@ -25,11 +25,11 @@ jobs:
     - name: Validate version consistency
       if: github.ref_type == 'tag'
       run: |
-        # Extract version components from build.gradle.kts
-        MAJOR=$(grep '^val majorVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-        MINOR=$(grep '^val minorVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-        PATCH=$(grep '^val patchVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
-        QUALIFIER=$(grep '^val qualifier' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/')
+        # Extract version components from build.gradle.kts (strip newlines with tr)
+        MAJOR=$(grep '^val majorVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/' | tr -d '\n')
+        MINOR=$(grep '^val minorVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/' | tr -d '\n')
+        PATCH=$(grep '^val patchVersion' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/' | tr -d '\n')
+        QUALIFIER=$(grep '^val qualifier' build.gradle.kts | sed 's/.*= "\(.*\)"/\1/' | tr -d '\n')
 
         # Build gradle version with qualifier if present
         if [ -z "$QUALIFIER" ]; then
