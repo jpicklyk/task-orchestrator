@@ -47,7 +47,7 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 - **🎯 Context-Efficient**: Progressive loading and token optimization
 - **📋 Template-Driven**: Consistent documentation with 9 built-in templates
 - **🔄 Workflow Automation**: 6 comprehensive workflow prompts
-- **⚡ Complete API**: 37 MCP tools for full project orchestration
+- **⚡ Complete API**: Comprehensive MCP tools for full project orchestration
 
 ## Core Concepts
 

@@ -41,8 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Removed `includeMarkdownView` parameter from get_task, get_feature, and get_project tools
-- Updated API reference documentation to reflect 38 total tools (was 37)
-- Updated tool category counts: Task Management (8 tools, was 7), Feature Management (6 tools), Project Management (6 tools)
+- Updated API reference documentation to reflect tool additions
+- Expanded tool categories: Added tools to Task Management, Feature Management, and Project Management
 
 ### Performance
 - Bulk task updates: 70-95% token reduction vs individual update_task calls

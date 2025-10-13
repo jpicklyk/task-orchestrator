@@ -154,4 +154,4 @@ use_pull_requests: "always"
 
 ## Contributing
 
-Have a configuration pattern that works well for your team? Consider contributing it as an example! See the [Contributing Guide](../../CONTRIBUTING.md) for details.
+Have a configuration pattern that works well for your team? Consider contributing it as an example! See the [Contributing Guide](../developer-guides/index.md#contributing) for details.

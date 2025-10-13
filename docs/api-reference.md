@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference
 
-The MCP Task Orchestrator provides **40 MCP tools** for AI-driven project management. This reference focuses on **when and why** AI uses each tool, not exhaustive parameter documentation (AI agents have access to complete MCP schemas).
+The MCP Task Orchestrator provides comprehensive MCP tools for AI-driven project management. This reference focuses on **when and why** AI uses each tool, not exhaustive parameter documentation (AI agents have access to complete MCP schemas).
 
 ## Table of Contents
 
@@ -173,7 +173,7 @@ AI chooses tools based on:
 
 ## Tool Categories
 
-### Task Management (8 tools)
+### Task Management
 
 **Core Workflow**:
 - `create_task` - Create tasks with templates
@@ -191,7 +191,7 @@ AI chooses tools based on:
 
 ---
 
-### Feature Management (6 tools)
+### Feature Management
 
 **Core Workflow**:
 - `create_feature` - Group related tasks
@@ -207,7 +207,7 @@ AI chooses tools based on:
 
 ---
 
-### Project Management (6 tools)
+### Project Management
 
 **Core Workflow**:
 - `create_project` - Top-level organizational containers
@@ -223,7 +223,7 @@ AI chooses tools based on:
 
 ---
 
-### Dependency Management (3 tools)
+### Dependency Management
 
 **Core Workflow**:
 - `create_dependency` - BLOCKS, IS_BLOCKED_BY, RELATES_TO relationships
@@ -241,7 +241,7 @@ AI chooses tools based on:
 
 ---
 
-### Section Management (9 tools)
+### Section Management
 
 **Core Workflow**:
 - `add_section` - Add detailed content blocks
@@ -268,7 +268,7 @@ AI chooses tools based on:
 
 ---
 
-### Template Management (9 tools)
+### Template Management
 
 **Core Workflow**:
 - `list_templates` - **Most Important**: Dynamic template discovery
@@ -292,7 +292,7 @@ AI chooses tools based on:
 
 ---
 
-### Markdown Transformation (3 tools)
+### Markdown Transformation
 
 **Core Workflow**:
 - `task_to_markdown` - Transform task to markdown with YAML frontmatter
