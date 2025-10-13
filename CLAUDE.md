@@ -67,13 +67,13 @@ The codebase follows **Clean Architecture** with four distinct layers:
 
 ### 2. Application Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/application/`)
 - **Business logic orchestration and use cases**
-- `tools/` - 37 MCP tool implementations organized by category:
-  - `task/` - Task management (6 tools)
-  - `feature/` - Feature management (5 tools)
-  - `project/` - Project management (5 tools)
-  - `template/` - Template management (9 tools)
-  - `section/` - Section management (9 tools)
-  - `dependency/` - Dependency management (3 tools)
+- `tools/` - MCP tool implementations organized by category:
+  - `task/` - Task management
+  - `feature/` - Feature management
+  - `project/` - Project management
+  - `template/` - Template management
+  - `section/` - Section management
+  - `dependency/` - Dependency management
 - `service/` - Services like TemplateInitializer
 - `service/templates/` - 9 built-in template creators
 

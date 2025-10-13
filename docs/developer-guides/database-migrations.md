@@ -367,5 +367,5 @@ sqlite3 data/tasks.db ".schema table_name"
 
 ## See Also
 
-- [API Reference](api-reference.md) - MCP tools documentation
-- [Troubleshooting](troubleshooting.md) - General troubleshooting guide
+- [API Reference](../api-reference.md) - MCP tools documentation
+- [Troubleshooting](../troubleshooting.md) - General troubleshooting guide

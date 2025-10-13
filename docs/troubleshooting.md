@@ -5,7 +5,7 @@ title: Troubleshooting
 
 # Troubleshooting Guide
 
-This guide covers common issues and their solutions when using MCP Task Orchestrator with Claude Desktop.
+This guide covers common issues and their solutions when using MCP Task Orchestrator with AI coding assistants (Claude Desktop, Claude Code, Cursor, Windsurf, and other MCP-compatible AI agents).
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Top 5 most common issues with one-line fixes:
 
 | Issue | Quick Fix | Details |
 |-------|-----------|---------|
-| **Claude can't find tools** | Restart Claude Desktop | [Connection Issues](#claude-cant-find-mcp-tools) |
+| **AI can't find tools** | Restart your AI agent | [Connection Issues](#ai-cant-find-mcp-tools) |
 | **Docker not running** | Start Docker Desktop, check with `docker version` | [Docker Problems](#container-wont-start) |
 | **Invalid JSON config** | Validate at [jsonlint.com](https://jsonlint.com/) | [Configuration Issues](#invalid-json-syntax) |
 | **Container won't start** | Check Docker logs: `docker logs [container-id]` | [Docker Problems](#container-wont-start) |
@@ -42,21 +42,21 @@ Top 5 most common issues with one-line fixes:
 ### AI Not Using Patterns Autonomously
 
 **Symptoms**:
-- Claude asks for explicit instructions instead of recognizing patterns
+- AI asks for explicit instructions instead of recognizing patterns
 - Templates aren't being applied automatically
-- Claude doesn't suggest workflows for complex tasks
+- AI doesn't suggest workflows for complex tasks
 
 **Solutions**:
 
 1. **Verify Initialization**
-   - Ask Claude: "Have you initialized the Task Orchestrator guidelines?"
-   - Claude should confirm it has loaded guideline resources
-   - If not: "Please initialize Task Orchestrator" (Claude will fetch guideline resources)
+   - Ask your AI: "Have you initialized the Task Orchestrator guidelines?"
+   - Your AI should confirm it has loaded guideline resources
+   - If not: "Please initialize Task Orchestrator" (AI will fetch guideline resources)
 
 2. **Check Resource Availability**
    - Ensure MCP server is properly configured and running
    - Verify Task Orchestrator tools are available: "Can you list your available tools?"
-   - Confirm Claude can access guideline resources
+   - Confirm your AI can access guideline resources
 
 3. **Provide Explicit Pattern Examples**
    - If autonomous mode isn't working, use explicit guidance:
@@ -65,8 +65,8 @@ Top 5 most common issues with one-line fixes:
      - "Apply the task breakdown workflow"
 
 4. **Re-Initialize if Needed**
-   - Ask Claude: "Please re-fetch the Task Orchestrator guidelines"
-   - Claude will reload guideline resources and patterns
+   - Ask your AI: "Please re-fetch the Task Orchestrator guidelines"
+   - Your AI will reload guideline resources and patterns
 
 > **See**: [AI Guidelines - Troubleshooting](ai-guidelines#troubleshooting) for complete AI-specific issue resolution
 
@@ -75,15 +75,15 @@ Top 5 most common issues with one-line fixes:
 ### Templates Not Being Discovered
 
 **Symptoms**:
-- Claude creates tasks/features without templates
+- AI creates tasks/features without templates
 - Template suggestions aren't happening
 - Custom templates aren't being found
 
 **Solutions**:
 
 1. **Verify Templates Exist**
-   - Ask Claude: "List available templates"
-   - Claude should use `list_templates` and show all enabled templates
+   - Ask your AI: "List available templates"
+   - Your AI should use `list_templates` and show all enabled templates
    - Check that expected templates appear in the list
 
 2. **Check Template Status**
@@ -92,7 +92,7 @@ Top 5 most common issues with one-line fixes:
    - Ask: "Show me templates for TASK entities" or "Show me templates for FEATURE entities"
 
 3. **Ensure AI is Querying Templates**
-   - Claude should automatically run `list_templates` before creating tasks/features
+   - Your AI should automatically run `list_templates` before creating tasks/features
    - If not happening, remind: "Please check for applicable templates first"
 
 4. **Validate Template Targeting**
@@ -118,13 +118,13 @@ Top 5 most common issues with one-line fixes:
    - Explicit mode guarantees comprehensive step-by-step coverage
 
 2. **Review Guideline Resources**
-   - Ask Claude to refresh pattern understanding
-   - Confirm Claude has latest workflow definitions
-   - Update custom patterns in project CLAUDE.md if behavior needs adjustment
+   - Ask your AI to refresh pattern understanding
+   - Confirm your AI has latest workflow definitions
+   - Update custom patterns in project configuration if behavior needs adjustment
 
 3. **Validate Task Completeness**
    - Before marking complete, ask: "Have all template sections been filled?"
-   - Claude should use `get_sections` to validate
+   - Your AI should use `get_sections` to validate
    - Ensure summaries, tags, and metadata are complete
 
 > **Learn More**: [AI Guidelines](ai-guidelines) explains how AI discovers patterns and applies workflows autonomously
@@ -133,23 +133,25 @@ Top 5 most common issues with one-line fixes:
 
 ## Connection Issues
 
-### Claude Can't Find MCP Tools
+### AI Can't Find MCP Tools
 
 **Symptoms**:
-- Claude responds: "I don't have access to task management tools"
+- AI responds: "I don't have access to task management tools"
 - No task-related functionality available
 - Commands fail with "unknown tool" errors
 
 **Solutions**:
 
-1. **Restart Claude Desktop**
+1. **Restart Your AI Agent**
    ```bash
-   # Close Claude Desktop completely
+   # Close your AI application completely (Claude Desktop, Cursor, etc.)
    # Reopen the application
    ```
 
 2. **Verify Configuration File**
-   - Check that `claude_desktop_config.json` exists in the correct location
+   - Check that your MCP configuration file exists in the correct location
+   - For Claude Desktop: `claude_desktop_config.json`
+   - For other AI agents: Consult their MCP configuration documentation
    - Ensure the JSON syntax is valid
    - Confirm the `task-orchestrator` entry is properly added
 

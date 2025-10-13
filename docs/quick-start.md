@@ -86,13 +86,75 @@ claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args"
 
 Claude Code will automatically configure and connect to the MCP server.
 
-### Option C: Other MCP-Compatible AI Agents
+### Option C: Cursor IDE
 
-For Cursor, Windsurf, or other MCP-supporting AI agents, consult their MCP configuration documentation. Use the Docker command configuration shown above, adapting to your agent's configuration format.
+**Find Your Configuration File**:
+- **Windows**: `%APPDATA%\Cursor\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
+- **macOS**: `~/Library/Application Support/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+- **Linux**: `~/.config/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+
+**Add Task Orchestrator**:
+
+```json
+{
+  "mcpServers": {
+    "task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--volume",
+        "mcp-task-data:/app/data",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
+}
+```
+
+**Restart Cursor**: Close and reopen to load the configuration.
+
+### Option D: Windsurf
+
+**Find Your Configuration File**:
+- **Windows**: `%APPDATA%\Windsurf\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
+- **macOS**: `~/Library/Application Support/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+- **Linux**: `~/.config/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+
+**Add Task Orchestrator**:
+
+```json
+{
+  "mcpServers": {
+    "task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--volume",
+        "mcp-task-data:/app/data",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
+}
+```
+
+**Restart Windsurf**: Close and reopen to load the configuration.
+
+> **Note**: Cursor and Windsurf use Cline (formerly Roo Cline) for MCP support. The configuration format is identical to Claude Desktop.
+
+### Option E: Other MCP-Compatible AI Agents
+
+For other MCP-supporting AI agents, consult their MCP configuration documentation. Use the Docker command configuration shown above, adapting to your agent's configuration format.
 
 ---
 
-## Step 4: Verify the Connection
+## Step 4: Verify Connection and Initialize
+
+### Verify the Connection
 
 Open your AI agent and ask:
 
@@ -102,46 +164,234 @@ Show me an overview of my current tasks
 
 Your AI agent should respond confirming the task orchestrator is working (showing no tasks initially).
 
+### Verify AI Guidelines Initialization
+
+Your AI agent can access Task Orchestrator guidelines through MCP resources. The AI may read these automatically, or you can trigger explicit initialization.
+
+**Check if initialized**: Look for a "Task Orchestrator - AI Initialization" section in your project's AI memory file:
+- **Claude Code**: `CLAUDE.md`
+- **Cursor**: `.cursorrules`
+- **Windsurf**: `.windsurfrules`
+- **GitHub Copilot**: `.github/copilot-instructions.md`
+
+If the section doesn't exist or you want to ensure proper initialization, ask your AI agent:
+
+```
+Initialize Task Orchestrator using the initialize_task_orchestrator workflow
+```
+
+Or, if your AI agent supports direct prompt invocation:
+
+```
+/task-orchestrator:initialize_task_orchestrator
+```
+
+Your AI will:
+1. Read all Task Orchestrator guideline resources
+2. Write key patterns to your AI's memory file (CLAUDE.md, .cursorrules, etc.)
+3. Confirm initialization with the specific file location
+
+> **Why this matters**: Initialization enables your AI to autonomously discover templates, recognize patterns, and apply best practices without explicit instructions. The initialization persists across all sessions.
+
+> **Note**: Initialization is typically **per-project** (stored in project root). If you work with Task Orchestrator across multiple projects, you may need to initialize once per project, or use global AI memory if your AI agent supports it.
+
 ---
 
-## Step 5: Create Your First Project
+## Understanding Your Setup Options
 
-### Start Simple
+Before creating your first project, understand your options based on your situation:
 
-Try these commands with your AI agent:
+### Option 1: New Project (Greenfield Development)
 
-**Create a project**:
+**When to use**: Building new software from scratch
+
+**What you get**: Full project hierarchy (Project → Features → Tasks)
+
+**Example scenarios**:
+- "I'm building a new web application"
+- "Starting a mobile app project"
+- "Creating a new microservice"
+
+### Option 2: Existing Codebase (Task Tracking)
+
+**When to use**: Tracking work on existing software
+
+**What you get**: Project container for organizing work items on existing code
+
+**Example scenarios**:
+- "I need to track bug fixes for my production app"
+- "Managing enhancements to an existing system"
+- "Organizing refactoring work"
+
+### Option 3: Simple Task Tracking (No Project)
+
+**When to use**: Small-scale work without project overhead
+
+**What you get**: Just features and tasks (projects are optional!)
+
+**Example scenarios**:
+- "Quick prototype work"
+- "Personal learning projects"
+- "Ad-hoc task management"
+
+> **Key Insight**: Projects are optional! You can create features and tasks directly without a top-level project container.
+
+---
+
+## Step 5: Create Your First Work Items
+
+Choose the path that matches your situation from Step 4:
+
+### Path A: New Project (Greenfield)
+
+For building new software from scratch.
+
+**Option 1: Quick Natural Language (Autonomous)**
+
+Let your AI handle project setup automatically:
+
 ```
 Create a new project called "My Web App" for building a web application
 with user authentication and a dashboard
 ```
 
-**Add a feature with templates**:
+Your AI will autonomously:
+- Create the project with appropriate structure
+- Set up initial organization
+- Suggest next steps for features and tasks
+
+**Option 2: Comprehensive Guided Setup (Workflow Prompt)**
+
+For step-by-step guidance with best practices, use the workflow prompt:
+
+```
+Set up a new project using the project_setup_workflow
+```
+
+Or with direct invocation:
+```
+/task-orchestrator:project_setup_workflow
+```
+
+Your AI will guide you through:
+- Project creation with documentation
+- Feature planning and structure
+- Initial task creation
+- Template strategy setup
+- Development workflow establishment
+
+**Then add features and tasks:**
+
 ```
 Create a feature called "User Authentication" with appropriate templates
 ```
 
-**Create tasks**:
 ```
 Create tasks for implementing user login, registration, and password reset
 ```
 
-**View your work**:
+**View your structure:**
+
 ```
-Show me an overview of my project structure
+Show me an overview of my project
 ```
+
+> **Which to use?** Use natural language for quick setup. Use the workflow prompt for comprehensive guidance and learning.
+
+### Path B: Existing Codebase
+
+For tracking work on existing software:
+
+```
+Create a project called "Production App Maintenance" to track work on my existing application
+```
+
+Then import existing work items:
+
+```
+Create tasks for the following work items:
+- Fix authentication timeout bug
+- Add user profile editing
+- Implement API rate limiting
+- Update documentation
+```
+
+Organize with features:
+
+```
+Create features to organize these tasks:
+- User Management feature
+- API Infrastructure feature
+- Documentation feature
+```
+
+Link tasks to features:
+
+```
+Move the user-related tasks to the User Management feature
+```
+
+### Path C: Simple Task Tracking
+
+For lightweight work without projects.
+
+**Quick approach:**
+
+```
+Create a feature called "Learning React" with relevant templates
+```
+
+```
+Create tasks for:
+- Complete React tutorial
+- Build sample app
+- Deploy to production
+```
+
+**With guided setup (optional):**
+
+```
+Create a feature using the create_feature_workflow
+```
+
+Or: `/task-orchestrator:create_feature_workflow`
+
+**View your work:**
+
+```
+Show me all pending tasks
+```
+
+> **Pro Tip**: You can always add a project container later if your work grows in scope. Start simple and scale up as needed.
 
 ---
 
-## AI Guidelines Initialization
+## Understanding Workflow Prompts
 
-Your AI agent will automatically initialize guidelines on first connection to Task Orchestrator. This enables:
+Task Orchestrator provides **workflow prompts** for comprehensive, step-by-step guidance. You have two ways to work:
 
-- **Autonomous pattern recognition** - AI understands your intent from natural language
-- **Smart template discovery** - Automatically finds and applies appropriate templates
-- **Workflow integration** - Seamless use of built-in workflow patterns
+### Autonomous Mode (Natural Language)
+Simply describe what you want in natural language. Your AI recognizes intent and applies appropriate patterns automatically.
 
-> **Learn more**: See [AI Guidelines](ai-guidelines) for details on how AI agents use Task Orchestrator autonomously.
+**Example**: "Create a feature for user authentication" → AI autonomously creates feature with templates
+
+**Best for**: Quick operations, experienced users, clear simple requests
+
+### Workflow Prompt Mode (Explicit Guidance)
+Invoke specific workflow prompts for comprehensive guidance with teaching and best practices.
+
+**Example**: `/task-orchestrator:create_feature_workflow` → AI guides you step-by-step
+
+**Best for**: Learning, complex scenarios, comprehensive setup, edge cases
+
+**Available Workflow Prompts**:
+- `initialize_task_orchestrator` - Set up AI guidelines
+- `project_setup_workflow` - Comprehensive project initialization
+- `create_feature_workflow` - Guided feature creation with tasks
+- `task_breakdown_workflow` - Decompose complex tasks systematically
+- `implementation_workflow` - Smart implementation with git detection
+
+> **When to use which?** Use natural language for speed and efficiency. Use workflow prompts for learning, complex scenarios, or when you want detailed guidance.
 
 ---
 
@@ -154,7 +404,7 @@ Your AI agent will automatically initialize guidelines on first connection to Ta
 
 ### Template-Driven Documentation
 - 9 built-in templates for common scenarios
-- Automatic template discovery by Claude
+- Automatic template discovery by your AI agent
 - Compose multiple templates for comprehensive coverage
 
 ### Workflow Automation
@@ -171,46 +421,9 @@ Simply ask your AI agent:
 
 ---
 
-## Working with Existing Projects
-
-Already have a project in progress? Task Orchestrator integrates seamlessly with existing work.
-
-### Connect to Existing Work
-
-**Create a project for your existing codebase**:
-```
-Create a new project called "My Existing App" to track work on my current application
-```
-
-**Import existing work as tasks**:
-```
-Create tasks for the following work items:
-- Fix authentication timeout bug
-- Add user profile editing
-- Implement API rate limiting
-- Update documentation
-```
-
-**Organize by features**:
-```
-Create features to organize these tasks:
-- User Management feature
-- API Infrastructure feature
-- Documentation feature
-```
-
-**Link tasks to features**:
-```
-Move the user-related tasks to the User Management feature
-```
-
-Your AI agent will organize your work, apply appropriate templates, and help you track progress on existing initiatives.
-
----
-
 ## PRD-Driven Development Workflow
 
-**Product Requirements Documents (PRDs) provide the most effective workflow** for AI-assisted development. This approach gives Claude comprehensive context for intelligent breakdown and planning.
+**Product Requirements Documents (PRDs) provide the most effective workflow** for AI-assisted development. This approach gives your AI agent comprehensive context for intelligent breakdown and planning.
 
 ### Why PRD-Driven Development Works Best
 
@@ -396,7 +609,7 @@ How do we know it's complete?
 
 ### Learn the System
 
-1. **[AI Guidelines](ai-guidelines)** - How Claude uses Task Orchestrator autonomously
+1. **[AI Guidelines](ai-guidelines)** - How AI agents use Task Orchestrator autonomously
 2. **[Templates Guide](templates)** - 9 built-in templates for structured documentation
 3. **[Workflow Prompts](workflow-prompts)** - 6 workflow automations for complex scenarios
 
@@ -418,8 +631,8 @@ How do we know it's complete?
 
 ## Troubleshooting Quick Tips
 
-**Claude can't find the tools?**
-- Restart Claude Desktop after configuration changes
+**AI can't find the tools?**
+- Restart your AI agent after configuration changes
 - Verify Docker Desktop is running
 - Check JSON syntax with [jsonlint.com](https://jsonlint.com/)
 
@@ -431,4 +644,4 @@ How do we know it's complete?
 
 ---
 
-**Ready to dive deeper?** Start with [AI Guidelines](ai-guidelines) to understand how Claude works with Task Orchestrator, or explore [Templates](templates) for structured documentation patterns.
+**Ready to dive deeper?** Start with [AI Guidelines](ai-guidelines) to understand how AI agents work with Task Orchestrator, or explore [Templates](templates) for structured documentation patterns.

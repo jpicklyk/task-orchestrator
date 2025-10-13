@@ -29,7 +29,7 @@ AI coding assistants like Claude, Cursor, and Windsurf lose context between sess
 - **🔄 Workflow Automation**: 6 comprehensive workflow prompts for common scenarios
 - **🔗 Rich Relationships**: Task dependencies with cycle detection
 - **🔒 Concurrent Access Protection**: Built-in sub-agent collision prevention
-- **🚀 38 MCP Tools**: Complete task orchestration API
+- **🚀 Comprehensive MCP Tools**: Complete task orchestration API
 
 ---
 
@@ -294,13 +294,13 @@ We welcome contributions! Task Orchestrator is built with:
 3. Make your changes with tests
 4. Submit a pull request
 
-See [contributing guidelines](CONTRIBUTING.md) for detailed development setup and guidelines.
+See [contributing guidelines](docs/developer-guides/index.md#contributing) for detailed development setup and guidelines.
 
 ---
 
 ## Technical Highlights
 
-- **38 MCP Tools** - Complete task orchestration API
+- **Comprehensive MCP Tools** - Complete task orchestration API
 - **Token Optimized** - 70-95% token savings with bulk operations
 - **Template System** - 9 built-in workflow templates with in-memory caching
 - **Concurrent Safe** - Built-in collision prevention for multi-agent workflows

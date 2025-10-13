@@ -39,7 +39,7 @@ The MCP Task Orchestrator follows **Clean Architecture** principles with clear s
 │           Application Layer (Business Logic)        │
 │  ┌──────────────┐  ┌──────────────────────────┐   │
 │  │ ToolRegistry │  │   Tool Implementations   │   │
-│  │              │  │   (37 MCP Tools)         │   │
+│  │              │  │   (MCP Tools)            │   │
 │  └──────────────┘  └──────────────────────────┘   │
 │  ┌──────────────┐  ┌──────────────────────────┐   │
 │  │  Services    │  │  TemplateInitializer     │   │
@@ -135,18 +135,18 @@ The MCP Task Orchestrator follows **Clean Architecture** principles with clear s
 - `ToolCategory.kt` - Tool categorization
 - `ToolValidationException.kt`, `ToolExecutionException.kt` - Error handling
 
-**Tool Categories** (37 total tools):
-- `task/` - 6 task management tools
+**Tool Categories**:
+- `task/` - Task management tools
   - CreateTaskTool, UpdateTaskTool, GetTaskTool, DeleteTaskTool, SearchTasksTool, GetOverviewTool
-- `feature/` - 5 feature management tools
+- `feature/` - Feature management tools
   - CreateFeatureTool, UpdateFeatureTool, GetFeatureTool, DeleteFeatureTool, SearchFeaturesTool
-- `project/` - 5 project management tools
+- `project/` - Project management tools
   - CreateProjectTool, GetProjectTool, UpdateProjectTool, DeleteProjectTool, SearchProjectsTool
-- `template/` - 9 template management tools
+- `template/` - Template management tools
   - CreateTemplateTool, GetTemplateTool, ListTemplatesTool, ApplyTemplateTool, AddTemplateSectionTool, UpdateTemplateMetadataTool, DeleteTemplateTool, EnableTemplateTool, DisableTemplateTool
-- `section/` - 9 section management tools
+- `section/` - Section management tools
   - AddSectionTool, GetSectionsTool, UpdateSectionTool, DeleteSectionTool, BulkCreateSectionsTool, BulkUpdateSectionsTool, BulkDeleteSectionsTool, UpdateSectionTextTool, UpdateSectionMetadataTool, ReorderSectionsTool
-- `dependency/` - 3 dependency management tools
+- `dependency/` - Dependency management tools
   - CreateDependencyTool, GetTaskDependenciesTool, DeleteDependencyTool
 
 #### Services (`application/service/`)
@@ -1214,10 +1214,8 @@ fun configureWorkflowPrompts(server: Server) {
 ## Additional Resources
 
 ### Developer Documentation
-- [Contributing Guide](../../CONTRIBUTING.md) - Contribution guidelines and pull request process
+- [Contributing Guide](index.md#contributing) - Contribution guidelines and pull request process
 - [Database Migrations](database-migrations.md) - Schema management and migration patterns
-- [Testing Guide](testing.md) *(Coming Soon)* - Testing strategies and patterns
-- [Local Development Setup](local-development.md) *(Coming Soon)* - Development environment setup
 
 ### User Documentation
 - [Quick Start](../quick-start.md) - Getting started guide
