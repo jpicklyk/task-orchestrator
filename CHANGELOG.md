@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0-beta-01]
 
 ### Added
 - **Bulk Task Updates** - Efficient multi-task update operation
@@ -13,54 +13,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 70-95% token savings vs individual update_task calls
   - Supports partial updates (each task updates only specified fields)
   - Atomic operation with detailed success/failure reporting
-  - Example: 10-task update saves 11,850 characters (95% reduction)
-  - Comprehensive test suite with 23 tests covering validation, happy paths, errors, and performance
 - **Template Caching** - In-memory caching for template operations
-  - CachedTemplateRepository decorator wraps SQLiteTemplateRepository
   - Caches individual templates, template lists, and template sections
-  - Automatic cache invalidation on modifications (create, update, delete, enable/disable)
+  - Automatic cache invalidation on modifications
   - Significant performance improvement for `list_templates` and template application
-  - Thread-safe using ConcurrentHashMap
-  - No configuration needed - enabled by default
+  - Enabled by default with thread-safe implementation
 - **Selective Section Loading** - Token optimization for AI agents
-  - `includeContent` parameter for `get_sections` (default: true) - Browse section metadata without content (85-99% token savings)
-  - `sectionIds` parameter for `get_sections` - Fetch specific sections by ID for selective loading
+  - `includeContent` parameter for `get_sections` - Browse section metadata without content (85-99% token savings)
+  - `sectionIds` parameter for `get_sections` - Fetch specific sections by ID
   - Enables two-step workflow: browse metadata first, then fetch specific content
-  - Backward compatible with default behavior
-- **Database Performance Optimization** - V4 migration adds 10 strategic indexes
-  - Dependency directional lookups (fromTaskId, toTaskId indexes)
-  - Search vector indexes for full-text search optimization
-  - Composite indexes for common filter patterns (status+priority, featureId+status, projectId+status, priority+createdAt)
+- **Database Performance Optimization** - Strategic indexes for improved query performance
+  - Dependency directional lookups and search optimization
+  - Composite indexes for common filter patterns
   - 2-10x performance improvement for concurrent multi-agent access
-- Markdown transformation tools for exporting entities to markdown format with YAML frontmatter
-  - `task_to_markdown` - Transform tasks to markdown documents
-  - `feature_to_markdown` - Transform features to markdown documents
-  - `project_to_markdown` - Transform projects to markdown documents
-- Markdown resource provider with usage guide for markdown transformation capabilities
-- Clear separation between inspection tools (get_*) and transformation tools (*_to_markdown)
+- **Optimistic Locking** - Multi-agent concurrency protection
+  - Prevents concurrent modifications and race conditions
+  - Built-in collision detection for sub-agent workflows
+- **MCP Resources Infrastructure** - Comprehensive AI guidance system
+  - Dynamic resource loading for AI initialization
+  - Template strategy, task management patterns, and workflow integration resources
+  - Enables autonomous AI pattern recognition without explicit commands
+- **Memory-Based Workflow Customization** - AI memory integration
+  - Global and project-specific workflow preferences
+  - Branch naming variable system ({task-id-short}, {description}, etc.)
+  - Work type detection (bug/feature/enhancement/hotfix)
+  - Team-specific customization without code changes
+  - See [Workflow Prompts Documentation](docs/workflow-prompts.md) for complete details
+- Markdown transformation tools for exporting entities
+  - `task_to_markdown`, `feature_to_markdown`, `project_to_markdown`
+  - YAML frontmatter with metadata
 
 ### Changed
+- **BREAKING: Workflow rename** - `implement_feature_workflow` renamed to `implementation_workflow`
+  - Consolidated bug handling into unified implementation workflow
+  - Removed separate `bug_triage_workflow` (functionality merged)
+  - Enhanced with bug-specific guidance and mandatory regression testing
+- **AI-Agnostic Workflow Prompts** - Made all workflows work with any MCP-compatible AI
+  - Removed Claude-specific references
+  - Universal workflow patterns for Claude Desktop, Claude Code, Cursor, Windsurf, etc.
+- **Template Simplification** - Simplified all 9 built-in templates
+  - Reduced complexity while maintaining functionality
+  - Improved usability and clarity
 - Removed `includeMarkdownView` parameter from get_task, get_feature, and get_project tools
-- Updated API reference documentation to reflect tool additions
-- Expanded tool categories: Added tools to Task Management, Feature Management, and Project Management
+- Optimized search results by removing summary field for better performance
 
-### Performance
-- Bulk task updates: 70-95% token reduction vs individual update_task calls
-  - 10 tasks: 95% savings (11,850 characters saved)
-  - 20 tasks: 95% savings (23,700 characters saved)
-  - Single database transaction vs multiple round-trips
-- V4 migration: Dependency lookups 5-10x faster with directional indexes
-- V4 migration: Search operations 2-5x faster with search vector indexes
-- V4 migration: Filtered queries 2-4x faster with composite indexes
-- Selective section loading: 85-99% token reduction when browsing section structure
+### Fixed
+- Upgraded Docker base image to Amazon Corretto 25 (addresses high severity CVEs)
 
-### Technical Details
-- Markdown transformation uses existing MarkdownRenderer from domain layer
-- Dedicated tools avoid content duplication in responses
-- Better use case clarity for AI agents: JSON for inspection, markdown for export/rendering
-- Selective section loading implemented at tool layer (no repository changes required)
-- Content field excluded from response when includeContent=false
-- Section filtering applied before content exclusion for efficiency
+### Performance Improvements
+- Bulk task updates: 70-95% token reduction vs individual calls
+- Database indexes: 2-10x faster queries for concurrent access
+- Selective section loading: 85-99% token reduction when browsing structure
+- Optimized update operation responses for reduced bandwidth
 
 ## [1.1.0-alpha-01]
 
