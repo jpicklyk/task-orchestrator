@@ -1108,7 +1108,121 @@ After:
 4. **Fetch all content** only when comprehensive review is needed
 5. **Combine with sectionIds** for maximum efficiency
 
-### Bulk Operations for Multi-Entity Updates
+---
+
+## Simple Status Updates
+
+### Use `set_status` for Status-Only Changes
+
+**Problem**: Using `update_task`, `update_feature`, or `update_project` for simple status updates wastes tokens with unnecessary parameter fields.
+
+**Solution**: Use `set_status` for all status-only updates - simpler, more efficient, and works universally across all entity types.
+
+### When to Use `set_status`
+
+✅ **Use `set_status` when**:
+- Only changing status (no other fields)
+- User says "mark as completed", "set to in-progress", etc.
+- Workflow transitions where only status changes
+- Quick status updates during work
+
+❌ **Don't use `set_status` when**:
+- Updating multiple fields simultaneously (status + priority + complexity)
+- Changing tags or associations
+- Updating 3+ entities (use `bulk_update_tasks` instead)
+
+### Efficiency Comparison
+
+**Status-Only Update**:
+```
+❌ INEFFICIENT: update_task with many unused parameters
+{
+  "id": "task-uuid",
+  "status": "completed",
+  "title": "",    // Unnecessary - not changing
+  "summary": "",  // Unnecessary - not changing
+  ...
+}
+
+✅ EFFICIENT: set_status with only what's needed
+{
+  "id": "task-uuid",
+  "status": "completed"
+}
+
+Token Savings: ~60% (2 params vs 10+ params)
+```
+
+### Auto-Detection Benefits
+
+`set_status` automatically detects whether the ID is a task, feature, or project:
+
+```
+AI doesn't need to know entity type:
+  set_status --id [any-entity-id] --status completed
+
+Works for:
+  - Tasks (pending, in-progress, completed, cancelled, deferred)
+  - Features (planning, in-development, completed, archived)
+  - Projects (planning, in-development, completed, archived)
+```
+
+### Smart Task Features
+
+For tasks, `set_status` provides blocking dependency warnings:
+
+```json
+Response when completing a blocking task:
+{
+  "entityType": "TASK",
+  "status": "completed",
+  "blockingTasksCount": 2,
+  "warning": "This task blocks 2 other task(s)"
+}
+```
+
+This helps AI agents understand workflow implications when marking tasks complete.
+
+### Status Format Flexibility
+
+`set_status` accepts multiple status formats (auto-normalized):
+- `in-progress`, `in_progress`, `inprogress` → all accepted
+- `in-development`, `in_development`, `indevelopment` → all accepted
+- Case-insensitive: `COMPLETED`, `completed`, `Completed` → all work
+
+### AI Decision Tree
+
+```
+User requests status update?
+  ├─ Only status changing?
+  │  ├─ Single entity? → Use set_status
+  │  └─ 3+ entities? → Use bulk_update_tasks
+  └─ Multiple fields changing? → Use update_task/update_feature/update_project
+```
+
+### Example AI Patterns
+
+**Simple Status Update**:
+```
+User: "Mark task X as done"
+AI: set_status --id X --status completed
+```
+
+**Multi-Field Update**:
+```
+User: "Update task X to high priority and mark as in-progress"
+AI: update_task --id X --priority high --status in-progress
+```
+
+**Bulk Status Update**:
+```
+User: "Mark all these tasks as completed"
+AI: bulk_update_tasks (if 3+ tasks)
+```
+
+---
+
+## Bulk Operations for Multi-Entity Updates
 
 **Problem**: Updating multiple tasks individually wastes 90-95% tokens through repeated tool calls and responses.
 
