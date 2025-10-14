@@ -47,7 +47,9 @@ AI chooses tools based on:
 ```
 "Show me my tasks" → get_overview or search_tasks
 "Create a task for implementing login" → list_templates + create_task
-"Update this task to in-progress" → update_task
+"Mark this task as completed" → set_status
+"Update this task to in-progress" → set_status
+"Change feature status to planning" → set_status
 "What's blocking task X?" → get_task_dependencies
 "Apply testing template" → apply_template
 "Create a feature with templates" → list_templates + create_feature
@@ -134,7 +136,7 @@ AI chooses tools based on:
 
 **Tool Sequence**:
 1. `get_sections` - Review all task sections for completion validation
-2. `update_task` - Set status to completed
+2. `set_status` - Set status to completed (auto-detects entity type, warns if blocking others)
 3. `get_task_dependencies` (optional) - Check what's unblocked
 
 **AI Trigger**: "Mark task as complete", "I finished the login implementation"
@@ -177,6 +179,7 @@ AI chooses tools based on:
 
 **Core Workflow**:
 - `create_task` - Create tasks with templates
+- `set_status` - Simple, unified status updates for tasks, features, and projects ⭐ **Preferred for status-only changes**
 - `update_task` - Status, priority, complexity updates
 - `bulk_update_tasks` - Update multiple tasks efficiently (70-95% token savings)
 - `get_task` - Fetch task details with progressive loading
@@ -187,7 +190,9 @@ AI chooses tools based on:
 
 **When AI Uses**: Most frequently - tasks are primary work units
 
-**Key Feature**: Progressive loading (`includeSections`, `includeDependencies`, `includeFeature`)
+**Key Features**:
+- Progressive loading (`includeSections`, `includeDependencies`, `includeFeature`)
+- `set_status` for simple status updates - auto-detects entity type, provides dependency warnings
 
 ---
 
@@ -363,7 +368,7 @@ AI Executes:
 1. search_tasks --query "login endpoint" (find the task)
 2. get_sections --entityType TASK --entityId [id] --includeContent false (browse section structure)
 3. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids] (fetch specific sections)
-4. update_task --id [id] --status completed
+4. set_status --id [id] --status completed (simple status-only update)
 5. get_task_dependencies --taskId [id] (check what's now unblocked)
 ```
 
@@ -466,6 +471,87 @@ Tools with `summaryView` parameter:
 - `get_project`
 
 **Use When**: Need overview without full content (token optimization)
+
+---
+
+### Simple Status Updates with `set_status`
+
+**Purpose**: Unified, simple status updates across all entity types (tasks, features, projects)
+
+**Why Use `set_status` Instead of `update_task`/`update_feature`/`update_project`**:
+- ✅ **Simpler**: Only 2 parameters (id + status) vs many optional fields
+- ✅ **More efficient**: Saves tokens - no need to specify entity type
+- ✅ **Auto-detection**: Automatically identifies if ID is a task, feature, or project
+- ✅ **Smart warnings**: For tasks, warns when completing tasks that block others
+- ✅ **Universal**: Works for all entity types with one tool
+
+**When AI Uses**:
+- Any status-only update ("mark as completed", "set to in-progress")
+- Workflow transitions where only status changes
+- Quick status changes without metadata updates
+
+**Supported Status Values by Entity Type**:
+
+**Tasks**: `pending`, `in-progress`, `completed`, `cancelled`, `deferred`
+**Features**: `planning`, `in-development`, `completed`, `archived`
+**Projects**: `planning`, `in-development`, `completed`, `archived`
+
+**Format Flexibility**: Accepts `in-progress`, `in_progress`, or `inprogress` (auto-normalized)
+
+**Examples**:
+
+**Update Task Status**:
+```json
+{
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "status": "completed"
+}
+```
+Response includes entity type and blocking task warning if applicable:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "640522b7-810e-49a2-865c-3725f5d39608",
+    "entityType": "TASK",
+    "status": "completed",
+    "modifiedAt": "2025-10-14T18:30:00Z",
+    "blockingTasksCount": 2,
+    "warning": "This task blocks 2 other task(s)"
+  }
+}
+```
+
+**Update Feature Status**:
+```json
+{
+  "id": "6b787bca-2ca2-461c-90f4-25adf53e0aa0",
+  "status": "in-development"
+}
+```
+
+**Update Project Status**:
+```json
+{
+  "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+  "status": "completed"
+}
+```
+
+**Use `update_task`/`update_feature`/`update_project` When**:
+- Updating multiple fields simultaneously (status + priority + complexity)
+- Changing tags or associations
+- Updating title or summary
+- For efficiency, updating 3+ entities use `bulk_update_tasks`
+
+**AI Pattern**:
+```
+User: "Mark task X as done"
+AI: Uses set_status (simple, 2 params)
+
+User: "Update task X to high priority and mark as in-progress"
+AI: Uses update_task (multiple fields changing)
+```
 
 ---
 
