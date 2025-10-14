@@ -52,6 +52,8 @@ AI chooses tools based on:
 "Change feature status to planning" → set_status
 "What tags are we using?" → list_tags
 "Show me bug-related tasks" → list_tags + search_tasks
+"What's blocked?" → get_blocked_tasks
+"Why is nothing moving forward?" → get_blocked_tasks
 "What's blocking task X?" → get_task_dependencies
 "Apply testing template" → apply_template
 "Create a feature with templates" → list_templates + create_feature
@@ -187,6 +189,7 @@ AI chooses tools based on:
 - `get_task` - Fetch task details with progressive loading
 - `search_tasks` - Filter and find tasks
 - `list_tags` - Discover all tags with usage counts ⭐ **Use before searching by tag**
+- `get_blocked_tasks` - Identify blocked tasks for workflow optimization ⭐ **Use for bottleneck analysis**
 - `get_overview` - Hierarchical project view
 - `delete_task` - Remove tasks with cleanup
 - `task_to_markdown` - Transform task to markdown format
@@ -656,6 +659,119 @@ AI Workflow:
 - No filter (default): All entity types (PROJECT, FEATURE, TASK, TEMPLATE)
 - `entityTypes: ["TASK"]` - Only task tags
 - `entityTypes: ["TASK", "FEATURE"]` - Task and feature tags
+
+---
+
+### Workflow Management with `get_blocked_tasks`
+
+**Purpose**: Identify tasks currently blocked by incomplete dependencies for workflow optimization and bottleneck analysis
+
+**Why Use `get_blocked_tasks`**:
+- ✅ **Bottleneck Identification**: Find what's blocking progress
+- ✅ **Sprint Planning**: Identify tasks that can't start yet
+- ✅ **Priority Setting**: Focus on unblocking critical paths
+- ✅ **Team Coordination**: Know which tasks need other teams' work
+- ✅ **Daily Standup**: Quick view of blocked work
+
+**What Makes a Task "Blocked"**:
+1. Task status is `pending` or `in-progress` (active work)
+2. Task has incoming dependencies (other tasks block it)
+3. At least one blocking task is NOT `completed` or `cancelled`
+
+**When AI Uses**:
+- User asks "what's blocked?" or "why is nothing moving?"
+- Sprint planning and work prioritization
+- Identifying workflow bottlenecks
+- Daily standup preparation
+
+**Features**:
+- Automatic blocking detection across project
+- Shows blocker task details (ID, title, status, priority)
+- Filter by project/feature for focused analysis
+- Optional full task metadata via `includeTaskDetails`
+- Efficient queries (only checks active tasks)
+
+**Examples**:
+
+**Find All Blocked Tasks**:
+```json
+{}
+```
+
+**Blocked Tasks in Specific Project**:
+```json
+{
+  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039"
+}
+```
+
+**Blocked Tasks with Full Details**:
+```json
+{
+  "includeTaskDetails": true
+}
+```
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "data": {
+    "blockedTasks": [
+      {
+        "taskId": "task-uuid-1",
+        "title": "Implement user dashboard",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 7,
+        "blockedBy": [
+          {
+            "taskId": "blocker-uuid-1",
+            "title": "Design dashboard mockups",
+            "status": "in-progress",
+            "priority": "high"
+          },
+          {
+            "taskId": "blocker-uuid-2",
+            "title": "Create API endpoints",
+            "status": "pending",
+            "priority": "medium"
+          }
+        ],
+        "blockerCount": 2
+      }
+    ],
+    "totalBlocked": 1
+  }
+}
+```
+
+**AI Usage Pattern - Bottleneck Analysis**:
+```
+User: "Why is nothing moving forward?"
+
+AI Workflow:
+1. get_blocked_tasks (identify all blocked work)
+2. Analyze which blocker tasks appear most often
+3. Suggest prioritizing those blocker tasks
+4. Recommend specific actions to unblock work
+```
+
+**AI Usage Pattern - Sprint Planning**:
+```
+User: "What can we start next sprint?"
+
+AI Workflow:
+1. get_blocked_tasks (see what's blocked)
+2. search_tasks --status pending (see what's ready)
+3. Filter for tasks with no blockers
+4. Recommend unblocked, high-priority tasks
+```
+
+**Filtering Options**:
+- `projectId`: Only show blocked tasks in specific project
+- `featureId`: Only show blocked tasks in specific feature
+- `includeTaskDetails`: Include full task metadata (default: false for efficiency)
 
 ---
 

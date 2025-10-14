@@ -291,6 +291,11 @@ AI confirms it can:
    - Workflow: read entire PRD → identify features → create project structure → create tasks with templates → establish dependencies → present complete breakdown
    - **Why it works best**: Complete context enables intelligent breakdown, proper sequencing, and optimal template application
 
+8. **Workflow Optimization Pattern**
+   - User says: "what's blocked?", "why is nothing moving?", "identify bottlenecks"
+   - Workflow: get_blocked_tasks → analyze blockers → prioritize unblocking → recommend actions
+   - **Key insights**: Shows which tasks block multiple items, identifies critical paths, reveals workflow bottlenecks
+
 **When to Reference**: Recognizing user intent, applying appropriate workflows
 
 > **Recommended Workflow**: PRD-Driven Development provides the best results for complex projects. See [Quick Start - PRD Workflow](quick-start#prd-driven-development-workflow) for detailed guidance.
@@ -1359,6 +1364,171 @@ AI: list_tags --sortBy name --sortDirection asc
 User: "What are our main focus areas?"
 AI: list_tags --sortBy count --sortDirection desc
 (Shows most used tags first = main focus areas)
+```
+
+---
+
+## Workflow Management and Blocked Tasks Patterns
+
+### Use `get_blocked_tasks` for Workflow Optimization
+
+**Problem**: Teams often lose visibility into what's blocking progress, leading to inefficient work prioritization and hidden bottlenecks.
+
+**Solution**: Use `get_blocked_tasks` to identify workflow bottlenecks and prioritize unblocking actions.
+
+### When to Use `get_blocked_tasks`
+
+✅ **Use `get_blocked_tasks` when**:
+- User asks "what's blocked?" or "why is nothing moving?"
+- Sprint planning - identify what can't start yet
+- Daily standup preparation
+- Bottleneck analysis and workflow optimization
+- Team asks what to prioritize for maximum impact
+
+❌ **Don't use `get_blocked_tasks` when**:
+- Checking specific task dependencies (use `get_task_dependencies` instead)
+- User asks about completed work
+- No dependency system in use
+
+### Bottleneck Identification Workflow
+
+**User Says**: "Why is nothing moving forward?"
+
+**AI Workflow**:
+```
+1. get_blocked_tasks (identify all blocked work)
+2. Analyze blocker patterns:
+   - Which tasks appear as blockers most often?
+   - Are there critical path bottlenecks?
+   - Which blockers are high-priority?
+3. Recommend actions:
+   - "Task X blocks 3 other tasks - prioritize completing it"
+   - "Design phase blocking development - focus on design completion"
+4. Suggest specific next steps to unblock work
+```
+
+**Why This Works**:
+- Reveals hidden dependencies blocking progress
+- Identifies high-impact unblocking actions
+- Provides data-driven prioritization
+- Shows critical path bottlenecks
+
+### Sprint Planning Pattern
+
+**User Says**: "What can we start next sprint?"
+
+**AI Workflow**:
+```
+1. get_blocked_tasks (identify what's blocked)
+2. search_tasks --status pending (get all pending tasks)
+3. Filter for unblocked tasks (pending tasks NOT in blocked list)
+4. Prioritize by priority and complexity
+5. Recommend unblocked, high-priority work for sprint
+```
+
+**Benefits**:
+- Prevents planning work that can't start
+- Focuses sprint on tasks ready for execution
+- Avoids wasted planning on blocked items
+
+### Daily Standup Support
+
+**User Says**: "What's our standup status?"
+
+**AI Workflow**:
+```
+1. get_blocked_tasks
+2. search_tasks --status in-progress
+3. Present:
+   - In-progress tasks
+   - Blocked tasks with blocker details
+   - Recommended unblocking actions
+```
+
+### Project/Feature Filtering
+
+**Scope to Specific Areas**:
+```
+Project-specific blocked tasks:
+get_blocked_tasks --projectId "uuid"
+
+Feature-specific blocked tasks:
+get_blocked_tasks --featureId "uuid"
+
+All blocked tasks (default):
+get_blocked_tasks
+```
+
+### Understanding Blocked Task Results
+
+**What Makes a Task "Blocked"**:
+1. Task status is `pending` or `in-progress` (active)
+2. Has incoming dependencies (other tasks block it)
+3. At least one blocker is NOT `completed` or `cancelled`
+
+**Example Response Interpretation**:
+```json
+{
+  "taskId": "task-1",
+  "title": "Implement user dashboard",
+  "status": "pending",
+  "blockedBy": [
+    {
+      "taskId": "blocker-1",
+      "title": "Design dashboard mockups",
+      "status": "in-progress"
+    }
+  ],
+  "blockerCount": 1
+}
+```
+
+**AI Insights**:
+- Task can't start until design is complete
+- Blocker is in-progress (work is happening)
+- Recommend checking design progress
+- Can estimate when task will be unblocked
+
+### AI Decision Tree
+
+```
+User asks about project progress or blockers?
+  ├─ "What's blocked?" → get_blocked_tasks
+  ├─ "Why is X not done?" → Check if X has dependencies
+  │  └─ get_task_dependencies for specific task
+  ├─ "What should we work on?"
+  │  ├─ get_blocked_tasks (see what's blocked)
+  │  └─ Recommend unblocking high-impact tasks
+  └─ "Sprint planning" → get_blocked_tasks + filter unblocked
+```
+
+### Common Patterns
+
+**Bottleneck Analysis**:
+```
+User: "Find our bottlenecks"
+AI:
+1. get_blocked_tasks
+2. Count blocker occurrences
+3. Report: "Task X blocks 4 tasks - major bottleneck"
+```
+
+**Work Prioritization**:
+```
+User: "What's most important to work on?"
+AI:
+1. get_blocked_tasks
+2. Identify blockers affecting most tasks
+3. Recommend: "Complete X to unblock 3 high-priority tasks"
+```
+
+**Team Coordination**:
+```
+User: "What does team A need from team B?"
+AI:
+1. get_blocked_tasks --featureId "team-A-feature"
+2. Check blocker task owners
+3. Report cross-team dependencies
 ```
 
 ---
