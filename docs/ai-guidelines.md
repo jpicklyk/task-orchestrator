@@ -296,6 +296,11 @@ AI confirms it can:
    - Workflow: get_blocked_tasks → analyze blockers → prioritize unblocking → recommend actions
    - **Key insights**: Shows which tasks block multiple items, identifies critical paths, reveals workflow bottlenecks
 
+9. **Work Prioritization Pattern**
+   - User says: "what should I work on?", "what's next?", "show me easy tasks"
+   - Workflow: get_next_task → present recommendations → explain reasoning → let user choose
+   - **Smart ranking**: Priority-first, then complexity (quick wins prioritized)
+
 **When to Reference**: Recognizing user intent, applying appropriate workflows
 
 > **Recommended Workflow**: PRD-Driven Development provides the best results for complex projects. See [Quick Start - PRD Workflow](quick-start#prd-driven-development-workflow) for detailed guidance.
@@ -1530,6 +1535,215 @@ AI:
 2. Check blocker task owners
 3. Report cross-team dependencies
 ```
+
+---
+
+## Work Prioritization with `get_next_task`
+
+### Use `get_next_task` for Smart Task Selection
+
+**Problem**: Users often struggle to decide what to work on next, leading to suboptimal work prioritization and context switching overhead.
+
+**Solution**: Use `get_next_task` to get AI-recommended next tasks based on priority, complexity, and dependencies.
+
+### When to Use `get_next_task`
+
+✅ **Use `get_next_task` when**:
+- User asks "what should I work on?" or "what's next?"
+- Daily planning and task selection
+- Context switching after completing a task
+- Sprint planning - select high-value work
+- User wants "easy wins" or "quick tasks"
+
+❌ **Don't use `get_next_task` when**:
+- User already knows what task to work on
+- Searching for specific task by name/tag (use `search_tasks`)
+- Reviewing all tasks regardless of priority (use `get_overview`)
+
+### Daily Planning Workflow
+
+**User Says**: "What should I work on today?"
+
+**AI Workflow**:
+```
+1. get_next_task --limit 5 (get top recommendations)
+2. Present recommendations with reasoning:
+   - Task 1 (HIGH, complexity 3): "Quick win - high impact, easy to complete"
+   - Task 2 (HIGH, complexity 7): "Important but time-consuming"
+   - Task 3 (MEDIUM, complexity 2): "Medium priority quick win"
+3. Explain sorting logic (priority first, then complexity)
+4. Let user choose based on available time and energy
+```
+
+**Why This Works**:
+- Automatically excludes blocked tasks
+- Balances impact (priority) with effort (complexity)
+- Quick wins come first for momentum
+- User makes informed choice with AI guidance
+
+### Context Switching Workflow
+
+**User Says**: "I just finished task X, what's next?"
+
+**AI Workflow**:
+```
+1. update_task --id X --status completed (mark done)
+2. get_next_task --limit 3 (get fresh recommendations)
+3. Present options with context:
+   - "Here are your top 3 unblocked tasks"
+   - Explain priority and complexity
+4. Recommend based on momentum:
+   - If user finished complex task → suggest easier task
+   - If user finished easy task → can tackle harder task
+```
+
+**Benefits**:
+- Seamless transition between tasks
+- Maintains momentum
+- Reduces decision fatigue
+- Optimizes workflow
+
+### Quick Wins Pattern
+
+**User Says**: "Show me easy tasks I can knock out quickly"
+
+**AI Workflow**:
+```
+1. get_next_task --limit 10
+2. Filter for complexity ≤ 3
+3. Present quick win opportunities
+4. Explain value:
+   - "These are high-priority tasks you can complete quickly"
+   - "Great for short time windows or building momentum"
+5. Suggest batching similar quick tasks
+```
+
+**Use Cases**:
+- End of day - limited time
+- Between meetings
+- Building momentum after break
+- Clearing small tasks before big work
+
+### Scope-Specific Recommendations
+
+**Project-Specific**:
+```
+User: "What should I work on for the mobile app?"
+
+AI:
+1. get_next_task --projectId "mobile-app-uuid" --limit 5
+2. Scoped recommendations for specific project
+3. Present with project context
+```
+
+**Feature-Specific**:
+```
+User: "What's next for the authentication feature?"
+
+AI:
+1. get_next_task --featureId "auth-uuid" --limit 3
+2. Feature-scoped recommendations
+3. Explain feature completion progress
+```
+
+### Understanding the Sorting Logic
+
+**Priority → Complexity Ranking**:
+```
+The tool sorts by:
+1. Priority (HIGH → MEDIUM → LOW)
+2. Complexity (1 → 10) within same priority
+
+Example:
+- Task A: HIGH, complexity 3 → Rank 1 (quick win!)
+- Task B: HIGH, complexity 8 → Rank 2 (important but harder)
+- Task C: MEDIUM, complexity 2 → Rank 3 (medium priority quick win)
+- Task D: LOW, complexity 1 → Rank 4 (low priority)
+```
+
+**AI Explanation**:
+```
+When presenting recommendations, explain why:
+- "This is a high-priority, low-complexity task - a quick win"
+- "This task is also high priority but more complex - tackle after quick wins"
+- "This medium-priority task is easy - good for momentum building"
+```
+
+### AI Decision Tree
+
+```
+User asks about what to work on?
+  ├─ "What should I work on?" → get_next_task
+  ├─ "What's next?" → get_next_task
+  ├─ "Show me easy tasks" → get_next_task --limit 10 (filter complexity ≤ 3)
+  ├─ "What's most important?" → get_next_task --limit 1 (top priority)
+  ├─ "Just finished task X"
+  │  ├─ update_task --status completed
+  │  └─ get_next_task --limit 3
+  └─ "What's ready to start?" → get_next_task (auto-excludes blocked)
+```
+
+### Response Interpretation
+
+**Recommendation Response**:
+```json
+{
+  "recommendations": [
+    {
+      "taskId": "uuid",
+      "title": "Implement login",
+      "status": "pending",
+      "priority": "high",
+      "complexity": 3
+    }
+  ],
+  "totalCandidates": 15
+}
+```
+
+**AI Insights**:
+- "15 unblocked tasks available - showing top 1"
+- "This is a high-priority task with moderate complexity"
+- "Good starting point - can complete in a few hours"
+- "14 other unblocked tasks available if you need more options"
+
+### Common Patterns
+
+**Daily Standup**:
+```
+User: "What should I focus on today?"
+AI:
+1. get_next_task --limit 5
+2. Present top 5 with reasoning
+3. Suggest starting with quick wins
+```
+
+**Sprint Planning**:
+```
+User: "Help me plan this sprint"
+AI:
+1. get_next_task --limit 20
+2. Group by priority and complexity
+3. Recommend balanced sprint:
+   - Some quick wins for momentum
+   - Some complex tasks for progress
+   - Mix of high and medium priority
+```
+
+**End of Day**:
+```
+User: "I have 30 minutes left, what can I do?"
+AI:
+1. get_next_task --limit 10
+2. Filter complexity ≤ 2
+3. "Here are quick tasks you can finish before end of day"
+```
+
+**Parameters Reference**:
+- `limit`: Number of recommendations (default: 1, max: 20)
+- `projectId`: Scope to specific project
+- `featureId`: Scope to specific feature
+- `includeDetails`: Get full task info (summary, tags, etc.)
 
 ---
 

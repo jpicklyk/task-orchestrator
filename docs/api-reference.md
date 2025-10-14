@@ -54,6 +54,8 @@ AI chooses tools based on:
 "Show me bug-related tasks" → list_tags + search_tasks
 "What's blocked?" → get_blocked_tasks
 "Why is nothing moving forward?" → get_blocked_tasks
+"What should I work on next?" → get_next_task
+"Show me easy high-priority tasks" → get_next_task
 "What's blocking task X?" → get_task_dependencies
 "Apply testing template" → apply_template
 "Create a feature with templates" → list_templates + create_feature
@@ -190,6 +192,7 @@ AI chooses tools based on:
 - `search_tasks` - Filter and find tasks
 - `list_tags` - Discover all tags with usage counts ⭐ **Use before searching by tag**
 - `get_blocked_tasks` - Identify blocked tasks for workflow optimization ⭐ **Use for bottleneck analysis**
+- `get_next_task` - Recommend next task based on priority and dependencies ⭐ **Use for work prioritization**
 - `get_overview` - Hierarchical project view
 - `delete_task` - Remove tasks with cleanup
 - `task_to_markdown` - Transform task to markdown format
@@ -772,6 +775,169 @@ AI Workflow:
 - `projectId`: Only show blocked tasks in specific project
 - `featureId`: Only show blocked tasks in specific feature
 - `includeTaskDetails`: Include full task metadata (default: false for efficiency)
+
+---
+
+### Work Prioritization with `get_next_task`
+
+**Purpose**: Recommend the next task to work on based on priority, complexity, and dependencies for effective work prioritization
+
+**Why Use `get_next_task`**:
+- ✅ **Smart Prioritization**: Automatically ranks by priority then complexity
+- ✅ **Quick Wins**: Lower complexity tasks recommended first within same priority
+- ✅ **Automatic Filtering**: Excludes blocked tasks without manual checking
+- ✅ **Daily Planning**: "What should I work on today?"
+- ✅ **Context Switching**: "I just finished X, what's next?"
+
+**How It Works**:
+1. Gets all pending/in-progress tasks
+2. Filters out blocked tasks (incomplete dependencies)
+3. Sorts by priority (HIGH → MEDIUM → LOW)
+4. Within same priority, sorts by complexity (lower first for quick wins)
+5. Returns top N recommendations
+
+**When AI Uses**:
+- User asks "what should I work on?" or "what's next?"
+- Daily planning and task selection
+- Sprint planning and work allocation
+- Context switching after completing a task
+
+**Features**:
+- Smart filtering: excludes blocked tasks automatically
+- Priority-based ranking: high priority tasks first
+- Complexity-aware: balances impact with effort (quick wins)
+- Scope control: filter by project/feature
+- Configurable results: control number of recommendations (1-20)
+
+**Examples**:
+
+**Get Top Task Recommendation** (default):
+```json
+{}
+```
+
+**Get Top 5 Recommendations**:
+```json
+{
+  "limit": 5
+}
+```
+
+**Recommendations for Specific Project**:
+```json
+{
+  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+  "limit": 3
+}
+```
+
+**Recommendations with Full Details**:
+```json
+{
+  "limit": 3,
+  "includeDetails": true
+}
+```
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "data": {
+    "recommendations": [
+      {
+        "taskId": "task-uuid-1",
+        "title": "Implement user login",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 3
+      },
+      {
+        "taskId": "task-uuid-2",
+        "title": "Add API authentication",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 7
+      },
+      {
+        "taskId": "task-uuid-3",
+        "title": "Update documentation",
+        "status": "pending",
+        "priority": "medium",
+        "complexity": 2
+      }
+    ],
+    "totalCandidates": 15
+  },
+  "message": "Found 3 recommendation(s) from 15 unblocked task(s)"
+}
+```
+
+**AI Usage Pattern - Daily Planning**:
+```
+User: "What should I work on today?"
+
+AI Workflow:
+1. get_next_task --limit 5
+2. Present top recommendations
+3. Explain priority and complexity reasoning:
+   - "High priority, low complexity: quick win"
+   - "High priority, higher complexity: important but time-consuming"
+4. Let user choose based on available time
+```
+
+**AI Usage Pattern - Context Switching**:
+```
+User: "I just finished task X, what's next?"
+
+AI Workflow:
+1. update_task --id X --status completed
+2. get_next_task --limit 3
+3. Recommend based on:
+   - Priority (high first)
+   - Complexity (easier first for momentum)
+4. Present options with context
+```
+
+**AI Usage Pattern - Quick Wins**:
+```
+User: "Show me easy tasks I can knock out quickly"
+
+AI Workflow:
+1. get_next_task --limit 10
+2. Filter results for complexity ≤ 3
+3. Present quick win opportunities
+4. Explain value: "These high-priority tasks are easy to complete"
+```
+
+**Sorting Logic**:
+
+Tasks are ranked by:
+1. **Priority** (primary): HIGH → MEDIUM → LOW
+2. **Complexity** (secondary): Lower complexity first (1 → 10)
+
+**Rationale**: High-priority, low-complexity tasks provide maximum impact with minimum effort (quick wins). Higher complexity high-priority tasks come next.
+
+**Example Sorting**:
+```
+Input tasks (mixed):
+- Task A: HIGH priority, complexity 8
+- Task B: MEDIUM priority, complexity 2
+- Task C: HIGH priority, complexity 3
+- Task D: LOW priority, complexity 1
+
+Output order:
+1. Task C (HIGH, complexity 3) - Quick win!
+2. Task A (HIGH, complexity 8) - Important but harder
+3. Task B (MEDIUM, complexity 2) - Medium priority quick win
+4. Task D (LOW, complexity 1) - Low priority
+```
+
+**Parameters**:
+- `projectId`: Filter to specific project
+- `featureId`: Filter to specific feature
+- `limit`: Number of recommendations (default: 1, max: 20)
+- `includeDetails`: Include summary, tags, featureId (default: false)
 
 ---
 
