@@ -50,6 +50,8 @@ AI chooses tools based on:
 "Mark this task as completed" → set_status
 "Update this task to in-progress" → set_status
 "Change feature status to planning" → set_status
+"What tags are we using?" → list_tags
+"Show me bug-related tasks" → list_tags + search_tasks
 "What's blocking task X?" → get_task_dependencies
 "Apply testing template" → apply_template
 "Create a feature with templates" → list_templates + create_feature
@@ -184,6 +186,7 @@ AI chooses tools based on:
 - `bulk_update_tasks` - Update multiple tasks efficiently (70-95% token savings)
 - `get_task` - Fetch task details with progressive loading
 - `search_tasks` - Filter and find tasks
+- `list_tags` - Discover all tags with usage counts ⭐ **Use before searching by tag**
 - `get_overview` - Hierarchical project view
 - `delete_task` - Remove tasks with cleanup
 - `task_to_markdown` - Transform task to markdown format
@@ -193,6 +196,7 @@ AI chooses tools based on:
 **Key Features**:
 - Progressive loading (`includeSections`, `includeDependencies`, `includeFeature`)
 - `set_status` for simple status updates - auto-detects entity type, provides dependency warnings
+- `list_tags` for tag discovery - shows usage across all entity types
 
 ---
 
@@ -552,6 +556,106 @@ AI: Uses set_status (simple, 2 params)
 User: "Update task X to high priority and mark as in-progress"
 AI: Uses update_task (multiple fields changing)
 ```
+
+---
+
+### Tag Discovery with `list_tags`
+
+**Purpose**: Discover all unique tags across all entities with usage counts and entity type breakdown
+
+**Why Use `list_tags`**:
+- ✅ **Tag Discovery**: Find all available tags before searching
+- ✅ **Usage Analytics**: Understand tag popularity and patterns
+- ✅ **Tag Cleanup**: Identify rarely used or duplicate tags
+- ✅ **Standardization**: Detect tag variations (e.g., "bug" vs "bugs")
+- ✅ **Entity Breakdown**: See which entity types use each tag
+
+**When AI Uses**:
+- Before searching by tag (discover available tags)
+- User asks "what tags are we using?"
+- Tag cleanup and standardization tasks
+- Understanding project categorization patterns
+
+**Features**:
+- Lists tags from all entity types (tasks, features, projects, templates)
+- Shows usage count per entity type
+- Supports filtering by specific entity types
+- Flexible sorting (by usage count or alphabetically)
+
+**Examples**:
+
+**Discover All Tags** (default - sorted by usage, most popular first):
+```json
+{}
+```
+
+**Find Task-Specific Tags**:
+```json
+{
+  "entityTypes": ["TASK"],
+  "sortBy": "count",
+  "sortDirection": "desc"
+}
+```
+
+**Alphabetical Tag List**:
+```json
+{
+  "sortBy": "name",
+  "sortDirection": "asc"
+}
+```
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "data": {
+    "tags": [
+      {
+        "tag": "bug",
+        "totalCount": 15,
+        "byEntityType": {
+          "TASK": 12,
+          "FEATURE": 3
+        }
+      },
+      {
+        "tag": "feature",
+        "totalCount": 28,
+        "byEntityType": {
+          "TASK": 18,
+          "FEATURE": 8,
+          "TEMPLATE": 2
+        }
+      }
+    ],
+    "totalTags": 2
+  }
+}
+```
+
+**AI Usage Pattern**:
+```
+User: "Show me all tasks related to bugs"
+
+AI Workflow:
+1. list_tags (discover available tags)
+2. Identify relevant tags: "bug", "bugfix", "debugging"
+3. search_tasks --tag "bug" (or most appropriate tag)
+4. Present results to user
+```
+
+**Sorting Options**:
+- `sortBy: "count"` (default) - Most used tags first
+- `sortBy: "name"` - Alphabetical order
+- `sortDirection: "desc"` (default) - Descending
+- `sortDirection: "asc"` - Ascending
+
+**Entity Type Filtering**:
+- No filter (default): All entity types (PROJECT, FEATURE, TASK, TEMPLATE)
+- `entityTypes: ["TASK"]` - Only task tags
+- `entityTypes: ["TASK", "FEATURE"]` - Task and feature tags
 
 ---
 

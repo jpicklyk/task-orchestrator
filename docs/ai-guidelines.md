@@ -1222,6 +1222,147 @@ AI: bulk_update_tasks (if 3+ tasks)
 
 ---
 
+## Tag Discovery and Search Patterns
+
+### Use `list_tags` Before Tag-Based Searches
+
+**Problem**: Searching by tags without knowing what tags exist leads to failed searches and poor user experience.
+
+**Solution**: Use `list_tags` to discover available tags before performing tag-based searches.
+
+### When to Use `list_tags`
+
+✅ **Use `list_tags` when**:
+- User asks about tags ("what tags are we using?")
+- Before searching by tag (discover available options)
+- User mentions a concept but doesn't specify exact tag
+- Tag cleanup or standardization tasks
+- Understanding project categorization
+
+❌ **Don't use `list_tags` when**:
+- User provides exact tag to search for
+- Tag is clearly standard (implementation, bug, feature, etc.)
+- Already used list_tags in recent conversation
+
+### Tag Discovery Workflow
+
+**User Says**: "Show me all bug-related tasks"
+
+**AI Workflow**:
+```
+1. list_tags (discover what tags exist)
+2. Analyze results for bug-related tags:
+   - "bug" (15 tasks)
+   - "bugfix" (8 tasks)
+   - "debugging" (3 tasks)
+3. search_tasks --tag "bug" (use most common tag)
+4. Present results to user
+```
+
+**Why This Works**:
+- Confirms tags actually exist before searching
+- Uses most common tag variation
+- Finds related tags user might not know about
+- Provides better results than guessing
+
+### Tag Analytics and Cleanup
+
+**User Says**: "What are our most common tags?"
+
+**AI Response**:
+```
+list_tags --sortBy count --sortDirection desc
+
+Shows:
+- "implementation" (45 uses)
+- "bug" (32 uses)
+- "feature" (28 uses)
+- etc.
+```
+
+**User Says**: "Are we using consistent tags?"
+
+**AI Workflow**:
+```
+1. list_tags --sortBy name (alphabetical for review)
+2. Identify variations:
+   - "bug", "bugs", "bugfix" (should be standardized)
+   - "test", "testing", "tests" (should be standardized)
+3. Suggest tag standardization with rename_tag (Phase 2)
+```
+
+### Entity Type Filtering
+
+**Use Case**: Understanding what tags are used for specific entity types
+
+```
+Task tags only:
+list_tags --entityTypes ["TASK"]
+
+Task and Feature tags:
+list_tags --entityTypes ["TASK", "FEATURE"]
+
+All entity types (default):
+list_tags
+```
+
+### AI Decision Tree
+
+```
+User mentions searching by topic/category?
+  ├─ Exact tag provided by user? → search_tasks with that tag
+  ├─ Vague topic mentioned?
+  │  ├─ Run list_tags to discover relevant tags
+  │  └─ Search with most appropriate tag found
+  └─ User asks about tags? → list_tags (possibly sorted/filtered)
+```
+
+### Response Interpretation
+
+**Tag Usage Counts Help Prioritize**:
+```json
+{
+  "tag": "urgent",
+  "totalCount": 15,
+  "byEntityType": {
+    "TASK": 12,
+    "FEATURE": 3
+  }
+}
+```
+
+**AI Insights**:
+- Most "urgent" tags on tasks (12) vs features (3)
+- Could suggest focusing on urgent tasks
+- Can explain distribution to user
+
+### Common Patterns
+
+**Tag-Based Search**:
+```
+User: "Show authentication tasks"
+AI:
+1. list_tags
+2. Find "authentication", "auth", "oauth" tags
+3. search_tasks --tag "authentication"
+```
+
+**Tag Review**:
+```
+User: "What tags do we have?"
+AI: list_tags --sortBy name --sortDirection asc
+(Alphabetical list for easy review)
+```
+
+**Popular Tags**:
+```
+User: "What are our main focus areas?"
+AI: list_tags --sortBy count --sortDirection desc
+(Shows most used tags first = main focus areas)
+```
+
+---
+
 ## Bulk Operations for Multi-Entity Updates
 
 **Problem**: Updating multiple tasks individually wastes 90-95% tokens through repeated tool calls and responses.
