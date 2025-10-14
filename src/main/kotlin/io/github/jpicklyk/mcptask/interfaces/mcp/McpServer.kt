@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializer
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
 import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
+import io.github.jpicklyk.mcptask.application.tools.ListTagsTool
 import io.github.jpicklyk.mcptask.application.tools.SetStatusTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
@@ -207,6 +208,7 @@ class McpServer(
             SearchTasksTool(),
             GetOverviewTool(),
             SetStatusTool(),
+            ListTagsTool(),
             TaskToMarkdownTool(),
 
             // Dependency management tools
