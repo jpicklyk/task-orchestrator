@@ -69,6 +69,9 @@ dependencies {
     // JSON serialization/deserialization
     implementation(libs.kotlinx.serialization.json)
 
+    // YAML parsing
+    implementation(libs.snakeyaml)
+
     // Testing
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)
