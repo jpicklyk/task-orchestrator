@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializer
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
+import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationService
+import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationServiceImpl
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
 import io.github.jpicklyk.mcptask.application.tools.GetBlockedTasksTool
 import io.github.jpicklyk.mcptask.application.tools.GetNextTaskTool
 import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
@@ -16,6 +19,7 @@ import io.github.jpicklyk.mcptask.application.tools.section.*
 import io.github.jpicklyk.mcptask.application.tools.tag.*
 import io.github.jpicklyk.mcptask.application.tools.task.*
 import io.github.jpicklyk.mcptask.application.tools.template.*
+import io.github.jpicklyk.mcptask.application.tools.agent.*
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
@@ -47,6 +51,8 @@ class McpServer(
     private lateinit var toolExecutionContext: ToolExecutionContext
     private val toolAdapter = McpToolAdapter()
     private lateinit var templateInitializer: TemplateInitializer
+    private lateinit var agentDirectoryManager: AgentDirectoryManager
+    private lateinit var agentRecommendationService: AgentRecommendationService
     
     /**
      * Configures and runs the MCP server.
@@ -69,6 +75,10 @@ class McpServer(
 
         // Initialize templates
         initializeTemplates()
+
+        // Initialize agent directory manager and recommendation service
+        agentDirectoryManager = AgentDirectoryManager()
+        agentRecommendationService = AgentRecommendationServiceImpl(agentDirectoryManager)
 
         // Configure the server
         val server = configureServer()
@@ -140,6 +150,14 @@ class McpServer(
 
         // Configure markdown resources
         server.configureMarkdownResources(repositoryProvider)
+
+        // Configure agent resources
+        AgentResources.configure(
+            server,
+            agentDirectoryManager,
+            agentRecommendationService,
+            repositoryProvider.taskRepository()
+        )
 
         // Note: You may see an error in the logs like:
         // "Error handling notification: notifications/initialized - java.util.NoSuchElementException: Key method is missing in the map."
@@ -261,7 +279,10 @@ class McpServer(
             UpdateTemplateMetadataTool(),
             DeleteTemplateTool(),
             EnableTemplateTool(),
-            DisableTemplateTool()
+            DisableTemplateTool(),
+
+            // Agent management tools
+            SetupAgentsTool()
         )
     }
 
