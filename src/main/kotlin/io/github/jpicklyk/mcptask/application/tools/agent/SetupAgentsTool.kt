@@ -23,19 +23,20 @@ class SetupAgentsTool : BaseToolDefinition() {
 
     override val title: String = "Setup AI Agent Configuration"
 
-    override val description: String = """Returns AI agent configuration files for the AI agent to write to the project directory.
+    override val description: String = """Initializes the AI agent configuration system for this project.
 
         ## Purpose
-        Provides file-based AI agent definitions that enable specialized AI agents
-        (Claude Code subagents, GitHub Copilot agents, etc.) to be recommended and
-        used based on task metadata.
+        Sets up file-based AI agent definitions in the .taskorchestrator/agents/ directory.
+        Enables specialized AI agents (Claude Code subagents, GitHub Copilot agents, etc.)
+        to be recommended and used based on task metadata.
 
-        ## What This Tool Returns
+        ## What This Tool Does
 
-        Returns the contents of all agent configuration files that should be created in
-        the project directory:
+        1. **Creates Directory Structure**:
+           - Creates `.taskorchestrator/` directory in project root
+           - Creates `.taskorchestrator/agents/` subdirectory
 
-        1. **Agent Definition Files** (6 files):
+        2. **Installs Default Agent Templates**:
            - backend-engineer.md - Backend/API/service development
            - frontend-developer.md - Frontend/UI development
            - database-engineer.md - Database/migration work
@@ -43,24 +44,16 @@ class SetupAgentsTool : BaseToolDefinition() {
            - planning-specialist.md - Requirements and planning
            - technical-writer.md - Documentation
 
-        2. **Agent Mapping Configuration**:
+        3. **Creates Agent Mapping Configuration**:
            - agent-mapping.yaml with tag-based agent recommendations
            - Maps task tags to appropriate agents
            - Configures section tags for efficient information access
 
-        ## Expected AI Agent Behavior
-
-        **CRITICAL**: The AI agent MUST write these files to the project directory:
-
-        1. Create `.taskorchestrator/agents/` directory if it doesn't exist
-        2. For each file in the response's `files` array:
-           - Use the `Write` tool to create the file at the specified `path`
-           - Write the provided `content` exactly as returned
-        3. Inform the user which files were created
-
         ## Idempotent Operation
-        Files are always returned with current embedded templates.
-        AI agent should check if files exist and ask user before overwriting.
+        This tool is safe to run multiple times:
+        - Skips files that already exist
+        - Won't overwrite user customizations
+        - Returns list of newly created vs existing files
 
         ## When to Use
         - First time using AI agent features
@@ -81,20 +74,20 @@ class SetupAgentsTool : BaseToolDefinition() {
         - `task-orchestrator://agents/recommend?taskId=<uuid>` - Get agent recommendation for a task
         - `task-orchestrator://agents/definition/<agent-name>` - Read agent definition file
 
-        ## File Locations (where AI agent should write)
+        ## File Locations
         - Agent definitions: `.taskorchestrator/agents/*.md`
         - Configuration: `.taskorchestrator/agent-mapping.yaml`
 
         ## Customization
-        After files are created, users can:
+        After running this tool, you can:
         - Edit agent definition files to customize behavior
         - Modify agent-mapping.yaml to change tag mappings
         - Add custom agent definitions
         - Commit files to version control for team sharing
 
         ## Error Handling
-        - RESOURCE_NOT_FOUND: Embedded resource files not found
-        - INTERNAL_ERROR: Unexpected error reading resources
+        - FILESYSTEM_ERROR: Cannot create directories or copy files
+        - INTERNAL_ERROR: Unexpected error during setup
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -120,46 +113,39 @@ class SetupAgentsTool : BaseToolDefinition() {
                 "data" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("object"),
-                        "description" to JsonPrimitive("Agent configuration files to be written by AI agent"),
+                        "description" to JsonPrimitive("Setup operation results"),
                         "properties" to JsonObject(
                             mapOf(
-                                "files" to JsonObject(
+                                "directoryCreated" to JsonObject(
                                     mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "description" to JsonPrimitive("Array of files that should be created by the AI agent"),
-                                        "items" to JsonObject(
-                                            mapOf(
-                                                "type" to JsonPrimitive("object"),
-                                                "properties" to JsonObject(
-                                                    mapOf(
-                                                        "path" to JsonObject(
-                                                            mapOf(
-                                                                "type" to JsonPrimitive("string"),
-                                                                "description" to JsonPrimitive("Relative path where file should be created (e.g., '.taskorchestrator/agents/backend-engineer.md')")
-                                                            )
-                                                        ),
-                                                        "content" to JsonObject(
-                                                            mapOf(
-                                                                "type" to JsonPrimitive("string"),
-                                                                "description" to JsonPrimitive("File content to write")
-                                                            )
-                                                        ),
-                                                        "description" to JsonObject(
-                                                            mapOf(
-                                                                "type" to JsonPrimitive("string"),
-                                                                "description" to JsonPrimitive("Description of what this file contains")
-                                                            )
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                        )
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether directory was newly created")
                                     )
                                 ),
-                                "totalFiles" to JsonObject(
+                                "agentFilesCreated" to JsonObject(
                                     mapOf(
-                                        "type" to JsonPrimitive("integer"),
-                                        "description" to JsonPrimitive("Total number of files to be created")
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("List of agent files that were newly created"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                    )
+                                ),
+                                "agentFilesSkipped" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("List of agent files that already existed"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                    )
+                                ),
+                                "mappingFileCreated" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether agent-mapping.yaml was newly created")
+                                    )
+                                ),
+                                "directory" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Path to the .taskorchestrator directory")
                                     )
                                 )
                             )
@@ -168,7 +154,7 @@ class SetupAgentsTool : BaseToolDefinition() {
                 )
             )
         ),
-        required = listOf("success", "message", "data")
+        required = listOf("success", "message")
     )
 
     override fun validateParams(params: JsonElement) {
@@ -176,78 +162,68 @@ class SetupAgentsTool : BaseToolDefinition() {
     }
 
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        logger.info("Executing setup_agents tool - preparing file contents")
+        logger.info("Executing setup_agents tool")
 
         return try {
-            val files = mutableListOf<JsonObject>()
+            val agentDirectoryManager = AgentDirectoryManager()
 
-            // Read all agent definition files from embedded resources
+            // Step 1: Create directory structure
+            logger.info("Creating .taskorchestrator/agents/ directory structure...")
+            val directoryCreated = agentDirectoryManager.createDirectoryStructure()
+
+            // Step 2: Copy default agent template files
+            logger.info("Copying default agent template files...")
+            val copiedAgentFiles = agentDirectoryManager.copyDefaultAgentTemplates()
+
+            // Calculate skipped files
             val allAgentFiles = AgentDirectoryManager.DEFAULT_AGENT_FILES
-            for (fileName in allAgentFiles) {
-                val resourcePath = "${AgentDirectoryManager.RESOURCE_PATH_PREFIX}/$fileName"
-                val content = readResourceAsString(resourcePath)
-                    ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
+            val skippedAgentFiles = allAgentFiles.filter { it !in copiedAgentFiles }
 
-                files.add(
-                    buildJsonObject {
-                        put("path", ".taskorchestrator/agents/$fileName")
-                        put("content", content)
-                        put("description", getAgentFileDescription(fileName))
-                    }
-                )
-            }
+            // Step 3: Copy agent-mapping.yaml
+            logger.info("Copying agent mapping configuration...")
+            val mappingFileCreated = agentDirectoryManager.copyDefaultAgentMapping()
 
-            // Read agent-mapping.yaml from embedded resources
-            val mappingResourcePath = "${AgentDirectoryManager.RESOURCE_PATH_PREFIX}/${AgentDirectoryManager.AGENT_MAPPING_FILE}"
-            val mappingContent = readResourceAsString(mappingResourcePath)
-                ?: throw IllegalStateException("Could not find embedded resource: $mappingResourcePath")
-
-            files.add(
-                buildJsonObject {
-                    put("path", ".taskorchestrator/${AgentDirectoryManager.AGENT_MAPPING_FILE}")
-                    put("content", mappingContent)
-                    put("description", "Agent mapping configuration for tag-based agent recommendations")
+            // Build response message
+            val message = buildString {
+                append("Agent system setup ")
+                if (directoryCreated) {
+                    append("completed successfully. ")
+                } else {
+                    append("verified. ")
                 }
-            )
+
+                if (copiedAgentFiles.isNotEmpty()) {
+                    append("Created ${copiedAgentFiles.size} agent file(s). ")
+                }
+                if (skippedAgentFiles.isNotEmpty()) {
+                    append("Skipped ${skippedAgentFiles.size} existing file(s). ")
+                }
+
+                if (mappingFileCreated) {
+                    append("Created agent-mapping.yaml.")
+                } else {
+                    append("Agent-mapping.yaml already exists.")
+                }
+            }
 
             successResponse(
                 data = buildJsonObject {
-                    put("files", JsonArray(files))
-                    put("totalFiles", files.size)
+                    put("directoryCreated", directoryCreated)
+                    put("agentFilesCreated", JsonArray(copiedAgentFiles.map { JsonPrimitive(it) }))
+                    put("agentFilesSkipped", JsonArray(skippedAgentFiles.map { JsonPrimitive(it) }))
+                    put("mappingFileCreated", mappingFileCreated)
+                    put("directory", agentDirectoryManager.getTaskOrchestratorDir().toString())
+                    put("totalAgents", allAgentFiles.size)
                 },
-                message = "Retrieved ${files.size} agent configuration files. AI agent should write these files to the project directory."
+                message = message
             )
         } catch (e: Exception) {
-            logger.error("Error reading agent configuration resources", e)
+            logger.error("Error setting up agents", e)
             errorResponse(
-                message = "Failed to read agent configuration files",
+                message = "Failed to setup agent system",
                 code = ErrorCodes.INTERNAL_ERROR,
-                details = e.message ?: "Unknown error occurred while reading agent resources"
+                details = e.message ?: "Unknown error occurred during agent setup"
             )
-        }
-    }
-
-    /**
-     * Read an embedded resource as a string.
-     */
-    private fun readResourceAsString(resourcePath: String): String? {
-        return javaClass.getResourceAsStream(resourcePath)?.use { inputStream ->
-            inputStream.bufferedReader().use { it.readText() }
-        }
-    }
-
-    /**
-     * Get human-readable description for an agent file.
-     */
-    private fun getAgentFileDescription(fileName: String): String {
-        return when (fileName) {
-            "backend-engineer.md" -> "Backend engineer agent for API/service development"
-            "frontend-developer.md" -> "Frontend developer agent for UI development"
-            "database-engineer.md" -> "Database engineer agent for schema/migration work"
-            "test-engineer.md" -> "Test engineer agent for testing and QA"
-            "planning-specialist.md" -> "Planning specialist agent for requirements and design"
-            "technical-writer.md" -> "Technical writer agent for documentation"
-            else -> "Agent definition file"
         }
     }
 }
