@@ -37,12 +37,22 @@ tagMappings:
     agent: test-engineer
     section_tags: [requirements, testing-strategy, acceptance-criteria]
 
+  - task_tags: [documentation, docs, user-docs, api-docs, guide, readme]
+    agent: technical-writer
+    section_tags: [requirements, context, documentation]
+
+  - task_tags: [planning, requirements, specification, architecture, design]
+    agent: planning-specialist
+    section_tags: [context, requirements, technical-approach]
+
 # Priority order when multiple tags match (first match wins)
 tagPriority:
   - database
   - backend
   - frontend
   - testing
+  - documentation
+  - planning
 
 # Entity type specific mappings
 entityTypes:
