@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.application.tools.dependency.*
 import io.github.jpicklyk.mcptask.application.tools.feature.*
 import io.github.jpicklyk.mcptask.application.tools.project.*
 import io.github.jpicklyk.mcptask.application.tools.section.*
+import io.github.jpicklyk.mcptask.application.tools.tag.*
 import io.github.jpicklyk.mcptask.application.tools.task.*
 import io.github.jpicklyk.mcptask.application.tools.template.*
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
@@ -211,6 +212,8 @@ class McpServer(
             GetOverviewTool(),
             SetStatusTool(),
             ListTagsTool(),
+            GetTagUsageTool(),
+            RenameTagTool(),
             GetBlockedTasksTool(),
             GetNextTaskTool(),
             TaskToMarkdownTool(),

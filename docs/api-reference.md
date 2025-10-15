@@ -52,6 +52,9 @@ AI chooses tools based on:
 "Change feature status to planning" → set_status
 "What tags are we using?" → list_tags
 "Show me bug-related tasks" → list_tags + search_tasks
+"Where is tag X used?" → get_tag_usage
+"Rename tag X to Y" → get_tag_usage + rename_tag
+"Fix this tag typo everywhere" → get_tag_usage + rename_tag
 "What's blocked?" → get_blocked_tasks
 "Why is nothing moving forward?" → get_blocked_tasks
 "What should I work on next?" → get_next_task
@@ -191,6 +194,8 @@ AI chooses tools based on:
 - `get_task` - Fetch task details with progressive loading
 - `search_tasks` - Filter and find tasks
 - `list_tags` - Discover all tags with usage counts ⭐ **Use before searching by tag**
+- `get_tag_usage` - Find all entities using a specific tag ⭐ **Use before renaming tags**
+- `rename_tag` - Bulk rename tags across all entities ⭐ **Use for tag standardization**
 - `get_blocked_tasks` - Identify blocked tasks for workflow optimization ⭐ **Use for bottleneck analysis**
 - `get_next_task` - Recommend next task based on priority and dependencies ⭐ **Use for work prioritization**
 - `get_overview` - Hierarchical project view
@@ -203,6 +208,7 @@ AI chooses tools based on:
 - Progressive loading (`includeSections`, `includeDependencies`, `includeFeature`)
 - `set_status` for simple status updates - auto-detects entity type, provides dependency warnings
 - `list_tags` for tag discovery - shows usage across all entity types
+- `get_tag_usage` and `rename_tag` for comprehensive tag management and standardization
 
 ---
 
@@ -662,6 +668,260 @@ AI Workflow:
 - No filter (default): All entity types (PROJECT, FEATURE, TASK, TEMPLATE)
 - `entityTypes: ["TASK"]` - Only task tags
 - `entityTypes: ["TASK", "FEATURE"]` - Task and feature tags
+
+---
+
+### Tag Usage Discovery with `get_tag_usage`
+
+**Purpose**: Find all entities (tasks, features, projects, templates) that use a specific tag for impact analysis and tag organization
+
+**Why Use `get_tag_usage`**:
+- ✅ **Impact Analysis**: Understand what will be affected before renaming/removing tags
+- ✅ **Tag Cleanup**: Find all entities using deprecated or old tags
+- ✅ **Related Work Discovery**: Locate all work related to a specific topic
+- ✅ **Tag Adoption**: See how widely a tag is being used
+- ✅ **Documentation**: List all entities for a specific category
+
+**When AI Uses**:
+- Before renaming tags (assess impact)
+- User asks "where is tag X used?"
+- Tag cleanup and consolidation tasks
+- Finding all work related to a specific area
+- Impact analysis for tag changes
+
+**Features**:
+- Searches across all entity types (tasks, features, projects, templates)
+- Returns lightweight entity summaries (id, title/name, status, priority)
+- Filter to specific entity types
+- Case-insensitive tag matching
+- Shows total count and breakdown by entity type
+
+**Examples**:
+
+**Find All Entities with Tag**:
+```json
+{
+  "tag": "authentication"
+}
+```
+
+**Find Only Tasks with Tag**:
+```json
+{
+  "tag": "api",
+  "entityTypes": "TASK"
+}
+```
+
+**Find Features and Projects**:
+```json
+{
+  "tag": "security",
+  "entityTypes": "FEATURE,PROJECT"
+}
+```
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Found 5 entities with tag 'authentication'",
+  "data": {
+    "tag": "authentication",
+    "totalCount": 5,
+    "entities": {
+      "TASK": [
+        {
+          "id": "550e8400-...",
+          "title": "Implement OAuth Login",
+          "status": "in-progress",
+          "priority": "high",
+          "complexity": 7
+        }
+      ],
+      "FEATURE": [
+        {
+          "id": "661e8511-...",
+          "name": "User Authentication",
+          "status": "in-development",
+          "priority": "high"
+        }
+      ]
+    }
+  }
+}
+```
+
+**AI Usage Pattern**:
+```
+User: "I want to rename tag 'api' to 'rest-api'"
+
+AI Workflow:
+1. get_tag_usage --tag "api"
+2. Show impact: "This will affect X tasks, Y features, Z projects"
+3. Confirm with user
+4. rename_tag --oldTag "api" --newTag "rest-api"
+5. Confirm completion
+```
+
+**Entity Type Filtering**:
+- No filter (default): All entity types (TASK, FEATURE, PROJECT, TEMPLATE)
+- `entityTypes: "TASK"` - Only tasks
+- `entityTypes: "TASK,FEATURE"` - Tasks and features
+- Comma-separated list for multiple types
+
+**Case Sensitivity**:
+- Tag matching is case-insensitive
+- Finds "API", "api", "Api" when searching for "api"
+
+---
+
+### Bulk Tag Renaming with `rename_tag`
+
+**Purpose**: Rename a tag across all entities (tasks, features, projects, templates) in a single bulk operation
+
+**Why Use `rename_tag`**:
+- ✅ **Typo Correction**: Fix misspelled tags project-wide
+- ✅ **Standardization**: Enforce consistent tag naming conventions
+- ✅ **Tag Consolidation**: Merge duplicate or similar tags
+- ✅ **Convention Changes**: Update tag patterns across all work
+- ✅ **Bulk Updates**: Efficient updates across hundreds of entities
+
+**When AI Uses**:
+- User requests tag rename or correction
+- Consolidating duplicate tags
+- Fixing typos discovered in tags
+- Standardizing tag naming conventions
+- Following up on tag usage analysis
+
+**Features**:
+- Bulk updates across all entity types
+- Dry run mode for previewing changes
+- Filter to specific entity types
+- Case-insensitive matching for oldTag
+- Handles duplicate prevention (if newTag already exists)
+- Detailed statistics on updates
+- Failed update tracking and reporting
+
+**Examples**:
+
+**Simple Tag Rename**:
+```json
+{
+  "oldTag": "authentcation",
+  "newTag": "authentication"
+}
+```
+
+**Rename Only in Tasks**:
+```json
+{
+  "oldTag": "api",
+  "newTag": "rest-api",
+  "entityTypes": "TASK"
+}
+```
+
+**Preview Changes (Dry Run)**:
+```json
+{
+  "oldTag": "frontend",
+  "newTag": "ui",
+  "dryRun": true
+}
+```
+
+**Case Standardization**:
+```json
+{
+  "oldTag": "API",
+  "newTag": "api"
+}
+```
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Successfully renamed tag in 12 entities",
+  "data": {
+    "oldTag": "authentcation",
+    "newTag": "authentication",
+    "totalUpdated": 12,
+    "byEntityType": {
+      "TASK": 8,
+      "FEATURE": 3,
+      "PROJECT": 1
+    },
+    "failedUpdates": 0,
+    "dryRun": false
+  }
+}
+```
+
+**AI Usage Pattern - Typo Correction**:
+```
+User: "I misspelled 'authentication' as 'authentcation' everywhere"
+
+AI Workflow:
+1. get_tag_usage --tag "authentcation"
+2. Show impact: "Found in 12 tasks, 3 features, 1 project"
+3. rename_tag --oldTag "authentcation" --newTag "authentication"
+4. Confirm: "Renamed in 12 entities successfully"
+```
+
+**AI Usage Pattern - Tag Consolidation**:
+```
+User: "Merge 'rest-api' and 'api' tags into just 'api'"
+
+AI Workflow:
+1. get_tag_usage --tag "rest-api"
+2. get_tag_usage --tag "api"
+3. Explain overlap and confirm with user
+4. rename_tag --oldTag "rest-api" --newTag "api"
+5. Report consolidation: "Merged X entities, Y already had 'api' tag"
+```
+
+**AI Usage Pattern - Preview Before Rename**:
+```
+User: "What would happen if I rename 'frontend' to 'ui'?"
+
+AI Workflow:
+1. rename_tag --oldTag "frontend" --newTag "ui" --dryRun true
+2. Show: "Would affect X tasks, Y features, Z projects"
+3. Ask if user wants to proceed
+4. If yes: rename_tag --oldTag "frontend" --newTag "ui"
+```
+
+**Dry Run Mode**:
+- Set `dryRun: true` to preview changes without modifying data
+- Returns same statistics as actual run
+- Shows what would be changed
+- Safe for experimentation and impact analysis
+
+**Duplicate Handling**:
+- If entity already has newTag, oldTag is simply removed
+- Prevents duplicate tags in the same entity
+- Maintains tag uniqueness per entity
+- Preserves tag order (oldTag position replaced with newTag)
+
+**Entity Type Filtering**:
+- No filter (default): All entity types
+- `entityTypes: "TASK"` - Only update tasks
+- `entityTypes: "TASK,FEATURE"` - Tasks and features only
+- Comma-separated list for selective updates
+
+**Error Handling**:
+- Continues processing even if individual updates fail
+- Reports failed updates separately in `failedUpdates` count
+- Logs errors for debugging
+- Returns partial success if some updates succeeded
+
+**Validation**:
+- oldTag and newTag cannot be empty
+- oldTag and newTag cannot be identical (case-insensitive)
+- Entity type names must be valid
+- Invalid parameters return validation error before any changes
 
 ---
 

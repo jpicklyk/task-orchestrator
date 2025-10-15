@@ -1373,6 +1373,176 @@ AI: list_tags --sortBy count --sortDirection desc
 
 ---
 
+## Tag Management and Standardization Patterns
+
+### Use `get_tag_usage` for Impact Analysis
+
+**Problem**: Renaming or removing tags without understanding their usage can cause confusion and inconsistency.
+
+**Solution**: Use `get_tag_usage` to find all entities using a tag before making changes.
+
+### When to Use `get_tag_usage`
+
+✅ **Use `get_tag_usage` when**:
+- User wants to rename a tag
+- Before removing/consolidating tags
+- User asks "where is tag X used?"
+- Impact analysis for tag changes
+- Finding all work related to a specific topic
+- Tag cleanup and organization
+
+❌ **Don't use `get_tag_usage` when**:
+- User is just browsing tags (use `list_tags` instead)
+- User wants to know what tags exist (use `list_tags`)
+- No tag changes are planned
+
+### Tag Impact Analysis Workflow
+
+**User Says**: "I want to rename 'api' to 'rest-api'"
+
+**AI Workflow**:
+```
+1. get_tag_usage --tag "api"
+2. Analyze results:
+   - 15 tasks use this tag
+   - 3 features use this tag
+   - 1 project uses this tag
+3. Show impact to user: "This will affect 19 entities (15 tasks, 3 features, 1 project)"
+4. Confirm with user
+5. rename_tag --oldTag "api" --newTag "rest-api"
+6. Confirm completion: "Successfully renamed tag in 19 entities"
+```
+
+**User Says**: "Is tag 'deprecated' still being used?"
+
+**AI Workflow**:
+```
+1. get_tag_usage --tag "deprecated"
+2. If found: "Yes, still used by X tasks: [list]"
+3. If not found: "No entities are using tag 'deprecated'"
+```
+
+### Use `rename_tag` for Bulk Tag Updates
+
+**Problem**: Manually updating tags across many entities is time-consuming and error-prone.
+
+**Solution**: Use `rename_tag` for bulk tag renaming across all entities in one operation.
+
+### When to Use `rename_tag`
+
+✅ **Use `rename_tag` when**:
+- Fixing tag typos project-wide
+- Standardizing tag naming conventions
+- Consolidating duplicate or similar tags
+- User explicitly requests tag rename
+- Following tag standardization recommendations
+
+❌ **Don't use `rename_tag` when**:
+- Only one or two entities need updating (use `update_task`/`update_feature` instead)
+- User hasn't confirmed the change
+- Tag doesn't actually exist (check with `list_tags` or `get_tag_usage` first)
+
+### Tag Standardization Workflow
+
+**User Says**: "I misspelled 'authentication' as 'authentcation' everywhere"
+
+**AI Workflow**:
+```
+1. get_tag_usage --tag "authentcation" (verify it exists)
+2. Show impact: "Found in 12 tasks, 3 features, 1 project"
+3. rename_tag --oldTag "authentcation" --newTag "authentication"
+4. Confirm: "Successfully renamed tag in 16 entities"
+```
+
+**User Says**: "Merge 'rest-api' and 'api' tags into just 'api'"
+
+**AI Workflow**:
+```
+1. get_tag_usage --tag "rest-api"
+2. get_tag_usage --tag "api"
+3. Explain overlap: "'rest-api' used by 8 entities, 'api' used by 15 entities, some overlap"
+4. Confirm consolidation approach
+5. rename_tag --oldTag "rest-api" --newTag "api"
+6. Report: "Merged tags - updated 8 entities, 3 already had 'api' tag"
+```
+
+### Dry Run Pattern for Safety
+
+**User Says**: "What would happen if I rename 'frontend' to 'ui'?"
+
+**AI Workflow**:
+```
+1. rename_tag --oldTag "frontend" --newTag "ui" --dryRun true
+2. Show preview: "Would affect 23 entities (18 tasks, 4 features, 1 project)"
+3. Ask if user wants to proceed
+4. If yes: rename_tag --oldTag "frontend" --newTag "ui" (without dryRun)
+```
+
+### Tag Management Examples
+
+**Case Standardization**:
+```
+User: "Make all 'API' tags lowercase for consistency"
+AI:
+1. get_tag_usage --tag "API"
+2. Show usage: "Found 'API' in 12 entities"
+3. rename_tag --oldTag "API" --newTag "api"
+```
+
+**Typo Correction**:
+```
+User: "Fix 'implmentation' typo"
+AI:
+1. get_tag_usage --tag "implmentation"
+2. rename_tag --oldTag "implmentation" --newTag "implementation"
+```
+
+**Tag Consolidation**:
+```
+User: "Are we using consistent tags for bugs?"
+AI:
+1. list_tags --sortBy name
+2. Identify variations: "bug", "bugs", "bugfix"
+3. Suggest consolidation: "Recommend merging to 'bug' for consistency"
+4. If user agrees:
+   - rename_tag --oldTag "bugs" --newTag "bug"
+   - rename_tag --oldTag "bugfix" --newTag "bug"
+```
+
+### AI Decision Tree for Tag Operations
+
+```
+User wants to change tags?
+  ├─ Rename/fix tag?
+  │  ├─ Check impact: get_tag_usage --tag "oldtag"
+  │  ├─ Show user what will be affected
+  │  ├─ Confirm with user
+  │  └─ rename_tag --oldTag "old" --newTag "new"
+  ├─ Check tag usage?
+  │  └─ get_tag_usage --tag "tagname"
+  ├─ Browse all tags?
+  │  └─ list_tags (not get_tag_usage)
+  └─ Uncertain about impact?
+     └─ rename_tag --dryRun true (preview changes)
+```
+
+### Response Interpretation
+
+**Tag Usage Response**:
+- `totalCount: 0` → Tag not in use, safe to skip rename
+- `totalCount: 1-5` → Low impact, can proceed quickly
+- `totalCount: 20+` → High impact, recommend dry run first
+- `entities.TASK` present → Affects active work
+- `entities.TEMPLATE` present → Affects future work patterns
+
+**Rename Response**:
+- `failedUpdates: 0` → Complete success
+- `failedUpdates > 0` → Partial success, investigate failures
+- `dryRun: true` → Preview only, no actual changes
+- `byEntityType` → Shows distribution of updates
+
+---
+
 ## Workflow Management and Blocked Tasks Patterns
 
 ### Use `get_blocked_tasks` for Workflow Optimization
