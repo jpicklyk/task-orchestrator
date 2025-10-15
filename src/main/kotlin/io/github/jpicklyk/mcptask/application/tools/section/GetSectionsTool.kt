@@ -101,6 +101,7 @@ class GetSectionsTool : BaseToolDefinition() {
         | entityId | UUID string | Yes | - | ID of the entity to retrieve sections for (e.g., '550e8400-e29b-41d4-a716-446655440000') |
         | includeContent | boolean | No | true | Whether to include section content. Set false to get only metadata (saves 85-99% tokens) |
         | sectionIds | array | No | all | Optional list of specific section IDs to retrieve. Allows selective loading of sections |
+        | tags | string | No | - | Comma-separated list of tags to filter sections (e.g., 'requirements,technical-approach'). Returns sections that contain ANY of these tags. |
         
         ## Response Format
         
@@ -231,6 +232,16 @@ class GetSectionsTool : BaseToolDefinition() {
              "sectionIds": ["requirements-section-id", "testing-section-id"]
            }
            ```
+
+        5. Filter sections by tags (for agent-specific content):
+           ```json
+           {
+             "entityType": "TASK",
+             "entityId": "550e8400-e29b-41d4-a716-446655440000",
+             "tags": "requirements,technical-approach,implementation"
+           }
+           ```
+           Returns only sections tagged with requirements, technical-approach, or implementation
         
         ## Content Formats
         
@@ -285,6 +296,12 @@ class GetSectionsTool : BaseToolDefinition() {
                                 "format" to JsonPrimitive("uuid")
                             )
                         )
+                    )
+                ),
+                "tags" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Comma-separated list of tags to filter sections (e.g., 'requirements,technical-approach'). Returns sections that contain ANY of these tags. Useful for agents to query only relevant sections.")
                     )
                 )
             )
@@ -346,6 +363,11 @@ class GetSectionsTool : BaseToolDefinition() {
                 }
             }
 
+            // Parse tags parameter
+            val filterTags = paramsObj["tags"]?.jsonPrimitive?.content?.let { tagsString ->
+                tagsString.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            }
+
             // Verify the entity exists before getting sections for it
             when (entityType) {
                 EntityType.TASK -> {
@@ -380,10 +402,21 @@ class GetSectionsTool : BaseToolDefinition() {
                     val allSections = result.data
 
                     // Apply sectionIds filter if provided
-                    val filteredSections = if (sectionIds != null) {
+                    val filteredBySectionIds = if (sectionIds != null) {
                         allSections.filter { section -> section.id in sectionIds }
                     } else {
                         allSections
+                    }
+
+                    // Apply tags filter if provided
+                    val filteredSections = if (filterTags != null && filterTags.isNotEmpty()) {
+                        filteredBySectionIds.filter { section ->
+                            // Return sections that contain ANY of the filter tags (OR logic)
+                            val sectionTags = section.tags.map { it.lowercase() }
+                            filterTags.any { filterTag -> sectionTags.contains(filterTag) }
+                        }
+                    } else {
+                        filteredBySectionIds
                     }
 
                     val sectionsArray = JsonArray(
