@@ -282,7 +282,7 @@ class McpServer(
             DisableTemplateTool(),
 
             // Agent management tools
-            SetupAgentsTool(),
+            SetupClaudeAgentsTool(),
             GetAgentDefinitionTool(),
             RecommendAgentTool()
         )
