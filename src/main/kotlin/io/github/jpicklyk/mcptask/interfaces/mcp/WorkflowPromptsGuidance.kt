@@ -109,11 +109,14 @@ object WorkflowPromptsGuidance {
 
                             **If EXISTING initialization found**, present re-initialization options:
 
+                            Present this message with proper line breaks:
+
                             ```
                             🔄 Task Orchestrator Already Initialized
 
                             Current: Last initialized [EXISTING-DATE]
-                            [If version field present] Version: [EXISTING-VERSION]
+                            Version: [EXISTING-VERSION]  (if version field present)
+                            Features: [EXISTING-FEATURES]  (if features field present)
                             Latest: Task Orchestrator 1.1.0-beta
 
                             What would you like to do?
@@ -493,7 +496,7 @@ object WorkflowPromptsGuidance {
                                      "hooks": [{
                                        "type": "command",
                                        "command": "bash",
-                                       "args": ["-c", "if ! echo \"$TOOL_INPUT\" | grep -q '\\\"templateIds\\\"'; then echo '{\\\"message\\\": \\\"💡 Tip: Consider running list_templates() to discover available templates.\\\"}'; fi"]
+                                       "args": ["-c", "if ! echo \"\${'$'}TOOL_INPUT\" | grep -q '\\\"templateIds\\\"'; then echo '{\\\"message\\\": \\\"💡 Tip: Consider running list_templates() to discover available templates.\\\"}'; fi"]
                                      }]
                                    }]
                                  }
