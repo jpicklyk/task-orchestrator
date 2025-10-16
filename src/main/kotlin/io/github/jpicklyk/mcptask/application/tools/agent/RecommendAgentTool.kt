@@ -31,22 +31,23 @@ class RecommendAgentTool : BaseToolDefinition() {
         specialized AI agent. Uses the agent-mapping.yaml configuration to match
         task characteristics with agent capabilities.
 
+        ## CRITICAL WORKFLOW INSTRUCTION
+        When a recommendation is returned:
+        1. **ALWAYS use the Task tool** to launch the recommended agent (provided in nextAction.parameters)
+        2. **NEVER work on the task yourself** if an agent is recommended
+        3. **Follow the exact parameters** provided in nextAction.parameters.prompt
+
+        When NO recommendation is returned:
+        1. **Work on the task yourself** using your general capabilities
+        2. Use available tools directly without launching a subagent
+
         ## How It Works
         1. Retrieves task metadata (tags, status, complexity)
         2. Matches task tags against agent mappings in agent-mapping.yaml
-        3. Returns recommended agent with rationale and relevant section tags
+        3. Returns recommended agent with execution instructions in nextAction field
 
         ## Parameters
         - **taskId** (required): UUID of the task to get recommendation for
-
-        ## Usage Examples
-
-        **Get Recommendation for Task:**
-        ```json
-        {
-          "taskId": "550e8400-e29b-41d4-a716-446655440000"
-        }
-        ```
 
         ## Response Format
 
@@ -54,16 +55,25 @@ class RecommendAgentTool : BaseToolDefinition() {
         ```json
         {
           "success": true,
-          "message": "Agent recommendation found",
+          "message": "Agent recommendation found. Use the Task tool to launch the Database Engineer agent.",
           "data": {
             "recommended": true,
-            "agent": "backend-engineer",
-            "reason": "Task involves backend development work",
-            "matchedTags": ["backend", "api"],
-            "sectionTags": ["technical-approach", "implementation"],
-            "definitionPath": ".taskorchestrator/agents/backend-engineer.md",
+            "agent": "Database Engineer",
+            "reason": "Task involves database development work",
+            "matchedTags": ["database", "schema"],
+            "sectionTags": ["technical-approach", "data-model"],
+            "definitionPath": ".taskorchestrator/agents/Database Engineer.md",
             "taskId": "550e8400-e29b-41d4-a716-446655440000",
-            "taskTitle": "Implement REST API"
+            "taskTitle": "Design database schema",
+            "nextAction": {
+              "instruction": "Launch the Database Engineer agent using the Task tool",
+              "tool": "Task",
+              "parameters": {
+                "subagent_type": "Database Engineer",
+                "description": "Design database schema",
+                "prompt": "Work on task 550e8400...: Design database schema. Start by reading..."
+              }
+            }
           }
         }
         ```
@@ -72,25 +82,24 @@ class RecommendAgentTool : BaseToolDefinition() {
         ```json
         {
           "success": true,
-          "message": "No agent recommendation available",
+          "message": "No agent recommendation available. Execute this task yourself.",
           "data": {
             "recommended": false,
             "reason": "No agent recommendation available for this task's tags",
             "taskId": "550e8400-e29b-41d4-a716-446655440000",
-            "taskTags": ["documentation", "general"]
+            "taskTags": ["documentation", "general"],
+            "nextAction": {
+              "instruction": "No specialized agent recommended. You should work on this task directly.",
+              "approach": "Execute the task yourself using available tools and your general capabilities"
+            }
           }
         }
         ```
 
         ## Agent Selection Logic
         - Matches task tags against agent tag mappings
-        - Considers workflow phase (implementation, testing, planning)
+        - Agent names are in Proper Case format (e.g., "Database Engineer", "Backend Engineer")
         - Returns section tags to help agent find relevant information efficiently
-
-        ## Integration
-        - Use recommended agent for task implementation
-        - Use section tags with get_sections tool for efficient information retrieval
-        - Agent definition files contain specialized instructions and workflows
 
         ## Error Handling
         - VALIDATION_ERROR: When taskId is missing or invalid UUID format
@@ -234,10 +243,52 @@ class RecommendAgentTool : BaseToolDefinition() {
 
             val task = taskResult.getOrNull()!!
 
+            // Get feature and project context for better agent prompts
+            var featureName: String? = null
+            var projectName: String? = null
+
+            if (task.featureId != null) {
+                val featureRepository = context.featureRepository()
+                val featureResult = featureRepository.getById(task.featureId!!)
+                if (featureResult.isSuccess()) {
+                    val feature = featureResult.getOrNull()!!
+                    featureName = feature.name
+
+                    if (feature.projectId != null) {
+                        val projectRepository = context.projectRepository()
+                        val projectResult = projectRepository.getById(feature.projectId!!)
+                        if (projectResult.isSuccess()) {
+                            projectName = projectResult.getOrNull()!!.name
+                        }
+                    }
+                }
+            }
+
             // Get agent recommendation
             val recommendation = agentRecommendationService.recommendAgent(task)
 
             if (recommendation != null) {
+                // Build execution prompt for the agent with essential context
+                val agentPrompt = buildString {
+                    append("Work on task ${taskId}: ${task.title}\n\n")
+                    append("SUMMARY: ${task.summary}\n\n")
+
+                    // Add project/feature context if available
+                    if (projectName != null) {
+                        append("PROJECT: $projectName")
+                        if (featureName != null) {
+                            append(" / FEATURE: $featureName")
+                        }
+                        append("\n\n")
+                    }
+
+                    append("Read full details: get_task(id='${taskId}', includeSections=true). ")
+                    if (recommendation.sectionTags.isNotEmpty()) {
+                        append("Focus on sections tagged: ${recommendation.sectionTags.joinToString(", ")}. ")
+                    }
+                    append("Follow your standard workflow.")
+                }
+
                 successResponse(
                     data = buildJsonObject {
                         put("recommended", true)
@@ -249,11 +300,24 @@ class RecommendAgentTool : BaseToolDefinition() {
                         putJsonArray("sectionTags") {
                             recommendation.sectionTags.forEach { add(it) }
                         }
-                        put("definitionPath", ".taskorchestrator/agents/${recommendation.agentName}.md")
+                        // Agent definitions are in .claude/agents/ for Claude Code compatibility
+                        val agentFileName = recommendation.agentName.lowercase().replace(" ", "-")
+                        put("definitionPath", ".claude/agents/${agentFileName}.md")
                         put("taskId", taskId.toString())
                         put("taskTitle", task.title)
+
+                        // Add execution instructions
+                        putJsonObject("nextAction") {
+                            put("instruction", "Launch the ${recommendation.agentName} agent using the Task tool")
+                            put("tool", "Task")
+                            putJsonObject("parameters") {
+                                put("subagent_type", recommendation.agentName)
+                                put("description", task.title)
+                                put("prompt", agentPrompt)
+                            }
+                        }
                     },
-                    message = "Agent recommendation found"
+                    message = "Agent recommendation found. Use the Task tool to launch the ${recommendation.agentName} agent."
                 )
             } else {
                 successResponse(
@@ -265,8 +329,14 @@ class RecommendAgentTool : BaseToolDefinition() {
                         putJsonArray("taskTags") {
                             task.tags.forEach { add(it) }
                         }
+
+                        // Add execution instructions for no recommendation
+                        putJsonObject("nextAction") {
+                            put("instruction", "No specialized agent recommended. You should work on this task directly.")
+                            put("approach", "Execute the task yourself using available tools and your general capabilities")
+                        }
                     },
-                    message = "No agent recommendation available"
+                    message = "No agent recommendation available. Execute this task yourself."
                 )
             }
         } catch (e: IllegalArgumentException) {
