@@ -44,6 +44,8 @@
 - [Setup and Configuration](#setup-and-configuration)
   - [Agent Definition Files](#agent-definition-files)
   - [Setup Tool](#setup-tool)
+  - [Re-initialization and Upgrades](#re-initialization-and-upgrades)
+  - [Workflow Automation Hooks](#workflow-automation-hooks-optional)
   - [Customization Options](#customization-options)
 - [Best Practices](#best-practices)
 - [Troubleshooting](#troubleshooting)
@@ -1371,6 +1373,137 @@ User: "Run setup_claude_agents"
 - Only creates files that don't already exist
 - The `.claude/agents/` directory is used by Claude Code to discover and load sub-agents
 - **Without this setup, Claude Code sub-agents will not be available**
+
+### Re-initialization and Upgrades
+
+**What happens when running the initialization workflow on an existing project?**
+
+The `initialize_task_orchestrator` workflow now includes smart re-initialization detection. When you run the workflow on a project that's already initialized, you'll see upgrade options instead of a fresh installation.
+
+#### Re-initialization Modes
+
+**Detection**: The workflow automatically detects existing Task Orchestrator initialization by checking for the "## Task Orchestrator - AI Initialization" section in your project's documentation file.
+
+When detected, you'll see these options:
+
+```
+🔄 Task Orchestrator Already Initialized
+
+Current: Last initialized 2025-10-10
+Version: 1.0.0
+Latest: Task Orchestrator 1.1.0-beta
+
+What would you like to do?
+
+[1] Refresh Guidelines
+    • Update "AI Initialization" section with latest patterns
+    • Preserve customizations outside this section
+    • Update timestamp and version
+    • Recommended for minor updates
+
+[2] Install New Features
+    • Check for newly available features (hooks, sub-agents)
+    • Install only features not yet configured
+    • Skip already-installed features
+    • Recommended when new features added to MCP
+
+[3] Full Re-initialization
+    • Rewrite entire "AI Initialization" section
+    • Re-offer all optional features (hooks, sub-agents)
+    • Detect and preserve existing installations
+    • Recommended after major version upgrades
+
+[4] Cancel
+    • Keep existing configuration unchanged
+```
+
+#### Mode Details
+
+**[1] Refresh Guidelines** (Quick update):
+- Updates only the "Critical Patterns" subsection with latest workflow patterns
+- Preserves installed features (hooks, sub-agents remain configured)
+- Updates version field to latest
+- Updates timestamp
+- **Use when**: After minor MCP updates or pattern improvements
+
+**[2] Install New Features** (Feature additions):
+- Detects what features are available vs. installed
+- Only offers features not yet configured
+- Smart detection checks both Features field and actual files:
+  - Hooks: Checks `.claude/settings.local.json` for Task Orchestrator configuration
+  - Sub-agents: Checks for `.claude/agents/` directory
+- Handles sync issues (e.g., Features field says "hooks" but not actually installed)
+- **Use when**: New features added to MCP (hooks, new sub-agents, etc.)
+
+**[3] Full Re-initialization** (Complete rewrite):
+- Rewrites entire "AI Initialization" section
+- Re-offers all optional features (hooks and sub-agents)
+- Smart detection prevents duplicate installations
+- Updates all fields (timestamp, version, features)
+- **Use when**: Major version upgrades or significant changes
+
+**[4] Cancel**:
+- Exits without making any changes
+- Use if initialization looks correct and no updates needed
+
+#### Version Tracking
+
+The initialization section tracks two key pieces of information:
+
+```markdown
+## Task Orchestrator - AI Initialization
+
+Last initialized: YYYY-MM-DD
+Version: 1.1.0-beta
+Features: [none|hooks|subagents|hooks,subagents]
+```
+
+- **Last initialized**: Date of last initialization or update
+- **Version**: MCP Task Orchestrator version used
+- **Features**: Comma-separated list of installed optional features
+
+This tracking enables smart detection and prevents duplicate installations.
+
+#### Feature Sync Validation
+
+The workflow performs dual verification to ensure consistency:
+
+1. **Check Features field**: Read what features are declared as installed
+2. **Check actual files**: Verify the features actually exist
+3. **Alert on mismatch**: If Features field doesn't match reality
+
+**Example sync issue**:
+```
+⚠️  Features field outdated!
+Listed: "hooks,subagents"
+Found: Only subagents (hooks not in .claude/settings.local.json)
+
+Options:
+[1] Install hooks
+[2] Update field to remove 'hooks'
+```
+
+#### Migration After Upgrades
+
+**Scenario**: You upgrade from Task Orchestrator 1.0.0 to 1.1.0-beta
+
+**Recommended workflow**:
+1. Pull latest Docker image or rebuild JAR
+2. Restart your MCP server
+3. Run: "Initialize Task Orchestrator"
+4. Choose option [2] "Install New Features"
+5. Review new features (e.g., hooks support added in 1.1.0)
+6. Install desired features
+
+**Result**: You get new features without rewriting your entire configuration.
+
+#### Best Practices
+
+- **Run periodically**: Check for updates by running initialization workflow
+- **Review changes**: Before choosing Full Re-initialization, consider Refresh Guidelines first
+- **Track versions**: Note which version you're running in initialization section
+- **Backup customizations**: If you've heavily customized, backup before Full Re-initialization
+- **Test new features**: Use Install New Features mode to try new capabilities
 
 ### Workflow Automation Hooks (Optional)
 
