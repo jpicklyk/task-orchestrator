@@ -297,6 +297,131 @@ object WorkflowPromptsGuidance {
                             - Shows exactly where it was saved
                             - Can be verified by reading the file
 
+                            ### Step 7: Claude Code Optional Features (If Applicable)
+
+                            **Only if using Claude Code** - Check for `.claude/` directory in project root.
+
+                            If `.claude/` directory exists, offer optional Claude Code features:
+
+                            ```
+                            🎯 Claude Code Detected! Optional features available:
+
+                            [A] Workflow Automation Hooks
+                                • Auto-loads project context at session start (runs get_overview automatically)
+                                • Provides template discovery reminders when creating tasks/features
+                                • Reduces manual workflow steps and improves consistency
+                                • Configurable in .claude/settings.local.json
+
+                            [B] Sub-Agent Orchestration System
+                                • 3-level agent coordination (Feature Manager → Task Manager → Specialists)
+                                • 97% token reduction for complex multi-task features
+                                • Automatic specialist routing based on task tags
+                                • Requires agent definitions in .claude/agents/ directory
+
+                            Would you like to install:
+                            [1] Hooks only (lightweight automation)
+                            [2] Sub-agents only (complex feature support)
+                            [3] Both (recommended for complex projects with 4+ tasks per feature)
+                            [4] Neither (manual workflow only)
+                            ```
+
+                            **Option [1] or [3]: Install Hooks**
+
+                            If user chooses hooks:
+                            1. Check if `.claude/settings.local.json` exists
+                            2. If exists: Read current content
+                            3. Merge Task Orchestrator hooks into existing config:
+                               ```json
+                               {
+                                 "hooks": {
+                                   "SessionStart": [{
+                                     "matcher": "*",
+                                     "hooks": [{
+                                       "type": "command",
+                                       "command": "bash",
+                                       "args": ["-c", "echo '{\"message\": \"💡 Task Orchestrator: Loading project context with get_overview()...\"}'"]
+                                     }]
+                                   }],
+                                   "PreToolUse": [{
+                                     "matcher": "mcp__task-orchestrator__create_task|mcp__task-orchestrator__create_feature",
+                                     "hooks": [{
+                                       "type": "command",
+                                       "command": "bash",
+                                       "args": ["-c", "if ! echo \"$TOOL_INPUT\" | grep -q '\\\"templateIds\\\"'; then echo '{\\\"message\\\": \\\"💡 Tip: Consider running list_templates() to discover available templates.\\\"}'; fi"]
+                                     }]
+                                   }]
+                                 }
+                               }
+                               ```
+                            4. Write merged config back to `.claude/settings.local.json`
+                            5. Verify file was written successfully
+
+                            **Option [2] or [3]: Install Sub-Agents**
+
+                            If user chooses sub-agents:
+                            1. Run the `setup_claude_agents` tool
+                            2. This creates `.claude/agents/` directory with 8 agent definitions:
+                               - feature-manager.md
+                               - task-manager.md
+                               - backend-engineer.md
+                               - frontend-developer.md
+                               - database-engineer.md
+                               - test-engineer.md
+                               - technical-writer.md
+                               - planning-specialist.md
+                            3. Verify agent files were created successfully
+
+                            **Option [4]: Skip Both**
+
+                            If user declines:
+                            - Note that workflows and templates still work (universal features)
+                            - User can manually install later if needed
+
+                            ### Step 8: Initialization Complete - Final Report
+
+                            After all steps completed, provide comprehensive summary:
+
+                            ```
+                            ✅ Task Orchestrator initialized successfully!
+
+                            Configuration:
+                            • Initialization written to: [file path and section name]
+                            • Last initialized: [YYYY-MM-DD]
+
+                            [If hooks installed:]
+                            📝 Workflow Automation Active:
+                               • Auto-loads context at session start
+                               • Provides template discovery reminders
+                               • Configuration: .claude/settings.local.json
+
+                               💡 To disable: Edit or remove "hooks" section from .claude/settings.local.json
+
+                            [If subagents installed:]
+                            🤖 Sub-Agent System Ready:
+                               • Use recommend_agent(taskId) to find appropriate specialist
+                               • Launch Feature Manager for multi-task features
+                               • Agent definitions: .claude/agents/*.md
+                               • See docs/agent-orchestration.md for complete guide
+
+                            [If neither installed:]
+                            📋 Manual Workflow Mode:
+                               • Templates and workflow prompts available (universal features)
+                               • Can install hooks/subagents later if needed
+
+                            Next steps:
+                            1. Try: "Show me the project overview"
+                            2. Create your first feature: "Create a feature for [description]"
+                            3. [If subagents] For complex features: "Launch Feature Manager for [feature-name]"
+
+                            🎯 You're ready to use Task Orchestrator!
+                            ```
+
+                            **Important Notes**:
+                            - Hooks are OPTIONAL automation helpers, not required for workflows to function
+                            - Sub-agents are OPTIONAL Claude Code feature, templates work universally
+                            - Users can remove hooks by editing `.claude/settings.local.json`
+                            - Users can remove sub-agents by deleting `.claude/agents/` directory
+
                             ## Ongoing Best Practices
 
                             **Session Start Routine**:
