@@ -245,16 +245,10 @@ class UpdateTaskTool(
                         "description" to JsonPrimitive("(optional) New title for the task")
                     )
                 ),
-                "summary" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("(optional) New summary/description for the task. This is the preferred parameter for updating task descriptions.")
-                    )
-                ),
                 "description" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("(optional) (DEPRECATED: use 'summary' instead) New detailed description of the task")
+                        "description" to JsonPrimitive("(optional) New detailed description of the task")
                     )
                 ),
                 "status" to JsonObject(
@@ -407,12 +401,7 @@ class UpdateTaskTool(
 
         // Extract update parameters
         val title = optionalString(params, "title") ?: existingTask.title
-
-        // Handle summary parameter with backwards compatibility for description
-        // When both are provided, summary takes precedence
-        val summary = optionalString(params, "summary")
-            ?: optionalString(params, "description")
-            ?: existingTask.summary
+        val description = optionalString(params, "description") ?: existingTask.summary
 
         val statusStr = optionalString(params, "status")
         val status = if (statusStr != null) parseStatus(statusStr) else existingTask.status
@@ -448,7 +437,7 @@ class UpdateTaskTool(
         // Create an updated task entity
         val updatedTask = existingTask.copy(
             title = title,
-            summary = summary,
+            summary = description,
             status = status,
             priority = priority,
             complexity = complexity,

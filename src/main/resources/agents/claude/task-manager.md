@@ -178,26 +178,8 @@ Read through the specialist's output (provided by orchestrator) and identify:
      ordinal: 0
    )
    ```
-
-### Step 3: Update task summary field
-   ```
-   update_task(
-     id: "[task-id]",
-     summary: "[concise 1-3 sentence summary of what was accomplished]"
-   )
-   ```
-
-   **IMPORTANT**: Use the `summary` parameter (not `description`). This populates the task's summary field
-   for efficient agent coordination in dependency chains.
-
-   **Format**: "Completed: [what was done]. [key outcomes]. [any blockers or notes]."
-
-   **Examples**:
-   - "Completed: Created V3 migration adding summary field. Updated Task entity and repository. All tests passing."
-   - "Completed: Implemented OAuth endpoints with JWT tokens. Added login, register, refresh methods. Ready for frontend."
-
-4. **Mark complete**: `set_status(id='...', status='completed')`
-5. **Return brief summary** (2-3 sentences)
+3. **Mark complete**: `set_status(id='...', status='completed')`
+4. **Return brief summary** (2-3 sentences)
 
 ## Summary Section Format
 
