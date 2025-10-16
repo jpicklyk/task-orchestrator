@@ -98,9 +98,61 @@ object WorkflowPromptsGuidance {
                                - When to invoke workflow prompts
                                - Integration best practices
 
-                            ### Step 2: WRITE Guidelines to Permanent Storage
+                            ### Step 2: Check for Existing Initialization
 
-                            After reading resources, AI agents **MUST write** the key principles to persistent storage. This is a one-time setup that persists across all sessions.
+                            Before writing guidelines, **CHECK** if Task Orchestrator is already initialized:
+
+                            **Detection Steps**:
+                            1. Check if your AI's standard documentation file exists (CLAUDE.md, .cursorrules, etc.)
+                            2. If exists: Search for "## Task Orchestrator - AI Initialization" section
+                            3. If found: Read the section to extract version/timestamp information
+
+                            **If EXISTING initialization found**, present re-initialization options:
+
+                            ```
+                            🔄 Task Orchestrator Already Initialized
+
+                            Current: Last initialized [EXISTING-DATE]
+                            [If version field present] Version: [EXISTING-VERSION]
+                            Latest: Task Orchestrator 1.1.0-beta
+
+                            What would you like to do?
+
+                            [1] Refresh Guidelines
+                                • Update "AI Initialization" section with latest patterns
+                                • Preserve customizations outside this section
+                                • Update timestamp and version
+                                • Recommended for minor updates
+
+                            [2] Install New Features
+                                • Check for newly available features (hooks, sub-agents)
+                                • Install only features not yet configured
+                                • Skip already-installed features
+                                • Recommended when new features added to MCP
+
+                            [3] Full Re-initialization
+                                • Rewrite entire "AI Initialization" section
+                                • Re-offer all optional features (hooks, sub-agents)
+                                • Detect and preserve existing installations
+                                • Recommended after major version upgrades
+
+                            [4] Cancel
+                                • Keep existing configuration unchanged
+
+                            Your choice: [1-4]
+                            ```
+
+                            **Based on user choice**:
+                            - **[1]** → Jump to "Refresh Guidelines Mode" (see below)
+                            - **[2]** → Jump to "Install New Features Mode" (see below)
+                            - **[3]** → Continue with fresh initialization (Step 2A)
+                            - **[4]** → Exit workflow
+
+                            **If NO existing initialization found**, continue with fresh initialization.
+
+                            ### Step 2A: WRITE Guidelines to Permanent Storage (Fresh or Full Re-init)
+
+                            After reading resources, AI agents **MUST write** the key principles to persistent storage.
 
                             **REQUIRED ACTION**: Write initialization results to a permanent file on disk.
 
@@ -116,6 +168,8 @@ object WorkflowPromptsGuidance {
                             ## Task Orchestrator - AI Initialization
 
                             Last initialized: YYYY-MM-DD
+                            Version: 1.1.0-beta
+                            Features: [none|hooks|subagents|hooks,subagents]
 
                             ### Critical Patterns
 
@@ -149,14 +203,106 @@ object WorkflowPromptsGuidance {
                             - Include acceptance criteria in summaries
                             ```
 
-                            **File Writing Steps**:
+                            **File Writing Steps** (Fresh or Full Re-init):
                             1. Check if your AI's standard documentation file exists in project root
-                            2. If exists: Read current content, check for existing initialization section
-                            3. If section exists: Update with new timestamp
+                            2. If exists: Read current content
+                            3. If section exists: **Replace entire section** with new content (full rewrite)
                             4. If section missing: Append new section at end of file
                             5. If no file exists: Create your AI's standard documentation file with initialization section
-                            6. **Verify**: Read the file back to confirm successful write
-                            7. **Report**: Tell user where initialization was saved (specific file path and section)
+                            6. Update version field to current version (1.1.0-beta)
+                            7. Update Features field based on Step 7 selections (none, hooks, subagents, or hooks,subagents)
+                            8. **Verify**: Read the file back to confirm successful write
+                            9. **Report**: Tell user where initialization was saved (specific file path and section)
+
+                            ### Step 2B: Refresh Guidelines Mode (Option [1])
+
+                            **Purpose**: Update patterns without changing features or full rewrite.
+
+                            **Actions**:
+                            1. Read existing initialization section from documentation file
+                            2. Extract current version and features from existing section
+                            3. **Replace only** the "### Critical Patterns" subsection with latest patterns (from template above)
+                            4. Update timestamp to current date (YYYY-MM-DD)
+                            5. Update version to 1.1.0-beta
+                            6. **Preserve** features field (don't change existing hooks/subagents status)
+                            7. **Preserve** any custom content user added outside Critical Patterns subsection
+                            8. Write updated section back to file
+                            9. Verify and report: "Guidelines refreshed to v1.1.0-beta. Your features unchanged: [list]"
+
+                            **What gets updated**:
+                            - ✅ Critical Patterns subsection (latest workflow patterns)
+                            - ✅ Timestamp (current date)
+                            - ✅ Version field (1.1.0-beta)
+
+                            **What is preserved**:
+                            - ✅ Features field (hooks/subagents status unchanged)
+                            - ✅ User customizations outside Critical Patterns
+                            - ✅ File location and overall structure
+
+                            ### Step 2C: Install New Features Mode (Option [2])
+
+                            **Purpose**: Detect and install newly available features without rewriting guidelines.
+
+                            **Actions**:
+                            1. Read existing initialization section to check Features field
+                            2. Parse Features field to see what's already installed
+                            3. Check for `.claude/` directory (Claude Code detection)
+                            4. Determine what's NEW and available:
+
+                            **Feature Detection Logic**:
+                            ```
+                            If .claude/ exists:
+                                Check Features field for "hooks"
+                                ├─ Missing "hooks" → Offer hook installation
+                                └─ Has "hooks" → Skip (already installed)
+
+                                Check Features field for "subagents"
+                                ├─ Missing "subagents" → Offer subagent installation
+                                └─ Has "subagents" → Skip (already installed)
+
+                                Check if .claude/settings.local.json has Task Orchestrator hooks
+                                ├─ Not found → Offer hook installation (Features field outdated)
+                                └─ Found → Confirm already installed
+
+                                Check if .claude/agents/ directory exists
+                                ├─ Not found → Offer subagent installation (Features field outdated)
+                                └─ Found → Confirm already installed
+                            Else:
+                                Report: "Claude Code not detected. Features require .claude/ directory."
+                            ```
+
+                            **Installation Options**:
+                            ```
+                            Available new features:
+
+                            [Hooks] Workflow Automation Hooks (if not installed)
+                                    • SessionStart: Auto-load context
+                                    • PreToolUse: Template discovery reminders
+
+                            [Sub-agents] Sub-Agent Orchestration (if not installed)
+                                         • 3-level agent coordination
+                                         • 97% token reduction
+
+                            Which features would you like to install?
+                            [H] Hooks only
+                            [S] Sub-agents only
+                            [B] Both
+                            [N] None (cancel)
+                            ```
+
+                            5. Based on selection, install requested features (same as Step 7 logic)
+                            6. Update Features field in initialization section
+                            7. Update timestamp
+                            8. Report: "Installed: [features]. Your guidelines unchanged."
+
+                            **Sync Detection** (important!):
+                            If Features field says "hooks" but `.claude/settings.local.json` doesn't have them:
+                            - Alert: "Features field outdated. Hooks listed but not found in settings."
+                            - Offer: "Would you like to [1] Install hooks or [2] Update field to remove 'hooks'?"
+
+                            If Features field says "subagents" but `.claude/agents/` doesn't exist:
+                            - Alert: "Features field outdated. Sub-agents listed but directory not found."
+                            - Offer: "Would you like to [1] Install sub-agents or [2] Update field to remove 'subagents'?"
 
                             ### Step 3: Understand Two Workflow Systems
 
