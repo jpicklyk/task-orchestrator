@@ -119,27 +119,23 @@ object WorkflowPromptsGuidance {
 
                             ### Critical Patterns
 
-                            **Template Discovery** (NEVER skip this step):
-                            - Always: list_templates(targetEntityType, isEnabled=true)
-                            - Never: Assume templates exist
-                            - Apply: Use templateIds parameter during creation
-                            - Filter: By targetEntityType (TASK or FEATURE) and isEnabled=true
-
                             **Session Start Routine**:
                             1. Run get_overview() first to understand current state
                             2. Check for in-progress tasks before starting new work
                             3. Review priorities and dependencies
 
-                            **Intent Recognition Patterns**:
+                            **Intent Recognition** (applies to templates OR sub-agents):
                             - "Create feature for X" → Feature creation with template discovery
-                            - "Implement X" → Task creation with implementation templates
-                            - "Fix bug X" → Bug triage with Bug Investigation template
+                            - "Implement X" → Task creation with implementation templates (then optionally route to specialist)
+                            - "Fix bug X" → Bug triage with Bug Investigation template (then optionally route to specialist)
                             - "Break down X" → Task decomposition pattern
                             - "Set up project" → Project setup workflow
 
-                            **Dual Workflow Model**:
-                            - Autonomous: For common tasks with clear intent (faster, natural)
-                            - Explicit Workflows: For complex scenarios or learning (comprehensive)
+                            **Template Discovery** (ALWAYS required, regardless of using sub-agents):
+                            - Always: list_templates(targetEntityType, isEnabled=true)
+                            - Never: Assume templates exist
+                            - Apply: Use templateIds parameter during creation
+                            - Templates work with both direct execution AND sub-agent execution
 
                             **Git Integration**:
                             - Auto-detect .git directory presence
@@ -162,29 +158,36 @@ object WorkflowPromptsGuidance {
                             6. **Verify**: Read the file back to confirm successful write
                             7. **Report**: Tell user where initialization was saved (specific file path and section)
 
-                            ### Step 3: Understand Dual Workflow Usage Model
+                            ### Step 3: Understand Two Workflow Systems
 
-                            Task Orchestrator supports two complementary modes:
+                            Task Orchestrator provides TWO complementary workflow systems:
 
-                            **Autonomous Pattern Application**:
-                            - AI recognizes user intent from natural language
-                            - Applies appropriate patterns automatically
-                            - Uses template discovery and selection autonomously
-                            - Provides streamlined, efficient interaction
-                            - Best for: Common tasks, clear intents, experienced users
+                            **System 1: Templates + Workflow Prompts (Universal)**:
+                            - Works with ANY MCP client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.)
+                            - Always available, no setup required
+                            - Templates structure the WORK (what to document, requirements, testing strategy)
+                            - Workflow Prompts guide the PROCESS (step-by-step creation, implementation, validation)
+                            - Use for: All work, regardless of complexity or AI client
 
-                            **Explicit Workflow Invocation**:
-                            - User invokes specific workflow prompts
-                            - AI follows detailed step-by-step guidance
-                            - Provides teaching and comprehensive coverage
-                            - Best for: Complex scenarios, learning, edge cases
+                            **System 2: Sub-Agent Orchestration (Claude Code Only)**:
+                            - 3-level agent coordination for complex multi-task features
+                            - Works ONLY with Claude Code (requires `.claude/agents/` directory)
+                            - Setup required: Run `setup_claude_agents` tool first
+                            - 97% token reduction through specialist routing
+                            - Use for: Complex features (4+ tasks), specialist coordination, token efficiency
 
-                            **Decision Framework**:
+                            **How They Work Together**:
+                            - Templates structure documentation → Sub-agents read and execute
+                            - Templates work with BOTH direct execution AND sub-agent execution
+                            - You can use templates without sub-agents (universal)
+                            - Sub-agents always use templates for context (complementary)
+
+                            **Pattern Application Modes** (applies to BOTH systems):
                             ```
                             User Request → Intent Recognition
-                            ├─ Clear, common pattern? → Apply autonomously
-                            ├─ Complex, multi-phase? → Suggest workflow prompt
-                            ├─ Educational need? → Offer workflow prompt
+                            ├─ Clear, common pattern? → Apply pattern autonomously (fast)
+                            ├─ Complex, multi-phase? → Invoke workflow prompt (guided)
+                            ├─ Educational need? → Invoke workflow prompt (teaching)
                             └─ Uncertain? → Apply pattern + explain approach
                             ```
 
