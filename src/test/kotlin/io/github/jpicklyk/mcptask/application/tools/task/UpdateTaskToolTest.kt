@@ -425,6 +425,101 @@ class UpdateTaskToolTest {
     }
 
     @Test
+    fun `test update with summary parameter`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId),
+                "summary" to JsonPrimitive("Updated summary using summary parameter")
+            )
+        )
+
+        // Setup specific mock to capture the task being updated
+        val taskCaptor = slot<Task>()
+        coEvery {
+            mockTaskRepository.update(capture(taskCaptor))
+        } answers {
+            Result.Success(firstArg<Task>())
+        }
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true")
+
+        // Verify that the captured task has the updated summary
+        if (taskCaptor.isCaptured) {
+            val task = taskCaptor.captured
+            assertEquals("Updated summary using summary parameter", task.summary)
+        }
+    }
+
+    @Test
+    fun `test update with description parameter for backwards compatibility`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId),
+                "description" to JsonPrimitive("Updated summary using deprecated description parameter")
+            )
+        )
+
+        // Setup specific mock to capture the task being updated
+        val taskCaptor = slot<Task>()
+        coEvery {
+            mockTaskRepository.update(capture(taskCaptor))
+        } answers {
+            Result.Success(firstArg<Task>())
+        }
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true")
+
+        // Verify that the captured task has the updated summary (from description parameter)
+        if (taskCaptor.isCaptured) {
+            val task = taskCaptor.captured
+            assertEquals("Updated summary using deprecated description parameter", task.summary)
+        }
+    }
+
+    @Test
+    fun `test summary parameter takes precedence over description parameter`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(validTaskId),
+                "summary" to JsonPrimitive("Summary from summary parameter"),
+                "description" to JsonPrimitive("Summary from description parameter")
+            )
+        )
+
+        // Setup specific mock to capture the task being updated
+        val taskCaptor = slot<Task>()
+        coEvery {
+            mockTaskRepository.update(capture(taskCaptor))
+        } answers {
+            Result.Success(firstArg<Task>())
+        }
+
+        val result = tool.execute(params, context)
+        assertTrue(result is JsonObject, "Response should be a JsonObject")
+
+        val responseObj = result as JsonObject
+        val success = responseObj["success"]?.jsonPrimitive?.boolean ?: false
+        assertTrue(success, "Success should be true")
+
+        // Verify that summary parameter takes precedence
+        if (taskCaptor.isCaptured) {
+            val task = taskCaptor.captured
+            assertEquals("Summary from summary parameter", task.summary,
+                "Summary parameter should take precedence over description parameter")
+        }
+    }
+
+    @Test
     fun `test featureId validation only triggered when changing feature`() = runBlocking {
         // Task already has a feature ID - updating without changing it should not trigger validation
         val existingFeatureId = UUID.randomUUID()

@@ -221,7 +221,8 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
         |-------|------|----------|-------------|
         | id | UUID | Yes | Task identifier |
         | title | string | No | New title |
-        | description | string | No | New summary/description |
+        | summary | string | No | New summary/description (preferred) |
+        | description | string | No | New summary/description (DEPRECATED: use 'summary') |
         | status | enum | No | New status (pending, in_progress, completed, cancelled, deferred) |
         | priority | enum | No | New priority (high, medium, low) |
         | complexity | integer | No | New complexity (1-10) |
@@ -347,10 +348,16 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
                                                 "description" to JsonPrimitive("(optional) New title for the task")
                                             )
                                         ),
+                                        "summary" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("string"),
+                                                "description" to JsonPrimitive("(optional) New summary/description for the task")
+                                            )
+                                        ),
                                         "description" to JsonObject(
                                             mapOf(
                                                 "type" to JsonPrimitive("string"),
-                                                "description" to JsonPrimitive("(optional) New detailed description/summary")
+                                                "description" to JsonPrimitive("(optional) (DEPRECATED: use 'summary' instead) New detailed description")
                                             )
                                         ),
                                         "status" to JsonObject(
@@ -441,7 +448,7 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
             }
 
             // Validate at least one update field is provided
-            val updateFields = listOf("title", "description", "status", "priority", "complexity", "featureId", "tags")
+            val updateFields = listOf("title", "summary", "description", "status", "priority", "complexity", "featureId", "tags")
             if (updateFields.none { taskObj.containsKey(it) }) {
                 throw ToolValidationException(
                     "Task at index $index has no fields to update. " +
@@ -542,7 +549,12 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
 
                 // Parse update parameters (use existing values if not provided)
                 val title = optionalString(taskParams, "title") ?: existingTask.title
-                val description = optionalString(taskParams, "description") ?: existingTask.summary
+
+                // Handle summary parameter with backwards compatibility for description
+                // When both are provided, summary takes precedence
+                val summary = optionalString(taskParams, "summary")
+                    ?: optionalString(taskParams, "description")
+                    ?: existingTask.summary
 
                 val statusStr = optionalString(taskParams, "status")
                 val status = if (statusStr != null) parseStatus(statusStr) else existingTask.status
@@ -582,7 +594,7 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
                 // Create the updated task
                 val updatedTask = existingTask.copy(
                     title = title,
-                    summary = description,
+                    summary = summary,
                     status = status,
                     priority = priority,
                     complexity = complexity,
