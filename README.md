@@ -41,6 +41,7 @@ AI coding assistants like Claude, Cursor, and Windsurf lose context between sess
 - **[🤖 AI Guidelines](docs/ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
 
 **Using Task Orchestrator**:
+- **[🤖 Agent Orchestration](docs/agent-orchestration.md)** - 3-level AI agent coordination system
 - **[📝 Templates](docs/templates.md)** - 9 built-in documentation templates
 - **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 6 workflow automations
 - **[🔧 API Reference](docs/api-reference.md)** - Complete MCP tools documentation
@@ -122,7 +123,26 @@ Project (optional)
 
 ## AI-Native Design
 
-Task Orchestrator includes a comprehensive **AI Guidelines and Initialization System** that enables AI agents to use the system autonomously through natural language pattern recognition:
+Task Orchestrator includes two powerful AI systems working together:
+
+### 1. AI Agent Orchestration System (NEW)
+
+A **3-level agent coordination architecture** for scalable, context-efficient workflows:
+
+- **Feature Manager**: Coordinates multi-task features, recommends next task
+- **Task Manager**: Routes tasks to specialists, passes dependency context
+- **Specialists**: Backend, Frontend, Database, Test, Technical Writer, Planning
+- **97% Token Reduction**: Orchestrator maintains only brief summaries, not full context
+- **Automatic Routing**: Task tags select the right specialist via `recommend_agent`
+- **Dependency Context**: Completed task summaries passed to dependent work
+
+**⚠️ Setup Required**: Run `setup_claude_agents` to enable sub-agent support (creates `.claude/agents/` directory with agent definitions)
+
+> **See**: [Agent Orchestration Documentation](docs/agent-orchestration.md) for complete guide
+
+### 2. AI Guidelines and Initialization System
+
+Enables AI agents to use the system autonomously through natural language:
 
 - **Three-Layer Architecture**: MCP Resources (internalized knowledge) + Workflow Prompts (explicit guidance) + Dynamic Templates (database-driven)
 - **Autonomous Pattern Recognition**: AI recognizes user intent like "help me plan this feature" without explicit commands

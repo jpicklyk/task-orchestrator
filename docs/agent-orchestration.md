@@ -1,0 +1,1624 @@
+# AI Agent Orchestration System
+
+**A 3-level agent coordination architecture for scalable, context-efficient AI workflows**
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+  - [3-Level Architecture](#3-level-architecture)
+  - [Orchestrator-Driven Model](#orchestrator-driven-model)
+  - [Key Design Principles](#key-design-principles)
+- [Agent-Mapping Configuration](#agent-mapping-configuration)
+  - [Purpose](#purpose)
+  - [Configuration Structure](#configuration-structure)
+  - [Tag-Based Agent Selection](#tag-based-agent-selection)
+  - [Customizing Agent Mappings](#customizing-agent-mappings)
+- [Feature Manager Agent](#feature-manager-agent)
+  - [Role and Responsibilities](#role-and-responsibilities)
+  - [START Mode Workflow](#feature-manager-start-mode)
+  - [END Mode Workflow](#feature-manager-end-mode)
+  - [Token Optimization](#feature-manager-token-optimization)
+- [Task Manager Agent](#task-manager-agent)
+  - [Role and Responsibilities](#task-manager-role)
+  - [START Mode Workflow](#task-manager-start-mode)
+  - [END Mode Workflow](#task-manager-end-mode)
+  - [Dependency Context Passing](#dependency-context-passing)
+  - [Token Optimization](#task-manager-token-optimization)
+- [Specialist Agents](#specialist-agents)
+  - [Available Specialists](#available-specialists)
+  - [Specialist Workflow Pattern](#specialist-workflow-pattern)
+  - [Section Tag Filtering](#section-tag-filtering)
+- [Complete Workflow Examples](#complete-workflow-examples)
+  - [Single Task Workflow](#single-task-workflow)
+  - [Feature with Dependency Chain](#feature-with-dependency-chain)
+  - [Parallel Work Opportunities](#parallel-work-opportunities)
+  - [Multi-Feature Project](#multi-feature-project)
+- [Token Efficiency and Scaling](#token-efficiency-and-scaling)
+  - [Context Isolation](#context-isolation)
+  - [Summary Sections](#summary-sections)
+  - [Bookends Pattern](#bookends-pattern)
+  - [Why This Architecture Scales](#why-this-architecture-scales)
+- [Setup and Configuration](#setup-and-configuration)
+  - [Agent Definition Files](#agent-definition-files)
+  - [Setup Tool](#setup-tool)
+  - [Customization Options](#customization-options)
+- [Best Practices](#best-practices)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Overview
+
+The MCP Task Orchestrator implements a **3-level agent coordination architecture** that enables scalable AI workflows with minimal token usage. This system coordinates multiple AI agents working together on complex projects while maintaining context isolation and efficiency.
+
+### 🚀 Quick Start
+
+**Before using the agent orchestration system**, you must run the setup tool:
+
+```
+User: "Setup Claude Code agents"
+```
+
+This creates the `.claude/agents/` directory with all agent definitions required for Claude Code sub-agent support. Without this step, sub-agents will not be available.
+
+See [Setup Tool](#setup-tool) for complete details.
+
+### What Problem Does This Solve?
+
+Traditional single-agent AI workflows face several challenges:
+
+1. **Context Overload**: Single agent accumulates massive context from all tasks
+2. **Lack of Specialization**: One agent tries to handle all work types
+3. **Poor Scaling**: Adding more work increases context linearly
+4. **No Coordination**: Multiple agents risk conflicts and duplication
+
+### How Agent Orchestration Solves This
+
+The 3-level architecture provides:
+
+- **Hierarchical Coordination**: Specialized agents at each level (feature, task, specialist)
+- **Context Isolation**: Each sub-agent starts with clean context
+- **Automatic Routing**: Task tags automatically select the right specialist
+- **Token Efficiency**: Summary sections enable knowledge transfer at ~300-500 tokens
+- **Dependency Awareness**: Task Manager passes completed dependency context to specialists
+
+---
+
+## Architecture
+
+### 3-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         ORCHESTRATOR                             │
+│                    (Main Claude Code Instance)                   │
+│  - Accumulates full conversation history                         │
+│  - Launches sub-agents (Feature Manager, Task Manager)           │
+│  - Receives brief summaries from sub-agents                      │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         │ Launches with feature ID
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      FEATURE MANAGER                             │
+│                     (Sub-Agent, Clean Context)                   │
+│                                                                   │
+│  START Mode:                                                     │
+│  - Analyzes feature progress                                     │
+│  - Recommends next task to orchestrator                          │
+│                                                                   │
+│  END Mode:                                                       │
+│  - Summarizes completed feature work                             │
+│  - Creates feature Summary section                               │
+│  - Marks feature complete                                        │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         │ Orchestrator launches with task ID
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       TASK MANAGER                               │
+│                     (Sub-Agent, Clean Context)                   │
+│                                                                   │
+│  START Mode:                                                     │
+│  - Reads task and calls recommend_agent                          │
+│  - Reads completed dependency summaries                          │
+│  - Briefs orchestrator on specialist needs                       │
+│                                                                   │
+│  END Mode:                                                       │
+│  - Extracts specialist output                                    │
+│  - Creates task Summary section                                  │
+│  - Marks task complete                                           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         │ Orchestrator launches with task context
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    SPECIALIST AGENTS                             │
+│            (Sub-Agents, Clean Context, Specialized)              │
+│                                                                   │
+│  - Backend Engineer    - Database Engineer                       │
+│  - Frontend Developer  - Test Engineer                           │
+│  - Technical Writer    - Planning Specialist                     │
+│                                                                   │
+│  Each specialist:                                                │
+│  1. Reads task with sections                                     │
+│  2. Performs specialized work                                    │
+│  3. Updates task sections with results                           │
+│  4. Marks task complete                                          │
+│  5. Returns brief summary                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Orchestrator-Driven Model
+
+**CRITICAL CONSTRAINT**: Sub-agents CANNOT launch other sub-agents. Only the orchestrator can invoke sub-agents.
+
+**Why This Matters**:
+- Prevents infinite agent chains
+- Ensures orchestrator maintains workflow control
+- Keeps conversation history at orchestrator level
+- Allows orchestrator to adapt workflow based on progress
+
+**Workflow Pattern**:
+```
+1. Orchestrator → Feature Manager START → recommends task
+2. Orchestrator → Task Manager START → recommends specialist
+3. Orchestrator → Specialist → performs work → returns brief
+4. Orchestrator → Task Manager END → summarizes work
+5. Repeat steps 1-4 until feature complete
+6. Orchestrator → Feature Manager END → summarizes feature
+```
+
+### Key Design Principles
+
+#### 1. Context Isolation
+
+Each sub-agent invocation starts with **clean context**:
+- No context inheritance from orchestrator
+- Only task/feature data provided
+- Previous work accessible via Summary sections
+- Results in ~90% token reduction vs. shared context
+
+#### 2. Bookends Pattern
+
+Both Feature Manager and Task Manager use START/END modes:
+
+**START Mode**: Prepare and analyze
+- Feature Manager: Analyze feature, recommend next task
+- Task Manager: Read task, recommend specialist
+
+**END Mode**: Summarize and complete
+- Feature Manager: Create feature summary, mark complete
+- Task Manager: Extract specialist output, create task summary
+
+**Benefits**:
+- Minimizes token usage through selective reading
+- Separates preparation from completion
+- Enables dependency context passing
+
+#### 3. Summary Sections
+
+Structured markdown summaries enable knowledge transfer:
+- Created by Task Manager END mode
+- Token-efficient (~300-500 tokens)
+- Used by dependency context, feature summaries, historical reference
+- Preserve essential knowledge without full context
+
+**Summary Section Format**:
+```markdown
+### Completed
+[What was accomplished]
+
+### Files Changed
+- `path/to/file.kt` - [what changed]
+
+### Next Steps
+[What depends on this or comes next]
+
+### Notes
+[Important technical decisions]
+```
+
+#### 4. Automatic Specialist Selection
+
+The `recommend_agent` tool provides intelligent routing:
+- Reads `agent-mapping.yaml` configuration
+- Matches task tags to specialist capabilities
+- Returns exact agent name and reasoning
+- Includes section tags for focused context
+
+**Task Manager must call this tool** - no manual inference allowed.
+
+---
+
+## Agent-Mapping Configuration
+
+### Purpose
+
+The `agent-mapping.yaml` file maps task and feature characteristics to specialized AI agents. This enables:
+
+- **Automatic Specialist Selection**: Task tags determine which agent handles the work
+- **Focused Context**: Section tags tell specialists which sections to prioritize
+- **Consistent Routing**: Same tags always route to same specialist
+- **Easy Customization**: Add custom agents by editing YAML
+
+### Configuration Structure
+
+**File Location**: `src/main/resources/agents/agent-mapping.yaml`
+
+```yaml
+# Map workflow activities to agents
+workflowPhases:
+  planning: Planning Specialist
+  documentation: Technical Writer
+  review: Technical Writer
+
+# Map task tags to specialized agents
+tagMappings:
+  - task_tags: [backend, api, service, kotlin, rest]
+    agent: Backend Engineer
+    section_tags: [requirements, technical-approach, implementation]
+
+  - task_tags: [frontend, ui, react, vue, web]
+    agent: Frontend Developer
+    section_tags: [requirements, technical-approach, design, ux]
+
+  - task_tags: [database, migration, schema, sql, flyway]
+    agent: Database Engineer
+    section_tags: [requirements, technical-approach, data-model]
+
+  - task_tags: [testing, test, qa, quality, coverage]
+    agent: Test Engineer
+    section_tags: [requirements, testing-strategy, acceptance-criteria]
+
+  - task_tags: [documentation, docs, user-docs, api-docs, guide]
+    agent: Technical Writer
+    section_tags: [requirements, context, documentation]
+
+  - task_tags: [planning, requirements, specification, architecture]
+    agent: Planning Specialist
+    section_tags: [context, requirements, technical-approach]
+
+# Priority order when multiple tags match (first match wins)
+tagPriority:
+  - database
+  - backend
+  - frontend
+  - testing
+  - documentation
+  - planning
+```
+
+### Tag-Based Agent Selection
+
+**How It Works**:
+
+1. Task Manager calls `recommend_agent(taskId='...')`
+2. Tool reads task tags (e.g., `["backend", "api", "rest"]`)
+3. Tool reads `agent-mapping.yaml` tag mappings
+4. Tool finds first matching mapping (according to tagPriority)
+5. Tool returns:
+   - `agent`: "Backend Engineer"
+   - `reason`: "Task tags match backend category (matched: backend, api, rest)"
+   - `matchedTags`: ["backend", "api", "rest"]
+   - `sectionTags`: ["requirements", "technical-approach", "implementation"]
+
+**Priority Resolution**:
+- If task has both "backend" and "frontend" tags, "backend" wins (higher priority)
+- If no tags match, tool recommends general agent or returns error
+- Priority order prevents ambiguous routing
+
+### Customizing Agent Mappings
+
+To add a custom agent:
+
+1. **Create agent definition file** (see [Agent Definition Files](#agent-definition-files))
+
+2. **Add mapping to `agent-mapping.yaml`**:
+```yaml
+tagMappings:
+  - task_tags: [mobile, ios, android, react-native]
+    agent: Mobile Developer
+    section_tags: [requirements, technical-approach, implementation, platform-specific]
+```
+
+3. **Update tag priority** (if needed):
+```yaml
+tagPriority:
+  - mobile      # Add here if mobile should take precedence
+  - database
+  - backend
+  # ...
+```
+
+4. **Use in tasks**:
+```
+Task tags: ["mobile", "ios", "ui"]
+→ Routes to "Mobile Developer"
+→ Focuses on: requirements, technical-approach, implementation, platform-specific sections
+```
+
+**Best Practices**:
+- Use consistent tag naming (lowercase, hyphenated)
+- List most specific tags first in tagPriority
+- Include 3-5 section tags per mapping
+- Test routing with `recommend_agent` tool
+
+---
+
+## Feature Manager Agent
+
+### Role and Responsibilities
+
+The Feature Manager operates at the **feature level**, coordinating multi-task workflows:
+
+**Primary Responsibilities**:
+- Analyze feature progress and task completion status
+- Recommend next task to work on (dependency-aware)
+- Track feature-level status transitions
+- Create feature-level summaries when complete
+
+**Key Characteristic**: Interface agent between orchestrator and Task Manager. Does NOT perform implementation work.
+
+### Feature Manager START Mode
+
+**Purpose**: Analyze feature and recommend next task to orchestrator
+
+**Workflow Steps**:
+
+#### Step 1: Read Feature with Full Context
+```
+get_feature(id='[feature-id]',
+            includeTasks=true,
+            includeTaskDependencies=true,
+            includeTaskCounts=true)
+```
+
+**Why Full Context**: Need to see all tasks, their status, and dependencies to make intelligent recommendation.
+
+#### Step 2: Analyze Feature State
+
+From Step 1 data:
+- Review task completion status (pending, in-progress, completed)
+- Check `taskCounts.byStatus` for progress metrics
+- Calculate progress: completed / total
+- Review dependency information
+
+#### Step 3: Get Next Task Recommendation
+```
+get_next_task(featureId='[feature-id]', limit=3, includeDetails=true)
+```
+
+**Key Feature**: Tool automatically filters blocked tasks, so results are safe to recommend.
+
+#### Step 4: Update Feature Status (if needed)
+
+If feature is in "planning" and recommending first task:
+```
+update_feature(id='[feature-id]', status='in-development')
+```
+
+#### Step 5: Return Recommendation to Orchestrator
+
+**Format (unblocked task available)**:
+```
+Feature: User Authentication
+Progress: 3/8 tasks completed
+Status: in-development
+
+Next Task: Implement OAuth token refresh
+Task ID: 550e8400-e29b-41d4-a716-446655440000
+Priority: high
+Complexity: 5
+Reason: Unblocked, high priority, blocks 2 other tasks
+
+Context: Refresh tokens expire after 30 days. Need automatic refresh
+mechanism to maintain user sessions without re-authentication.
+
+Next: Orchestrator should launch Task Manager START for this task.
+```
+
+**Format (all tasks complete)**:
+```
+Feature: User Authentication
+Progress: 8/8 tasks completed
+Status: All tasks complete
+
+Next: Orchestrator should call Feature Manager END to complete this feature.
+```
+
+**Format (tasks blocked)**:
+```
+Feature: User Authentication
+Progress: 6/8 tasks completed
+Blocked: 2 tasks are blocked by incomplete dependencies
+
+Blocked Tasks:
+- Integration testing (blocked by: OAuth implementation)
+- Load testing (blocked by: Integration testing)
+
+Next: Review and resolve blocking dependencies before proceeding.
+```
+
+### Feature Manager END Mode
+
+**Purpose**: Summarize completed feature work and close the feature
+
+**What Feature Manager Receives**: Orchestrator provides summaries from all completed tasks (or references to where to find them).
+
+**Workflow Steps**:
+
+#### Step 1: Extract Feature-Level Insights
+
+If task summaries provided by orchestrator, use them directly.
+Otherwise:
+```
+get_feature(id='[feature-id]', includeTasks=true, includeSections=true)
+```
+
+**Identify**:
+- Overall accomplishment (what feature delivers)
+- Tasks completed (brief list)
+- Files changed (consolidated across all tasks)
+- Key technical decisions (architecture, design patterns, libraries)
+- Testing coverage
+- Integration points
+- Next steps (follow-up work)
+
+#### Step 2: Create Feature Summary Section
+
+```
+add_section(
+  entityType='FEATURE',
+  entityId='[feature-id]',
+  title='Summary',
+  usageDescription='Summary of completed feature work including tasks, files, and technical decisions',
+  content='[markdown content below]',
+  contentFormat='MARKDOWN',
+  ordinal=999,
+  tags='summary,completion'
+)
+```
+
+**Summary Content Format**:
+```markdown
+### What Was Built
+[2-3 sentences describing the feature outcome and value delivered]
+
+### Tasks Completed
+1. **[Task 1 title]** - [1 sentence: what it did]
+2. **[Task 2 title]** - [1 sentence: what it did]
+3. **[Task 3 title]** - [1 sentence: what it did]
+
+### Files Changed
+- `path/to/file1.kt` - [what changed]
+- `path/to/file2.kt` - [what changed]
+- `path/to/file3.sql` - [what changed]
+
+### Technical Decisions
+- [Key decision 1 and rationale]
+- [Key decision 2 and rationale]
+- [Architecture pattern or design choice]
+
+### Testing
+[Brief overview of test coverage - unit tests, integration tests, etc.]
+
+### Integration Points
+[What systems/components this feature integrates with]
+
+### Next Steps
+[Any follow-up work, related features, or technical debt noted]
+```
+
+#### Step 3: Mark Feature Complete
+```
+update_feature(id='[feature-id]', status='completed')
+```
+
+#### Step 4: Return Brief Summary
+
+**Keep it concise** - Summary section has the details:
+```
+Feature: User Authentication
+Status: Completed
+Tasks: 8/8 completed
+Summary section created
+
+Implemented OAuth 2.0 authentication with token refresh, rate limiting,
+and session management. All endpoints tested with 95% code coverage.
+Ready for integration with frontend.
+```
+
+### Feature Manager Token Optimization
+
+**START Mode**:
+- Full feature read required (~1-2k tokens depending on task count)
+- Necessary to make intelligent recommendations
+- Trade-off: Spend tokens once to coordinate efficiently
+
+**END Mode**:
+- If orchestrator provides task summaries, use them directly (~2k tokens total)
+- Only read feature if needed (~3-5k tokens)
+- Don't re-read individual task details
+- Aim for ~50% token savings vs full re-read
+
+**Overall Efficiency**: Feature Manager enables orchestrator to work with brief summaries while maintaining full feature awareness.
+
+---
+
+## Task Manager Agent
+
+### Task Manager Role
+
+The Task Manager operates at the **task level**, coordinating specialist routing:
+
+**Primary Responsibilities**:
+- Read task details and call `recommend_agent` for specialist selection
+- Read completed dependency summaries and include in brief
+- Prepare orchestrator brief with specialist recommendation
+- Extract specialist output and create task summaries
+- Mark tasks complete
+
+**Key Characteristic**: Interface agent between orchestrator and specialists. Does NOT perform implementation work.
+
+### Task Manager START Mode
+
+**Purpose**: Prepare task and brief orchestrator on specialist needs
+
+**Mode Detection**: Orchestrator provides task ID only (no specialist output)
+
+**Workflow Steps**:
+
+#### Step 1: Read the Task
+```
+get_task(id='[task-id]', includeSections=true)
+```
+
+**Execute this first** to get task details, summary, tags, sections.
+
+#### Step 2: Get Agent Recommendation (REQUIRED)
+```
+recommend_agent(taskId='[task-id]')
+```
+
+**CRITICAL**: Task Manager MUST execute this tool call. Do not skip or try to infer manually.
+
+**Response Provides**:
+- `agent`: Exact agent name (use EXACTLY as provided)
+- `reason`: Why this agent was selected
+- `matchedTags`: Which tags matched
+- `sectionTags`: Which section tags specialist should focus on
+
+#### Step 2.5: Check for Dependencies (if task has dependencies)
+
+```
+get_task_dependencies(taskId='[task-id]',
+                      direction='incoming',
+                      includeTaskInfo=true)
+```
+
+If task has incoming dependencies (tasks that block this one):
+
+**For each COMPLETED dependency**:
+```
+get_sections(entityType='TASK',
+             entityId='[dependency-task-id]',
+             tags='summary')
+```
+
+**Dependency Context Strategy**:
+- Only read COMPLETED dependencies (status='completed')
+- Ignore pending/in-progress dependencies (specialist can't use them yet)
+- Get Summary section only (concise, ~300-500 tokens)
+- Include in brief to orchestrator
+
+**Why This Matters**:
+- Dependencies often contain critical context (schemas, APIs, decisions)
+- Summary sections are token-efficient
+- Specialist needs context to build on previous work
+
+#### Step 3: Set Task In-Progress
+```
+set_status(id='[task-id]', status='in-progress')
+```
+
+#### Step 4: Return Recommendation to Orchestrator
+
+**Format WITHOUT Dependencies**:
+```
+Task: Implement user login endpoint
+Specialist: Backend Engineer
+Reason: Task tags match backend category (matched: backend, api, rest)
+Focus: requirements, technical-approach, implementation
+Context: Create POST /auth/login endpoint with email/password authentication
+and JWT token generation.
+
+Next: Orchestrator should launch Backend Engineer agent to complete this task.
+```
+
+**Format WITH Dependencies**:
+```
+Task: Create API endpoints for user management
+Specialist: Backend Engineer
+Reason: Task tags match backend category (matched: backend, api, rest)
+Focus: requirements, technical-approach, implementation
+Context: Implement REST endpoints for user CRUD operations using the
+database schema created in previous task.
+
+Dependencies (1 completed):
+─────────────────────────
+Task: Create database schema for users
+Status: Completed
+Summary: Created Users table with id (UUID), username, email, password_hash,
+created_at, updated_at. Added unique constraints on username and email.
+Implemented proper indexing for email lookups.
+Files: src/main/resources/db/migration/V3__create_users_table.sql
+─────────────────────────
+
+Next: Orchestrator should launch Backend Engineer agent to complete this task.
+```
+
+**Remember**: You provide the recommendation - orchestrator launches the specialist.
+
+### Task Manager END Mode
+
+**Purpose**: Extract specialist work and close the task
+
+**Mode Detection**: Orchestrator provides task ID + specialist output text
+
+**What Task Manager Receives**: The orchestrator provides the specialist's complete output.
+
+**Workflow Steps**:
+
+#### Step 1: Extract Key Information from Specialist Output
+
+Read through specialist output and identify:
+- What was accomplished
+- Which files were changed
+- What comes next
+- Important technical decisions
+
+#### Step 2: Create Summary Section
+
+```
+add_section(
+  entityType='TASK',
+  entityId='[task-id]',
+  title='Summary',
+  usageDescription='Summary of completed task including files changed and next steps',
+  content='[markdown content below]',
+  contentFormat='MARKDOWN',
+  ordinal=0,
+  tags='summary,completion'
+)
+```
+
+**Summary Content Format**:
+```markdown
+### Completed
+[What was accomplished]
+
+### Files Changed
+- `path/to/file1.kt` - [what changed]
+- `path/to/file2.sql` - [what changed]
+
+### Next Steps
+[What depends on this or comes next]
+
+### Notes
+[Any important technical decisions or considerations]
+```
+
+#### Step 3: Mark Complete
+```
+set_status(id='[task-id]', status='completed')
+```
+
+#### Step 4: Return Brief Summary
+
+**Format**: 2-3 sentences maximum
+**Content**: Specific file names and next actions
+
+**Examples**:
+
+✅ "Completed database schema. Created V3__add_task_summary.sql migration and updated Task entity with summary field. Ready for MCP tool updates."
+
+✅ "Implemented OAuth endpoints. Added UserController with login/register/refresh methods, JWT token service, and integration tests. Ready for frontend integration."
+
+❌ "Successfully completed the task!" (too vague)
+
+### Dependency Context Passing
+
+**The Innovation**: Task Manager reads Summary sections from completed dependencies and includes them in the brief to the orchestrator. The orchestrator then passes this context to the specialist.
+
+**Example Flow**:
+
+1. **Task T1** (Database Schema): Specialist creates users table
+   - Task Manager END creates Summary: "Created Users table with id, username, email..."
+
+2. **Task T2** (API Endpoints): Depends on T1
+   - Task Manager START reads T1's Summary section
+   - Includes in brief: "Dependencies (1 completed): Task: Create database schema... Summary: Created Users table..."
+   - Orchestrator launches Backend Engineer with this context
+   - Backend Engineer builds API using schema from T1 summary
+
+**Benefits**:
+- Specialist has everything needed without reading T1 directly
+- Token-efficient: ~300-500 tokens vs. thousands
+- Enables building on previous work seamlessly
+- Works across different specialists
+
+### Task Manager Token Optimization
+
+**START Mode**:
+- Must read task (~1-2k tokens unavoidable)
+- Must call recommend_agent (~500 tokens)
+- May read dependency summaries (~300-500 tokens each)
+- Total: ~2-4k tokens typical
+
+**END Mode**:
+- Does NOT read task (specialist already did)
+- Only extracts from specialist output provided by orchestrator
+- Creates Summary section (~500 tokens)
+- Total: ~500-1k tokens
+
+**Overall Pattern**: Saves ~50% tokens by avoiding duplicate task reads. Specialist and Task Manager END never both read the full task.
+
+---
+
+## Specialist Agents
+
+### Available Specialists
+
+The system includes 6 specialized agents:
+
+#### Backend Engineer
+- **Tags**: backend, api, service, kotlin, rest
+- **Focus**: requirements, technical-approach, implementation
+- **Responsibilities**: REST APIs, services, business logic, database integration
+
+#### Frontend Developer
+- **Tags**: frontend, ui, react, vue, angular, web
+- **Focus**: requirements, technical-approach, design, ux
+- **Responsibilities**: UI components, state management, API integration
+
+#### Database Engineer
+- **Tags**: database, migration, schema, sql, flyway
+- **Focus**: requirements, technical-approach, data-model
+- **Responsibilities**: Schemas, migrations, query optimization, indexing
+
+#### Test Engineer
+- **Tags**: testing, test, qa, quality, coverage
+- **Focus**: requirements, testing-strategy, acceptance-criteria
+- **Responsibilities**: Unit tests, integration tests, test automation, coverage
+
+#### Technical Writer
+- **Tags**: documentation, docs, user-docs, api-docs, guide, readme
+- **Focus**: requirements, context, documentation
+- **Responsibilities**: API docs, user guides, README files, code comments
+
+#### Planning Specialist
+- **Tags**: planning, requirements, specification, architecture, design
+- **Focus**: context, requirements, technical-approach
+- **Responsibilities**: Requirements analysis, architecture, design decisions
+
+### Specialist Workflow Pattern
+
+All specialists follow the same workflow:
+
+**Step 1: Read the Task**
+```
+get_task(id='[task-id]', includeSections=true)
+```
+
+Specialists receive the full task context including dependency summaries passed by orchestrator.
+
+**Step 2: Do the Work**
+
+Perform specialized implementation:
+- Write code (Backend, Frontend, Database)
+- Write tests (Test Engineer)
+- Write documentation (Technical Writer)
+- Create plans (Planning Specialist)
+
+Use file tools:
+- `Read` - Read existing files
+- `Edit` - Make precise changes
+- `Write` - Create new files
+- `Bash` - Run commands
+- `Grep` - Search codebase
+- `Glob` - Find files
+
+**Step 3: Update Task Sections**
+
+Update sections with results:
+```
+update_section_text(id='[section-id]',
+                    oldText='[placeholder]',
+                    newText='[actual content]')
+```
+
+Or add new sections:
+```
+add_section(entityType='TASK',
+            entityId='[task-id]',
+            title='Implementation Notes',
+            content='[details]',
+            ordinal=10)
+```
+
+**Step 4: Mark Complete**
+```
+set_status(id='[task-id]', status='completed')
+```
+
+**Step 5: Return Brief Summary**
+
+**Format**: 2-3 sentences
+**Content**: What was implemented, what's ready next
+**Important**: Do NOT include full code in response
+
+**Example**:
+```
+Implemented OAuth 2.0 authentication endpoints in UserController.kt.
+Added JWT token generation, refresh logic, and rate limiting middleware.
+All endpoints tested with 95% coverage. Ready for frontend integration.
+```
+
+### Section Tag Filtering
+
+**Recommended Pattern**: Specialists should focus on sections tagged with their `sectionTags` from `recommend_agent`.
+
+**Example**:
+```
+recommend_agent returns: sectionTags: ["requirements", "technical-approach", "implementation"]
+
+Specialist reads task:
+get_task(id='...', includeSections=true)
+
+Specialist filters sections:
+- Priority 1: requirements, technical-approach, implementation
+- Priority 2: context, testing-strategy
+- Priority 3: Other sections as needed
+```
+
+**Benefits**:
+- Focuses specialist attention on relevant content
+- Reduces token usage by prioritizing key sections
+- Enables faster specialist work
+
+**Implementation**:
+```
+get_sections(entityType='TASK',
+             entityId='[task-id]',
+             tags='requirements,technical-approach,implementation')
+```
+
+---
+
+## Complete Workflow Examples
+
+### Single Task Workflow
+
+**Scenario**: Implement a single task with no dependencies
+
+**Workflow**:
+
+```
+1. Orchestrator → Feature Manager START
+   - Feature Manager analyzes feature
+   - Recommends Task: "Implement login endpoint"
+   - Returns: "Next: Orchestrator should launch Task Manager START"
+
+2. Orchestrator → Task Manager START
+   - Reads task
+   - Calls recommend_agent → "Backend Engineer"
+   - No dependencies
+   - Returns: "Specialist: Backend Engineer. Focus: requirements, technical-approach, implementation"
+
+3. Orchestrator → Backend Engineer
+   - Reads task with sections
+   - Implements login endpoint
+   - Writes UserController.kt, authentication service, tests
+   - Marks complete
+   - Returns: "Implemented login endpoint. Created UserController with authentication logic and tests."
+
+4. Orchestrator → Task Manager END (with Backend Engineer output)
+   - Extracts: files changed, what's ready
+   - Creates Summary section
+   - Marks complete
+   - Returns: "Completed login endpoint. UserController.kt and tests created. Ready for frontend integration."
+
+5. Orchestrator → Feature Manager START (next iteration)
+   - Recommends next task or signals feature complete
+```
+
+**Token Usage**:
+- Feature Manager START: ~1.5k tokens
+- Task Manager START: ~2k tokens
+- Backend Engineer: ~3k tokens
+- Task Manager END: ~500 tokens
+- **Total: ~7k tokens** (vs. ~20k with shared context)
+
+### Feature with Dependency Chain
+
+**Scenario**: Feature with 3 tasks in sequence (T1 → T2 → T3)
+
+**Tasks**:
+- T1: Create database schema (Database Engineer)
+- T2: Implement API endpoints (Backend Engineer) - depends on T1
+- T3: Add integration tests (Test Engineer) - depends on T2
+
+**Workflow**:
+
+```
+ITERATION 1: Task T1
+───────────────────────
+1. Orchestrator → Feature Manager START
+   - Recommends T1 (database schema)
+
+2. Orchestrator → Task Manager START (T1)
+   - recommend_agent → "Database Engineer"
+   - No dependencies (first task)
+   - Returns brief
+
+3. Orchestrator → Database Engineer
+   - Creates migration, schema
+   - Returns brief
+
+4. Orchestrator → Task Manager END (T1)
+   - Creates Summary: "Created Users table with id, username, email, password_hash..."
+   - Marks T1 complete
+
+ITERATION 2: Task T2 (Depends on T1)
+───────────────────────
+5. Orchestrator → Feature Manager START
+   - Recommends T2 (API endpoints)
+
+6. Orchestrator → Task Manager START (T2)
+   - recommend_agent → "Backend Engineer"
+   - Reads T1 Summary: "Created Users table..."
+   - Returns brief WITH dependency context
+
+7. Orchestrator → Backend Engineer (with T1 context)
+   - Reads task + T1 Summary from orchestrator
+   - Implements API using T1 schema
+   - Returns brief
+
+8. Orchestrator → Task Manager END (T2)
+   - Creates Summary: "Implemented user CRUD endpoints using Users table from T1..."
+   - Marks T2 complete
+
+ITERATION 3: Task T3 (Depends on T2)
+───────────────────────
+9. Orchestrator → Feature Manager START
+   - Recommends T3 (integration tests)
+
+10. Orchestrator → Task Manager START (T3)
+    - recommend_agent → "Test Engineer"
+    - Reads T2 Summary: "Implemented user CRUD endpoints..."
+    - Returns brief WITH dependency context
+
+11. Orchestrator → Test Engineer (with T2 context)
+    - Reads task + T2 Summary
+    - Creates integration tests for T2 endpoints
+    - Returns brief
+
+12. Orchestrator → Task Manager END (T3)
+    - Creates Summary: "Created integration tests for user CRUD endpoints..."
+    - Marks T3 complete
+
+FEATURE COMPLETION
+───────────────────────
+13. Orchestrator → Feature Manager START
+    - All tasks complete
+    - Returns: "Next: Call Feature Manager END"
+
+14. Orchestrator → Feature Manager END
+    - Reads T1, T2, T3 Summaries
+    - Creates feature Summary
+    - Marks feature complete
+    - Returns brief
+```
+
+**Token Usage** (approximate):
+- Iterations 1-3: ~7k tokens each = ~21k
+- Feature Manager iterations: ~1.5k × 4 = ~6k
+- Feature Manager END: ~3k
+- **Total: ~30k tokens** (vs. ~100k+ with shared context)
+
+**Key Benefits**:
+- Each specialist gets relevant dependency context
+- No specialist needs to read all previous tasks
+- Context efficient through Summary sections
+- Sequential execution ensures proper order
+
+### Parallel Work Opportunities
+
+**Scenario**: Feature with 5 tasks, some can run in parallel
+
+**Task Dependency Graph**:
+```
+T1 (Database Schema) ────┐
+                         ├──→ T3 (API Endpoints) ──→ T5 (Integration Tests)
+T2 (Authentication) ─────┘            ↓
+                                      T4 (UI Components)
+```
+
+**Parallel Opportunities**:
+- T1 and T2 can run in parallel (no dependencies)
+- After T1 and T2 complete, T3 can start
+- After T3 completes, T4 and T5 can run in parallel
+
+**Orchestrator Strategy**:
+
+```
+ITERATION 1: Start T1 and T2 in parallel
+───────────────────────────────────────
+Feature Manager → Recommends T1 (both T1 and T2 are unblocked)
+User decides to also start T2
+
+Orchestrator launches:
+- T1 workflow (Database Engineer)
+- T2 workflow (Backend Engineer)
+
+Both complete independently, create Summaries
+
+ITERATION 2: Start T3 (depends on T1 and T2)
+───────────────────────────────────────
+Feature Manager → Recommends T3
+Task Manager START (T3) → Reads T1 and T2 Summaries
+Backend Engineer → Uses T1 schema and T2 auth
+T3 completes
+
+ITERATION 3: Start T4 and T5 in parallel
+───────────────────────────────────────
+Feature Manager → Recommends T4
+User decides to also start T5
+
+Orchestrator launches:
+- T4 workflow (Frontend Developer, uses T3 Summary)
+- T5 workflow (Test Engineer, uses T3 Summary)
+
+Both complete independently
+```
+
+**Collision Prevention**: Built-in locking prevents conflicts when multiple specialists try to update the same task simultaneously.
+
+### Multi-Feature Project
+
+**Scenario**: Project with 3 features, features can run in parallel
+
+**Project Structure**:
+```
+Project: E-commerce Platform
+├── Feature 1: User Authentication (5 tasks)
+├── Feature 2: Product Catalog (7 tasks)
+└── Feature 3: Shopping Cart (6 tasks)
+```
+
+**Parallel Feature Development**:
+
+```
+FEATURE 1 WORKFLOW (User Authentication)
+──────────────────────────────────────
+Orchestrator works with Feature Manager for Feature 1:
+- Iterate through 5 tasks
+- Create feature Summary
+- Mark Feature 1 complete
+
+FEATURE 2 WORKFLOW (Product Catalog) - Can run in parallel
+──────────────────────────────────────
+Orchestrator (or different orchestrator) works with Feature Manager for Feature 2:
+- Iterate through 7 tasks
+- Create feature Summary
+- Mark Feature 2 complete
+
+FEATURE 3 WORKFLOW (Shopping Cart) - Might depend on Feature 1 and 2
+──────────────────────────────────────
+After Features 1 and 2 complete:
+- Orchestrator works with Feature Manager for Feature 3
+- Tasks can reference Feature 1 and 2 Summaries
+- Iterate through 6 tasks
+- Create feature Summary
+- Mark Feature 3 complete
+```
+
+**Cross-Feature Dependencies**: If Feature 3 tasks depend on Feature 1 or 2 work, task summaries from those features can be passed as context.
+
+---
+
+## Token Efficiency and Scaling
+
+### Context Isolation
+
+**The Problem with Shared Context**:
+- Single orchestrator accumulates all conversation history
+- Every tool call and response adds to context
+- Context grows linearly with work done
+- Eventually hits context limits
+
+**How Context Isolation Solves This**:
+
+```
+SHARED CONTEXT MODEL (Traditional):
+─────────────────────────────────────
+Orchestrator Context: [Task 1] [Task 2] [Task 3] [Task 4] [Task 5]
+Tokens: 5k + 8k + 7k + 9k + 6k = 35k tokens
+
+SUB-AGENT MODEL (Task Orchestrator):
+─────────────────────────────────────
+Orchestrator Context: [T1 brief] [T2 brief] [T3 brief] [T4 brief] [T5 brief]
+Tokens: 200 + 200 + 200 + 200 + 200 = 1k tokens
+
+Sub-Agent Contexts (isolated, don't accumulate):
+- Task Manager T1: 2k tokens (discarded after)
+- Specialist T1: 3k tokens (discarded after)
+- Task Manager T2: 2k tokens (discarded after)
+- Specialist T2: 3k tokens (discarded after)
+- ...
+
+Total Orchestrator Context: ~1k tokens
+Peak Sub-Agent Context: ~3k tokens
+Savings: 97% reduction in orchestrator context
+```
+
+**Why This Matters**:
+- Orchestrator context remains manageable indefinitely
+- Can handle unlimited tasks without context growth
+- Sub-agents work with fresh, focused context
+- Enables long-running projects
+
+### Summary Sections
+
+**The Knowledge Transfer Problem**:
+- Task T2 needs to know what Task T1 did
+- Traditional: Read all of T1 (5-10k tokens)
+- Summary Section: Read T1 Summary (300-500 tokens)
+
+**Summary Section Format**:
+```markdown
+### Completed
+Created Users table with authentication fields and indexes
+
+### Files Changed
+- `db/migration/V3__create_users_table.sql` - Users table schema
+- `src/model/User.kt` - User domain model
+
+### Next Steps
+API endpoints can use this schema for user CRUD operations
+
+### Notes
+Used UUID for ID, bcrypt for password hashing, added email uniqueness constraint
+```
+
+**Token Efficiency**:
+- Full task context: 5-10k tokens
+- Summary section: 300-500 tokens
+- **Savings: 90-95%**
+
+**Quality vs. Efficiency**:
+- Summary preserves essential knowledge
+- Enough context for dependent work
+- Detailed work remains in task sections
+- Can always read full task if needed
+
+### Bookends Pattern
+
+**START and END modes minimize token usage**:
+
+**Task Manager START**:
+- Must read task (unavoidable ~2k tokens)
+- Must call recommend_agent (~500 tokens)
+- May read dependency summaries (~300-500 tokens each)
+- Returns brief to orchestrator (~200 tokens)
+
+**Specialist**:
+- Receives brief from orchestrator (~500 tokens including dependency context)
+- Reads task (~2k tokens)
+- Performs work
+- Returns brief (~200 tokens)
+
+**Task Manager END**:
+- Receives specialist brief from orchestrator (~200 tokens)
+- Does NOT read task (specialist already did)
+- Extracts key info, creates Summary (~500 tokens)
+- Returns brief (~200 tokens)
+
+**Token Savings**:
+- Task Manager START + END: ~3k tokens
+- Specialist: ~2.5k tokens
+- **Total: ~5.5k tokens**
+- **vs. Single agent reading task 3 times: ~6k tokens**
+
+The pattern prevents duplicate task reads while ensuring proper handoff.
+
+### Why This Architecture Scales
+
+**Linear Scaling**:
+- Each task costs ~7k tokens total (Feature Manager, Task Manager, Specialist)
+- Orchestrator context grows by ~200 tokens per task (brief only)
+- 100 tasks = ~700k tokens spent total, but only ~20k in orchestrator context
+- Can handle thousands of tasks without context overflow
+
+**Parallel Scaling**:
+- Multiple specialists can work simultaneously
+- Each specialist has isolated context
+- No context sharing or conflicts
+- Near-linear speedup with parallelism
+
+**Feature Scaling**:
+- Features can be worked on in parallel
+- Each feature has independent Feature Manager invocations
+- Feature Summaries enable cross-feature dependencies
+- Project size doesn't affect per-feature cost
+
+**Comparison**:
+```
+SHARED CONTEXT: O(n) context growth
+- 10 tasks: ~100k orchestrator context
+- 100 tasks: ~1M orchestrator context (impossible)
+
+AGENT ORCHESTRATION: O(1) context growth
+- 10 tasks: ~2k orchestrator context
+- 100 tasks: ~20k orchestrator context (manageable)
+- 1000 tasks: ~200k orchestrator context (still viable)
+```
+
+---
+
+## Setup and Configuration
+
+### Agent Definition Files
+
+Agent definitions are stored in two locations:
+
+**User-Editable**: `.claude/agents/*.md`
+- Feature Manager, Task Manager, and all specialists
+- Users can edit these directly
+- Changes take effect immediately
+
+**Embedded (Docker)**: `src/main/resources/agents/claude/*.md`
+- Copies of agent definitions packaged in JAR
+- Used when running in Docker
+- Ensures agents available in all environments
+
+**Agent Definition Format**:
+
+```markdown
+---
+name: Backend Engineer
+description: Specialized in backend API development
+tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__add_section, Read, Edit, Write
+model: sonnet
+---
+
+# Backend Engineer Agent
+
+You are a backend specialist focused on REST APIs, services, and business logic.
+
+## Workflow (Follow this order)
+
+1. **Read the task**: `get_task(id='...', includeSections=true)`
+2. **Do your work**: Write services, APIs, business logic, tests
+3. **Update task sections** with your results
+4. **Mark complete**: `set_status(id='...', status='completed')`
+5. **Return brief summary** (2-3 sentences)
+
+[Additional guidance...]
+```
+
+### Setup Tool
+
+⚠️ **REQUIRED FIRST STEP**: You must run the setup tool before using the agent orchestration system.
+
+**Tool**: `setup_claude_agents`
+
+**Purpose**: Creates `.claude/agents/` directory with all agent definitions required for Claude Code sub-agent support.
+
+**When to Run**:
+- ✅ **New project setup**: First time using Task Orchestrator with Claude Code
+- ✅ **After cloning repository**: If `.claude/agents/` directory doesn't exist
+- ✅ **New Claude Code integration**: When connecting Task Orchestrator to a new Claude Code instance
+- ✅ **Agent definition updates**: To restore default agent definitions
+
+**How to Run**:
+
+```
+User: "Setup Claude Code agents"
+
+AI Response:
+1. Runs setup_claude_agents tool
+2. Creates .claude/agents/ directory
+3. Writes 8 agent definition files
+4. Reports: "Claude Code agents installed. You can now use Feature Manager and Task Manager workflows."
+```
+
+**Alternative command**:
+```
+User: "Run setup_claude_agents"
+```
+
+**What It Creates**:
+- `.claude/agents/feature-manager.md` - Feature-level coordination
+- `.claude/agents/task-manager.md` - Task-level coordination and routing
+- `.claude/agents/backend-engineer.md` - Backend/API development
+- `.claude/agents/database-engineer.md` - Database/migration work
+- `.claude/agents/frontend-developer.md` - Frontend/UI development
+- `.claude/agents/test-engineer.md` - Testing and QA
+- `.claude/agents/technical-writer.md` - Documentation
+- `.claude/agents/planning-specialist.md` - Requirements and planning
+
+**Important Notes**:
+- This tool is **idempotent** - safe to run multiple times
+- Will **not overwrite** existing files (preserves your customizations)
+- Only creates files that don't already exist
+- The `.claude/agents/` directory is used by Claude Code to discover and load sub-agents
+- **Without this setup, Claude Code sub-agents will not be available**
+
+### Customization Options
+
+#### Adding a New Specialist
+
+1. **Create agent definition file**: `.claude/agents/mobile-developer.md`
+```markdown
+---
+name: Mobile Developer
+description: Specialized in mobile app development
+tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__add_section, Read, Edit, Write
+model: sonnet
+---
+
+# Mobile Developer Agent
+
+You are a mobile specialist focused on iOS, Android, and React Native.
+
+[Workflow and guidance...]
+```
+
+2. **Add to agent-mapping.yaml**:
+```yaml
+tagMappings:
+  - task_tags: [mobile, ios, android, react-native]
+    agent: Mobile Developer
+    section_tags: [requirements, technical-approach, implementation, platform-specific]
+```
+
+3. **Test with recommend_agent**:
+```
+Task with tags: ["mobile", "ios", "ui"]
+→ recommend_agent returns: "Mobile Developer"
+```
+
+#### Modifying Existing Agents
+
+Edit agent definition files in `.claude/agents/`:
+
+**Example**: Add specific guidance to Backend Engineer
+
+```markdown
+## Coding Standards
+
+- Use Kotlin coroutines for async operations
+- Follow Clean Architecture patterns
+- Write comprehensive unit tests (90%+ coverage)
+- Document all public APIs with KDoc
+
+## Project-Specific Patterns
+
+- Use Exposed ORM for database access
+- Follow repository pattern
+- Return Result<T> for error handling
+```
+
+Changes take effect immediately for new agent invocations.
+
+#### Changing Agent-Mapping Priority
+
+Edit `src/main/resources/agents/agent-mapping.yaml`:
+
+```yaml
+# Prioritize mobile over backend for ambiguous tasks
+tagPriority:
+  - mobile       # Check mobile tags first
+  - database     # Then database
+  - backend      # Then backend
+  - frontend
+  - testing
+  - documentation
+  - planning
+```
+
+**Impact**: Tasks with both "mobile" and "backend" tags will route to Mobile Developer.
+
+---
+
+## Best Practices
+
+### For Orchestrators (Main Claude Instance)
+
+1. **Always use Feature Manager for multi-task features**
+   - Let Feature Manager coordinate task order
+   - Don't try to manage task sequence manually
+   - Trust dependency-aware recommendations
+
+2. **Pass full dependency context to specialists**
+   - Task Manager provides brief with dependency summaries
+   - Include this context when launching specialist
+   - Don't abbreviate or summarize further
+
+3. **Use briefs to maintain clean context**
+   - Only keep brief summaries in your context
+   - Don't internalize full specialist responses
+   - Let Summary sections preserve detailed knowledge
+
+4. **Launch agents sequentially unless parallel is safe**
+   - Wait for task completion before starting dependent task
+   - Parallel execution only for truly independent tasks
+   - Built-in locking prevents conflicts but not logic errors
+
+5. **Check feature status regularly**
+   - Use Feature Manager START periodically
+   - Understand progress and blockers
+   - Adjust plans based on recommendations
+
+### For Sub-Agents (Feature Manager, Task Manager, Specialists)
+
+1. **Feature Manager: Trust get_next_task**
+   - Don't manually select from task list
+   - Tool handles dependency filtering automatically
+   - Recommend exactly what tool suggests
+
+2. **Task Manager: Always call recommend_agent**
+   - Never infer specialist manually
+   - Use exact agent name from response
+   - Include section tags in brief
+
+3. **Task Manager: Read all completed dependency summaries**
+   - Don't skip dependencies
+   - Include full context in brief
+   - Better to over-inform than under-inform
+
+4. **Specialists: Keep responses brief**
+   - 2-3 sentences maximum
+   - Mention specific file names
+   - Detailed work goes in task sections
+
+5. **All sub-agents: Update task sections**
+   - Don't return work inline
+   - Use add_section or update_section_text
+   - Preserve work for future reference
+
+### For Users
+
+1. **Tag tasks consistently**
+   - Use lowercase, hyphenated tags
+   - Apply functional tags (backend, frontend, database)
+   - Apply type tags (feature, bug, enhancement)
+
+2. **Trust the agent routing**
+   - Tags determine specialist assignment
+   - System selects appropriate agent automatically
+   - Override only when truly needed
+
+3. **Review feature progress periodically**
+   - Ask "What's the status of [feature]?"
+   - Orchestrator will use Feature Manager
+   - Get clear progress and blockers
+
+4. **Define dependencies early**
+   - Create dependencies when creating tasks
+   - Clear dependencies enable automatic workflow
+   - Prevents out-of-order execution
+
+5. **Read summaries for project understanding**
+   - Task summaries capture essential knowledge
+   - Feature summaries show high-level progress
+   - More efficient than reading all sections
+
+---
+
+## Troubleshooting
+
+### Issue: Task Manager Not Calling recommend_agent
+
+**Symptoms**: Task Manager tries to infer specialist manually
+
+**Solution**:
+- Remind Task Manager: "You must call recommend_agent tool"
+- Check Task Manager agent definition includes recommend_agent in tools list
+- Verify agent-mapping.yaml is accessible
+
+### Issue: Dependency Context Not Passed
+
+**Symptoms**: Specialist doesn't have context from previous tasks
+
+**Solution**:
+- Check Task Manager START is reading dependency summaries
+- Verify dependencies are marked "completed"
+- Ensure Task Manager included dependencies in brief
+- Confirm orchestrator passed context to specialist
+
+### Issue: Specialist Returns Full Code in Response
+
+**Symptoms**: Specialist response contains hundreds of lines of code
+
+**Solution**:
+- Remind specialist: "Return brief summary only (2-3 sentences)"
+- Emphasize: "Detailed work goes in task sections"
+- Check specialist agent definition emphasizes brief responses
+
+### Issue: Feature Manager Recommends Blocked Task
+
+**Symptoms**: Feature Manager recommends task that has incomplete dependencies
+
+**Solution**:
+- Verify Feature Manager is using get_next_task tool
+- Check that get_next_task is called correctly
+- get_next_task automatically filters blocked tasks - trust the tool
+
+### Issue: Wrong Specialist Selected
+
+**Symptoms**: Backend task assigned to Frontend Developer
+
+**Solution**:
+- Check task tags match agent-mapping.yaml patterns
+- Verify tagPriority order is correct
+- Confirm recommend_agent is being called
+- Review matchedTags in recommend_agent response
+
+### Issue: Orchestrator Context Growing Large
+
+**Symptoms**: Orchestrator context approaching limits
+
+**Solution**:
+- Verify orchestrator is only keeping brief summaries
+- Check that full specialist responses are discarded
+- Ensure detailed work stored in task sections, not context
+- Consider splitting into multiple features if project very large
+
+### Issue: Agents Not Found
+
+**Symptoms**: "Agent definition not found" error
+
+**Solution**:
+- Run setup_claude_agents tool
+- Verify .claude/agents/ directory exists
+- Check agent name matches exactly (case-sensitive)
+- Confirm agent-mapping.yaml uses correct agent names
+
+### Issue: Task Manager END Not Executed
+
+**Symptoms**: Task marked complete but no Summary section
+
+**Solution**:
+- Orchestrator must call Task Manager END after specialist completes
+- Pass specialist output to Task Manager END
+- Verify Task Manager END mode is detected (task ID + output provided)
+- Check that add_section is working correctly
+
+### Issue: Feature Never Completes
+
+**Symptoms**: All tasks done but feature stays "in-development"
+
+**Solution**:
+- Call Feature Manager END explicitly
+- Feature Manager checks all tasks complete, marks feature complete
+- Verify no tasks are in "pending" or "in-progress" status
+
+---
+
+## Additional Resources
+
+- **[Agent Definition Files](../src/main/resources/agents/claude/)** - Source agent definitions
+- **[Agent Mapping Configuration](../src/main/resources/agents/agent-mapping.yaml)** - Tag-to-agent mappings
+- **[MCP Tools Reference](api-reference.md)** - Complete tool documentation
+- **[AI Guidelines](ai-guidelines.md)** - Autonomous workflow patterns
+- **[Quick Start](quick-start.md)** - Getting started with Task Orchestrator
+
+---
+
+**Ready to coordinate multi-agent workflows?** Run `setup_claude_agents` and start orchestrating!

@@ -319,6 +319,38 @@ When making commits or PRs:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
+## AI Agent Orchestration System
+
+The Task Orchestrator implements a **3-level agent coordination architecture** for complex multi-task workflows:
+
+```
+Orchestrator (Main Claude Code) → Feature Manager → Task Manager → Specialists
+```
+
+**Key agents**:
+- **Feature Manager**: Coordinates feature-level work, recommends next task
+- **Task Manager**: Routes tasks to specialists, passes dependency context
+- **Specialists**: Backend, Frontend, Database, Test, Technical Writer, Planning
+
+**When to use**:
+- Multi-task features with dependencies
+- Different work types needing different specialists
+- Want 97% token reduction in orchestrator context
+
+**How it works**:
+1. Feature Manager analyzes feature, recommends next task
+2. Task Manager calls `recommend_agent` to select specialist
+3. Task Manager reads dependency summaries, briefs orchestrator
+4. Orchestrator launches specialist with context
+5. Specialist does work, returns brief
+6. Task Manager END extracts work, creates Summary section
+
+**Setup**: Run `setup_claude_agents` to create `.claude/agents/` directory with agent definitions.
+
+**See**: [Agent Orchestration Documentation](docs/agent-orchestration.md) for complete guide.
+
+---
+
 ## Task Orchestrator - AI Initialization
 
 Last initialized: 2025-10-10

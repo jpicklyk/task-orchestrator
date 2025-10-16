@@ -10,6 +10,7 @@ The MCP Task Orchestrator includes a comprehensive **AI Guidelines and Initializ
 ## Table of Contents
 
 - [Overview](#overview)
+- [AI Agent Orchestration System](#ai-agent-orchestration-system)
 - [Three-Layer Guidance Architecture](#three-layer-guidance-architecture)
   - [Layer 1: MCP Resources (Internalized Knowledge)](#layer-1-mcp-resources-internalized-knowledge)
   - [Layer 2: Workflow Prompts (Explicit Guidance)](#layer-2-workflow-prompts-explicit-guidance)
@@ -44,6 +45,59 @@ The AI Guidelines system provides AI agents with comprehensive knowledge about h
 - **Reduced Learning Curve**: Guidelines are internalized by AI, not required reading for users
 - **Consistent Best Practices**: Ensures quality and standardization across projects
 - **Extensible**: Teams can add custom patterns and guidelines
+
+---
+
+## AI Agent Orchestration System
+
+The Task Orchestrator implements a **3-level agent coordination architecture** for scalable, context-efficient AI workflows. This system enables multiple specialized AI agents to work together on complex projects while maintaining token efficiency and context isolation.
+
+### Quick Overview
+
+```
+Orchestrator (Main AI)
+  ↓
+Feature Manager (Feature-level coordination)
+  ↓
+Task Manager (Task-level coordination + specialist routing)
+  ↓
+Specialists (Backend, Frontend, Database, Testing, Documentation, Planning)
+```
+
+### Key Concepts
+
+- **Orchestrator-Driven Model**: Only the main orchestrator can launch sub-agents (no nested agent chains)
+- **Context Isolation**: Each sub-agent starts with clean context, preventing token accumulation
+- **Bookends Pattern**: START/END modes minimize token usage through selective reading
+- **Dependency Context**: Task Manager passes completed dependency summaries to specialists
+- **Summary Sections**: Token-efficient knowledge transfer (~300-500 tokens) between agents
+- **Automatic Routing**: Task tags automatically select the right specialist via `recommend_agent`
+
+### When to Use Agent Orchestration
+
+**Use agent orchestration when**:
+- Working on multi-task features requiring coordination
+- Tasks have dependencies and need sequential execution
+- Different work types need different specialists (backend, frontend, database)
+- Want to maintain token efficiency across large projects
+
+**Benefits**:
+- **97% token reduction** in orchestrator context (briefs only vs. full context)
+- **Automatic specialist selection** based on task tags
+- **Dependency awareness** - specialists receive context from previous tasks
+- **Parallel execution** - independent tasks can run simultaneously
+- **Scales indefinitely** - O(1) context growth instead of O(n)
+
+### Complete Documentation
+
+See **[Agent Orchestration Documentation](agent-orchestration.md)** for:
+- Detailed architecture explanation
+- Feature Manager and Task Manager workflows
+- Specialist agent patterns
+- Complete workflow examples (single task, dependency chains, parallel work)
+- Agent-mapping configuration
+- Setup and customization guide
+- Token efficiency analysis
 
 ---
 
