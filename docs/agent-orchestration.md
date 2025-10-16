@@ -56,13 +56,26 @@ The MCP Task Orchestrator implements a **3-level agent coordination architecture
 
 ### 🚀 Quick Start
 
-**Before using the agent orchestration system**, you must run the setup tool:
+**Recommended**: Use the initialization workflow for complete setup:
+
+```
+User: "Initialize Task Orchestrator"
+```
+
+This workflow will:
+1. Write AI guidelines to your project's documentation file (CLAUDE.md, .cursorrules, etc.)
+2. Detect if you're using Claude Code (checks for `.claude/` directory)
+3. Offer optional features:
+   - **Workflow Automation Hooks**: Auto-load context, template discovery reminders
+   - **Sub-Agent Orchestration**: 3-level agent coordination system
+
+**Manual setup** (if you prefer):
 
 ```
 User: "Setup Claude Code agents"
 ```
 
-This creates the `.claude/agents/` directory with all agent definitions required for Claude Code sub-agent support. Without this step, sub-agents will not be available.
+This creates the `.claude/agents/` directory with all agent definitions. Without this step, sub-agents will not be available.
 
 See [Setup Tool](#setup-tool) for complete details.
 
@@ -1358,6 +1371,61 @@ User: "Run setup_claude_agents"
 - Only creates files that don't already exist
 - The `.claude/agents/` directory is used by Claude Code to discover and load sub-agents
 - **Without this setup, Claude Code sub-agents will not be available**
+
+### Workflow Automation Hooks (Optional)
+
+**What are hooks?**: Claude Code hooks are automated scripts that execute at specific points during your workflow (before/after tool calls, session start, etc.).
+
+**Task Orchestrator hooks** provide workflow automation:
+- **SessionStart**: Automatically runs `get_overview()` to load project context at every session start
+- **PreToolUse**: Reminds you to discover templates when creating tasks/features without templateIds
+
+**Installation**: Hooks are offered during the `initialize_task_orchestrator` workflow when `.claude/` directory is detected.
+
+**Manual Installation**:
+
+1. Edit or create `.claude/settings.local.json` in your project root
+2. Add Task Orchestrator hooks configuration:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "*",
+      "hooks": [{
+        "type": "command",
+        "command": "bash",
+        "args": ["-c", "echo '{\"message\": \"💡 Task Orchestrator: Loading project context with get_overview()...\"}'"]
+      }]
+    }],
+    "PreToolUse": [{
+      "matcher": "mcp__task-orchestrator__create_task|mcp__task-orchestrator__create_feature",
+      "hooks": [{
+        "type": "command",
+        "command": "bash",
+        "args": ["-c", "if ! echo \"$TOOL_INPUT\" | grep -q '\\\"templateIds\\\"'; then echo '{\\\"message\\\": \\\"💡 Tip: Consider running list_templates() to discover available templates.\\\"}'; fi"]
+      }]
+    }]
+  }
+}
+```
+
+**What these hooks do**:
+- **SessionStart hook**: Automatically injects a reminder to run `get_overview()` at the start of every Claude Code session, ensuring you always have current project context
+- **PreToolUse hook**: When creating tasks or features, checks if templates were applied and provides a friendly reminder if not
+
+**Removal**: To disable hooks, edit or delete the `"hooks"` section from `.claude/settings.local.json`
+
+**Benefits**:
+- Eliminates forgetting to run `get_overview()` at session start
+- Prevents the #1 mistake (forgetting template discovery)
+- Non-intrusive reminders, not blocking enforcement
+- Fully optional and easily removable
+
+**Compatibility**:
+- Hooks work alongside workflows (they automate best practices, don't replace guidance)
+- Templates and workflows function with or without hooks
+- Sub-agents work independently of hooks
 
 ### Customization Options
 
