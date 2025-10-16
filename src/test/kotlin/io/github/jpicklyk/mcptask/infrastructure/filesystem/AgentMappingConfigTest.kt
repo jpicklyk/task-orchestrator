@@ -31,12 +31,12 @@ class AgentMappingConfigTest {
     @Test
     fun `all agent types should have tag mappings`() {
         val expectedAgents = setOf(
-            "backend-engineer",
-            "frontend-developer",
-            "database-engineer",
-            "test-engineer",
-            "technical-writer",
-            "planning-specialist"
+            "Backend Engineer",
+            "Frontend Developer",
+            "Database Engineer",
+            "Test Engineer",
+            "Technical Writer",
+            "Planning Specialist"
         )
 
         val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
@@ -167,12 +167,12 @@ class AgentMappingConfigTest {
         assertNotNull(workflowPhases, "workflowPhases should be a map")
 
         val validAgents = setOf(
-            "backend-engineer",
-            "frontend-developer",
-            "database-engineer",
-            "test-engineer",
-            "technical-writer",
-            "planning-specialist"
+            "Backend Engineer",
+            "Frontend Developer",
+            "Database Engineer",
+            "Test Engineer",
+            "Technical Writer",
+            "Planning Specialist"
         )
 
         workflowPhases.forEach { (phase, agent) ->
@@ -236,36 +236,36 @@ class AgentMappingConfigTest {
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
         assertNotNull(tagMappings)
 
-        // Test backend-engineer has expected task tags
-        val backendMapping = tagMappings.find { it["agent"] == "backend-engineer" }
-        assertNotNull(backendMapping, "backend-engineer mapping should exist")
+        // Test Backend Engineer has expected task tags
+        val backendMapping = tagMappings.find { it["agent"] == "Backend Engineer" }
+        assertNotNull(backendMapping, "Backend Engineer mapping should exist")
         @Suppress("UNCHECKED_CAST")
         val backendTags = backendMapping["task_tags"] as List<String>
         assertTrue(backendTags.contains("backend") || backendTags.contains("api"),
-            "backend-engineer should have 'backend' or 'api' tags")
+            "Backend Engineer should have 'backend' or 'api' tags")
 
-        // Test test-engineer has expected task tags
-        val testMapping = tagMappings.find { it["agent"] == "test-engineer" }
-        assertNotNull(testMapping, "test-engineer mapping should exist")
+        // Test Test Engineer has expected task tags
+        val testMapping = tagMappings.find { it["agent"] == "Test Engineer" }
+        assertNotNull(testMapping, "Test Engineer mapping should exist")
         @Suppress("UNCHECKED_CAST")
         val testTags = testMapping["task_tags"] as List<String>
         assertTrue(testTags.contains("testing") || testTags.contains("test"),
-            "test-engineer should have 'testing' or 'test' tags")
+            "Test Engineer should have 'testing' or 'test' tags")
 
-        // Test technical-writer has expected task tags
-        val writerMapping = tagMappings.find { it["agent"] == "technical-writer" }
-        assertNotNull(writerMapping, "technical-writer mapping should exist")
+        // Test Technical Writer has expected task tags
+        val writerMapping = tagMappings.find { it["agent"] == "Technical Writer" }
+        assertNotNull(writerMapping, "Technical Writer mapping should exist")
         @Suppress("UNCHECKED_CAST")
         val writerTags = writerMapping["task_tags"] as List<String>
         assertTrue(writerTags.contains("documentation") || writerTags.contains("docs"),
-            "technical-writer should have 'documentation' or 'docs' tags")
+            "Technical Writer should have 'documentation' or 'docs' tags")
 
-        // Test planning-specialist has expected task tags
-        val planningMapping = tagMappings.find { it["agent"] == "planning-specialist" }
-        assertNotNull(planningMapping, "planning-specialist mapping should exist")
+        // Test Planning Specialist has expected task tags
+        val planningMapping = tagMappings.find { it["agent"] == "Planning Specialist" }
+        assertNotNull(planningMapping, "Planning Specialist mapping should exist")
         @Suppress("UNCHECKED_CAST")
         val planningTags = planningMapping["task_tags"] as List<String>
         assertTrue(planningTags.contains("planning") || planningTags.contains("requirements"),
-            "planning-specialist should have 'planning' or 'requirements' tags")
+            "Planning Specialist should have 'planning' or 'requirements' tags")
     }
 }
