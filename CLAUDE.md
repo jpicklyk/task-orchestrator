@@ -319,65 +319,142 @@ When making commits or PRs:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
-## AI Agent Orchestration System
+## AI Workflow Systems
 
-The Task Orchestrator implements a **3-level agent coordination architecture** for complex multi-task workflows:
+Task Orchestrator provides TWO complementary workflow systems that work independently or together:
 
+### 1. Templates + Workflow Prompts (Universal)
+
+**What**: Database-driven templates + MCP workflow prompts for task/feature creation
+**Works with**: Any MCP-compatible AI (Claude Desktop, Claude Code, Cursor, Windsurf, etc.)
+**Always available**: No setup required
+
+**Purpose**:
+- **Templates**: Structure the WORK (what to document, requirements, testing strategy)
+- **Workflow Prompts**: Guide the PROCESS (step-by-step creation, implementation, validation)
+
+**Key workflows**:
+- `initialize_task_orchestrator` - AI initialization (writes guidelines below to this file)
+- `create_feature_workflow` - Feature creation with templates
+- `task_breakdown_workflow` - Task decomposition
+- `project_setup_workflow` - Project initialization
+- `implementation_workflow` - Git-aware implementation with validation
+
+**Template Discovery** (CRITICAL - never skip):
 ```
-Orchestrator (Main Claude Code) → Feature Manager → Task Manager → Specialists
+1. list_templates(targetEntityType="TASK" or "FEATURE", isEnabled=true)
+2. Review available templates
+3. Apply via templateIds parameter during creation
 ```
 
-**Key agents**:
-- **Feature Manager**: Coordinates feature-level work, recommends next task
-- **Task Manager**: Routes tasks to specialists, passes dependency context
-- **Specialists**: Backend, Frontend, Database, Test, Technical Writer, Planning
+### 2. Sub-Agent Orchestration (Claude Code Only)
+
+**What**: 3-level agent coordination for complex multi-task features
+**Works with**: Claude Code only (requires `.claude/agents/` directory)
+**Setup required**: Run `setup_claude_agents` tool first
 
 **When to use**:
-- Multi-task features with dependencies
-- Different work types needing different specialists
-- Want 97% token reduction in orchestrator context
+- Complex features with 4+ related tasks
+- Work requiring specialist coordination (Backend Engineer → Database Engineer → Test Engineer)
+- 97% token reduction needed (orchestrator maintains only summaries, not full context)
+
+**Architecture**:
+- **Level 0**: Orchestrator (you) - launches Feature Manager for multi-task work
+- **Level 1**: Feature Manager - coordinates tasks within a feature, recommends next task
+- **Level 2**: Task Manager - routes tasks to specialists, passes dependency context
+- **Level 3**: Specialists - Backend, Frontend, Database, Test, Technical Writer, Planning
 
 **How it works**:
-1. Feature Manager analyzes feature, recommends next task
-2. Task Manager calls `recommend_agent` to select specialist
-3. Task Manager reads dependency summaries, briefs orchestrator
-4. Orchestrator launches specialist with context
-5. Specialist does work, returns brief
-6. Task Manager END extracts work, creates Summary section
+1. Orchestrator uses `recommend_agent(taskId)` to find appropriate specialist
+2. Task Manager reads task + completed dependency summaries (300-500 tokens each)
+3. Task Manager launches specialist with focused brief (not full context)
+4. Specialist completes work, creates Summary section (300-500 tokens)
+5. Task Manager reports completion to orchestrator (2-3 sentences only)
 
-**Setup**: Run `setup_claude_agents` to create `.claude/agents/` directory with agent definitions.
+**Setup**: `setup_claude_agents` creates `.claude/agents/*.md` files for Claude Code discovery
 
 **See**: [Agent Orchestration Documentation](docs/agent-orchestration.md) for complete guide.
+
+### How They Work Together
+
+**Templates structure the WORK** (what needs to be documented):
+- Requirements Specification template → creates "Requirements" section
+- Technical Approach template → creates "Technical Approach" section
+- Testing Strategy template → creates "Testing Strategy" section
+
+**Sub-agents execute the WORK** (who does the implementation):
+- Planning Specialist reads "Requirements" sections → creates breakdown
+- Backend Engineer reads "Technical Approach" → implements code
+- Test Engineer reads "Testing Strategy" → writes tests
+
+**Templates work with BOTH systems**:
+- ✅ Direct execution: You read templates, implement yourself
+- ✅ Sub-agent execution: Specialists read templates, implement for you
+
+### Decision Guide: When to Use What
+
+**Use Templates + Workflow Prompts ONLY**:
+- Simple tasks (1-3 tasks total)
+- Single-agent work (you're doing everything)
+- Not using Claude Code (using Cursor, Windsurf, Claude Desktop, etc.)
+- Learning the system (workflows teach best practices)
+
+**Add Sub-Agent Orchestration**:
+- Complex features (4+ related tasks with dependencies)
+- Using Claude Code (only tool with sub-agent support)
+- Token efficiency critical (large context, many tasks)
+- Specialist coordination valuable (backend → database → frontend → test flow)
+
+**Example workflow comparison**:
+
+*Simple (Templates only)*:
+```
+You: create_task(templateIds=["technical-approach", "testing-strategy"])
+You: Read technical-approach section
+You: Implement the code yourself
+You: Read testing-strategy section
+You: Write tests yourself
+```
+
+*Complex (Templates + Sub-agents)*:
+```
+You: create_feature with 4 tasks, apply templates to each
+You: Launch Feature Manager (START mode)
+Feature Manager: Recommends next task → T1 (Database schema)
+You: Launch Task Manager for T1
+Task Manager: Routes to Database Engineer specialist
+Database Engineer: Reads "Technical Approach" template section, implements schema, creates Summary
+Task Manager: Reports completion (2 sentences) to you
+You: Launch Feature Manager again
+Feature Manager: Recommends next task → T2 (API implementation, reads T1 Summary)
+[continues with automatic dependency context passing]
+```
 
 ---
 
 ## Task Orchestrator - AI Initialization
 
-Last initialized: 2025-10-10
+Last initialized: 2025-10-16
 
 ### Critical Patterns
-
-**Template Discovery** (NEVER skip this step):
-- Always: list_templates(targetEntityType, isEnabled=true)
-- Never: Assume templates exist
-- Apply: Use templateIds parameter during creation
-- Filter: By targetEntityType (TASK or FEATURE) and isEnabled=true
 
 **Session Start Routine**:
 1. Run get_overview() first to understand current state
 2. Check for in-progress tasks before starting new work
 3. Review priorities and dependencies
 
-**Intent Recognition Patterns**:
+**Intent Recognition** (applies to templates OR sub-agents):
 - "Create feature for X" → Feature creation with template discovery
-- "Implement X" → Task creation with implementation templates
-- "Fix bug X" → Bug triage with Bug Investigation template
+- "Implement X" → Task creation with implementation templates (then optionally route to specialist)
+- "Fix bug X" → Bug triage with Bug Investigation template (then optionally route to specialist)
 - "Break down X" → Task decomposition pattern
 - "Set up project" → Project setup workflow
 
-**Dual Workflow Model**:
-- Autonomous: For common tasks with clear intent (faster, natural)
-- Explicit Workflows: For complex scenarios or learning (comprehensive)
+**Template Discovery** (ALWAYS required, regardless of using sub-agents):
+- Always: list_templates(targetEntityType, isEnabled=true)
+- Never: Assume templates exist
+- Apply: Use templateIds parameter during creation
+- Templates work with both direct execution AND sub-agent execution
 
 **Git Integration**:
 - Auto-detect .git directory presence
