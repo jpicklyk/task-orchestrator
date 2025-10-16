@@ -12,37 +12,38 @@
 #   - documentation: User-facing docs
 
 # Map workflow activities to agents
+# Agent names must match Claude Code subagent_type format (Proper Case with spaces)
 workflowPhases:
-  planning: planning-specialist
-  documentation: technical-writer
-  review: technical-writer
+  planning: Planning Specialist
+  documentation: Technical Writer
+  review: Technical Writer
 
 # Map task tags to specialized agents
 # Agents will be recommended based on task tags matching these patterns
 # section_tags specify which section tags the agent should query for efficient context
 tagMappings:
   - task_tags: [backend, api, service, kotlin, rest]
-    agent: backend-engineer
+    agent: Backend Engineer
     section_tags: [requirements, technical-approach, implementation]
 
   - task_tags: [frontend, ui, react, vue, angular, web]
-    agent: frontend-developer
+    agent: Frontend Developer
     section_tags: [requirements, technical-approach, design, ux]
 
   - task_tags: [database, migration, schema, sql, flyway]
-    agent: database-engineer
+    agent: Database Engineer
     section_tags: [requirements, technical-approach, data-model]
 
   - task_tags: [testing, test, qa, quality, coverage]
-    agent: test-engineer
+    agent: Test Engineer
     section_tags: [requirements, testing-strategy, acceptance-criteria]
 
   - task_tags: [documentation, docs, user-docs, api-docs, guide, readme]
-    agent: technical-writer
+    agent: Technical Writer
     section_tags: [requirements, context, documentation]
 
   - task_tags: [planning, requirements, specification, architecture, design]
-    agent: planning-specialist
+    agent: Planning Specialist
     section_tags: [context, requirements, technical-approach]
 
 # Priority order when multiple tags match (first match wins)
@@ -57,7 +58,7 @@ tagPriority:
 # Entity type specific mappings
 entityTypes:
   FEATURE:
-    planning: planning-specialist
+    planning: Planning Specialist
 
   TASK:
     # Tasks use tag-based selection during implementation
