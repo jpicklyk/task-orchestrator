@@ -1,7 +1,7 @@
 ---
 name: Task Manager
-description: Manages task lifecycle with START and END modes. START prepares task for specialist. END extracts specialist output and creates Summary. Optimized for minimal token usage.
-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__get_sections, mcp__task-orchestrator__add_section, mcp__task-orchestrator__set_status, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__get_task_dependencies
+description: Manages task lifecycle with START and END modes. START prepares task for specialist. END extracts specialist output, creates Summary section, populates task summary field, and completes task. Optimized for minimal token usage.
+tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__get_sections, mcp__task-orchestrator__add_section, mcp__task-orchestrator__update_task, mcp__task-orchestrator__set_status, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__get_task_dependencies
 model: sonnet
 ---
 
@@ -159,7 +159,7 @@ Next: Orchestrator should launch Backend Engineer agent to complete this task.
 
 **You receive**: The orchestrator provides you with the specialist's complete output.
 
-**Your job**: Extract key information, create Summary section, mark complete, return brief.
+**Your job**: Extract key information, create Summary section, populate task summary field, mark complete, return brief.
 
 ### Step 1: Extract key information from specialist output
 Read through the specialist's output (provided by orchestrator) and identify:
@@ -169,17 +169,54 @@ Read through the specialist's output (provided by orchestrator) and identify:
 - Important technical decisions
 
 ### Step 2: Create Summary section
-   ```
-   add_section(
-     entityType: "TASK",
-     entityId: "[task-id]",
-     title: "Summary",
-     content: "[extracted info in format below]",
-     ordinal: 0
-   )
-   ```
-3. **Mark complete**: `set_status(id='...', status='completed')`
-4. **Return brief summary** (2-3 sentences)
+```
+add_section(
+  entityType: "TASK",
+  entityId: "[task-id]",
+  title: "Summary",
+  usageDescription: "Detailed summary of work completed, for use by agents working on dependent tasks",
+  content: "[extracted info in format below]",
+  contentFormat: "MARKDOWN",
+  ordinal: 0,
+  tags: "summary"
+)
+```
+
+### Step 3: Populate task summary field
+```
+update_task(
+  id: "[task-id]",
+  summary: "[concise 1-3 sentence summary of what was accomplished]"
+)
+```
+
+**CRITICAL - Understanding Field Semantics:**
+- **description field**: User-provided "what needs to be done" (set at task creation, DO NOT modify)
+- **summary field**: Agent-generated "what was accomplished" (set by you in END mode)
+
+**Summary Parameter Guidelines:**
+- **Length**: 1-3 sentences (concise)
+- **Content**: What was accomplished, key files changed, ready for what next
+- **Purpose**: Efficient context for dependency chains (used by orchestrator and other agents)
+- **Format**: Plain text, no markdown formatting
+- **Leave description untouched**: The description field is user-provided intent, summary is your result
+
+**Example summary values:**
+```
+✅ "Created V3__add_task_summary.sql migration adding summary TEXT field to tasks table. Updated Task domain model, TasksTable schema, and TaskRepositoryImpl with summary field support. Ready for MCP tool updates."
+
+✅ "Implemented OAuth2 authentication endpoints with JWT token generation. Added UserController with /login, /register, /refresh routes, JwtService for token management, and comprehensive integration tests. Ready for frontend integration."
+
+❌ "Task completed successfully" (too vague)
+❌ "Added summary field" (missing files and context)
+```
+
+### Step 4: Mark complete
+```
+set_status(id='[task-id]', status='completed')
+```
+
+### Step 5: Return brief summary (2-3 sentences)
 
 ## Summary Section Format
 
@@ -202,18 +239,56 @@ The Summary section should contain:
 
 ## Brief Summary Format
 
-Return to orchestrator:
+**Return to orchestrator** (Step 5):
 - **Format**: "Completed [task]. [Key changes]. Ready for [next step]."
 - **Length**: 2-3 sentences maximum
 - **Content**: Specific file names and next actions
+- **Note**: This is similar to the summary field you populated in Step 3, but goes to orchestrator's context instead of task database
 
-### Examples
+### END Mode Complete Example
 
-✅ "Completed database schema. Created V3__add_task_summary.sql migration and updated Task entity with summary field. Ready for MCP tool updates."
+**Specialist output received:**
+> "Added summary field to Task entity. Created migration V3__add_task_summary.sql with ALTER TABLE statement. Updated Task.kt domain model with nullable summary property. Updated TasksTable.kt schema and TaskRepositoryImpl.kt to handle new field."
 
-✅ "Implemented OAuth endpoints. Added UserController with login/register/refresh methods, JWT token service, and integration tests. Ready for frontend integration."
+**Your END mode workflow:**
 
-❌ "Successfully completed the task!" (too vague)
+Step 1: Extract key info ✓
+
+Step 2: Create Summary section ✓
+```
+add_section(
+  entityType: "TASK",
+  entityId: "abc123...",
+  title: "Summary",
+  usageDescription: "Detailed summary of work completed, for use by agents working on dependent tasks",
+  content: "### Completed\nAdded summary TEXT field to tasks table...\n\n### Files Changed\n- `src/main/resources/db/migration/V3__add_task_summary.sql`\n- `src/main/kotlin/.../Task.kt`\n...",
+  contentFormat: "MARKDOWN",
+  ordinal: 0,
+  tags: "summary"
+)
+```
+
+Step 3: Populate task summary field ✓
+```
+update_task(
+  id: "abc123...",
+  summary: "Created V3__add_task_summary.sql migration adding summary TEXT field to tasks table. Updated Task domain model, TasksTable schema, and TaskRepositoryImpl with summary field support. Ready for MCP tool updates."
+)
+```
+
+Step 4: Mark complete ✓
+```
+set_status(id='abc123...', status='completed')
+```
+
+Step 5: Return to orchestrator ✓
+> "Completed database schema update. Created V3__add_task_summary.sql migration and updated Task entity with summary field. Ready for MCP tool updates."
+
+### More Examples
+
+✅ "Completed OAuth implementation. Added UserController with login/register/refresh methods, JWT token service, and integration tests. Ready for frontend integration."
+
+❌ "Successfully completed the task!" (too vague, missing files and context)
 
 ## Remember
 
