@@ -79,56 +79,33 @@ class GetTaskDependenciesTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Retrieves all dependencies for a specific task with filtering options and dependency chain information.
-        
-        This tool provides comprehensive dependency information for a task, allowing you to understand 
-        how a task relates to other tasks in the system. It supports filtering by dependency type 
-        and direction for focused queries.
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Dependencies retrieved successfully",
-          "data": {
-            "taskId": "550e8400-e29b-41d4-a716-446655440000",
-            "dependencies": {
-              "incoming": [
-                {
-                  "id": "661e8511-f30c-41d4-a716-557788990000",
-                  "fromTaskId": "772f9622-g41d-52e5-b827-668899101111",
-                  "toTaskId": "550e8400-e29b-41d4-a716-446655440000",
-                  "type": "BLOCKS",
-                  "createdAt": "2025-05-10T14:30:00Z"
-                }
-              ],
-              "outgoing": [
-                {
-                  "id": "883f0733-h52e-63f6-c938-779900212222",
-                  "fromTaskId": "550e8400-e29b-41d4-a716-446655440000",
-                  "toTaskId": "994f1844-i63f-74g7-d049-8800a1323333",
-                  "type": "BLOCKS",
-                  "createdAt": "2025-05-10T15:00:00Z"
-                }
-              ]
-            },
-            "counts": {
-              "total": 2,
-              "incoming": 1,
-              "outgoing": 1,
-              "byType": {
-                "BLOCKS": 2,
-                "IS_BLOCKED_BY": 0,
-                "RELATES_TO": 0
-              }
-            }
-          }
-        }
-        
-        Common error responses:
-        - RESOURCE_NOT_FOUND: When the specified task doesn't exist
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - DATABASE_ERROR: When there's an issue retrieving dependencies
-        - INTERNAL_ERROR: For unexpected system errors"""
+    override val description: String = """Retrieves all dependencies for a task with filtering by type and direction.
+
+        Parameters:
+        - taskId (required): Task UUID
+        - direction (optional): 'incoming', 'outgoing', or 'all' (default: all)
+        - type (optional): 'BLOCKS', 'IS_BLOCKED_BY', 'RELATES_TO', or 'all' (default: all)
+        - includeTaskInfo (optional): Include basic task info (title, status) for related tasks (default: false)
+
+        Directions:
+        - incoming: Dependencies pointing TO this task (tasks that block this task)
+        - outgoing: Dependencies FROM this task (tasks this task blocks)
+        - all: Both directions
+
+        Returns:
+        - dependencies object with incoming/outgoing arrays
+        - counts object with total, incoming, outgoing, byType breakdown
+        - Each dependency includes: id, fromTaskId, toTaskId, type, createdAt
+
+        Usage notes:
+        - Use direction filter to focus on specific relationship types
+        - Use type filter to see only specific dependency types
+        - includeTaskInfo adds title/status for related tasks (helpful for understanding context)
+
+        Related tools: create_dependency, delete_dependency, get_blocked_tasks
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-task-dependencies
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

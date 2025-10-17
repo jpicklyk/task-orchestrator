@@ -48,20 +48,20 @@ class DisableTemplateTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Disables a template including system templates. Disabled templates are not available for use.
-        
+    override val description: String = """Disables a template, preventing it from being used. Works with built-in and user-created templates.
+
         Parameters:
-        - id (required): UUID of the template to disable
-        
-        Validation Rules:
-        - Template must exist
-        
-        Example:
-        ```json
-        {
-          "id": "550e8400-e29b-41d4-a716-446655440000"
-        }
-        ```
+        - id (required): Template UUID
+
+        Usage notes:
+        - Disabled templates don't appear in list_templates (unless specifically requested)
+        - Cannot be applied to new tasks/features
+        - Reversible with enable_template
+        - Prefer disabling over deleting for built-in templates
+
+        Related tools: enable_template, delete_template, list_templates
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/disable-template
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

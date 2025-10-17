@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools
 
+import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.*
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider

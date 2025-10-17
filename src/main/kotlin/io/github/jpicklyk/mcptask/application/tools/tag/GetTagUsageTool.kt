@@ -21,96 +21,33 @@ class GetTagUsageTool : BaseToolDefinition() {
 
     override val title: String = "Get Tag Usage"
 
-    override val description: String = """Shows all entities (tasks, features, projects, templates) that use a specific tag.
+    override val description: String = """Shows all entities (tasks, features, projects, templates) that use a specific tag. Essential for impact analysis before renaming/removing tags.
 
-        ## Purpose
-        Helps understand where a tag is being used across the system. Essential for:
-        - Impact analysis before renaming or removing tags
-        - Understanding tag adoption and usage patterns
-        - Finding all related entities with a specific tag
-        - Tag cleanup and organization
+        Parameters:
+        - tag (required): Tag to search for (case-insensitive)
+        - entityTypes (optional): Comma-separated list (TASK, FEATURE, PROJECT, TEMPLATE). Default: all types
 
-        ## Features
-        - **Cross-Entity Search**: Searches across tasks, features, projects, and templates
-        - **Selective Entity Types**: Filter to specific entity types
-        - **Detailed Entity Info**: Returns essential metadata for each entity
-        - **Usage Statistics**: Shows total count and breakdown by entity type
+        Returns entities grouped by type with essential metadata:
+        - TASK: id, title, status, priority, complexity
+        - FEATURE: id, name, status, priority
+        - PROJECT: id, name, status
+        - TEMPLATE: id, name, targetEntityType, isEnabled
 
-        ## Use Cases
-        - **Before Renaming**: "What would be affected if I rename tag 'api' to 'rest-api'?"
-        - **Tag Cleanup**: "Is this old tag still being used anywhere?"
-        - **Impact Analysis**: "How widely adopted is this tag?"
-        - **Related Work**: "Show me everything tagged 'security'"
-        - **Documentation**: "List all entities related to 'authentication'"
+        Use Cases:
+        - Impact analysis before renaming ("What would be affected if I rename tag 'api' to 'rest-api'?")
+        - Tag cleanup ("Is this old tag still being used anywhere?")
+        - Finding related work ("Show me everything tagged 'security'")
+        - Understanding tag adoption patterns
 
-        ## Usage Examples
-
-        **Find All Entities with Tag**:
-        ```json
-        {
-          "tag": "authentication"
-        }
-        ```
-
-        **Find Only Tasks with Tag**:
-        ```json
-        {
-          "tag": "api",
-          "entityTypes": "TASK"
-        }
-        ```
-
-        **Find Features and Projects**:
-        ```json
-        {
-          "tag": "security",
-          "entityTypes": "FEATURE,PROJECT"
-        }
-        ```
-
-        ## Output Format
-
-        Returns entities grouped by type:
-        - **TASK**: id, title, status, priority, complexity
-        - **FEATURE**: id, name, status, priority
-        - **PROJECT**: id, name, status
-        - **TEMPLATE**: id, name, targetEntityType, isEnabled
-
-        ## AI Usage Patterns
-
-        **Tag Rename Planning**:
-        ```
-        User: "I want to rename tag 'api' to 'rest-api'"
-        AI:
-        1. get_tag_usage --tag "api"
-        2. Show impact: "This will affect X tasks, Y features, Z projects"
-        3. Confirm with user
-        4. rename_tag --oldTag "api" --newTag "rest-api"
-        ```
-
-        **Tag Cleanup**:
-        ```
-        User: "Is tag 'deprecated' still in use?"
-        AI:
-        1. get_tag_usage --tag "deprecated"
-        2. If empty: "No entities use this tag"
-        3. If found: "Still used by X entities: [list]"
-        ```
-
-        **Related Work Discovery**:
-        ```
-        User: "Show me everything related to authentication"
-        AI:
-        1. get_tag_usage --tag "authentication"
-        2. Display organized list by entity type
-        3. Offer to show details of specific entities
-        ```
-
-        ## Performance Notes
+        Usage notes:
+        - Case-insensitive tag matching
         - Queries all entity types in parallel for efficiency
-        - Returns lightweight entity summaries (no full content)
-        - Suitable for frequent queries
-        - Scales well with large datasets
+        - Returns lightweight summaries (no full content)
+        - Use before rename_tag to understand impact
+
+        Related tools: list_tags, rename_tag, search_tasks, search_features
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-tag-usage
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

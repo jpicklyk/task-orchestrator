@@ -19,6 +19,9 @@ RUN chmod +x gradlew
 # Copy source code
 COPY src src
 
+# Copy documentation resources needed at runtime
+COPY docs docs
+
 # Build using your Gradle wrapper
 RUN ./gradlew build --no-daemon
 
@@ -32,6 +35,9 @@ WORKDIR /app
 
 # Copy the built JAR from the builder stage
 COPY --from=builder /app/build/libs/mcp-task-orchestrator-*.jar /app/orchestrator.jar
+
+# Copy documentation resources needed at runtime
+COPY --from=builder /app/docs /app/docs
 
 # Volume for the SQLite database and configuration
 VOLUME /app/data

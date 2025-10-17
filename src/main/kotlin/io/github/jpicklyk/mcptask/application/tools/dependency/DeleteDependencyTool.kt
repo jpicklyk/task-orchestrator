@@ -65,35 +65,34 @@ class DeleteDependencyTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Deletes task dependencies by dependency ID or by task relationship criteria.
-        
-        This tool provides flexible dependency deletion capabilities. You can delete dependencies:
-        - By specific dependency ID (most precise)
-        - By task relationship (fromTaskId and toTaskId with optional type filter)
-        - All dependencies for a specific task (using deleteAll parameter)
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Dependency deleted successfully",
-          "data": {
-            "deletedCount": 1,
-            "deletedDependencies": [
-              {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "fromTaskId": "661e8511-f30c-41d4-a716-557788990000",
-                "toTaskId": "772f9622-g41d-52e5-b827-668899101111",
-                "type": "BLOCKS"
-              }
-            ]
-          }
-        }
-        
-        Common error responses:
-        - RESOURCE_NOT_FOUND: When the specified dependency doesn't exist
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - DATABASE_ERROR: When there's an issue deleting the dependency
-        - INTERNAL_ERROR: For unexpected system errors"""
+    override val description: String = """Deletes task dependencies by dependency ID or task relationship.
+
+        Delete Methods:
+        - By dependency ID: Provide 'id' parameter (most precise)
+        - By task relationship: Provide 'fromTaskId' + 'toTaskId' (optional 'type' filter)
+        - All for a task: Provide 'fromTaskId' OR 'toTaskId' with 'deleteAll=true'
+
+        Parameters:
+        - id (optional): Dependency UUID (mutually exclusive with fromTaskId/toTaskId)
+        - fromTaskId (optional): Source task UUID
+        - toTaskId (optional): Target task UUID
+        - type (optional): Filter by dependency type (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
+        - deleteAll (optional): Delete all dependencies for task (default: false)
+
+        Returns:
+        - deletedCount: Number of dependencies deleted
+        - deletedDependencies: Array of deleted dependency objects
+
+        Usage notes:
+        - Use 'id' when you know the specific dependency UUID
+        - Use fromTaskId + toTaskId to delete specific relationship
+        - Use deleteAll with one task ID to remove all dependencies for that task
+        - Type filter works with fromTaskId/toTaskId parameters
+
+        Related tools: create_dependency, get_task_dependencies
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/delete-dependency
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

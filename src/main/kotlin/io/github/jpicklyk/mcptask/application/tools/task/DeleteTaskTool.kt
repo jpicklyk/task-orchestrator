@@ -110,7 +110,26 @@ class DeleteTaskTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = "Deletes a task by its ID"
+    override val description: String = """Deletes a task by ID with cascade and dependency handling.
+
+Parameters:
+| Field | Type | Required | Default | Description |
+| id | UUID | Yes | - | Task identifier |
+| deleteSections | boolean | No | true | Delete associated sections |
+| cascade | boolean | No | false | Delete subtasks (experimental) |
+| force | boolean | No | false | Delete even with dependencies, breaks dependency chains |
+| hardDelete | boolean | No | false | Permanently remove (vs soft delete) |
+
+Usage notes:
+- Prevents deletion if task has dependencies unless force=true
+- When force=true, deletes all associated dependencies and provides warning about broken chains
+- Cascade deletion includes sections by default
+- Returns count of deleted sections and dependencies
+
+Related: create_task, update_task, get_task, delete_dependency
+
+For detailed examples and patterns: task-orchestrator://docs/tools/delete-task
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

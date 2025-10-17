@@ -23,7 +23,10 @@ class GetFeatureTasksTool : BaseToolDefinition() {
 
     override val title: String = "Get Feature Tasks"
 
-    override val description: String = "Retrieve all tasks associated with a specific feature"
+    override val description: String = """Retrieve all tasks associated with a specific feature.
+
+For detailed examples and patterns: task-orchestrator://docs/tools/get-feature-tasks
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

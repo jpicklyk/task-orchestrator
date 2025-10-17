@@ -83,6 +83,8 @@ class TaskToMarkdownTool : BaseToolDefinition() {
         - All sections rendered according to their content format (markdown, code, JSON, plain text)
 
         For inspecting task details in structured JSON format, use get_task instead.
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/task-to-markdown
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -71,39 +71,56 @@ class UpdateFeatureTool(
         )
     )
 
-    override val description: String = """Update an existing feature's properties.
+    override val description: String = """Updates an existing feature's properties.
 
-        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
+⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
 
-        ## Efficient vs Inefficient Updates
+## Efficient vs Inefficient Updates
 
-        ❌ **INEFFICIENT** (wastes ~400+ characters):
-        ```json
-        {
-          "id": "feature-uuid",
-          "name": "Existing Feature Name",        // Unchanged - unnecessary
-          "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
-          "status": "in-development",             // ✓ Only this changed
-          "priority": "high",                     // Unchanged - unnecessary
-          "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
-        }
-        ```
+❌ **INEFFICIENT** (wastes ~400+ characters):
+```json
+{
+  "id": "feature-uuid",
+  "name": "Existing Feature Name",        // Unchanged - unnecessary
+  "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
+  "status": "in-development",             // ✓ Only this changed
+  "priority": "high",                     // Unchanged - unnecessary
+  "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
+}
+```
 
-        ✅ **EFFICIENT** (uses ~40 characters):
-        ```json
-        {
-          "id": "feature-uuid",
-          "status": "in-development"  // Only send what changed!
-        }
-        ```
+✅ **EFFICIENT** (uses ~40 characters):
+```json
+{
+  "id": "feature-uuid",
+  "status": "in-development"  // Only send what changed!
+}
+```
 
-        **Token Savings**: 90% reduction by only sending changed fields!
+**Token Savings**: 90% reduction by only sending changed fields!
 
-        ## Partial Updates
-        Only specify fields you want to change. Unspecified fields remain unchanged.
-        This tool supports partial updates for all fields except 'id' (which is required).
-        """
+## Partial Updates
+Only specify fields you want to change. Unspecified fields remain unchanged.
+
+Parameters:
+| Field | Type | Required | Description |
+| id | UUID | Yes | Feature identifier |
+| name | string | No | New feature name |
+| summary | string | No | New summary (max 500 chars) |
+| status | enum | No | New status (planning, in-development, completed, archived) |
+| priority | enum | No | New priority (high, medium, low) |
+| projectId | UUID | No | New parent project |
+| tags | string | No | New comma-separated tags |
+
+Usage notes:
+- Summary limited to 500 characters
+- Tags parameter replaces entire tag set
+
+Related: create_feature, get_feature, delete_feature, search_features
+
+For detailed examples and patterns: task-orchestrator://docs/tools/update-feature
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

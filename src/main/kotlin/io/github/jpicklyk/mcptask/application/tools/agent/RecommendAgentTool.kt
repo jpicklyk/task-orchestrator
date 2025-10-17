@@ -24,87 +24,42 @@ class RecommendAgentTool : BaseToolDefinition() {
 
     override val title: String = "Recommend AI Agent for Task"
 
-    override val description: String = """Recommends an AI agent for a specific task based on task metadata.
+    override val description: String = """Recommends specialized AI agent for task based on tags, status, and complexity. Uses agent-mapping.yaml to match task characteristics with agent capabilities.
 
-        ## Purpose
-        Analyzes task tags, status, and complexity to recommend the most appropriate
-        specialized AI agent. Uses the agent-mapping.yaml configuration to match
-        task characteristics with agent capabilities.
+        CRITICAL Workflow:
+        - When recommendation returned: Launch recommended agent using Task tool (parameters provided in nextAction)
+        - When NO recommendation: Work on task yourself using general capabilities
 
-        ## CRITICAL WORKFLOW INSTRUCTION
-        When a recommendation is returned:
-        1. **ALWAYS use the Task tool** to launch the recommended agent (provided in nextAction.parameters)
-        2. **NEVER work on the task yourself** if an agent is recommended
-        3. **Follow the exact parameters** provided in nextAction.parameters.prompt
-
-        When NO recommendation is returned:
-        1. **Work on the task yourself** using your general capabilities
-        2. Use available tools directly without launching a subagent
-
-        ## How It Works
+        How It Works:
         1. Retrieves task metadata (tags, status, complexity)
-        2. Matches task tags against agent mappings in agent-mapping.yaml
+        2. Matches task tags against agent mappings
         3. Returns recommended agent with execution instructions in nextAction field
 
-        ## Parameters
-        - **taskId** (required): UUID of the task to get recommendation for
+        Parameters:
+        - taskId (required): Task UUID
 
-        ## Response Format
+        Response Fields:
+        - recommended (boolean): Whether agent was recommended
+        - agent (string): Recommended agent name (e.g., "Database Engineer")
+        - reason (string): Why this agent or why no recommendation
+        - matchedTags (array): Task tags that matched agent mapping
+        - sectionTags (array): Section tags for efficient information retrieval
+        - nextAction (object): Instructions and parameters for launching agent
 
-        **When Recommendation Found:**
-        ```json
-        {
-          "success": true,
-          "message": "Agent recommendation found. Use the Task tool to launch the Database Engineer agent.",
-          "data": {
-            "recommended": true,
-            "agent": "Database Engineer",
-            "reason": "Task involves database development work",
-            "matchedTags": ["database", "schema"],
-            "sectionTags": ["technical-approach", "data-model"],
-            "definitionPath": ".taskorchestrator/agents/Database Engineer.md",
-            "taskId": "550e8400-e29b-41d4-a716-446655440000",
-            "taskTitle": "Design database schema",
-            "nextAction": {
-              "instruction": "Launch the Database Engineer agent using the Task tool",
-              "tool": "Task",
-              "parameters": {
-                "subagent_type": "Database Engineer",
-                "description": "Design database schema",
-                "prompt": "Work on task 550e8400...: Design database schema. Start by reading..."
-              }
-            }
-          }
-        }
-        ```
+        Agent Selection:
+        - Matches task tags against agent tag mappings in .taskorchestrator/agent-mapping.yaml
+        - Agent names in Proper Case format
+        - Returns section tags to help agent find relevant information
+        - No recommendation when task tags don't match any agent mappings
 
-        **When No Recommendation:**
-        ```json
-        {
-          "success": true,
-          "message": "No agent recommendation available. Execute this task yourself.",
-          "data": {
-            "recommended": false,
-            "reason": "No agent recommendation available for this task's tags",
-            "taskId": "550e8400-e29b-41d4-a716-446655440000",
-            "taskTags": ["documentation", "general"],
-            "nextAction": {
-              "instruction": "No specialized agent recommended. You should work on this task directly.",
-              "approach": "Execute the task yourself using available tools and your general capabilities"
-            }
-          }
-        }
-        ```
+        Usage notes:
+        - Run setup_claude_agents first to install agent definitions
+        - Response includes complete nextAction with Tool parameters
+        - Section tags help agents query only relevant sections (token efficiency)
 
-        ## Agent Selection Logic
-        - Matches task tags against agent tag mappings
-        - Agent names are in Proper Case format (e.g., "Database Engineer", "Backend Engineer")
-        - Returns section tags to help agent find relevant information efficiently
+        Related tools: setup_claude_agents, get_agent_definition, get_task
 
-        ## Error Handling
-        - VALIDATION_ERROR: When taskId is missing or invalid UUID format
-        - RESOURCE_NOT_FOUND: When task doesn't exist
-        - INTERNAL_ERROR: When agent configuration cannot be read
+        For detailed examples and patterns: task-orchestrator://docs/tools/recommend-agent
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

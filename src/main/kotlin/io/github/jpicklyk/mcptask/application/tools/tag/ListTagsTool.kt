@@ -1,5 +1,8 @@
-package io.github.jpicklyk.mcptask.application.tools
+package io.github.jpicklyk.mcptask.application.tools.tag
 
+import io.github.jpicklyk.mcptask.application.tools.ToolCategory
+import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -18,97 +21,35 @@ class ListTagsTool : BaseToolDefinition() {
 
     override val title: String = "List All Tags"
 
-    override val description: String = """Lists all unique tags across all entities with usage counts.
+    override val description: String = """Lists all unique tags across all entities with usage counts and entity type breakdown.
 
-        ## Purpose
-        Provides tag discovery and usage analytics to help users understand how tags are
-        being used across projects, features, tasks, and templates. Essential for tag
-        management, organization, and finding entities by tags.
+        Features:
+        - Shows all tags used across projects, features, tasks, and templates
+        - Usage counts per tag
+        - Entity type breakdown (how many projects/features/tasks/templates use each tag)
+        - Filter by specific entity types
+        - Sort by usage count or alphabetically
 
-        ## Features
-        - **Complete Tag Discovery**: Shows all tags used across all entity types
-        - **Usage Counts**: Displays how many entities use each tag
-        - **Entity Type Breakdown**: Shows usage count per entity type
-        - **Flexible Filtering**: Filter by specific entity types
-        - **Multiple Sort Options**: Sort by usage count or alphabetically
+        Parameters:
+        - entityTypes (optional): Filter by entity types array (PROJECT, FEATURE, TASK, TEMPLATE)
+        - sortBy (optional): Sort by 'count' (usage count) or 'name' (alphabetically). Default: count
+        - sortDirection (optional): 'asc' (ascending) or 'desc' (descending). Default: desc
 
-        ## Use Cases
-        - **Tag Discovery**: Find all available tags in the system
-        - **Tag Cleanup**: Identify rarely used tags for cleanup
-        - **Tag Standardization**: Detect tag variations (e.g., "bug" vs "bugs")
-        - **Usage Analysis**: Understand most common categorization patterns
-        - **Search Preparation**: Discover tags before searching by tag
+        Use Cases:
+        - Tag discovery before searching
+        - Tag cleanup (identify rarely used tags)
+        - Tag standardization (detect variations like "bug" vs "bugs")
+        - Usage analysis (understand common categorization patterns)
 
-        ## Usage Examples
+        Usage notes:
+        - Default returns all tags sorted by usage count (descending)
+        - Use sortBy="name" for alphabetical view
+        - Filter by entityTypes to see tags for specific entity types only
+        - Use before search_tasks/search_features to discover available tags
 
-        **List All Tags (default - sorted by usage count)**:
-        ```json
-        {}
-        ```
+        Related tools: get_tag_usage, rename_tag, search_tasks, search_features
 
-        **List Tags Sorted Alphabetically**:
-        ```json
-        {
-          "sortBy": "name",
-          "sortDirection": "asc"
-        }
-        ```
-
-        **List Only Task Tags**:
-        ```json
-        {
-          "entityTypes": ["TASK"]
-        }
-        ```
-
-        **List Tags for Tasks and Features**:
-        ```json
-        {
-          "entityTypes": ["TASK", "FEATURE"],
-          "sortBy": "count",
-          "sortDirection": "desc"
-        }
-        ```
-
-        ## Output Format
-
-        Returns an array of tag objects, each containing:
-        - `tag`: The tag name
-        - `totalCount`: Total usage across all (filtered) entity types
-        - `byEntityType`: Breakdown of usage by entity type (PROJECT, FEATURE, TASK, TEMPLATE)
-
-        ## Sorting Options
-
-        **sortBy**:
-        - `count` (default): Sort by total usage count
-        - `name`: Sort alphabetically by tag name
-
-        **sortDirection**:
-        - `desc` (default): Descending order (most used first / Z-A)
-        - `asc`: Ascending order (least used first / A-Z)
-
-        ## AI Usage Patterns
-
-        **Before Searching by Tag**:
-        ```
-        User: "Show me all bug-related tasks"
-        AI:
-        1. list_tags (discover available tags)
-        2. Identify relevant tags ("bug", "bugfix", "debugging")
-        3. search_tasks with appropriate tags
-        ```
-
-        **Tag Cleanup**:
-        ```
-        User: "What tags are we using?"
-        AI: list_tags --sortBy name (alphabetical view for review)
-        ```
-
-        **Popular Tags Analysis**:
-        ```
-        User: "What are our most common tags?"
-        AI: list_tags --sortBy count (default, shows most used first)
-        ```
+        For detailed examples and patterns: task-orchestrator://docs/tools/list-tags
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -121,7 +62,13 @@ class ListTagsTool : BaseToolDefinition() {
                         "items" to JsonObject(
                             mapOf(
                                 "type" to JsonPrimitive("string"),
-                                "enum" to JsonArray(listOf("PROJECT", "FEATURE", "TASK", "TEMPLATE").map { JsonPrimitive(it) })
+                                "enum" to JsonArray(
+                                    listOf(
+                                        "PROJECT",
+                                        "FEATURE",
+                                        "TASK",
+                                        "TEMPLATE"
+                                    ).map { JsonPrimitive(it) })
                             )
                         )
                     )

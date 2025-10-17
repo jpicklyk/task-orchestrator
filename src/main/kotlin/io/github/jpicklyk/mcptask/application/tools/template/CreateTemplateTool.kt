@@ -59,35 +59,27 @@ class CreateTemplateTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Creates a new template with required and optional fields.
-        
-        Templates provide reusable patterns for structuring task and feature documentation.
-        Each template has metadata and can contain multiple section definitions.
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Template created successfully",
-          "data": {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "User Authentication",
-            "description": "Implement secure user authentication system",
-            "targetEntityType": "TASK",
-            "isBuiltIn": false,
-            "isProtected": false,
-            "isEnabled": true,
-            "createdBy": "Claude",
-            "tags": ["security", "login", "user-management"],
-            "createdAt": "2025-05-10T14:30:00Z",
-            "modifiedAt": "2025-05-10T14:30:00Z"
-          }
-        }
-        
-        Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - CONFLICT_ERROR: When a template with the same name already exists
-        - DATABASE_ERROR: When there's an issue storing the template
-        - INTERNAL_ERROR: For unexpected system errors
+    override val description: String = """Creates a new template with required and optional fields. Templates provide reusable patterns for structuring task and feature documentation with consistent section definitions.
+
+        Parameters:
+        - name (required): Template name (e.g., 'User Authentication', 'Data Export')
+        - description (required): Template purpose and scope
+        - targetEntityType (required): TASK or FEATURE
+        - isBuiltIn (optional): Whether template is built-in (default: false)
+        - isProtected (optional): Whether template is protected from modification (default: false)
+        - isEnabled (optional): Whether template is enabled for use (default: true)
+        - createdBy (optional): Creator identifier
+        - tags (optional): Comma-separated tags for categorization
+
+        Usage notes:
+        - After creating template, use add_template_section to add section definitions
+        - Protected templates cannot be updated or deleted
+        - Use list_templates to discover existing templates before creating new ones
+        - Tags help with filtering and discovery
+
+        Related tools: add_template_section, list_templates, apply_template
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/create-template
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -46,7 +46,11 @@ class BulkUpdateSectionsTool : BaseToolDefinition() {
         )
     )
 
-    override val description = "Updates multiple sections in a single operation"
+    override val description = """Updates multiple sections in a single operation. More efficient than
+        multiple update_section calls for 2+ sections.
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/bulk-update-sections
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

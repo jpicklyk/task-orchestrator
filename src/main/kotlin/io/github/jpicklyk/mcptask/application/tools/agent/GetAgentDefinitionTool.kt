@@ -21,49 +21,31 @@ class GetAgentDefinitionTool : BaseToolDefinition() {
 
     override val title: String = "Get AI Agent Definition"
 
-    override val description: String = """Retrieves an AI agent definition file by name.
+    override val description: String = """Retrieves an AI agent definition file by name. Returns full markdown content with YAML frontmatter containing agent instructions and capabilities.
 
-        ## Purpose
-        Returns the full agent definition file content (Markdown with YAML frontmatter)
-        for a specific AI agent. Agent definitions contain instructions, capabilities,
-        and guidelines for specialized AI agents.
-
-        ## Parameters
-        - **agentName** (required): Name of the agent to retrieve (e.g., 'backend-engineer', 'frontend-developer')
-          - Can include or omit the .md extension
+        Parameters:
+        - agentName (required): Agent name (e.g., 'backend-engineer', 'frontend-developer')
+          - Can include or omit .md extension
           - Case-sensitive file name matching
 
-        ## Usage Examples
-
-        **Get Backend Engineer Agent:**
-        ```json
-        {
-          "agentName": "backend-engineer"
-        }
-        ```
-
-        **Get Frontend Developer Agent:**
-        ```json
-        {
-          "agentName": "frontend-developer.md"
-        }
-        ```
-
-        ## Response Format
-        Returns the full markdown content of the agent definition file, including:
-        - YAML frontmatter with agent metadata
+        Response includes:
+        - YAML frontmatter with agent metadata (name, description, model, tools)
         - Agent description and capabilities
         - Recommended workflows and patterns
-        - Tools and resources the agent should use
+        - Tools and resources for the agent
 
-        ## Available Agents
-        Use the `task-orchestrator://agents/list` resource or list_templates to see
-        all available agents in the system.
+        Available Agents:
+        - Backend Engineer, Database Engineer, Frontend Developer, Test Engineer, Technical Writer
+        - Feature Architect, Planning Specialist, Feature Manager, Task Manager, Bug Triage Specialist
 
-        ## Error Handling
-        - VALIDATION_ERROR: When agentName is missing or empty
-        - RESOURCE_NOT_FOUND: When agent definition file doesn't exist
-        - INTERNAL_ERROR: When file cannot be read
+        Usage notes:
+        - Use task-orchestrator://agents/list resource to see all available agents
+        - Agent files located in .claude/agents/ directory
+        - Run setup_claude_agents first if agents not installed
+
+        Related tools: setup_claude_agents, recommend_agent
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-agent-definition
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

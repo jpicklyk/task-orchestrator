@@ -60,7 +60,7 @@ class UpdateSectionTool(
     override val description = """Updates an existing section by its ID.
 
         ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-        For content-only changes, use 'update_section_text' (more efficient). Example: {"id": "uuid", "title": "New Title"}
+        For content changes, use 'update_section_text' (90%+ more efficient). Example: {\"id\": \"uuid\", \"title\": \"New Title\"}
 
         ## Efficient vs Inefficient Updates
 
@@ -91,6 +91,23 @@ class UpdateSectionTool(
         - For content changes: Use `update_section_text` (90%+ more efficient)
         - For metadata only: Use `update_section_metadata` (excludes content)
         - For full replacement: Use this tool with selective fields
+
+        ## Partial Updates
+        Only specify fields you want to change. Unspecified fields remain unchanged.
+
+        Parameters:
+        | Field | Type | Required | Description |
+        | id | UUID | Yes | Section identifier |
+        | title | string | No | New section title |
+        | usageDescription | string | No | New usage description |
+        | content | string | No | New section content |
+        | contentFormat | enum | No | MARKDOWN, PLAIN_TEXT, JSON, or CODE |
+        | ordinal | integer | No | Display order position (0-based) |
+        | tags | string | No | Comma-separated tags |
+
+        Related: update_section_text, update_section_metadata, get_sections
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/update-section
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -163,7 +163,9 @@ class GetOverviewTool : BaseToolDefinition() {
         - Use summaryLength=100-200 when you need content context
         - Pay attention to orphaned tasks - they may need feature association
         - Monitor task status distribution across features
-        
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-overview
+
         Example response:
         {
           "success": true,

@@ -75,13 +75,26 @@ class GetProjectTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Retrieves a project by its ID with options for including relationships.
+    override val description: String = """Retrieves a project by ID with optional related entities.
 
-        This tool provides detailed access to a specific project with options to include related entities like 
-        features, tasks, and sections. Projects are top-level organizational containers that group related work together.
+Parameters:
+| Field | Type | Required | Default | Description |
+| id | UUID | Yes | - | Project identifier |
+| includeSections | boolean | No | false | Include detailed content sections |
+| includeFeatures | boolean | No | false | Include associated features |
+| includeTasks | boolean | No | false | Include associated tasks |
+| maxFeatureCount | integer | No | 10 | Maximum features to include (1-100) |
+| maxTaskCount | integer | No | 10 | Maximum tasks to include (1-100) |
+| summaryView | boolean | No | false | Truncate text fields for efficiency |
 
-        The tool supports progressive loading of details to optimize context usage, allowing you to request only the 
-        information you need. For large projects, you can limit the number of related entities returned.
+Usage notes:
+- Projects are top-level containers grouping features and tasks
+- Use progressive loading to optimize context usage
+- Limit feature/task counts for large projects
+
+Related: create_project, update_project, delete_project, search_projects, get_sections
+
+For detailed examples and patterns: task-orchestrator://docs/tools/get-project
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

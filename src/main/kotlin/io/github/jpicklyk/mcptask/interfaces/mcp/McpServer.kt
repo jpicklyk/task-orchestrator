@@ -5,10 +5,9 @@ import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
 import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationService
 import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationServiceImpl
 import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
-import io.github.jpicklyk.mcptask.application.tools.GetBlockedTasksTool
-import io.github.jpicklyk.mcptask.application.tools.GetNextTaskTool
+import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
+import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
 import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
-import io.github.jpicklyk.mcptask.application.tools.ListTagsTool
 import io.github.jpicklyk.mcptask.application.tools.SetStatusTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
@@ -158,6 +157,9 @@ class McpServer(
             agentRecommendationService,
             repositoryProvider.taskRepository()
         )
+
+        // Configure tool documentation resources
+        ToolDocumentationResources.configure(server)
 
         // Note: You may see an error in the logs like:
         // "Error handling notification: notifications/initialized - java.util.NoSuchElementException: Key method is missing in the map."

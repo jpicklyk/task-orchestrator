@@ -93,233 +93,39 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
         )
     )
 
-    override val description = """Updates multiple tasks in a single operation.
+    override val description = """Updates multiple tasks in a single operation. More efficient than individual
+        update_task calls due to atomic transaction and single network round-trip. Use for multi-task
+        operations (2+ tasks).
 
-        ⚡ **EFFICIENCY**: This tool reduces token usage by 70-90% compared to individual updates!
+        Key features:
+        - Atomic operation (all succeed or detailed failures)
+        - Single network round-trip
+        - Supports partial updates (only send changed fields)
+        - Maximum 100 tasks per request
 
-        ## Purpose
-
-        Efficiently update multiple tasks in a single API call with atomic transaction guarantees.
-        This tool is **CRITICAL for token optimization** when working with multiple tasks.
-
-        ## When to Use bulk_update_tasks
-
-        **ALWAYS PREFER** for multi-task operations:
-        - Sprint completion: Mark 10+ tasks as completed (86% token savings)
-        - Feature migration: Move tasks between features (78-91% savings)
-        - Priority adjustments: Bulk reprioritization (80-92% savings)
-        - Status updates: Bulk workflow transitions (70-90% savings)
-
-        **Performance Benefits**:
-        - Single network round-trip instead of N calls
-        - Atomic database transaction (all succeed or detailed failures)
-        - 70-90% token reduction for typical scenarios
-        - Consistent state across all task updates
-
-        ## Token Savings Examples
-
-        **Sprint Completion (10 tasks)**:
-        - Individual updates: ~2,500 tokens
-        - Bulk update: ~350 tokens
-        - **Savings: 86%** (2,150 tokens)
-
-        **Feature Reassignment (25 tasks)**:
-        - Individual updates: ~7,000 tokens
-        - Bulk update: ~650 tokens
-        - **Savings: 91%** (6,350 tokens)
-
-        **Priority Adjustment (50 tasks)**:
-        - Individual updates: ~12,500 tokens
-        - Bulk update: ~1,000 tokens
-        - **Savings: 92%** (11,500 tokens)
-
-        ## Partial Updates
-
-        ⚡ **CRITICAL**: Only send fields you're changing! Each task only needs `id` + changed fields.
-
-        ❌ **INEFFICIENT** (sends unchanged data):
-        ```json
-        {
-          "tasks": [
-            {
-              "id": "task-uuid",
-              "title": "Long unchanged title...",
-              "summary": "Long unchanged summary...",
-              "status": "completed",
-              "priority": "medium",
-              "complexity": 5,
-              "tags": "unchanged,tags"
-            }
-          ]
-        }
-        ```
-
-        ✅ **EFFICIENT** (only changed field):
-        ```json
-        {
-          "tasks": [
-            {"id": "task-uuid", "status": "completed"}
-          ]
-        }
-        ```
-
-        ## Common Use Cases
-
-        **1. Sprint Completion**:
-        ```json
-        {
-          "tasks": [
-            {"id": "task-1-uuid", "status": "completed"},
-            {"id": "task-2-uuid", "status": "completed"},
-            {"id": "task-3-uuid", "status": "completed"}
-          ]
-        }
-        ```
-
-        **2. Emergency Reprioritization**:
-        ```json
-        {
-          "tasks": [
-            {"id": "critical-1", "priority": "high", "status": "in_progress"},
-            {"id": "critical-2", "priority": "high"},
-            {"id": "normal-1", "priority": "low", "status": "deferred"}
-          ]
-        }
-        ```
-
-        **3. Feature Migration**:
-        ```json
-        {
-          "tasks": [
-            {"id": "task-a", "featureId": "new-feature-uuid"},
-            {"id": "task-b", "featureId": "new-feature-uuid"},
-            {"id": "task-c", "featureId": "new-feature-uuid"}
-          ]
-        }
-        ```
-
-        **4. Mixed Updates**:
-        ```json
-        {
-          "tasks": [
-            {"id": "task-1", "status": "in_progress", "priority": "high"},
-            {"id": "task-2", "complexity": 8},
-            {"id": "task-3", "tags": "urgent,backend"}
-          ]
-        }
-        ```
-
-        ## Parameters
-
-        | Parameter | Type | Required | Description |
-        |-----------|------|----------|-------------|
+        Parameters:
+        | Field | Type | Required | Description |
         | tasks | array | Yes | Array of task update objects |
 
         Each task object:
+        - id: UUID (required) - Task identifier
+        - title: string (optional) - New title
+        - summary: string (optional) - New summary
+        - status: enum (optional) - pending, in_progress, completed, cancelled, deferred
+        - priority: enum (optional) - high, medium, low
+        - complexity: integer (optional) - 1-10
+        - featureId: UUID (optional) - New feature association
+        - tags: string (optional) - Comma-separated tags
 
-        | Field | Type | Required | Description |
-        |-------|------|----------|-------------|
-        | id | UUID | Yes | Task identifier |
-        | title | string | No | New title |
-        | description | string | No | New summary/description |
-        | status | enum | No | New status (pending, in_progress, completed, cancelled, deferred) |
-        | priority | enum | No | New priority (high, medium, low) |
-        | complexity | integer | No | New complexity (1-10) |
-        | featureId | UUID | No | New feature association |
-        | tags | string | No | New comma-separated tags |
+        Usage notes:
+        - For single task, use update_task instead
+        - Only send fields being changed (CRITICAL: avoid sending unchanged fields)
+        - All updates in single transaction
+        - Check failures array for partial success scenarios
 
-        ## Response Format
+        Related: update_task, bulk_create_sections, bulk_update_sections, get_overview
 
-        ### Success Response
-
-        ```json
-        {
-          "success": true,
-          "message": "5 tasks updated successfully",
-          "data": {
-            "updated": 5,
-            "failed": 0,
-            "items": [
-              {
-                "id": "task-uuid",
-                "status": "completed",
-                "modifiedAt": "2025-10-12T18:45:00Z"
-              }
-            ]
-          }
-        }
-        ```
-
-        ### Partial Failure Response
-
-        ```json
-        {
-          "success": true,
-          "message": "3 tasks updated successfully, 1 failed",
-          "data": {
-            "updated": 3,
-            "failed": 1,
-            "items": [
-              {"id": "task-1", "status": "completed", "modifiedAt": "2025-10-12T18:45:00Z"}
-            ],
-            "failures": [
-              {
-                "index": 3,
-                "id": "bad-uuid",
-                "error": {
-                  "code": "RESOURCE_NOT_FOUND",
-                  "details": "Task not found: bad-uuid"
-                }
-              }
-            ]
-          }
-        }
-        ```
-
-        ## Validation Rules
-
-        1. **Array**: At least one task required, maximum 100 tasks
-        2. **Per Task**: `id` required, at least one update field
-        3. **UUIDs**: Valid format for `id` and `featureId`
-        4. **Enums**: Valid values for `status` and `priority`
-        5. **Range**: `complexity` must be 1-10
-
-        ## Error Responses
-
-        - VALIDATION_ERROR (400): Invalid input format or values
-        - RESOURCE_NOT_FOUND (404): One or more tasks don't exist
-        - OPERATION_FAILED (500): All tasks failed to update
-        - INTERNAL_ERROR (500): Unexpected system error
-
-        ## Performance Notes
-
-        - **Network**: 1 round-trip vs N round-trips (80-99% reduction)
-        - **Database**: Single atomic transaction
-        - **Tokens**: 70-92% reduction vs individual updates
-        - **Response**: Minimal format (id, status, modifiedAt only)
-
-        ## Comparison with Individual Updates
-
-        | Scenario | Tasks | Individual | Bulk | Savings |
-        |----------|-------|------------|------|---------|
-        | Sprint completion | 10 | 2,500 tokens | 350 tokens | 86% |
-        | Feature migration | 25 | 7,000 tokens | 650 tokens | 91% |
-        | Priority adjustment | 50 | 12,500 tokens | 1,000 tokens | 92% |
-
-        ## Best Practices
-
-        1. **Use for 2+ tasks**: Single task? Use `update_task` instead
-        2. **Partial updates only**: Only send fields that changed
-        3. **Batch related changes**: Group related updates (same status, same feature)
-        4. **Check failures**: Review `failures` array for partial success
-        5. **Limit batch size**: Keep under 100 tasks per request
-
-        ## Related Tools
-
-        - `update_task`: Update single task (use for 1 task)
-        - `bulk_create_sections`: Efficient section creation
-        - `bulk_update_sections`: Efficient section updates
-        - `get_overview`: Check current state before bulk updates
+        For detailed examples and patterns: task-orchestrator://docs/tools/bulk-update-tasks
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

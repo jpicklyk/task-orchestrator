@@ -1,5 +1,8 @@
-package io.github.jpicklyk.mcptask.application.tools
+package io.github.jpicklyk.mcptask.application.tools.task
 
+import io.github.jpicklyk.mcptask.application.tools.ToolCategory
+import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.Task
@@ -21,129 +24,42 @@ class GetNextTaskTool : BaseToolDefinition() {
 
     override val title: String = "Get Next Task Recommendation"
 
-    override val description: String = """Recommends the next task to work on based on status, dependencies, priority, and complexity.
+    override val description: String = """Recommends next task based on status, dependencies, priority, and complexity. Filters out blocked tasks and ranks by priority (quick wins first).
 
-        ## Purpose
-        Helps users decide what to work on next by analyzing pending/in-progress tasks,
-        filtering out blocked tasks, and ranking by priority and complexity. Essential
-        for effective work prioritization and workflow optimization.
-
-        ## How It Works
-
-        **Task Selection Logic**:
+        Selection Logic:
         1. Retrieves all pending and in-progress tasks
-        2. Filters out blocked tasks (tasks with incomplete dependencies)
+        2. Filters out blocked tasks (with incomplete dependencies)
         3. Sorts by priority (HIGH → MEDIUM → LOW)
-        4. Within same priority, sorts by complexity (lower complexity first for quick wins)
+        4. Within same priority, sorts by complexity (lower first for quick wins)
         5. Returns top recommendations
 
-        ## Features
-        - **Smart Filtering**: Automatically excludes blocked tasks
-        - **Priority-Based**: High priority tasks recommended first
-        - **Complexity Aware**: Balances impact with effort
-        - **Scope Control**: Filter by project/feature
-        - **Configurable Results**: Control number of recommendations
+        Parameters:
+        - limit (optional): Number of recommendations (default: 1, max: 20)
+        - projectId (optional): Filter to specific project
+        - featureId (optional): Filter to specific feature
+        - includeDetails (optional): Include summary, tags, featureId (default: false)
 
-        ## Use Cases
-        - **Daily Planning**: "What should I work on today?"
-        - **Sprint Selection**: "What's the most important unblocked task?"
-        - **Quick Wins**: "Show me easy, high-priority tasks"
-        - **Context Switching**: "I just finished X, what's next?"
-        - **Team Coordination**: "What can team member Y work on?"
+        Returns Array With:
+        - taskId, title, status, priority, complexity (always)
+        - summary, tags, featureId (if includeDetails=true)
 
-        ## Usage Examples
+        Sorting Rationale:
+        High-priority, low-complexity tasks provide maximum impact with minimum effort (quick wins). Higher complexity high-priority tasks come after quick wins.
 
-        **Get Top Task Recommendation**:
-        ```json
-        {}
-        ```
+        Use Cases:
+        - Daily planning ("What should I work on today?")
+        - Context switching ("I just finished X, what's next?")
+        - Quick wins ("Show me easy, high-priority tasks")
 
-        **Get Top 5 Recommendations**:
-        ```json
-        {
-          "limit": 5
-        }
-        ```
+        Usage notes:
+        - Automatically excludes blocked tasks
+        - Default returns single top recommendation
+        - Filter by project/feature for focused scope
+        - Use with update_task to mark tasks complete
 
-        **Recommendations for Specific Project**:
-        ```json
-        {
-          "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
-          "limit": 3
-        }
-        ```
+        Related tools: get_blocked_tasks, search_tasks, update_task
 
-        **Recommendations for Specific Feature**:
-        ```json
-        {
-          "featureId": "6b787bca-2ca2-461c-90f4-25adf53e0aa0"
-        }
-        ```
-
-        **Include Task Details**:
-        ```json
-        {
-          "limit": 3,
-          "includeDetails": true
-        }
-        ```
-
-        ## Output Format
-
-        Returns array of recommended tasks sorted by priority then complexity:
-        - `taskId`: Task UUID
-        - `title`: Task title
-        - `status`: Current status (pending or in-progress)
-        - `priority`: Task priority (high, medium, low)
-        - `complexity`: Complexity rating (1-10)
-        - `summary`: Task summary (if includeDetails=true)
-        - `tags`: Task tags (if includeDetails=true)
-        - `featureId`: Parent feature (if includeDetails=true)
-
-        ## AI Usage Patterns
-
-        **Daily Standup**:
-        ```
-        User: "What should I work on today?"
-        AI:
-        1. get_next_task --limit 5
-        2. Present top recommendations
-        3. Explain priority and complexity reasoning
-        ```
-
-        **Context Switching**:
-        ```
-        User: "I just finished task X, what's next?"
-        AI:
-        1. update_task --status completed (mark X done)
-        2. get_next_task --limit 3
-        3. Recommend based on priority
-        ```
-
-        **Quick Wins**:
-        ```
-        User: "Show me easy tasks I can knock out quickly"
-        AI:
-        1. get_next_task --limit 10
-        2. Filter for complexity ≤ 3
-        3. Present quick win opportunities
-        ```
-
-        ## Sorting Logic
-
-        Tasks are ranked by:
-        1. **Priority** (primary): HIGH → MEDIUM → LOW
-        2. **Complexity** (secondary): Lower complexity first (1 → 10)
-
-        **Rationale**: High-priority, low-complexity tasks provide maximum impact
-        with minimum effort (quick wins). Higher complexity high-priority tasks
-        come after quick wins.
-
-        ## Performance Notes
-        - Efficiently filters blocked tasks using dependency repository
-        - Limits query size with configurable result count
-        - Optional details reduce payload size
-        - Suitable for frequent polling
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-next-task
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

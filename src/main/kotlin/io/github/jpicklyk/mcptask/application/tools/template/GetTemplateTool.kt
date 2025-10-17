@@ -56,7 +56,22 @@ class GetTemplateTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = "Retrieve a complete template by ID with options for including sections"
+    override val description: String = """Retrieves a complete template by ID with optional section definitions.
+
+        Parameters:
+        - id (required): Template UUID
+        - includeSections (optional): Include section definitions (default: false)
+
+        Usage notes:
+        - Set includeSections=false for lightweight metadata queries
+        - Set includeSections=true to see full template structure with sections
+        - Use list_templates to discover template IDs
+        - Section ordinal determines display order
+
+        Related tools: list_templates, apply_template, add_template_section
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-template
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

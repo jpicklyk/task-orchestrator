@@ -85,181 +85,29 @@ class GetSectionsTool : BaseToolDefinition() {
         )
     )
 
-    override val description = """Retrieves sections for a task, feature, or project.
-        
-        ## Purpose
-        
-        Sections contain detailed content for tasks, features, and projects in a structured format.
-        Each section has a specific purpose, content format, and ordering position. This tool
-        allows retrieving all sections for a specified entity.
-        
-        ## Parameters
+    override val description = """Retrieves sections for a task, feature, or project with optional filtering.
+        Sections contain detailed content in structured format with specific purposes and ordering.
 
-        | Parameter | Type | Required | Default | Description |
-        |-----------|------|----------|---------|-------------|
-        | entityType | string | Yes | - | Type of entity to retrieve sections for: 'PROJECT', 'TASK', or 'FEATURE' |
-        | entityId | UUID string | Yes | - | ID of the entity to retrieve sections for (e.g., '550e8400-e29b-41d4-a716-446655440000') |
-        | includeContent | boolean | No | true | Whether to include section content. Set false to get only metadata (saves 85-99% tokens) |
-        | sectionIds | array | No | all | Optional list of specific section IDs to retrieve. Allows selective loading of sections |
-        | tags | string | No | - | Comma-separated list of tags to filter sections (e.g., 'requirements,technical-approach'). Returns sections that contain ANY of these tags. |
-        
-        ## Response Format
-        
-        ### Success Response
-        
-        ```json
-        {
-          "success": true,
-          "message": "Sections retrieved successfully",
-          "data": {
-            "sections": [
-              {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "title": "Requirements",
-                "usageDescription": "Key requirements for this task",
-                "content": "1. Must support OAuth2\\n2. Handle token refresh\\n3. Implement rate limiting",
-                "contentFormat": "MARKDOWN",
-                "ordinal": 0,
-                "tags": ["requirements", "security"],
-                "createdAt": "2025-05-10T14:30:00Z",
-                "modifiedAt": "2025-05-10T14:30:00Z"
-              },
-              {
-                "id": "661f9511-f30c-52e5-b827-557766551111",
-                "title": "Implementation Notes",
-                "usageDescription": "Technical details and implementation guidance",
-                "content": "Use the AuthLib 2.0 library for OAuth implementation...",
-                "contentFormat": "MARKDOWN",
-                "ordinal": 1,
-                "tags": ["implementation", "technical"],
-                "createdAt": "2025-05-10T14:35:00Z",
-                "modifiedAt": "2025-05-10T15:20:00Z"
-              }
-            ],
-            "entityType": "TASK",
-            "entityId": "772f9622-g41d-52e5-b827-668899101111",
-            "count": 2
-          }
-        }
-        ```
-        
-        ### Empty Result Response
-        
-        ```json
-        {
-          "success": true,
-          "message": "No sections found for task",
-          "data": {
-            "sections": [],
-            "entityType": "TASK",
-            "entityId": "772f9622-g41d-52e5-b827-668899101111",
-            "count": 0
-          }
-        }
-        ```
-        
-        ## Error Responses
-        
-        - RESOURCE_NOT_FOUND (404): When the specified task or feature doesn't exist
-          ```json
-          {
-            "success": false,
-            "message": "The specified task was not found",
-            "error": {
-              "code": "RESOURCE_NOT_FOUND"
-            }
-          }
-          ```
-          
-        - VALIDATION_ERROR (400): When parameters fail validation
-          ```json
-          {
-            "success": false,
-            "message": "Invalid entity type: INVALID. Must be one of: TASK, FEATURE",
-            "error": {
-              "code": "VALIDATION_ERROR"
-            }
-          }
-          ```
-          
-        - DATABASE_ERROR (500): When there's an issue retrieving sections from the database
-        
-        - INTERNAL_ERROR (500): For unexpected system errors during execution
-        
-        ## Usage Examples
+        Parameters:
+        | Field | Type | Required | Default | Description |
+        | entityType | enum | Yes | - | TASK, FEATURE, or PROJECT |
+        | entityId | UUID | Yes | - | Entity identifier |
+        | includeContent | boolean | No | true | Include section content (false for metadata only, 85-99% token savings) |
+        | sectionIds | array | No | all | Specific section IDs to retrieve |
+        | tags | string | No | - | Filter by tags (comma-separated, returns sections with ANY tag)
 
-        1. Get all sections with full content (default behavior):
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000"
-           }
-           ```
+        Returns sections ordered by ordinal field (0-based). Each section includes: id, title,
+        usageDescription, contentFormat, ordinal, tags, timestamps. Content included unless includeContent=false.
 
-        2. Browse section structure without content (85-99% token savings):
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "includeContent": false
-           }
-           ```
-           Returns only: id, title, usageDescription, contentFormat, ordinal, tags
+        Usage notes:
+        - Set includeContent=false to browse structure without content (saves 85-99% tokens)
+        - Use sectionIds for selective loading after browsing metadata
+        - Tag filtering enables agent-specific content queries
+        - Two-step workflow: browse metadata, then fetch specific sections
 
-        3. Get specific sections by ID (selective loading):
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "sectionIds": ["section-id-1", "section-id-3"]
-           }
-           ```
+        Related: add_section, update_section, delete_section, bulk_create_sections
 
-        4. Two-step workflow - browse then fetch:
-           Step 1: Get section metadata
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "includeContent": false
-           }
-           ```
-           Step 2: Fetch specific sections with content
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "sectionIds": ["requirements-section-id", "testing-section-id"]
-           }
-           ```
-
-        5. Filter sections by tags (for agent-specific content):
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "tags": "requirements,technical-approach,implementation"
-           }
-           ```
-           Returns only sections tagged with requirements, technical-approach, or implementation
-        
-        ## Content Formats
-        
-        Sections support multiple content formats:
-        - MARKDOWN: Formatted text with Markdown syntax (default)
-        - PLAIN_TEXT: Unformatted plain text
-        - JSON: Structured data in JSON format
-        - CODE: Source code and implementation details
-        
-        ## Common Section Types
-        
-        While you can create sections with any title, common section types include:
-        - Requirements: Task or feature requirements (what needs to be done)
-        - Implementation Notes: Technical details on how to implement
-        - Testing Strategy: How to test the implementation
-        - Reference Information: External links and resources
-        - Architecture: Design and architecture details
-        - Dependencies: Dependencies on other components
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-sections
     """
 
     override val parameterSchema = Tool.Input(

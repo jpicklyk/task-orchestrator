@@ -48,23 +48,20 @@ class DeleteTemplateTool : BaseToolDefinition() {
     )
 
     override val description: String = """Deletes a user-created template. Built-in templates cannot be deleted.
-        
+
         Parameters:
-        - id (required): UUID of the template to delete
-        - force (optional): Boolean flag to override protection, defaults to false
-        
-        Validation Rules:
-        - Template must exist
-        - Built-in templates cannot be deleted
-        - If a user attempts to delete a built-in template, they will get back an error message
-          instructing them to use 'disable_template' instead
-        
-        Example:
-        ```json
-        {
-          "id": "550e8400-e29b-41d4-a716-446655440000"
-        }
-        ```
+        - id (required): Template UUID
+        - force (optional): Override protection (default: false, use with caution)
+
+        Usage notes:
+        - Built-in templates cannot be deleted (use disable_template instead)
+        - Protected templates require force=true
+        - Deleting a template does not affect tasks/features that already used it
+        - Consider disabling instead of deleting for reversibility
+
+        Related tools: disable_template, enable_template, update_template_metadata
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/delete-template
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -47,20 +47,19 @@ class EnableTemplateTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Enables a previously disabled template, making it available for use again.
-        
+    override val description: String = """Enables a previously disabled template, making it available for use.
+
         Parameters:
-        - id (required): UUID of the template to enable
-        
-        Validation Rules:
-        - Template must exist
-        
-        Example:
-        ```json
-        {
-          "id": "550e8400-e29b-41d4-a716-446655440000"
-        }
-        ```
+        - id (required): Template UUID
+
+        Usage notes:
+        - Enabled templates appear in list_templates results
+        - Can be applied to tasks and features
+        - Can enable both built-in and user-created templates
+
+        Related tools: disable_template, list_templates, apply_template
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/enable-template
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -47,7 +47,10 @@ class DeleteSectionTool : BaseToolDefinition() {
         )
     )
 
-    override val description = "Deletes a section by its ID"
+    override val description = """Deletes a section by its ID. This is a permanent operation.
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/delete-section
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

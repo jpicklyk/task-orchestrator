@@ -52,25 +52,26 @@ class UpdateSectionMetadataTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Updates a section's metadata (title, usage description, format, ordinal, tags)
-        without affecting its content.
-        
-        This tool allows you to update specific metadata fields without having to provide
-        the entire section content, which is more efficient for context usage.
-        
+    override val description: String = """Updates section metadata without affecting content.
+        More efficient than update_section for metadata-only changes.
+
         Parameters:
-        - id (required): UUID of the section to update
-        - title (optional): New section title
-        - usageDescription (optional): New usage description for the section
-        - contentFormat (optional): New format of the content
-        - ordinal (optional): New display order position (0-based)
-        - tags (optional): Comma-separated list of new tags
-        
-        Validation Rules:
-        - Section must exist
-        - Parent template must not be protected
-        - Title must not be empty if provided
-        - Ordinal must be a non-negative integer
+        | Field | Type | Required | Description |
+        | id | UUID | Yes | Section identifier |
+        | title | string | No | New section title |
+        | usageDescription | string | No | New usage description |
+        | contentFormat | enum | No | MARKDOWN, PLAIN_TEXT, JSON, or CODE |
+        | ordinal | integer | No | Display order (0-based) |
+        | tags | string | No | Comma-separated tags |
+
+        Usage notes:
+        - Does not require sending section content (saves tokens)
+        - Title and usageDescription cannot be empty if provided
+        - Ordinal must be non-negative integer
+
+        Related: update_section, update_section_text, get_sections
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/update-section-metadata
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -67,7 +67,32 @@ class SearchProjectsTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = "Find projects matching specified criteria"
+    override val description: String = """Searches projects with flexible filtering and pagination.
+
+Key features:
+- Multiple filter combinations (status, tag, text query, date range)
+- Configurable sorting (createdAt, modifiedAt, name, status)
+- Paginated results (default: 20 per page, max: 100)
+
+Parameters:
+| Field | Type | Required | Default | Description |
+| query | string | No | - | Text search in names and summaries |
+| status | enum | No | - | Filter by status (planning, in-development, completed, archived) |
+| tag | string | No | - | Filter by tag (case-insensitive) |
+| limit | integer | No | 20 | Results per page (1-100) |
+| offset | integer | No | 0 | Skip N results |
+| sortBy | string | No | modifiedAt | Sort field |
+| sortDirection | string | No | desc | Sort direction (asc, desc) |
+
+Usage notes:
+- Combine filters for precise targeting
+- Use get_project for detailed information on specific results
+- Projects are top-level containers
+
+Related: get_project, create_project, update_project, delete_project, get_overview
+
+For detailed examples and patterns: task-orchestrator://docs/tools/search-projects
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

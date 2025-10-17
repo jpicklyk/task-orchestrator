@@ -83,6 +83,10 @@ class ProjectToMarkdownTool : BaseToolDefinition() {
         - All sections rendered according to their content format (markdown, code, JSON, plain text)
 
         For inspecting project details in structured JSON format, use get_project instead.
+
+        Related: get_project, task_to_markdown, feature_to_markdown
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/project-to-markdown
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

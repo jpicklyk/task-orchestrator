@@ -21,147 +21,42 @@ class RenameTagTool : BaseToolDefinition() {
 
     override val title: String = "Rename Tag"
 
-    override val description: String = """Renames a tag across all entities (tasks, features, projects, templates) in a single operation.
+    override val description: String = """Renames a tag across all entities (tasks, features, projects, templates) in a single operation. Essential for maintaining consistent tag taxonomy.
 
-        ## Purpose
-        Provides bulk tag renaming for maintaining consistent tag taxonomy. Essential for:
-        - Fixing typos in widely-used tags
-        - Standardizing tag naming conventions
-        - Consolidating duplicate or similar tags
-        - Reorganizing tag hierarchies
+        Parameters:
+        - oldTag (required): Tag to rename (case-insensitive matching)
+        - newTag (required): New tag name
+        - entityTypes (optional): Comma-separated list (TASK, FEATURE, PROJECT, TEMPLATE). Default: all types
+        - dryRun (optional): Preview changes without modifying data. Default: false
 
-        ## Features
-        - **Bulk Operations**: Updates all entities with a single operation
-        - **Cross-Entity**: Renames across tasks, features, projects, and templates
-        - **Selective Entity Types**: Target specific entity types
-        - **Detailed Statistics**: Reports exactly what was changed
-        - **Case-Insensitive Matching**: Finds tags regardless of case
-        - **Duplicate Prevention**: Merges with existing newTag if present
-
-        ## Use Cases
-        - **Typo Correction**: "Rename 'authentcation' to 'authentication'"
-        - **Standardization**: "Rename 'API' to 'api' for consistency"
-        - **Tag Consolidation**: "Merge 'rest-api' and 'restapi' into 'api'"
-        - **Convention Changes**: "Rename 'bug-fix' to 'bugfix' project-wide"
-        - **Taxonomy Refinement**: "Rename 'frontend' to 'ui' across all work"
-
-        ## Usage Examples
-
-        **Simple Rename**:
-        ```json
-        {
-          "oldTag": "authentcation",
-          "newTag": "authentication"
-        }
-        ```
-
-        **Rename Only in Tasks**:
-        ```json
-        {
-          "oldTag": "api",
-          "newTag": "rest-api",
-          "entityTypes": "TASK"
-        }
-        ```
-
-        **Case Standardization**:
-        ```json
-        {
-          "oldTag": "API",
-          "newTag": "api",
-          "entityTypes": "TASK,FEATURE"
-        }
-        ```
-
-        **Dry Run (Preview Changes)**:
-        ```json
-        {
-          "oldTag": "frontend",
-          "newTag": "ui",
-          "dryRun": true
-        }
-        ```
-
-        ## Behavior Details
-
-        **Tag Matching**:
+        Behavior:
         - Case-insensitive search for oldTag
-        - Exact replacement with newTag (preserves case of newTag)
-        - Handles tags with spaces and special characters
-
-        **Duplicate Handling**:
-        - If entity already has newTag, oldTag is simply removed
-        - Prevents duplicate tags in the same entity
-        - Maintains tag uniqueness per entity
-
-        **Order Preservation**:
-        - Tags remain in their original order
-        - oldTag position replaced with newTag
+        - Exact replacement with newTag (preserves newTag case)
+        - If entity already has newTag, oldTag is simply removed (prevents duplicates)
+        - Tags remain in original order
         - Other tags unaffected
 
-        ## Output Format
+        Use Cases:
+        - Typo correction ("authentcation" → "authentication")
+        - Standardization ("API" → "api")
+        - Tag consolidation (merge "rest-api" and "restapi" into "api")
+        - Convention changes ("bug-fix" → "bugfix")
 
-        Returns detailed statistics:
-        - **totalUpdated**: Total entities modified
-        - **byEntityType**: Breakdown by entity type (TASK, FEATURE, PROJECT, TEMPLATE)
-        - **failedUpdates**: Count of failures (if any)
-        - **dryRun**: Whether this was a preview (no actual changes)
+        Returns Statistics:
+        - totalUpdated: Total entities modified
+        - byEntityType: Breakdown by entity type
+        - failedUpdates: Count of failures (if any)
+        - dryRun: Whether this was a preview
 
-        ## AI Usage Patterns
+        Usage notes:
+        - Use get_tag_usage first to see impact
+        - Use dryRun=true to preview changes
+        - Continues even if individual updates fail
+        - Reports detailed statistics
 
-        **Typo Correction Workflow**:
-        ```
-        User: "I misspelled 'authentication' as 'authentcation' everywhere"
-        AI:
-        1. get_tag_usage --tag "authentcation"
-        2. Show impact: "Found in X tasks, Y features"
-        3. rename_tag --oldTag "authentcation" --newTag "authentication"
-        4. Confirm: "Renamed in X entities"
-        ```
+        Related tools: get_tag_usage, list_tags
 
-        **Tag Consolidation**:
-        ```
-        User: "Merge 'rest-api' and 'api' tags into just 'api'"
-        AI:
-        1. get_tag_usage --tag "rest-api"
-        2. get_tag_usage --tag "api"
-        3. Explain overlap and confirm
-        4. rename_tag --oldTag "rest-api" --newTag "api"
-        5. Report consolidation results
-        ```
-
-        **Preview Before Rename**:
-        ```
-        User: "What would happen if I rename 'frontend' to 'ui'?"
-        AI:
-        1. rename_tag --oldTag "frontend" --newTag "ui" --dryRun true
-        2. Show: "Would affect X tasks, Y features, Z projects"
-        3. Confirm with user
-        4. rename_tag --oldTag "frontend" --newTag "ui" (actual)
-        ```
-
-        ## Safety Features
-
-        **Validation**:
-        - oldTag and newTag cannot be empty
-        - oldTag and newTag cannot be identical (case-insensitive)
-        - Validates entity type names
-
-        **Error Handling**:
-        - Continues processing even if individual updates fail
-        - Reports failed updates separately
-        - Logs errors for debugging
-
-        **Dry Run**:
-        - Preview changes without modifying data
-        - Returns same statistics as actual run
-        - Safe for experimentation
-
-        ## Performance Notes
-        - Processes entities in batches by type
-        - Updates entities individually (ensures data integrity)
-        - May take longer for large datasets (thousands of entities)
-        - Progress logged for monitoring
+        For detailed examples and patterns: task-orchestrator://docs/tools/rename-tag
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

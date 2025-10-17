@@ -72,36 +72,23 @@ class CreateProjectTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String =
-        """Implement the CreateProjectTool MCP tool for creating new projects. Define parameter schema and validation for all required and optional fields (name, summary, status, tags). Implement tool execution logic to create and persist project entities.
-        
-        This tool creates a new Project entity in the MCP Task Orchestrator system. Projects are top-level organizational containers that can group related features and tasks together. Each project requires a name and summary, and can optionally include status information and tags for categorization.
-        
-        Projects provide a higher level of organization above features, allowing you to manage work across multiple features and their related tasks.
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Project created successfully",
-          "data": {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Mobile App Redesign",
-            "summary": "Complete redesign of the mobile application with improved UI/UX",
-            "status": "planning",
-            "createdAt": "2025-05-10T14:30:00Z",
-            "modifiedAt": "2025-05-10T14:30:00Z",
-            "tags": ["mobile", "ui", "2025-roadmap"]
-          },
-          "error": null,
-          "metadata": {
-            "timestamp": "2025-05-10T14:30:00Z"
-          }
-        }
-        
-        Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - DATABASE_ERROR: When there's an issue storing the project
-        - INTERNAL_ERROR: For unexpected system errors
+    override val description: String = """Creates a project with metadata. Projects are top-level containers for organizing features and tasks.
+
+Parameters:
+| Field | Type | Required | Default | Description |
+| name | string | Yes | - | Project name |
+| summary | string | No | - | Brief summary (max 500 chars) |
+| status | enum | No | planning | Project status (planning, in-development, completed, archived) |
+| tags | string | No | - | Comma-separated tags |
+
+Usage notes:
+- Projects provide highest level of organization (Project → Features → Tasks hierarchy)
+- Associate features with projects using projectId in create_feature
+- Summary limited to 500 characters
+
+Related: update_project, get_project, delete_project, search_projects, create_feature
+
+For detailed examples and patterns: task-orchestrator://docs/tools/create-project
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

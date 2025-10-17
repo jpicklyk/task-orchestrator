@@ -21,64 +21,36 @@ class SetStatusTool : BaseToolDefinition() {
 
     override val title: String = "Set Entity Status"
 
-    override val description: String = """Updates the status of a task, feature, or project.
+    override val description: String = """Updates status of task, feature, or project. Auto-detects entity type and validates status accordingly.
 
-        ## Purpose
-        Provides a simple, unified interface for status updates across all entity types.
-        Auto-detects whether the ID belongs to a task, feature, or project and validates
-        the status accordingly.
+        Parameters:
+        - id (required): Entity UUID (task, feature, or project)
+        - status (required): New status value
 
-        ## Smart Features by Entity Type
+        Status Values by Entity Type:
+        - Tasks: pending, in-progress, completed, cancelled, deferred
+        - Features: planning, in-development, completed, archived
+        - Projects: planning, in-development, completed, archived
 
-        **For Tasks:**
-        - Validates against task statuses: pending, in-progress, completed, cancelled, deferred
-        - Warns if marking task complete while it blocks other tasks
-        - Returns count of affected dependencies
-
-        **For Features:**
-        - Validates against feature statuses: planning, in-development, completed, archived
+        Smart Features:
+        - Auto-detects entity type from UUID
+        - Validates status based on entity type
+        - For tasks: Warns if marking complete while blocking other tasks
         - Updates modification timestamp
 
-        **For Projects:**
-        - Validates against project statuses: planning, in-development, completed, archived
-        - Updates modification timestamp
+        Benefits over update_task/update_feature/update_project:
+        - Simpler (only 2 parameters vs many optional fields)
+        - More efficient (no entity type parameter needed)
+        - Automatic entity type detection
 
-        ## Usage Examples
+        Usage notes:
+        - Returns dependency count for completed tasks that block others
+        - No need to specify entity type
+        - Use update_task for changing multiple fields
 
-        **Update Task Status:**
-        ```json
-        {
-          "id": "640522b7-810e-49a2-865c-3725f5d39608",
-          "status": "completed"
-        }
-        ```
+        Related tools: update_task, update_feature, update_project
 
-        **Update Feature Status:**
-        ```json
-        {
-          "id": "6b787bca-2ca2-461c-90f4-25adf53e0aa0",
-          "status": "in-development"
-        }
-        ```
-
-        **Update Project Status:**
-        ```json
-        {
-          "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
-          "status": "completed"
-        }
-        ```
-
-        ## Benefits Over update_task/update_feature/update_project
-        - **Simpler**: Only 2 parameters (id + status) instead of many optional fields
-        - **More efficient**: Saves tokens by not requiring entity type parameter
-        - **Smart validation**: Automatically validates based on detected entity type
-        - **Task-aware**: Provides dependency warnings for tasks
-
-        ## Error Handling
-        - RESOURCE_NOT_FOUND: ID doesn't exist in any entity table
-        - VALIDATION_ERROR: Invalid status for the detected entity type
-        - DATABASE_ERROR: Issue persisting the update
+        For detailed examples and patterns: task-orchestrator://docs/tools/set-status
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

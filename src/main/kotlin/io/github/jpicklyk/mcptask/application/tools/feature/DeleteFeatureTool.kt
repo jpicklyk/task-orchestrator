@@ -60,7 +60,24 @@ class DeleteFeatureTool(
         )
     )
 
-    override val description: String = "Remove a feature and its associated tasks"
+    override val description: String = """Deletes a feature by ID with cascade options.
+
+Parameters:
+| Field | Type | Required | Default | Description |
+| id | UUID | Yes | - | Feature identifier |
+| cascade | boolean | No | false | Delete associated tasks |
+| force | boolean | No | false | Delete even with active tasks |
+| hardDelete | boolean | No | false | Permanently remove (vs soft delete) |
+
+Usage notes:
+- Prevents deletion if feature has active tasks unless force=true
+- Cascade deletion removes all associated tasks
+- Returns count of affected tasks
+
+Related: create_feature, update_feature, get_feature, search_features
+
+For detailed examples and patterns: task-orchestrator://docs/tools/delete-feature
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

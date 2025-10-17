@@ -135,123 +135,24 @@ class GetTaskTool : BaseToolDefinition() {
         required = listOf("success", "message")
     )
 
-    override val description: String = """Retrieves a task by its ID with options for including relationships.
-        
-        ## Purpose
+    override val description: String = """Retrieves a task by ID with optional related entities.
 
-        Fetches a complete task by its UUID with options to include related entities like 
-        sections, subtasks, dependencies, and feature information for context. This tool allows
-        getting detailed information about a specific task when its ID is known.
-        
-        Note: Tasks store their detailed content in separate Section entities for efficiency. 
-        To retrieve the complete task with all content blocks, make sure to set includeSections=true.
-        Otherwise, you'll only receive the basic task metadata and summary.
-        
-        ## Parameters
-        
-        | Parameter | Type | Required | Default | Description |
-        |-----------|------|----------|---------|-------------|
-        | id | UUID string | Yes | - | The unique ID of the task to retrieve (e.g., '550e8400-e29b-41d4-a716-446655440000') |
-        | includeSubtasks | boolean | No | false | Whether to include subtasks in the response (experimental feature) |
-        | includeDependencies | boolean | No | false | Whether to include dependency information (incoming and outgoing dependencies with counts) |
-        | includeFeature | boolean | No | false | Whether to include feature information if the task belongs to a feature |
-        | includeSections | boolean | No | false | Whether to include sections (detailed content blocks) that contain the full content of the task. Set to true when you need the complete task context beyond the basic summary. |
-        | summaryView | boolean | No | false | Whether to return a summarized view for context efficiency (truncates text fields) |
-        
-        ## Response Format
-        
-        ### Success Response
-        
-        ```json
-        {
-          "success": true,
-          "message": "Task retrieved successfully",
-          "data": {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "title": "Implement API",
-            "summary": "Create REST API endpoints for data access",
-            "status": "in-progress",
-            "priority": "high",
-            "complexity": 7,
-            "createdAt": "2025-05-10T14:30:00Z",
-            "modifiedAt": "2025-05-10T15:45:00Z",
-            "featureId": "661e8511-f30c-41d4-a716-557788990000",
-            "tags": ["api", "backend"],
-            "feature": {
-              "id": "661e8511-f30c-41d4-a716-557788990000",
-              "name": "REST API Implementation",
-              "status": "in-development"
-            },
-            "sections": [
-              {
-                "id": "772f9622-g41d-52e5-b827-668899101111",
-                "title": "Requirements",
-                "content": "The API should support CRUD operations...",
-                "contentFormat": "markdown",
-                "ordinal": 0
-              }
-            ]
-          }
-        }
-        ```
-        
-        ## Error Responses
-        
-        - RESOURCE_NOT_FOUND (404): When no task exists with the specified ID 
-          ```json
-          {
-            "success": false,
-            "message": "Task not found",
-            "error": {
-              "code": "RESOURCE_NOT_FOUND",
-              "details": "No task exists with ID 550e8400-e29b-41d4-a716-446655440000"
-            }
-          }
-          ```
-        
-        - VALIDATION_ERROR (400): When the provided ID is not a valid UUID
-          ```json
-          {
-            "success": false,
-            "message": "Invalid input",
-            "error": {
-              "code": "VALIDATION_ERROR",
-              "details": "Invalid task ID format. Must be a valid UUID."
-            }
-          }
-          ```
-        
-        - DATABASE_ERROR (500): When there's an issue retrieving data from the database
-        
-        - INTERNAL_ERROR (500): For unexpected system errors during execution
-        
-        ## Usage Examples
-        
-        1. Get basic task information:
-           ```json
-           {
-             "id": "550e8400-e29b-41d4-a716-446655440000"
-           }
-           ```
-           
-        2. Get task with all relationships:
-           ```json
-           {
-             "id": "550e8400-e29b-41d4-a716-446655440000",
-             "includeFeature": true,
-             "includeSections": true,
-             "includeSubtasks": true,
-             "includeDependencies": true
-           }
-           ```
-           
-        3. Get summarized task information (for context efficiency):
-           ```json
-           {
-             "id": "550e8400-e29b-41d4-a716-446655440000",
-             "summaryView": true
-           }
-           ```
+Parameters:
+| Field | Type | Required | Default | Description |
+| id | UUID | Yes | - | Task identifier |
+| includeSections | boolean | No | false | Include detailed content sections |
+| includeFeature | boolean | No | false | Include parent feature information |
+| includeDependencies | boolean | No | false | Include dependency information |
+| summaryView | boolean | No | false | Truncate text fields for efficiency |
+
+Usage notes:
+- Tasks store detailed content in separate Section entities. Use includeSections=true for complete task context.
+- Default response includes only basic task metadata and summary.
+- Use summaryView=true to reduce token usage for large datasets.
+
+Related: create_task, update_task, delete_task, search_tasks, get_sections
+
+For detailed examples and patterns: task-orchestrator://docs/tools/get-task
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -81,301 +81,38 @@ class BulkCreateSectionsTool : BaseToolDefinition() {
         )
     )
 
-    override val description = """Creates multiple sections in a single operation.
-        
-        ## Purpose
-        
-        This tool efficiently creates multiple sections for tasks, features, or projects in a single operation.
-        PREFERRED over multiple `add_section` calls for efficiency and performance.
-        
-        ## When to Use bulk_create_sections
-        
-        **ALWAYS PREFER** for:
-        - Creating initial section sets for new tasks/features (3+ sections)
-        - Adding template-like section structures
-        - Sections with shorter content (< 500 characters each)
-        - Any scenario requiring multiple sections for the same entity
-        
-        **Performance Benefits**:
-        - Single database transaction (atomic operation)
-        - Reduced network overhead (one API call vs multiple)
-        - Faster execution for multiple sections
-        - Better error handling (all succeed or fail together)
-        
-        ## Common Section Creation Patterns
-        
-        **Standard Task Documentation Set**:
-        ```json
-        {
-          "sections": [
-            {
-              "entityType": "TASK",
-              "entityId": "task-uuid",
-              "title": "Requirements",
-              "usageDescription": "Key requirements and acceptance criteria",
-              "content": "[List specific requirements and success criteria]",
-              "ordinal": 0,
-              "tags": "requirements,core"
-            },
-            {
-              "entityType": "TASK",
-              "entityId": "task-uuid",
-              "title": "Technical Approach",
-              "usageDescription": "Implementation strategy and architecture",
-              "content": "[Describe technical approach and key decisions]",
-              "ordinal": 1,
-              "tags": "technical,architecture"
-            },
-            {
-              "entityType": "TASK",
-              "entityId": "task-uuid",
-              "title": "Testing Strategy",
-              "usageDescription": "Testing approach and coverage requirements",
-              "content": "[Define testing strategy and success criteria]",
-              "ordinal": 2,
-              "tags": "testing,quality"
-            }
-          ]
-        }
-        ```
-        
-        **Feature Planning Documentation**:
-        ```json
-        {
-          "sections": [
-            {
-              "entityType": "FEATURE",
-              "entityId": "feature-uuid",
-              "title": "Business Context",
-              "usageDescription": "Business value and user impact",
-              "content": "[Explain business need and user benefits]",
-              "ordinal": 0,
-              "tags": "business,context"
-            },
-            {
-              "entityType": "FEATURE",
-              "entityId": "feature-uuid",
-              "title": "Feature Specification",
-              "usageDescription": "Detailed feature requirements and behavior",
-              "content": "[Define feature scope and detailed requirements]",
-              "ordinal": 1,
-              "tags": "requirements,specification"
-            }
-          ]
-        }
-        ```
-        
-        ## Section Organization Best Practices
-        
-        **Ordinal Sequencing**:
-        - Start with ordinal 0 for the first section
-        - Use increments of 1 for tightly related sequences
-        - Leave gaps (0, 10, 20) when you might insert sections later
-        - Order logically: Context → Requirements → Implementation → Testing
-        
-        **Content Format Selection**:
-        - **MARKDOWN**: Default for rich text, documentation, requirements
-        - **PLAIN_TEXT**: Simple text without formatting needs
-        - **JSON**: Structured data, API specs, configuration
-        - **CODE**: Implementation examples, code snippets
+    override val description = """Creates multiple sections in a single operation. More efficient than multiple
+        add_section calls due to atomic transaction and single network round-trip. Use for initial section
+        sets (3+ sections) or template-based content creation.
 
-        **Writing Markdown Content**:
+        Key features:
+        - Atomic operation (all sections succeed or all fail)
+        - Single database transaction
+        - Maintains section ordering via ordinal field
+        - Supports all content formats (MARKDOWN, PLAIN_TEXT, JSON, CODE)
 
-        **CRITICAL - Section Title Handling**:
-        - The `title` field becomes the section heading (rendered as ## H2 in markdown output)
-        - **DO NOT** duplicate the section title as a heading in the `content` field
-        - Content should start directly with the information, NOT with another heading
-        - For subsections within content, use ### (H3) or lower headings
-
-        **Markdown Formatting**:
-        - Use subsection headings: `### Subsection` (H3 or lower, never H2)
-        - Use lists: `- Item` or `1. Numbered`
-        - Use emphasis: `**bold**` or `*italic*`
-        - Use code: \`inline\` or \`\`\`kotlin code block\`\`\`
-        - Use links: `[text](url)`
-
-        **Example - WRONG (❌ Creates Duplicate Headings)**:
-        ```markdown
-        ## Requirements
-        - **Must** support OAuth 2.0
-        ```
-        *Problem: Title field "Requirements" + content heading "## Requirements" = duplicate*
-
-        **Example - CORRECT (✅ No Duplicate)**:
-        ```markdown
-        - **Must** support OAuth 2.0
-        - **Should** handle token refresh automatically
-        - See [OAuth spec](https://oauth.net/2/)
-        ```
-        *Correct: Title field "Requirements" provides the heading, content starts directly*
-
-        **Example - With Subsections (✅ Also Correct)**:
-        ```markdown
-        ### Current Behavior
-        The system currently...
-
-        ### Proposed Changes
-        - Change 1...
-        - Change 2...
-        ```
-        *Correct: Uses H3 for subsections, not H2*
-
-        **Tagging Strategy**:
-        - Use consistent tags across similar section types
-        - Include functional area: "requirements", "testing", "architecture"
-        - Add technical context: "api", "database", "frontend", "security"
-        - Mark importance: "core", "optional", "critical"
-        
-        ## Integration with Templates
-        
-        **Templates vs Manual Sections**:
-        - Templates provide standardized section structures automatically
-        - Use bulk_create_sections to supplement template sections with project-specific content
-        - Templates handle common patterns; bulk_create_sections handles custom needs
-        
-        **Post-Template Enhancement**:
-        After applying templates, use bulk_create_sections to add:
-        - Project-specific context sections
-        - Additional technical details
-        - Custom workflow or process sections
-        - Domain-specific requirements or constraints
-        
-        ## Parameters
-        
-        | Parameter | Type | Required | Default | Description |
-        |-----------|------|----------|---------|-------------|
-        | sections | array | Yes | - | Array of section objects to create |
-        
-        Each section object in the array must include:
-        
         | Field | Type | Required | Default | Description |
-        |-------|------|----------|---------|-------------|
-        | entityType | string | Yes | - | Type of entity: 'PROJECT', 'TASK', or 'FEATURE' |
-        | entityId | UUID string | Yes | - | ID of the project, task, or feature to add the section to |
-        | title | string | Yes | - | Section title (e.g., 'Requirements', 'Implementation Notes') |
-        | usageDescription | string | Yes | - | Description of how this section should be used |
-        | content | string | Yes | - | The actual content of the section |
-        | contentFormat | string | No | "MARKDOWN" | Format of the content: 'MARKDOWN', 'PLAIN_TEXT', 'JSON', or 'CODE' |
-        | ordinal | integer | Yes | - | Order position (0-based). Lower numbers appear first. |
-        | tags | string | No | - | Comma-separated list of tags for categorization |
-        
-        ## Response Format
-        
-        ### Success Response (All Sections Created)
-        
-        ```json
-        {
-          "success": true,
-          "message": "3 sections created successfully",
-          "data": {
-            "items": [
-              {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "entityType": "task",
-                "entityId": "661f9511-f30c-52e5-b827-557766551111",
-                "title": "Requirements",
-                "contentFormat": "markdown",
-                "ordinal": 0,
-                "createdAt": "2025-05-10T14:30:00Z"
-              }
-            ],
-            "count": 3,
-            "failed": 0
-          }
-        }
-        ```
-        
-        ## Error Responses
-        
-        - VALIDATION_ERROR (400): When the input doesn't match the expected format or values are invalid
-        - OPERATION_FAILED (500): When all sections fail to create
-        - RESOURCE_NOT_FOUND (404): When an entity doesn't exist
-        
-        ## Usage Examples
-        
-        1. Create multiple sections for a task:
-           ```json
-           {
-             "sections": [
-               {
-                 "entityType": "TASK",
-                 "entityId": "550e8400-e29b-41d4-a716-446655440000",
-                 "title": "Requirements",
-                 "usageDescription": "Key requirements for implementation",
-                 "content": "1. Must support user authentication\n2. Should integrate with existing systems",
-                 "contentFormat": "MARKDOWN",
-                 "ordinal": 0,
-                 "tags": "requirements,core"
-               },
-               {
-                 "entityType": "TASK",
-                 "entityId": "550e8400-e29b-41d4-a716-446655440000",
-                 "title": "Technical Approach",
-                 "usageDescription": "Implementation strategy and technical details",
-                 "content": "We'll use Spring Security for authentication and implement REST endpoints...",
-                 "contentFormat": "MARKDOWN",
-                 "ordinal": 1,
-                 "tags": "technical,implementation"
-               },
-               {
-                 "entityType": "TASK",
-                 "entityId": "550e8400-e29b-41d4-a716-446655440000",
-                 "title": "Testing Strategy",
-                 "usageDescription": "Test approach and coverage requirements",
-                 "content": "Ensure 80% unit test coverage and implement integration tests for key flows",
-                 "contentFormat": "MARKDOWN",
-                 "ordinal": 2,
-                 "tags": "testing,quality"
-               }
-             ]
-           }
-           ```
-           
-        2. Create multiple sections for a project:
-           ```json
-           {
-             "sections": [
-               {
-                 "entityType": "PROJECT",
-                 "entityId": "772f9622-g41d-52e5-b827-668899101111",
-                 "title": "Project Overview",
-                 "usageDescription": "High-level description of the project",
-                 "content": "This project aims to create a scalable infrastructure...",
-                 "contentFormat": "MARKDOWN",
-                 "ordinal": 0,
-                 "tags": "overview,documentation"
-               },
-               {
-                 "entityType": "PROJECT",
-                 "entityId": "772f9622-g41d-52e5-b827-668899101111",
-                 "title": "Project Architecture",
-                 "usageDescription": "Technical architecture details",
-                 "content": "The project uses a modular architecture with the following components...",
-                 "contentFormat": "MARKDOWN",
-                 "ordinal": 1,
-                 "tags": "architecture,technical"
-               }
-             ]
-           }
-           ```
-        
-        ## Performance Benefits
-        
-        Using `bulk_create_sections` instead of multiple calls to `add_section` offers significant 
-        advantages:
-        
-        1. Reduced network overhead: Only one API call instead of multiple calls
-        2. Improved transaction efficiency: Database operations are batched
-        3. Faster execution: Creating multiple sections in parallel
-        4. Atomic operations: All sections succeed or useful error information is provided
-        
-        ## Common Section Combinations
-        
-        Typical section combinations for tasks include:
-        
-        1. Requirements + Implementation Approach + Testing Strategy
-        2. Problem Statement + Solution Design + Acceptance Criteria
-        3. Context + Technical Details + References
+        | sections | array | Yes | - | Array of section objects to create |
+
+        Each section object requires:
+        - entityType: TASK, FEATURE, or PROJECT
+        - entityId: UUID of parent entity
+        - title: Section heading
+        - usageDescription: Purpose description for AI/users
+        - content: Section content
+        - ordinal: Display order (0-based)
+        - contentFormat: Format type (default: MARKDOWN)
+        - tags: Comma-separated tags (optional)
+
+        Usage notes:
+        - All sections must belong to same entity
+        - Operation fails if any section validation fails
+        - For single sections, use add_section instead
+        - Section title becomes ## H2 heading in markdown output - do NOT duplicate in content field
+
+        Related: add_section, get_sections, bulk_update_sections, bulk_delete_sections
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/bulk-create-sections
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

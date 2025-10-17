@@ -51,25 +51,25 @@ class UpdateTemplateMetadataTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Updates a template's metadata (name, description, tags, etc.) 
-        without affecting its sections. Protected templates cannot be updated.
-        
-        This tool allows you to update specific metadata fields without having to provide
-        the entire template content, which is more efficient for context usage.
-        
+    override val description: String = """Updates template metadata without affecting sections. Only sends changed fields for token efficiency.
+
         Parameters:
-        - id (required): UUID of the template to update
+        - id (required): Template UUID
         - name (optional): New template name
-        - description (optional): New template description
-        - targetEntityType (optional): New target entity type (TASK, FEATURE)
-        - isEnabled (optional): Whether the template is enabled
-        - tags (optional): Comma-separated list of new tags
-        
-        Validation Rules:
-        - Template must exist
+        - description (optional): New description
+        - targetEntityType (optional): TASK or FEATURE
+        - isEnabled (optional): Enable/disable template
+        - tags (optional): Comma-separated tags
+
+        Usage notes:
         - Protected templates cannot be updated
-        - Name must not be empty if provided
-        - No name conflict with existing templates
+        - Name must be unique (no conflicts with existing templates)
+        - Only provide fields you want to change
+        - Sections remain unchanged
+
+        Related tools: create_template, delete_template, enable_template, disable_template
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/update-template-metadata
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

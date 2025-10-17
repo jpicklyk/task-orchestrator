@@ -83,6 +83,8 @@ class FeatureToMarkdownTool : BaseToolDefinition() {
         - All sections rendered according to their content format (markdown, code, JSON, plain text)
 
         For inspecting feature details in structured JSON format, use get_feature instead.
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/feature-to-markdown
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

@@ -79,63 +79,50 @@ class UpdateProjectTool(
 
     override val description: String = """Updates an existing project's properties.
 
-        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
+⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
+Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
 
-        ## Efficient vs Inefficient Updates
+## Efficient vs Inefficient Updates
 
-        ❌ **INEFFICIENT** (wastes ~400+ characters):
-        ```json
-        {
-          "id": "project-uuid",
-          "name": "Existing Project Name",        // Unchanged - unnecessary
-          "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
-          "status": "in-development",             // ✓ Only this changed
-          "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
-        }
-        ```
+❌ **INEFFICIENT** (wastes ~400+ characters):
+```json
+{
+  "id": "project-uuid",
+  "name": "Existing Project Name",        // Unchanged - unnecessary
+  "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
+  "status": "in-development",             // ✓ Only this changed
+  "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
+}
+```
 
-        ✅ **EFFICIENT** (uses ~40 characters):
-        ```json
-        {
-          "id": "project-uuid",
-          "status": "in-development"  // Only send what changed!
-        }
-        ```
+✅ **EFFICIENT** (uses ~40 characters):
+```json
+{
+  "id": "project-uuid",
+  "status": "in-development"  // Only send what changed!
+}
+```
 
-        **Token Savings**: 90% reduction by only sending changed fields!
+**Token Savings**: 90% reduction by only sending changed fields!
 
-        ## Partial Updates
-        This tool modifies properties of an existing project. It supports partial updates, meaning you only need to specify
-        the fields you want to change. Any fields not included in the request will retain their current values.
+## Partial Updates
+Only specify fields you want to change. Unspecified fields remain unchanged.
 
-        Projects are top-level organizational containers that group related features and tasks together. Updating a project
-        allows you to change its name, summary, status, or tags without affecting its relationships with features and tasks.
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Project updated successfully",
-          "data": {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "name": "Mobile App Redesign 2.0",
-            "summary": "Updated project scope with additional accessibility features",
-            "status": "in-development",
-            "createdAt": "2025-05-10T14:30:00Z",
-            "modifiedAt": "2025-05-15T16:20:00Z",
-            "tags": ["mobile", "ui", "accessibility", "2025-roadmap"]
-          },
-          "error": null,
-          "metadata": {
-            "timestamp": "2025-05-15T16:20:00Z"
-          }
-        }
-        
-        Common error responses:
-        - RESOURCE_NOT_FOUND: When no project exists with the specified ID
-        - VALIDATION_ERROR: When parameters fail validation (e.g., empty name)
-        - DATABASE_ERROR: When there's an issue storing the updated project
-        - INTERNAL_ERROR: For unexpected system errors
+Parameters:
+| Field | Type | Required | Description |
+| id | UUID | Yes | Project identifier |
+| name | string | No | New project name |
+| summary | string | No | New summary (max 500 chars) |
+| status | enum | No | New status (planning, in-development, completed, archived) |
+| tags | string | No | New comma-separated tags |
+
+Usage notes:
+- Summary limited to 500 characters
+- Tags parameter replaces entire tag set
+
+Related: create_project, get_project, delete_project, search_projects
+
+For detailed examples and patterns: task-orchestrator://docs/tools/update-project
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

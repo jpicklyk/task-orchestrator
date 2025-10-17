@@ -78,103 +78,16 @@ class AddSectionTool(
         )
     )
 
-    override val description = """Adds a section to a task, feature, or project.
-        
-        ## Purpose
-        
-        Sections store detailed content for tasks, features, and projects in a structured way.
-        Instead of storing all content directly in the entities, sections allow for
-        organized content blocks with specific formats and purposes. This approach
-        optimizes context efficiency by keeping core entities lightweight.
-        
-        ## Usage Guidelines
-        
-        **EFFICIENCY RECOMMENDATION**: For adding multiple sections at once, prefer using 
-        `bulk_create_sections` instead of multiple `add_section` calls. This is especially 
-        important for:
-        - Creating initial section sets for new tasks/features
-        - Adding sections with shorter content (reduces network overhead)
-        - Template-like section creation scenarios
-        
-        **WHEN TO USE add_section**:
-        - Adding a single section with substantial content
-        - Adding sections incrementally during task development
-        - Creating sections that require careful individual validation
-        
-        ## Content Organization Strategy
-        
-        **Common Section Types** (use these title patterns for consistency):
-        - **Requirements**: What needs to be accomplished, acceptance criteria
-        - **Implementation Notes**: Technical approach, architecture decisions
-        - **Testing Strategy**: Testing approach, coverage requirements
-        - **Reference Information**: External links, documentation, resources
-        - **Dependencies**: Prerequisites, related tasks, blocking issues
-        - **Architecture**: Design patterns, system integration points
-        
-        **Ordinal Sequencing Best Practices**:
-        - Start with ordinal 0 for the first section
-        - Use increments of 1 for logical ordering
-        - Leave gaps (0, 10, 20) when you anticipate inserting sections later
-        - Requirements typically come first (ordinal 0)
-        - Implementation details in the middle (ordinal 1-5)
-        - Testing and validation toward the end (ordinal 6+)
-        
-        **Content Format Selection**:
-        - **MARKDOWN**: Default for documentation, requirements, notes (rich formatting)
-        - **PLAIN_TEXT**: Simple text without formatting needs
-        - **JSON**: Structured data, configuration, API specifications
-        - **CODE**: Source code examples, implementation snippets
+    override val description = """Adds a section to a task, feature, or project. Sections store detailed content
+        in structured blocks with specific formats and purposes, keeping core entities lightweight.
 
-        **Writing Markdown Content**:
+        Key features:
+        - Supports MARKDOWN, PLAIN_TEXT, JSON, and CODE formats
+        - Ordinal field controls display order (0-based)
+        - Optional tags for categorization
+        - Section title becomes ## H2 heading in markdown output
 
-        **CRITICAL - Section Title Handling**:
-        - The `title` field becomes the section heading (rendered as ## H2 in markdown output)
-        - **DO NOT** duplicate the section title as a heading in the `content` field
-        - Content should start directly with the information, NOT with another heading
-        - For subsections within content, use ### (H3) or lower headings
-
-        **Markdown Formatting**:
-        - Use subsection headings: `### Subsection` (H3 or lower, never H2)
-        - Use lists: `- Item` or `1. Numbered`
-        - Use emphasis: `**bold**` or `*italic*`
-        - Use code: \`inline\` or \`\`\`kotlin code block\`\`\`
-        - Use links: `[text](url)`
-
-        **Example - WRONG (❌ Creates Duplicate Headings)**:
-        ```markdown
-        ## Requirements
-        - **Must** support OAuth 2.0
-        ```
-        *Problem: Title field "Requirements" + content heading "## Requirements" = duplicate*
-
-        **Example - CORRECT (✅ No Duplicate)**:
-        ```markdown
-        - **Must** support OAuth 2.0
-        - **Should** handle token refresh automatically
-        - See [OAuth spec](https://oauth.net/2/)
-        ```
-        *Correct: Title field "Requirements" provides the heading, content starts directly*
-
-        **Example - With Subsections (✅ Also Correct)**:
-        ```markdown
-        ### Current Behavior
-        The system currently...
-
-        ### Proposed Changes
-        - Change 1...
-        - Change 2...
-        ```
-        *Correct: Uses H3 for subsections, not H2*
-        
-        ## Integration with Workflow
-        
-        **Template Integration**: When using templates, they create standard sections automatically.
-        Use add_section to supplement template-created sections with project-specific content.
-        
-        **Progressive Detail**: Start with high-level sections (Requirements, Architecture) 
-        and add implementation details as the task progresses.
-        
-        ## Parameters
+        Parameters
         
         | Parameter | Type | Required | Default | Description |
         |-----------|------|----------|---------|-------------|
@@ -185,151 +98,17 @@ class AddSectionTool(
         | content | string | Yes | - | The actual content of the section in the specified format |
         | contentFormat | string | No | "MARKDOWN" | Format of the content: 'MARKDOWN', 'PLAIN_TEXT', 'JSON', or 'CODE' |
         | ordinal | integer | Yes | - | Order position (0-based). Lower numbers appear first when ordered. |
-        | tags | string | No | - | Comma-separated list of tags for categorization (e.g., 'documentation,frontend,api') |
-        
-        ## Response Format
-        
-        ### Success Response
-        
-        ```json
-        {
-          "success": true,
-          "message": "Section added successfully",
-          "data": {
-            "section": {
-              "id": "550e8400-e29b-41d4-a716-446655440000",
-              "entityType": "TASK",
-              "entityId": "661f9511-f30c-52e5-b827-557766551111",
-              "title": "Implementation Steps",
-              "contentFormat": "MARKDOWN",
-              "ordinal": 1,
-              "createdAt": "2025-05-10T14:30:00Z"
-            }
-          }
-        }
-        ```
-        
-        ## Error Responses
-        
-        - RESOURCE_NOT_FOUND (404): When the specified task or feature doesn't exist
-          ```json
-          {
-            "success": false,
-            "message": "The specified task was not found",
-            "error": {
-              "code": "RESOURCE_NOT_FOUND"
-            }
-          }
-          ```
-          
-        - VALIDATION_ERROR (400): When provided parameters fail validation
-          ```json
-          {
-            "success": false,
-            "message": "Title is required",
-            "error": {
-              "code": "VALIDATION_ERROR"
-            }
-          }
-          ```
-          
-        - DATABASE_ERROR (500): When there's an issue storing the section in the database
-          
-        - INTERNAL_ERROR (500): For unexpected system errors during execution
-        
-        ## Usage Examples
-        
-        1. Add a requirements section to a task:
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "title": "Requirements",
-             "usageDescription": "Key requirements that the implementation must satisfy",
-             "content": "1. Must support OAuth2 authentication\\n2. Should handle token refresh\\n3. Needs rate limiting",
-             "contentFormat": "MARKDOWN",
-             "ordinal": 0,
-             "tags": "requirements,security,api"
-           }
-           ```
-           
-        2. Add implementation notes to a feature:
-           ```json
-           {
-             "entityType": "FEATURE",
-             "entityId": "661e8511-f30c-41d4-a716-557788990000",
-             "title": "Implementation Notes",
-             "usageDescription": "Technical details on implementation approach",
-             "content": "Use the AuthLib 2.0 library for OAuth implementation...",
-             "contentFormat": "MARKDOWN",
-             "ordinal": 1,
-             "tags": "implementation,technical"
-           }
-           ```
-           
-        3. Add overview documentation to a project:
-           ```json
-           {
-             "entityType": "PROJECT",
-             "entityId": "772f9622-g41d-52e5-b827-668899101111",
-             "title": "Project Overview",
-             "usageDescription": "High-level overview of the project",
-             "content": "This project aims to create a scalable infrastructure...",
-             "contentFormat": "MARKDOWN",
-             "ordinal": 0,
-             "tags": "overview,documentation"
-           }
-           ```
-           
-        3. Add structured data as JSON:
-           ```json
-           {
-             "entityType": "FEATURE",
-             "entityId": "661e8511-f30c-41d4-a716-557788990000",
-             "title": "API Endpoints",
-             "usageDescription": "Definition of REST API endpoints",
-             "content": "{\\"endpoints\\": [{\\"path\\": \\"/api/auth\\", \\"method\\": \\"POST\\"}]}",
-             "contentFormat": "JSON",
-             "ordinal": 0
-           }
-           ```
-           
-        4. Add code sample:
-           ```json
-           {
-             "entityType": "TASK",
-             "entityId": "550e8400-e29b-41d4-a716-446655440000",
-             "title": "Authentication Handler",
-             "usageDescription": "Code for handling OAuth authentication",
-             "content": "fun authenticateUser(credentials: Credentials): Result<User> {\n  // Implementation\n}",
-             "contentFormat": "CODE",
-             "ordinal": 2
-           }
-           ```
-        
-        ## Common Section Types
-        
-        While you can create sections with any title, common section types include:
-        - Requirements: Task or feature requirements (what needs to be done)
-        - Implementation Notes: Technical details on how to implement
-        - Testing Strategy: How to test the implementation
-        - Reference Information: External links and resources
-        - Architecture: Design and architecture details
-        - Dependencies: Dependencies on other components
-        
-        ## Related Tools
-        
-        - `get_sections`: Retrieve sections for a task or feature
-        - `update_section`: Modify an existing section
-        - `delete_section`: Remove a section
-        - `bulk_create_sections`: Create multiple sections at once (recommended when adding multiple sections)
-        
-        ## Efficiency Note
-        
-        For efficiency and better performance, when you need to add multiple sections to the 
-        same entity, use the `bulk_create_sections` tool instead. This reduces the number of
-        database operations and network calls, resulting in faster execution, especially when
-        dealing with multiple sections with shorter content.
+        | tags | string | No | - | Comma-separated list of tags for categorization |
+
+        Usage notes:
+        - For multiple sections, use bulk_create_sections instead (more efficient)
+        - Do NOT duplicate section title as ## H2 heading in content field
+        - Use ordinal to control display order (lower numbers first)
+        - Templates create sections automatically; use this to add custom content
+
+        Related: bulk_create_sections, get_sections, update_section, delete_section
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/add-section
     """
 
     override val parameterSchema = Tool.Input(

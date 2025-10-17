@@ -61,7 +61,24 @@ class DeleteProjectTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = "Remove a project and its associated features/tasks"
+    override val description: String = """Deletes a project by ID with cascade options.
+
+Parameters:
+| Field | Type | Required | Default | Description |
+| id | UUID | Yes | - | Project identifier |
+| cascade | boolean | No | false | Delete associated features and tasks |
+| force | boolean | No | false | Delete even with active features/tasks |
+| hardDelete | boolean | No | false | Permanently remove (vs soft delete) |
+
+Usage notes:
+- Prevents deletion if project has active features/tasks unless force=true
+- Cascade deletion removes all associated features and tasks
+- Returns count of affected features and tasks
+
+Related: create_project, update_project, get_project, search_projects
+
+For detailed examples and patterns: task-orchestrator://docs/tools/delete-project
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

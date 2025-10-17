@@ -48,42 +48,29 @@ class UpdateSectionTextTool : BaseToolDefinition() {
     )
 
     override val description: String = """Updates specific text within a section without requiring the entire content.
-        This tool allows changing portions of section content by providing the text to replace
-        and its replacement.
-        
-        ## Context Efficiency Strategy
-        
-        **PREFERRED** for targeted content updates in large sections:
-        - Only send the specific text segment to replace and its replacement
-        - Much more efficient than sending entire content for small changes
-        - Ideal for correcting typos, updating specific paragraphs, or modifying parts of documentation
-        - Significantly reduces token usage compared to full content updates
-        
-        **When to Use**:
-        - Correcting typos in template-generated content
-        - Updating specific values or references within larger documentation
-        - Making incremental improvements to existing sections
-        - Modifying parts of sections without affecting the overall structure
-        
-        **Usage Examples**:
-        - Fixing typos: `oldText: "straegy"` → `newText: "strategy"`
-        - Updating references: `oldText: "version 1.0"` → `newText: "version 2.0"`
-        - Modifying template placeholders: `oldText: "[Insert details here]"` → `newText: "Actual implementation details"`
-        
-        **Compared to Other Update Tools**:
-        - Use `update_section_text` for content changes (most efficient for partial updates)
-        - Use `update_section_metadata` for title, format, ordinal, or tag changes
-        - Use `update_section` for complete content replacement (less efficient)
-        
+        Allows changing portions of section content by providing text to replace and its replacement.
+
+        Key features:
+        - Only sends specific text segment to replace (not entire content)
+        - Exact text matching required
+        - Ideal for typos, value updates, or incremental improvements
+        - More efficient than update_section for small changes
+
         Parameters:
-        - id (required): UUID of the section to update
-        - oldText (required): The text segment to be replaced (must match exactly)
-        - newText (required): The new text to replace the matched segment with
-        
-        Validation Rules:
-        - Section must exist
-        - Old text must exist in the section content
-        - Both oldText and newText parameters must be provided
+        | Field | Type | Required | Description |
+        | id | UUID | Yes | Section identifier |
+        | oldText | string | Yes | Text to replace (must match exactly) |
+        | newText | string | Yes | Replacement text |
+
+        Usage notes:
+        - Use for targeted content updates (typos, values, specific paragraphs)
+        - For metadata changes (title, format, ordinal, tags), use update_section_metadata
+        - For complete content replacement, use update_section
+        - Old text must exist in section content (exact match required)
+
+        Related: update_section, update_section_metadata, get_sections
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/update-section-text
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

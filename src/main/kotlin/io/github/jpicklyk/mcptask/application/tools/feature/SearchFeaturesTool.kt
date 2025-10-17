@@ -71,7 +71,34 @@ class SearchFeaturesTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = "Find features matching specified criteria"
+    override val description: String = """Searches features with flexible filtering and pagination.
+
+Key features:
+- Multiple filter combinations (status, priority, tag, project, text query, date range)
+- Configurable sorting (createdAt, modifiedAt, name, status, priority)
+- Paginated results (default: 20 per page, max: 100)
+
+Parameters:
+| Field | Type | Required | Default | Description |
+| query | string | No | - | Text search in names and descriptions |
+| status | enum | No | - | Filter by status (planning, in-development, completed, archived) |
+| priority | enum | No | - | Filter by priority (high, medium, low) |
+| projectId | UUID | No | - | Filter by parent project |
+| tag | string | No | - | Filter by tag (case-insensitive) |
+| limit | integer | No | 20 | Results per page (1-100) |
+| offset | integer | No | 0 | Skip N results |
+| sortBy | string | No | modifiedAt | Sort field |
+| sortDirection | string | No | desc | Sort direction (asc, desc) |
+
+Usage notes:
+- Combine filters for precise targeting
+- Use get_feature for detailed information on specific results
+- Complements get_overview for hierarchical view
+
+Related: get_feature, create_feature, update_feature, delete_feature, get_overview
+
+For detailed examples and patterns: task-orchestrator://docs/tools/search-features
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

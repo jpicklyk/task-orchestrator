@@ -1,5 +1,8 @@
-package io.github.jpicklyk.mcptask.application.tools
+package io.github.jpicklyk.mcptask.application.tools.task
 
+import io.github.jpicklyk.mcptask.application.tools.ToolCategory
+import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
@@ -20,145 +23,38 @@ class GetBlockedTasksTool : BaseToolDefinition() {
 
     override val title: String = "Get Blocked Tasks"
 
-    override val description: String = """Identifies tasks currently blocked by incomplete dependencies.
+    override val description: String = """Identifies tasks blocked by incomplete dependencies. Essential for workflow management and bottleneck identification.
 
-        ## Purpose
-        Helps users identify tasks that cannot progress because they depend on other
-        incomplete tasks. Essential for workflow management, bottleneck identification,
-        and understanding project blockers.
+        Task is Blocked When:
+        1. Status is pending or in-progress (active work)
+        2. Has incoming dependencies (other tasks block it)
+        3. At least one blocking task is NOT completed or cancelled
 
-        ## What Makes a Task "Blocked"?
+        Parameters:
+        - projectId (optional): Filter to specific project
+        - featureId (optional): Filter to specific feature
+        - includeTaskDetails (optional): Include full metadata (default: false for efficiency)
 
-        A task is considered blocked when:
-        1. Task status is `pending` or `in-progress` (active work)
-        2. Task has incoming dependencies (other tasks block it)
-        3. At least one blocking task is NOT `completed` or `cancelled`
+        Returns for Each Blocked Task:
+        - Basic info: Task ID, title, status, priority, complexity
+        - blockedBy array: List of blocking tasks with their statuses
+        - blockerCount: Number of incomplete blockers
 
-        ## Features
-        - **Automatic Blocking Detection**: Identifies blocked tasks across project
-        - **Blocker Information**: Shows which tasks are causing blocks
-        - **Project/Feature Filtering**: Focus on specific scope
-        - **Status Context**: Shows blocker task statuses
-        - **Workflow Insights**: Helps prioritize unblocking actions
+        Use Cases:
+        - Daily standup ("What tasks are blocked today?")
+        - Sprint planning (identify tasks that can't start yet)
+        - Bottleneck analysis (find what's blocking multiple tasks)
+        - Team coordination (know which tasks need other teams' work)
 
-        ## Use Cases
-        - **Daily Standup**: "What tasks are blocked today?"
-        - **Sprint Planning**: Identify tasks that can't start yet
-        - **Bottleneck Analysis**: Find what's blocking multiple tasks
-        - **Priority Setting**: Focus on unblocking critical paths
-        - **Team Coordination**: Know which tasks need other teams' work
+        Usage notes:
+        - No parameters returns all blocked tasks
+        - Filter by project/feature to focus on specific scope
+        - Analyze blocker tasks that appear most often to find bottlenecks
+        - Use with get_next_task to find unblocked work
 
-        ## Usage Examples
+        Related tools: get_next_task, get_task_dependencies, search_tasks
 
-        **Find All Blocked Tasks**:
-        ```json
-        {}
-        ```
-
-        **Blocked Tasks in Specific Project**:
-        ```json
-        {
-          "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039"
-        }
-        ```
-
-        **Blocked Tasks in Specific Feature**:
-        ```json
-        {
-          "featureId": "6b787bca-2ca2-461c-90f4-25adf53e0aa0"
-        }
-        ```
-
-        **Include All Task Details**:
-        ```json
-        {
-          "includeTaskDetails": true
-        }
-        ```
-
-        ## Output Format
-
-        Returns list of blocked tasks with:
-        - **Basic Info**: Task ID, title, status, priority, complexity
-        - **Blocking Info**: List of tasks blocking this task
-        - **Blocker Details**: ID, title, status of each blocker
-        - **Block Count**: Number of incomplete blockers
-
-        ## Filtering Options
-
-        **projectId**: Only show blocked tasks in this project
-        **featureId**: Only show blocked tasks in this feature
-        **includeTaskDetails**: Include full task metadata (default: false for efficiency)
-
-        ## AI Usage Patterns
-
-        **Daily Workflow Check**:
-        ```
-        User: "What tasks are blocked?"
-        AI: get_blocked_tasks
-        → Shows tasks that can't progress
-        → AI suggests focusing on unblocking tasks
-        ```
-
-        **Sprint Planning**:
-        ```
-        User: "What can we start next sprint?"
-        AI:
-        1. get_blocked_tasks (see what's blocked)
-        2. search_tasks --status pending (see what's ready)
-        3. Recommend unblocked, high-priority tasks
-        ```
-
-        **Bottleneck Identification**:
-        ```
-        User: "Why is nothing moving forward?"
-        AI:
-        1. get_blocked_tasks
-        2. Analyze which blocker tasks appear most often
-        3. Suggest prioritizing those blocker tasks
-        ```
-
-        ## Response Example
-
-        ```json
-        {
-          "success": true,
-          "data": {
-            "blockedTasks": [
-              {
-                "taskId": "task-uuid-1",
-                "title": "Implement user dashboard",
-                "status": "pending",
-                "priority": "high",
-                "complexity": 7,
-                "blockedBy": [
-                  {
-                    "taskId": "blocker-uuid-1",
-                    "title": "Design dashboard mockups",
-                    "status": "in-progress",
-                    "priority": "high"
-                  },
-                  {
-                    "taskId": "blocker-uuid-2",
-                    "title": "Create API endpoints",
-                    "status": "pending",
-                    "priority": "medium"
-                  }
-                ],
-                "blockerCount": 2
-              }
-            ],
-            "totalBlocked": 1
-          }
-        }
-        ```
-
-        ## Performance Notes
-
-        - Uses efficient dependency queries
-        - Only checks active tasks (pending/in-progress)
-        - Optional task details reduce payload size
-        - Suitable for frequent polling
+        For detailed examples and patterns: task-orchestrator://docs/tools/get-blocked-tasks
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(

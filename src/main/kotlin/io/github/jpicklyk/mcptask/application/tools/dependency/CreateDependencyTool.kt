@@ -59,30 +59,33 @@ class CreateDependencyTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Creates a new task dependency with validation for task existence, cycle detection, and duplicate prevention.
-        
-        Dependencies represent relationships between tasks that can affect execution planning and workflow management.
-        This tool ensures data integrity by validating all aspects before creation.
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Dependency created successfully",
-          "data": {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "fromTaskId": "661e8511-f30c-41d4-a716-557788990000",
-            "toTaskId": "772f9622-g41d-52e5-b827-668899101111",
-            "type": "BLOCKS",
-            "createdAt": "2025-05-10T14:30:00Z"
-          }
-        }
-        
-        Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - RESOURCE_NOT_FOUND: When one or both tasks don't exist
-        - CONFLICT_ERROR: When the dependency would create a cycle or already exists
-        - DATABASE_ERROR: When there's an issue storing the dependency
-        - INTERNAL_ERROR: For unexpected system errors"""
+    override val description: String = """Creates task dependency with validation for task existence, cycle detection, and duplicate prevention.
+
+        Parameters:
+        - fromTaskId (required): Source task UUID (task creating dependency)
+        - toTaskId (required): Target task UUID (task affected by dependency)
+        - type (optional): BLOCKS, IS_BLOCKED_BY, or RELATES_TO (default: BLOCKS)
+
+        Dependency Types:
+        - BLOCKS: Source blocks target (target cannot start until source complete)
+        - IS_BLOCKED_BY: Source is blocked by target (inverse of BLOCKS)
+        - RELATES_TO: General relationship (no blocking)
+
+        Validation:
+        - Both tasks must exist
+        - Prevents circular dependencies (cycle detection)
+        - Prevents duplicate dependencies
+        - Validates UUID formats
+
+        Usage notes:
+        - Use BLOCKS for most workflow dependencies
+        - Dependency affects get_blocked_tasks and get_next_task results
+        - Use get_task_dependencies to view existing dependencies
+
+        Related tools: get_task_dependencies, delete_dependency, get_blocked_tasks
+
+For detailed examples and patterns: task-orchestrator://docs/tools/create-dependency
+        """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(

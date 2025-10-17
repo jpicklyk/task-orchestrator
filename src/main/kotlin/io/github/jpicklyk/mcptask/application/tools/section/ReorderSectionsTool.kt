@@ -62,6 +62,8 @@ class ReorderSectionsTool : BaseToolDefinition() {
         - Entity must exist
         - All sections must exist and belong to the entity
         - All sections of the entity must be included
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/reorder-sections
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

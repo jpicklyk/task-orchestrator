@@ -113,155 +113,26 @@ class GetFeatureTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Retrieves a feature by its ID with options for including relationships.
-        
-        ## Purpose
+    override val description: String = """Retrieves a feature by ID with optional related entities.
 
-        Fetches a complete feature by its UUID with options to include related entities like 
-        tasks and task statistics. This tool allows getting detailed information about a specific 
-        feature when its ID is known.
-        
-        Note: Features store their detailed content in separate Section entities for efficiency. 
-        To retrieve the complete feature with all content blocks, make sure to set includeSections=true.
-        Otherwise, you'll only receive the basic feature metadata and summary.
-        
-        ## Parameters
-        
-        | Parameter | Type | Required | Default | Description |
-        | id | UUID string | Yes | - | The unique ID of the feature to retrieve (e.g., '550e8400-e29b-41d4-a716-446655440000') |
-        | includeTasks | boolean | No | false | Whether to include basic task information in the response. Set to true when you need to see all tasks associated with this feature. |
-        | maxTaskCount | integer | No | 10 | Maximum number of tasks to include (1-100) |
-        | includeTaskCounts | boolean | No | false | Whether to include task statistics grouped by status |
-        | includeTaskDependencies | boolean | No | false | Whether to include dependency information for tasks when includeTasks is true |
-        | includeSections | boolean | No | false | Whether to include sections (detailed content blocks) that contain the full content of the feature. Set to true when you need the complete feature context beyond the basic summary. |
-        | summaryView | boolean | No | false | Whether to return a summarized view for context efficiency (truncates text fields) |
-        | maxsummaryLength | integer | No | 500 | Maximum length for summary before truncation when in summary view |
-        
-        ## Response Format
-        
-        ### Success Response
-        
-        ```json
-        {
-          "success": true,
-          "message": "Feature retrieved successfully",
-          "data": {
-            "id": "661e8511-f30c-41d4-a716-557788990000",
-            "name": "REST API Implementation",
-            "summary": "Implement the core REST API endpoints...",
-            "status": "in-development",
-            "priority": "high",
-            "createdAt": "2025-05-10T14:30:00Z",
-            "modifiedAt": "2025-05-10T15:45:00Z",
-            "tags": ["api", "backend"],
-            "taskCounts": {
-              "total": 15,
-              "byStatus": {
-                "pending": 5,
-                "in-progress": 8,
-                "completed": 2
-              }
-            },
-            "sections": [
-              {
-                "id": "772f9622-g41d-52e5-b827-668899101111",
-                "title": "Requirements",
-                "content": "The API should support CRUD operations...",
-                "contentFormat": "markdown",
-                "ordinal": 0
-              }
-            ],
-            "tasks": {
-              "items": [
-                {
-                  "id": "550e8400-e29b-41d4-a716-446655440000",
-                  "title": "Implement User API",
-                  "status": "in-progress",
-                  "priority": "high",
-                  "complexity": 7,
-                  "dependencies": {
-                    "counts": {
-                      "total": 3,
-                      "incoming": 1,
-                      "outgoing": 2
-                    }
-                  }
-                },
-                // More tasks...
-              ],
-              "total": 15,
-              "included": 10,
-              "hasMore": true,
-              "dependencyStatistics": {
-                "totalDependencies": 25,
-                "totalIncomingDependencies": 12,
-                "totalOutgoingDependencies": 13,
-                "tasksWithDependencies": 8
-              }
-            }
-          }
-        }
-        ```
-        
-        ## Error Responses
-        
-        - RESOURCE_NOT_FOUND (404): When no feature exists with the specified ID
-        - VALIDATION_ERROR (400): When the provided ID is not a valid UUID
-        - DATABASE_ERROR (500): When there's an issue retrieving data from the database
-        - INTERNAL_ERROR (500): For unexpected system errors during execution
-        
-        ## Usage Examples
-        
-        1. Get basic feature information:
-           ```json
-           {
-             "id": "661e8511-f30c-41d4-a716-557788990000"
-           }
-           ```
-           
-        2. Get feature with tasks and counts:
-           ```json
-           {
-             "id": "661e8511-f30c-41d4-a716-557788990000",
-             "includeTasks": true,
-             "includeTaskCounts": true
-           }
-           ```
-           
-        3. Get feature with sections (detailed content):
-           ```json
-           {
-             "id": "661e8511-f30c-41d4-a716-557788990000",
-             "includeSections": true
-           }
-           ```
-           
-        4. Get complete feature with all relationships:
-           ```json
-           {
-             "id": "661e8511-f30c-41d4-a716-557788990000",
-             "includeTasks": true,
-             "includeTaskCounts": true,
-             "includeSections": true
-           }
-           ```
-           
-        5. Get feature with tasks and their dependency information:
-           ```json
-           {
-             "id": "661e8511-f30c-41d4-a716-557788990000",
-             "includeTasks": true,
-             "includeTaskDependencies": true
-           }
-           ```
-           
-        6. Get summarized feature information (for context efficiency):
-           ```json
-           {
-             "id": "661e8511-f30c-41d4-a716-557788990000",
-             "summaryView": true
-           }
-           ```
+Parameters:
+| Field | Type | Required | Default | Description |
+| id | UUID | Yes | - | Feature identifier |
+| includeSections | boolean | No | false | Include detailed content sections |
+| includeTasks | boolean | No | false | Include associated tasks |
+| maxTaskCount | integer | No | 10 | Maximum tasks to include (1-100) |
+| includeTaskCounts | boolean | No | false | Include task statistics by status |
+| includeTaskDependencies | boolean | No | false | Include dependency info for tasks |
+| summaryView | boolean | No | false | Truncate text fields for efficiency |
+
+Usage notes:
+- Features store detailed content in separate Section entities. Use includeSections=true for complete feature context.
+- Default response includes only basic feature metadata and summary.
+- Use summaryView=true to reduce token usage for large datasets.
+
+Related: create_feature, update_feature, delete_feature, search_features, get_sections
+
+For detailed examples and patterns: task-orchestrator://docs/tools/get-feature
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

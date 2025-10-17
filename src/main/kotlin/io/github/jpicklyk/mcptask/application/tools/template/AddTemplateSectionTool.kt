@@ -56,34 +56,27 @@ class AddTemplateSectionTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Add a section to a template.
-        
-        Templates define a structured documentation pattern with multiple sections.
-        This tool adds a section definition to a template, which will be created
-        when the template is applied to tasks or features.
-        
-        Example successful response:
-        {
-          "success": true,
-          "message": "Template section added successfully",
-          "data": {
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "templateId": "661e8511-f30c-41d4-a716-557788990000",
-            "title": "Implementation Steps",
-            "usageDescription": "Detailed steps to implement this task",
-            "contentSample": "1. First step\\n2. Second step\\n3. Third step",
-            "contentFormat": "markdown",
-            "ordinal": 1,
-            "isRequired": true,
-            "tags": ["implementation", "steps"]
-          }
-        }
-        
-        Common error responses:
-        - VALIDATION_ERROR: When provided parameters fail validation
-        - RESOURCE_NOT_FOUND: When the template doesn't exist
-        - DATABASE_ERROR: When there's an issue storing the section
-        - INTERNAL_ERROR: For unexpected system errors
+    override val description: String = """Adds a section definition to a template. Section definitions are instantiated when template is applied to tasks/features.
+
+        Parameters:
+        - templateId (required): Template UUID
+        - title (required): Section title (e.g., 'Requirements', 'Implementation Notes')
+        - usageDescription (required): How section should be used by AI/users
+        - contentSample (required): Sample content for this section
+        - ordinal (required): Display order position (0-based, lower first)
+        - contentFormat (optional): MARKDOWN, PLAIN_TEXT, JSON, or CODE (default: MARKDOWN)
+        - isRequired (optional): Whether section is required (default: false)
+        - tags (optional): Comma-separated tags
+
+        Usage notes:
+        - Ordinal determines section order when template is applied
+        - Use gaps in ordinals (0, 10, 20) for easier insertion later
+        - contentSample becomes actual content when template is applied
+        - Protected templates cannot have sections added
+
+        Related tools: create_template, apply_template, get_template
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/add-template-section
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

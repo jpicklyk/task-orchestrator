@@ -44,7 +44,11 @@ class BulkDeleteSectionsTool : BaseToolDefinition() {
         )
     )
 
-    override val description = "Deletes multiple sections in a single operation"
+    override val description = """Deletes multiple sections in a single operation. More efficient than
+        multiple delete_section calls for 2+ sections.
+
+        For detailed examples and patterns: task-orchestrator://docs/tools/bulk-delete-sections
+    """
 
     override val parameterSchema: Tool.Input = Tool.Input(
         properties = JsonObject(
