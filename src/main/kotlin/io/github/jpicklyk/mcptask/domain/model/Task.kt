@@ -21,8 +21,11 @@ data class Task(
     /** Required title describing the task */
     val title: String,
 
-    /** Brief summary of the task (replaces detailed description) */
-    val summary: String,
+    /** Optional detailed description provided by user */
+    val description: String? = null,
+
+    /** Brief summary of the task (agent-generated, max 500 chars) */
+    val summary: String = "",
     
     /** Current status of the task */
     val status: TaskStatus = TaskStatus.PENDING,
@@ -57,10 +60,15 @@ data class Task(
      */
     fun validate() {
         require(title.isNotBlank()) { "Task title must not be empty" }
-        require(summary.isNotBlank()) { "Task summary must not be empty" }
         require(complexity in 1..10) { "Task complexity must be between 1 and 10" }
+        require(summary.length <= 500) { "Task summary must not exceed 500 characters" }
 
-        // Note: Validation of feature/project relationship consistency 
+        // Description cannot be blank if provided
+        description?.let {
+            require(it.isNotBlank()) { "Task description must not be blank if provided" }
+        }
+
+        // Note: Validation of feature/project relationship consistency
         // is handled at the repository level, as it requires checking against the database
     }
     
@@ -92,6 +100,7 @@ data class Task(
             val task = builder(
                 Task(
                     title = "",
+                    description = null,
                     summary = "",
                     createdAt = now,
                     modifiedAt = now

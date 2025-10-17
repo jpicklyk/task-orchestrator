@@ -13,7 +13,10 @@ data class Feature(
     val id: UUID = UUID.randomUUID(),
     val projectId: UUID? = null, // Project association (optional)
     val name: String,
-    val summary: String,
+    /** Optional detailed description provided by user */
+    val description: String? = null,
+    /** Brief summary of the feature (agent-generated, max 500 chars) */
+    val summary: String = "",
     val status: FeatureStatus = FeatureStatus.PLANNING,
     val priority: Priority = Priority.MEDIUM,
     val createdAt: Instant = Instant.now(),
@@ -35,8 +38,15 @@ data class Feature(
             throw ValidationException("Feature name cannot be empty")
         }
 
-        if (summary.isBlank()) {
-            throw ValidationException("Feature summary cannot be empty")
+        if (summary.length > 500) {
+            throw ValidationException("Feature summary must not exceed 500 characters")
+        }
+
+        // Description cannot be blank if provided
+        description?.let {
+            if (it.isBlank()) {
+                throw ValidationException("Feature description must not be blank if provided")
+            }
         }
     }
 
@@ -46,6 +56,7 @@ data class Feature(
     fun update(
         name: String = this.name,
         projectId: UUID? = this.projectId,
+        description: String? = this.description,
         summary: String = this.summary,
         status: FeatureStatus = this.status,
         priority: Priority = this.priority,
@@ -58,6 +69,7 @@ data class Feature(
         return copy(
             name = name,
             projectId = projectId,
+            description = description,
             summary = summary,
             status = status,
             priority = priority,
