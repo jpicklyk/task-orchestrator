@@ -11,6 +11,34 @@
 #   - context: Background information
 #   - documentation: User-facing docs
 
+# Parallel Processing Configuration
+# Enables orchestrators to launch multiple Task Manager agents simultaneously
+# for independent tasks, dramatically reducing feature completion time.
+parallelProcessing:
+  # Maximum number of tasks that can be processed in parallel
+  # Feature Manager will recommend up to this many unblocked tasks per batch
+  maxParallelTasks: 5
+
+  # Agents that support parallel coordination workflows
+  capabilities:
+    # Feature Manager - Coordinates multi-task features with parallel execution
+    - agent: Feature Architect
+      supportsParallel: true
+      batchSize: 5
+      modes: [START, CONTINUE, END]
+      description: "Recommends batches of unblocked tasks for parallel execution"
+
+    # Task Manager - Routes tasks to specialists (can be launched in parallel)
+    - agent: Task Manager
+      supportsParallel: true
+      concurrent: true
+      description: "Multiple instances can run concurrently for independent tasks"
+
+    # Planning Specialist - Creates task breakdowns with dependency metadata
+    - agent: Planning Specialist
+      supportsParallel: false
+      description: "Creates dependency-aware task breakdowns for parallel execution"
+
 # Map workflow activities to agents
 # Agent names must match Claude Code subagent_type format (Proper Case with spaces)
 workflowPhases:

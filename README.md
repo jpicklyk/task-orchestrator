@@ -207,6 +207,8 @@ Next morning, your AI asks: "Show me the project overview" and instantly knows:
 - Net savings: 85-90% vs direct implementation
 - Break-even: 3-4 tasks where coordination overhead < context accumulation
 
+**Parallel Execution**: Feature Manager now supports **wave-based parallel processing** - launching 2-5 independent tasks simultaneously instead of sequentially. For complex features with dependencies, this delivers **45-50% time reduction** by executing unblocked tasks in parallel batches. See [Parallel Processing Guide](docs/parallel-processing-guide.md) for orchestration patterns.
+
 **Setup**: Run `setup_claude_agents` tool once to create `.claude/agents/` directory.
 
 > **📖 Complete guide**: [Agent Orchestration Documentation](docs/agent-orchestration.md)
@@ -485,6 +487,7 @@ Database Engineer: Implements, creates Summary
 
 ### Using Task Orchestrator
 - **[🤖 Agent Orchestration](docs/agent-orchestration.md)** - 3-level AI agent coordination system
+- **[⚡ Parallel Processing](docs/parallel-processing-guide.md)** - Wave-based parallel task execution (45-50% time savings)
 - **[📊 Token Reduction Examples](docs/token-reduction-examples.md)** - Quantitative before/after analysis
 - **[📝 Templates](docs/templates.md)** - 9 built-in documentation templates
 - **[📋 Workflow Prompts](docs/workflow-prompts.md)** - 6 workflow automations
