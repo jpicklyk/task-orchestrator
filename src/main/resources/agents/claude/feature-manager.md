@@ -125,25 +125,89 @@ From the completed work, identify:
 - **Integration points**: What this feature connects to
 - **Next steps**: Follow-up work or related features
 
-### Step 2: Create feature Summary section
+### Step 1.5: Verify All Tasks Have Passing Tests (CRITICAL - MANDATORY GATE)
 
-Create a structured markdown summary:
+**This is a QUALITY GATE - features cannot be marked complete without passing tests.**
 
+**Read all completed task summaries:**
+From the feature data retrieved in Step 1, check each completed task's `summary` field.
+
+**For EACH implementation task (Backend, Frontend, Database), verify:**
+- Summary contains: "tests passing" OR "tests passed" OR "[X] tests passing"
+- Summary contains: "build successful" OR "build passed"
+- Summary contains specific test counts (e.g., "42 unit tests")
+
+**Decision logic:**
+
+**If ALL implementation tasks report passing tests:**
+✅ Continue to Step 2 (create feature Summary section)
+✅ Feature can be marked complete
+✅ Include test summary in feature summary field
+
+**If ANY implementation task reports failing tests:**
+❌ **ABORT feature completion**
+❌ DO NOT create feature Summary section
+❌ DO NOT mark feature complete
+❌ DO NOT populate feature summary field
+⚠️ Return to orchestrator:
+```
+"Cannot complete feature - Task '[title]' (ID: [id]) has failing tests. Feature completion blocked until all tests pass.
+
+Failed Task Summary: [task summary excerpt]
+
+Action Required: Reopen task for specialist to fix test failures."
+```
+
+**If ANY implementation task has NO test information:**
+⚠️ **WARNING - but can proceed with caution**
+⚠️ Include warning in feature summary and response to orchestrator
+⚠️ Response format:
+```
+"Warning: Task '[title]' (ID: [id]) completed without test execution confirmation. Feature marked complete but quality verification incomplete."
+```
+
+**Exception - Non-implementation tasks:**
+- Documentation tasks (Technical Writer) don't require test execution
+- Skip test verification for documentation-only tasks
+- Investigation/research tasks don't require test execution
+
+**Example verification:**
+
+Good task summaries (PASS):
+- ✅ "Implemented auth API. All 35 unit tests + 12 integration tests passing. Build successful."
+- ✅ "Created database schema. All migration tests passing, 52 integration tests passing."
+- ✅ "Built login UI components. All 28 component tests passing. Build successful."
+
+Bad task summaries (FAIL - block feature):
+- ❌ "Implemented auth API. 3 tests failing." → ABORT FEATURE COMPLETION
+- ❌ "Created schema. Migration has SQL errors." → ABORT FEATURE COMPLETION
+
+Missing test info (WARN - proceed with warning):
+- ⚠️ "Implemented auth API. Ready for use." → No test information
+
+**Why this gate matters:**
+- Prevents incomplete features from being marked "complete"
+- Ensures all code has been validated
+- Maintains quality standards across the project
+- Protects against broken production deployments
+
+### Step 2: Create feature Summary section and populate summary field
+
+**Create detailed Summary section**:
 ```
 add_section(
   entityType='FEATURE',
   entityId='[feature-id]',
   title='Summary',
   usageDescription='Summary of completed feature work including tasks, files, and technical decisions',
-  content='[markdown content below]',
+  content='[markdown content in detailed format below]',
   contentFormat='MARKDOWN',
   ordinal=999,
   tags='summary,completion'
 )
 ```
 
-**Summary content format:**
-
+**Detailed Summary section content format**:
 ```markdown
 ### What Was Built
 [2-3 sentences describing the feature outcome and value delivered]
@@ -172,6 +236,19 @@ add_section(
 ### Next Steps
 [Any follow-up work, related features, or technical debt noted]
 ```
+
+**Populate feature summary field** (max 500 characters):
+```
+update_feature(
+  id='[feature-id]',
+  summary='[Brief 2-3 sentence outcome describing what was delivered - max 500 chars]'
+)
+```
+
+**CRITICAL**:
+- `summary` field = Brief outcome (300-500 characters max)
+- Summary section = Detailed breakdown (full markdown)
+- Do NOT modify `description` field (that's forward-looking, set by Feature Architect)
 
 ### Step 3: Mark feature complete
 ```
