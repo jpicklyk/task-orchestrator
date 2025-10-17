@@ -48,6 +48,51 @@ workflowPhases:
   documentation: Technical Writer
   review: Technical Writer
 
+# ============================================================================
+# TAG MAPPING MAINTENANCE GUIDE
+# ============================================================================
+#
+# HOW TAG MAPPING WORKS:
+# - When tasks are created with tags, recommend_agent() checks this file
+# - If ANY task tag matches a mapping, that agent is recommended
+# - First match in tagPriority order wins (see tagPriority section below)
+#
+# WHEN TO ADD NEW MAPPINGS:
+# - Feature Architect creates features with new domain tags (mobile, devops, security)
+# - Tasks created with specialized tags not yet mapped to agents
+# - Monthly review of unmapped tags using list_tags() tool
+#
+# HOW TO ADD NEW MAPPINGS:
+# 1. Identify the new tag(s) and determine appropriate specialist agent
+# 2. Add new entry to tagMappings section below:
+#
+#    - task_tags: [your-new-tag, related-tag, synonym-tag]
+#      agent: Specialist Agent Name
+#      section_tags: [relevant, section, tags]
+#
+# 3. Update tagPriority section if needed (controls conflict resolution)
+# 4. Commit changes to git (agents read this file at runtime)
+#
+# EXAMPLE - Adding mobile development support:
+#
+#    - task_tags: [mobile, ios, android, react-native, flutter]
+#      agent: Mobile Developer
+#      section_tags: [requirements, technical-approach, ui-design]
+#
+# BEST PRACTICES:
+# - Use kebab-case for tags: mobile-app, not mobileApp or mobile_app
+# - Include synonyms: [mobile, ios, android] covers all mobile platforms
+# - Group related technologies: [database, sql, postgres, mysql, mongodb]
+# - Update tagPriority when adding high-priority domains (security, bug fixes)
+# - Test mapping with recommend_agent(taskId) after adding
+#
+# DISCOVERY:
+# - Find unmapped tags: list_tags(sortBy="count", sortDirection="desc")
+# - Check tag usage: get_tag_usage(tag="your-tag")
+# - Review existing mappings below for patterns
+#
+# ============================================================================
+
 # Map task tags to specialized agents
 # Agents will be recommended based on task tags matching these patterns
 # section_tags specify which section tags the agent should query for efficient context

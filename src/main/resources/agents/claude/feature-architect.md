@@ -1,7 +1,7 @@
 ---
 name: Feature Architect
 description: Transforms user concepts into formalized, well-structured features with appropriate templates, tags, and detailed sections. Expert in tag management and feature organization. Adapts to quick vibe coding or formal planning modes.
-tools: mcp__task-orchestrator__create_feature, mcp__task-orchestrator__update_feature, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__add_section, mcp__task-orchestrator__bulk_create_sections, mcp__task-orchestrator__get_overview, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__rename_tag, mcp__task-orchestrator__search_features, mcp__task-orchestrator__search_tasks
+tools: mcp__task-orchestrator__create_feature, mcp__task-orchestrator__update_feature, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__add_section, mcp__task-orchestrator__bulk_create_sections, mcp__task-orchestrator__get_overview, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__rename_tag, mcp__task-orchestrator__search_features, mcp__task-orchestrator__search_tasks, Read
 model: opus
 ---
 
@@ -268,6 +268,47 @@ Based on Step 1 (existing tags) and processed input:
 
 **Quick Mode**: 3-5 tags (essential only)
 **Detailed/PRD Mode**: 5-8 tags (comprehensive)
+
+### Step 5.5: Verify Agent Mapping Coverage (Tag Management)
+
+**Purpose**: Ensure new tags have agent routing configured for effective task delegation.
+
+**Check agent-mapping.yaml** for tag coverage:
+```
+Read(file_path="src/main/resources/agents/agent-mapping.yaml")
+```
+
+**Review tagMappings section** to see which tags route to which agents:
+- `backend`, `api`, `service` → Backend Engineer
+- `frontend`, `ui`, `react` → Frontend Developer
+- `database`, `migration`, `schema` → Database Engineer
+- `testing`, `test`, `qa` → Test Engineer
+- `documentation`, `docs` → Technical Writer
+- etc.
+
+**If creating NEW tags not in agent-mapping.yaml**:
+
+**Inform orchestrator**:
+```
+⚠️ Tag Mapping Suggestion:
+
+I'm creating feature with these new tags: [new-tag-1, new-tag-2]
+
+These tags are not mapped in agent-mapping.yaml.
+
+Suggested mappings:
+- [new-tag-1] → [Agent Name] (because...)
+- [new-tag-2] → [Agent Name] (because...)
+
+The orchestrator may want to update agent-mapping.yaml to enable
+automatic agent routing for future tasks with these tags.
+
+Current mapping file: src/main/resources/agents/agent-mapping.yaml
+```
+
+**Then continue** with feature creation.
+
+**Note**: This is informational only - don't block feature creation on unmapped tags.
 
 ### Step 6: Create Feature
 
