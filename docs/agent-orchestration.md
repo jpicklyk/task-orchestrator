@@ -222,19 +222,43 @@ Structured markdown summaries enable knowledge transfer:
 - Used by dependency context, feature summaries, historical reference
 - Preserve essential knowledge without full context
 
-**Summary Section Format**:
+**Summary Section Format** (300-500 tokens):
 ```markdown
 ### Completed
-[What was accomplished]
+[What was accomplished in 2-3 sentences]
 
 ### Files Changed
-- `path/to/file.kt` - [what changed]
+- `path/to/file.kt` - [brief description of what changed]
+- `path/to/test.kt` - [brief description]
 
 ### Next Steps
-[What depends on this or comes next]
+[What depends on this or comes next - 1-2 sentences]
 
 ### Notes
-[Important technical decisions]
+[Important technical decisions or considerations - 1-2 sentences]
+```
+
+**Example Summary Section** (427 tokens):
+```markdown
+### Completed
+Created Users table with authentication fields and proper indexing for email-based
+lookups. Implemented UUID primary keys, bcrypt password hashing, and unique
+constraints on username and email fields. Added timestamps for created_at and
+updated_at tracking.
+
+### Files Changed
+- `db/migration/V3__create_users_table.sql` - Users table schema with auth fields
+- `src/model/User.kt` - User domain model with validation
+- `src/repository/UserRepository.kt` - Repository interface for user operations
+
+### Next Steps
+API endpoints can now use this schema for user CRUD operations. Authentication
+service will need to integrate bcrypt hashing when creating/validating users.
+
+### Notes
+Used UUID for ID instead of auto-increment for distributed system compatibility.
+Email field is indexed and unique to support fast login lookups. Password field
+stores only bcrypt hashes, never plaintext.
 ```
 
 #### 4. Automatic Specialist Selection
@@ -747,24 +771,67 @@ set_status(id='[task-id]', status='completed')
 
 ### Dependency Context Passing
 
-**The Innovation**: Task Manager reads Summary sections from completed dependencies and includes them in the brief to the orchestrator. The orchestrator then passes this context to the specialist.
+**The Innovation**: Task Manager reads Summary sections from completed dependencies and includes them in the brief to the orchestrator. The orchestrator then passes this context to the specialist. This is the **key mechanism enabling 97% token reduction** - passing summaries instead of full task contexts.
+
+**How Summary Sections Enable Dependency Context**:
+
+1. **Task Manager END** creates a Summary section after specialist completes work
+   - Title: "Summary"
+   - Tags: "summary,completion"
+   - Content: 300-500 tokens capturing what was done, files changed, next steps, notes
+   - Stored in database as a section of the task
+
+2. **Task Manager START** (for dependent task) reads completed dependency summaries
+   - Calls `get_task_dependencies(taskId, direction='incoming')` to find blocking tasks
+   - For each COMPLETED dependency, calls `get_sections(entityType='TASK', entityId='...', tags='summary')`
+   - Gets 300-500 token summary instead of 5-10k token full task context
+   - Includes summaries in brief to orchestrator
+
+3. **Orchestrator** passes dependency context to specialist
+   - Includes Task Manager's brief with dependency summaries
+   - Specialist receives: task content + dependency summaries (not full dependency tasks)
+
+4. **Specialist** reads task and dependency summaries
+   - Has everything needed to build on previous work
+   - Never needs to read full dependency task contexts
+   - Can reference files, decisions, schemas from summaries
 
 **Example Flow**:
 
-1. **Task T1** (Database Schema): Specialist creates users table
-   - Task Manager END creates Summary: "Created Users table with id, username, email..."
+1. **Task T1** (Database Schema): Database Engineer creates users table
+   - Task Manager END creates Summary section (427 tokens):
+     ```
+     ### Completed
+     Created Users table with authentication fields and proper indexing...
+
+     ### Files Changed
+     - `db/migration/V3__create_users_table.sql` - Users table schema
+     - `src/model/User.kt` - User domain model
+
+     ### Next Steps
+     API endpoints can now use this schema for user CRUD operations
+
+     ### Notes
+     Used UUID for ID, email field indexed and unique for fast lookups
+     ```
 
 2. **Task T2** (API Endpoints): Depends on T1
-   - Task Manager START reads T1's Summary section
-   - Includes in brief: "Dependencies (1 completed): Task: Create database schema... Summary: Created Users table..."
+   - Task Manager START reads T1's Summary section (427 tokens, not 5k+ full context)
+   - Includes in brief: "Dependencies (1 completed): Task: Create database schema... [T1 Summary content]"
    - Orchestrator launches Backend Engineer with this context
-   - Backend Engineer builds API using schema from T1 summary
+   - Backend Engineer builds API using schema details from T1 summary
+
+**Token Efficiency**:
+- Reading full T1 context: ~5-10k tokens
+- Reading T1 Summary section: ~300-500 tokens
+- **Savings: ~95% per dependency**
 
 **Benefits**:
 - Specialist has everything needed without reading T1 directly
-- Token-efficient: ~300-500 tokens vs. thousands
+- Token-efficient: ~300-500 tokens vs. thousands per dependency
 - Enables building on previous work seamlessly
-- Works across different specialists
+- Works across different specialists (Database → Backend → Frontend → Test)
+- Scales to multiple dependencies (3 dependencies = 900-1500 tokens, not 15-30k)
 
 ### Task Manager Token Optimization
 
@@ -951,12 +1018,17 @@ get_sections(entityType='TASK',
    - Recommends next task or signals feature complete
 ```
 
-**Token Usage**:
+**Token Usage** (per task):
 - Feature Manager START: ~1.5k tokens
-- Task Manager START: ~2k tokens
-- Backend Engineer: ~3k tokens
-- Task Manager END: ~500 tokens
-- **Total: ~7k tokens** (vs. ~20k with shared context)
+- Task Manager START: ~2k tokens (includes task read)
+- Backend Engineer: ~3k tokens (includes task read, dependency summaries)
+- Task Manager END: ~500 tokens (extracts from specialist output)
+- **Total: ~7k tokens per task**
+
+**Context Accumulation**:
+- Orchestrator context grows by: ~200 tokens (brief summary only)
+- Without sub-agents: Would grow by ~7k tokens (full task context)
+- **Savings: 97% reduction in orchestrator context growth**
 
 ### Feature with Dependency Chain
 
@@ -1039,11 +1111,16 @@ FEATURE COMPLETION
     - Returns brief
 ```
 
-**Token Usage** (approximate):
-- Iterations 1-3: ~7k tokens each = ~21k
-- Feature Manager iterations: ~1.5k × 4 = ~6k
-- Feature Manager END: ~3k
-- **Total: ~30k tokens** (vs. ~100k+ with shared context)
+**Token Usage** (approximate for entire feature):
+- Task iterations (T1, T2, T3): ~7k tokens each = ~21k tokens
+- Feature Manager iterations: ~1.5k × 4 = ~6k tokens
+- Feature Manager END: ~3k tokens
+- **Total spent: ~30k tokens**
+
+**Orchestrator Context Growth**:
+- Without sub-agents: 3 tasks × ~7k = ~21k tokens accumulated in orchestrator
+- With sub-agents: 3 tasks × ~200 tokens = ~600 tokens accumulated in orchestrator
+- **Savings: 97% reduction** (~21k → ~600 tokens)
 
 **Key Benefits**:
 - Each specialist gets relevant dependency context
@@ -1160,25 +1237,52 @@ After Features 1 and 2 complete:
 
 ```
 SHARED CONTEXT MODEL (Traditional):
-─────────────────────────────────────
-Orchestrator Context: [Task 1] [Task 2] [Task 3] [Task 4] [Task 5]
-Tokens: 5k + 8k + 7k + 9k + 6k = 35k tokens
+─────────────────────────────────────────────────────────────────
+Orchestrator accumulates ALL work:
+- Task 1: Full implementation, code, tests, documentation = 5k tokens
+- Task 2: Full implementation, code, tests, documentation = 8k tokens
+- Task 3: Full implementation, code, tests, documentation = 7k tokens
+- Task 4: Full implementation, code, tests, documentation = 9k tokens
+- Task 5: Full implementation, code, tests, documentation = 6k tokens
+
+Total Orchestrator Context: 35k tokens (grows linearly with each task)
+Context never cleared, always growing
+
 
 SUB-AGENT MODEL (Task Orchestrator):
-─────────────────────────────────────
-Orchestrator Context: [T1 brief] [T2 brief] [T3 brief] [T4 brief] [T5 brief]
-Tokens: 200 + 200 + 200 + 200 + 200 = 1k tokens
+─────────────────────────────────────────────────────────────────
+Orchestrator accumulates ONLY briefs:
+- Task 1 brief: "Completed schema. Created V3 migration..." = 200 tokens
+- Task 2 brief: "Implemented API. Created UserController..." = 200 tokens
+- Task 3 brief: "Added tests. Created UserControllerTest..." = 200 tokens
+- Task 4 brief: "Documented API. Updated api-docs.md..." = 200 tokens
+- Task 5 brief: "Deployed. Updated deployment scripts..." = 200 tokens
 
-Sub-Agent Contexts (isolated, don't accumulate):
-- Task Manager T1: 2k tokens (discarded after)
-- Specialist T1: 3k tokens (discarded after)
-- Task Manager T2: 2k tokens (discarded after)
-- Specialist T2: 3k tokens (discarded after)
-- ...
+Total Orchestrator Context: 1k tokens (200 tokens per task, not 5-10k)
 
-Total Orchestrator Context: ~1k tokens
-Peak Sub-Agent Context: ~3k tokens
-Savings: 97% reduction in orchestrator context
+Sub-Agent Contexts (isolated, discarded after completion):
+Each task workflow uses:
+- Feature Manager: 1.5k tokens → discarded
+- Task Manager START: 2k tokens → discarded
+- Specialist: 3k tokens → discarded
+- Task Manager END: 0.5k tokens → discarded
+
+Peak sub-agent context: ~3k tokens per task
+But: Contexts don't accumulate! Each task starts fresh.
+
+
+COMPARISON (Orchestrator Context Growth):
+─────────────────────────────────────────────────────────────────
+             │ Traditional │ Sub-Agent │ Reduction
+─────────────┼─────────────┼───────────┼──────────
+Task 1       │     5k      │    200    │   96%
+Task 1+2     │    13k      │    400    │   97%
+Task 1+2+3   │    20k      │    600    │   97%
+Task 1+2+3+4 │    29k      │    800    │   97%
+All 5 tasks  │    35k      │   1,000   │   97%
+
+The 97% reduction comes from storing brief summaries (200 tokens) instead
+of full task context (5-10k tokens) in the orchestrator's conversation history.
 ```
 
 **Why This Matters**:
@@ -1211,9 +1315,9 @@ Used UUID for ID, bcrypt for password hashing, added email uniqueness constraint
 ```
 
 **Token Efficiency**:
-- Full task context: 5-10k tokens
-- Summary section: 300-500 tokens
-- **Savings: 90-95%**
+- Full task context: 5-10k tokens (all sections, implementation details, code)
+- Summary section: 300-500 tokens (what was done, files changed, next steps, notes)
+- **Savings: 93-97%** (summary is 3-7% of full context)
 
 **Quality vs. Efficiency**:
 - Summary preserves essential knowledge
@@ -1346,26 +1450,54 @@ You are a backend specialist focused on REST APIs, services, and business logic.
 User: "Setup Claude Code agents"
 
 AI Response:
-1. Runs setup_claude_agents tool
-2. Creates .claude/agents/ directory
-3. Writes 8 agent definition files
+1. Calls setup_claude_agents() tool
+2. Tool creates .claude/agents/ directory
+3. Tool writes 10 agent definition files:
+   - feature-manager.md
+   - task-manager.md
+   - backend-engineer.md
+   - frontend-developer.md
+   - database-engineer.md
+   - test-engineer.md
+   - technical-writer.md
+   - planning-specialist.md
+   - feature-architect.md
+   - bug-triage-specialist.md
 4. Reports: "Claude Code agents installed. You can now use Feature Manager and Task Manager workflows."
 ```
 
-**Alternative command**:
+**Example Tool Call**:
+```json
+{
+  "tool": "setup_claude_agents",
+  "parameters": {}
+}
+```
+
+**Alternative user commands**:
 ```
 User: "Run setup_claude_agents"
+User: "Install Claude agents"
+User: "Setup sub-agents for Claude Code"
 ```
 
 **What It Creates**:
-- `.claude/agents/feature-manager.md` - Feature-level coordination
-- `.claude/agents/task-manager.md` - Task-level coordination and routing
-- `.claude/agents/backend-engineer.md` - Backend/API development
-- `.claude/agents/database-engineer.md` - Database/migration work
-- `.claude/agents/frontend-developer.md` - Frontend/UI development
-- `.claude/agents/test-engineer.md` - Testing and QA
-- `.claude/agents/technical-writer.md` - Documentation
-- `.claude/agents/planning-specialist.md` - Requirements and planning
+
+**Coordination Agents** (Level 1-2):
+- `.claude/agents/feature-manager.md` - Feature-level coordination (Level 1)
+- `.claude/agents/task-manager.md` - Task-level coordination and routing (Level 2)
+
+**Specialist Agents** (Level 3):
+- `.claude/agents/backend-engineer.md` - Backend/API development, services, business logic
+- `.claude/agents/frontend-developer.md` - Frontend/UI development, React/Vue components
+- `.claude/agents/database-engineer.md` - Database schemas, migrations, SQL
+- `.claude/agents/test-engineer.md` - Testing, QA, test automation
+- `.claude/agents/technical-writer.md` - Documentation, API docs, user guides
+- `.claude/agents/planning-specialist.md` - Requirements analysis, architecture, planning
+
+**Utility Agents**:
+- `.claude/agents/feature-architect.md` - Feature design and breakdown (pre-creation)
+- `.claude/agents/bug-triage-specialist.md` - Bug investigation and triage
 
 **Important Notes**:
 - This tool is **idempotent** - safe to run multiple times

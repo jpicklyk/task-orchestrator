@@ -98,7 +98,7 @@ class SetupClaudeAgentsToolTest {
         val data = responseObj["data"]?.jsonObject
 
         val totalAgents = data!!["totalAgents"]?.jsonPrimitive?.int
-        assertEquals(6, totalAgents, "Should report 6 total agent files")
+        assertEquals(10, totalAgents, "Should report 10 total agent files")
     }
 
     @Test
@@ -120,11 +120,15 @@ class SetupClaudeAgentsToolTest {
         // Verify expected agent files exist
         val expectedFiles = listOf(
             "backend-engineer.md",
-            "frontend-developer.md",
+            "bug-triage-specialist.md",
             "database-engineer.md",
-            "test-engineer.md",
+            "feature-architect.md",
+            "feature-manager.md",
+            "frontend-developer.md",
             "planning-specialist.md",
-            "technical-writer.md"
+            "task-manager.md",
+            "technical-writer.md",
+            "test-engineer.md"
         )
 
         expectedFiles.forEach { fileName ->

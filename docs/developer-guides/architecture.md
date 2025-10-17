@@ -11,6 +11,7 @@ This guide provides a comprehensive overview of the MCP Task Orchestrator archit
 
 - [Architectural Overview](#architectural-overview)
 - [Clean Architecture Layers](#clean-architecture-layers)
+- [Sub-Agent Orchestration System](#sub-agent-orchestration-system)
 - [Core Components](#core-components)
 - [Data Flow](#data-flow)
 - [Design Patterns](#design-patterns)
@@ -281,6 +282,284 @@ class CreateTaskTool : BaseToolDefinition() {
 - Adapter pattern prevents MCP SDK coupling
 - Comprehensive error handling and logging
 - AI guidance through multiple mechanisms
+
+---
+
+## Sub-Agent Orchestration System
+
+The MCP Task Orchestrator implements a **3-level agent coordination architecture** for Claude Code that enables scalable AI workflows with minimal token usage. This system is an **optional enhancement** that sits alongside the core architecture - the MCP tool system works with or without sub-agents.
+
+### Architectural Position
+
+Sub-agent orchestration integrates at the **Interface Layer**, specifically as an extension of the MCP communication pattern:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    INTERFACE LAYER (MCP)                         │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │         Traditional MCP Communication                       │ │
+│  │  AI ←→ MCP Server ←→ Tools ←→ Repositories ←→ Database    │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │      Sub-Agent Orchestration (Claude Code Only)            │ │
+│  │                                                             │ │
+│  │  Level 0: Orchestrator (Main Claude Instance)              │ │
+│  │     ↓ Launches sub-agents via Claude Code                  │ │
+│  │  Level 1: Feature Manager                                  │ │
+│  │     ↓ Coordinates tasks within features                    │ │
+│  │  Level 2: Task Manager                                     │ │
+│  │     ↓ Routes tasks to specialists                          │ │
+│  │  Level 3: Specialists (Backend, Frontend, Database, etc.)  │ │
+│  │     ↓ Each uses MCP tools to access Application Layer     │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                          │                                        │
+└──────────────────────────┼────────────────────────────────────────┘
+                           │
+┌──────────────────────────┼────────────────────────────────────────┐
+│                    APPLICATION LAYER                              │
+│                                                                    │
+│  All sub-agents use the same MCP tools:                           │
+│  - get_task, create_task, update_task                            │
+│  - get_feature, create_feature                                   │
+│  - add_section, get_sections, update_section                     │
+│  - recommend_agent (routing intelligence)                        │
+│  - set_status (unified status updates)                           │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Architectural Principles**:
+
+1. **Clean Separation**: Sub-agent orchestration is an Interface Layer concern - does not affect Domain, Application, or Infrastructure layers
+2. **Tool Reuse**: Sub-agents use existing MCP tools - no new application logic required
+3. **Optional Enhancement**: Core MCP server works independently of sub-agent system
+4. **Claude Code Specific**: Requires `.claude/agents/` directory structure (Claude Code feature)
+
+### 3-Level Architecture
+
+```
+Level 0: ORCHESTRATOR (Main Claude Code Instance)
+         ↓
+         Launches Feature Manager for multi-task features
+         Receives brief summaries (200 tokens each)
+         Accumulates minimal context
+
+Level 1: FEATURE MANAGER (Sub-Agent, Clean Context)
+         ↓
+         Coordinates tasks within a feature
+         START mode: Recommends next task
+         END mode: Creates feature summary
+         Uses: get_feature, get_next_task, update_feature
+
+Level 2: TASK MANAGER (Sub-Agent, Clean Context)
+         ↓
+         Routes tasks to appropriate specialists
+         START mode: Calls recommend_agent, reads dependency summaries
+         END mode: Extracts specialist output, creates task summary
+         Uses: get_task, recommend_agent, get_sections, set_status
+
+Level 3: SPECIALISTS (Sub-Agents, Clean Context, Domain-Specific)
+         ↓
+         Perform actual implementation work
+         Backend Engineer, Frontend Developer, Database Engineer,
+         Test Engineer, Technical Writer, Planning Specialist
+         Uses: get_task, Read/Edit/Write files, add_section, set_status
+```
+
+### Agent Definition Files
+
+**Location**: `.claude/agents/*.md` (user workspace)
+
+Sub-agents are defined as Markdown files with YAML frontmatter:
+
+```markdown
+---
+name: Backend Engineer
+description: Specialized in backend API development
+tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__add_section, Read, Edit, Write
+model: sonnet
+---
+
+# Backend Engineer Agent
+
+You are a backend specialist focused on REST APIs, services, and business logic.
+
+[Agent-specific guidance and workflow...]
+```
+
+**Creation**: The `setup_claude_agents` MCP tool creates these files automatically. This tool is implemented in the Application Layer (`application/tools/agent/`) and writes agent definitions to the user's workspace.
+
+**Discovery**: Claude Code automatically discovers agents in `.claude/agents/` directory - no server-side configuration needed.
+
+### Agent Routing System
+
+**Component**: `recommend_agent` MCP tool
+
+**Location**: Application Layer (`application/tools/agent/RecommendAgentTool.kt`)
+
+**Purpose**: Intelligent routing of tasks to appropriate specialist agents based on task tags and configuration.
+
+**Architecture**:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   RecommendAgentTool                        │
+├────────────────────────────────────────────────────────────┤
+│  1. Read task (via TaskRepository)                         │
+│  2. Load agent-mapping.yaml configuration                  │
+│  3. Match task tags to agent mappings                      │
+│  4. Apply priority rules                                   │
+│  5. Return: agent name, reason, section tags               │
+└────────────────────────────────────────────────────────────┘
+                           │
+                           │ Reads configuration
+                           ▼
+┌────────────────────────────────────────────────────────────┐
+│        src/main/resources/agents/agent-mapping.yaml         │
+├────────────────────────────────────────────────────────────┤
+│  tagMappings:                                              │
+│    - task_tags: [backend, api, service]                   │
+│      agent: Backend Engineer                              │
+│      section_tags: [requirements, technical-approach]     │
+│                                                            │
+│  tagPriority:                                              │
+│    - database                                              │
+│    - backend                                               │
+│    - frontend                                              │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Token Efficiency Architecture
+
+The sub-agent system achieves **97% token reduction** through architectural patterns:
+
+**1. Context Isolation**
+- Each sub-agent invocation starts with clean context
+- No context inheritance from orchestrator
+- Sub-agent contexts discarded after completion
+- Peak sub-agent context: ~3k tokens (constant)
+
+**2. Summary Sections**
+- Task Manager END creates 300-500 token summaries
+- Stored as Section entities in database
+- Read by dependent tasks instead of full context
+- Enables knowledge transfer at 3-7% of original size
+
+**3. Dependency Context Passing**
+```
+Traditional:  Task 2 reads full Task 1 context (5-10k tokens)
+Sub-Agent:    Task 2 reads Task 1 Summary section (300-500 tokens)
+              ↓
+              Savings: 93-97% per dependency
+```
+
+**4. Orchestrator Context Growth**
+```
+Traditional:  Orchestrator accumulates full task contexts (5-10k per task)
+              10 tasks = 50-100k tokens accumulated
+
+Sub-Agent:    Orchestrator accumulates brief summaries (200 tokens per task)
+              10 tasks = 2k tokens accumulated
+              ↓
+              Savings: 97% reduction in context growth
+```
+
+**Database Schema Support**:
+- Summary sections stored using existing Section entity
+- Tags: "summary,completion" for filtering
+- No new tables or schema changes required
+- Leverage existing get_sections tool for retrieval
+
+### Integration with Clean Architecture
+
+**Domain Layer**: No changes required
+- Section entity already supports summary content
+- Task/Feature entities unchanged
+- Repository interfaces remain stable
+
+**Application Layer**: Minimal additions
+- `RecommendAgentTool` - new tool for agent routing
+- `SetupClaudeAgentsTool` - new tool for agent installation
+- Existing tools used by sub-agents unchanged
+
+**Infrastructure Layer**: No changes required
+- Existing repositories handle summary sections
+- Database schema already supports all required data
+
+**Interface Layer**: Optional enhancement
+- Agent definitions in user workspace (`.claude/agents/`)
+- Agent routing via MCP tool (`recommend_agent`)
+- No MCP server code changes required
+
+### Workflow Comparison
+
+**Without Sub-Agents** (Traditional MCP workflow):
+```
+User → Claude → MCP Tools → Application Logic → Database
+                    ↓
+            Single agent accumulates context
+            Limited to ~15 tasks before context overflow
+```
+
+**With Sub-Agents** (Claude Code only):
+```
+User → Orchestrator → Feature Manager → Task Manager → Specialist
+                           ↓               ↓              ↓
+                      MCP Tools       MCP Tools      MCP Tools
+                           ↓               ↓              ↓
+                      Application     Application    Application
+                       Logic           Logic          Logic
+                           ↓               ↓              ↓
+                       Database        Database       Database
+
+Each sub-agent: Clean context, focused work, brief summary
+Orchestrator: Accumulates only summaries (200 tokens per task)
+Scaling: 100+ tasks possible within context limits
+```
+
+### Setup and Configuration
+
+**Setup Tool**: `setup_claude_agents`
+- **Type**: MCP tool (Application Layer)
+- **Function**: Writes agent definition files to `.claude/agents/`
+- **Agent Definitions Source**: Embedded in JAR (`src/main/resources/agents/claude/*.md`)
+- **Idempotent**: Safe to run multiple times, preserves existing customizations
+
+**Configuration File**: `agent-mapping.yaml`
+- **Location**: `src/main/resources/agents/agent-mapping.yaml`
+- **Purpose**: Maps task tags to specialist agents
+- **Format**: YAML with tag mappings and priority rules
+- **Customizable**: Users can add custom agents and mappings
+
+**No Server Changes Required**:
+- Agent discovery handled by Claude Code (client-side)
+- MCP server provides tools only
+- Sub-agent coordination logic in agent definitions, not server code
+
+### When to Use Sub-Agent Orchestration
+
+**Use sub-agents when**:
+- Working with Claude Code (required platform)
+- Feature has 4+ related tasks with dependencies
+- Need specialist coordination (Backend → Database → Frontend → Test)
+- Token efficiency critical (large context, many tasks)
+- Want 97% token reduction for orchestrator context
+
+**Use traditional MCP workflow when**:
+- Simple tasks (1-3 tasks)
+- Single-specialist work
+- Not using Claude Code (using Cursor, Windsurf, Claude Desktop, etc.)
+- Learning the system
+
+**Important**: Templates and workflow prompts work with BOTH approaches. Sub-agents enhance but don't replace the core MCP tool system.
+
+### Additional Resources
+
+For detailed sub-agent orchestration documentation, see:
+- [Agent Orchestration Guide](../agent-orchestration.md) - Complete workflow patterns
+- [Token Reduction Examples](../token-reduction-examples.md) - Quantitative efficiency analysis
 
 ---
 
@@ -1222,6 +1501,10 @@ fun configureWorkflowPrompts(server: Server) {
 - [AI Guidelines](../ai-guidelines.md) - How AI uses Task Orchestrator
 - [API Reference](../api-reference.md) - Complete MCP tools documentation
 - [Templates Guide](../templates.md) - Template system and usage
+
+### Sub-Agent Orchestration
+- [Agent Orchestration Guide](../agent-orchestration.md) - 3-level architecture, workflow patterns, setup
+- [Token Reduction Examples](../token-reduction-examples.md) - Quantitative efficiency analysis
 
 ### External Resources
 - [Model Context Protocol](https://modelcontextprotocol.io) - MCP specification and documentation

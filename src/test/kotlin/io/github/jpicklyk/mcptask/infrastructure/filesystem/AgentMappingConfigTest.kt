@@ -29,14 +29,17 @@ class AgentMappingConfigTest {
     }
 
     @Test
-    fun `all agent types should have tag mappings`() {
+    fun `all specialist agent types should have tag mappings`() {
+        // Only specialist agents need tag mappings (not coordination agents like Task Manager and Feature Manager)
         val expectedAgents = setOf(
             "Backend Engineer",
-            "Frontend Developer",
+            "Bug Triage Specialist",
             "Database Engineer",
-            "Test Engineer",
+            "Feature Architect",
+            "Frontend Developer",
+            "Planning Specialist",
             "Technical Writer",
-            "Planning Specialist"
+            "Test Engineer"
         )
 
         val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
@@ -143,10 +146,10 @@ class AgentMappingConfigTest {
 
     @Test
     fun `all agent definition files should exist`() {
-        val expectedAgentFiles = AgentDirectoryManager.DEFAULT_AGENT_FILES
+        val expectedAgentFiles = ClaudeAgentDirectoryManager.DEFAULT_AGENT_FILES
 
         expectedAgentFiles.forEach { fileName ->
-            val resourceStream = javaClass.getResourceAsStream("/agents/$fileName")
+            val resourceStream = javaClass.getResourceAsStream("/agents/claude/$fileName")
             assertNotNull(
                 resourceStream,
                 "Agent definition file '$fileName' should exist in resources"
@@ -166,13 +169,18 @@ class AgentMappingConfigTest {
         val workflowPhases = config["workflowPhases"] as? Map<String, String>
         assertNotNull(workflowPhases, "workflowPhases should be a map")
 
+        // All agents (including coordination agents like Task Manager and Feature Manager)
         val validAgents = setOf(
             "Backend Engineer",
-            "Frontend Developer",
+            "Bug Triage Specialist",
             "Database Engineer",
-            "Test Engineer",
+            "Feature Architect",
+            "Feature Manager",
+            "Frontend Developer",
+            "Planning Specialist",
+            "Task Manager",
             "Technical Writer",
-            "Planning Specialist"
+            "Test Engineer"
         )
 
         workflowPhases.forEach { (phase, agent) ->
@@ -184,7 +192,7 @@ class AgentMappingConfigTest {
     }
 
     @Test
-    fun `section tags should follow recommended conventions`() {
+    fun `section tags should be kebab-case strings`() {
         val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
@@ -195,30 +203,19 @@ class AgentMappingConfigTest {
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
         assertNotNull(tagMappings)
 
-        // Common recommended section tags
-        val recommendedSectionTags = setOf(
-            "requirements",
-            "technical-approach",
-            "implementation",
-            "testing-strategy",
-            "context",
-            "documentation",
-            "acceptance-criteria",
-            "design",
-            "ux",
-            "data-model"
-        )
+        // Verify section tags follow kebab-case convention (user can define custom tags)
+        val kebabCasePattern = Regex("^[a-z]+(-[a-z]+)*$")
 
         tagMappings.forEach { mapping ->
             @Suppress("UNCHECKED_CAST")
             val sectionTags = mapping["section_tags"] as? List<String>
             assertNotNull(sectionTags)
 
-            // Verify all section tags are from recommended list
+            // Verify all section tags are kebab-case (no enforcement of specific tag names)
             sectionTags.forEach { tag ->
                 assertTrue(
-                    recommendedSectionTags.contains(tag),
-                    "Section tag '$tag' should be from recommended list: $recommendedSectionTags"
+                    kebabCasePattern.matches(tag),
+                    "Section tag '$tag' should be in kebab-case format (lowercase with hyphens)"
                 )
             }
         }

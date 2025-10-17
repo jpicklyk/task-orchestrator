@@ -24,7 +24,9 @@ The MCP Task Orchestrator includes **9 built-in templates** organized into 3 str
 
 ### What Are Templates?
 
-Templates are predefined documentation structures that can be applied to tasks, features, and projects to create consistent, comprehensive documentation. Each template contains:
+Templates are predefined documentation structures that can be applied to tasks, features, and projects to create consistent, comprehensive documentation. **Templates are universally available** - they work with any MCP-compatible AI client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.) and function independently of orchestration setup.
+
+Each template contains:
 
 - **Section Definitions**: Structured content blocks with specific purposes
 - **Usage Descriptions**: Guidance for AI assistants on how to use each section
@@ -33,11 +35,50 @@ Templates are predefined documentation structures that can be applied to tasks, 
 
 ### Benefits
 
+- **Universal Availability**: Works with ALL MCP clients, not specific to Claude Code
 - **Consistency**: Standardized documentation across all work items
 - **Completeness**: Ensures all critical aspects are covered
 - **AI-Optimized**: Designed for AI assistant interaction and understanding
 - **Composable**: Can be applied individually or combined for comprehensive coverage
 - **Discoverable**: AI agents dynamically discover and apply appropriate templates
+- **Flexible Execution**: Works with both direct execution and sub-agent orchestration
+
+### Templates Structure the WORK
+
+**Templates define WHAT needs to be documented**, not WHO does it:
+
+- **Requirements Specification**: Creates "Requirements" section → defines what functionality is needed
+- **Technical Approach**: Creates "Technical Approach" section → defines architecture and strategy
+- **Testing Strategy**: Creates "Testing Strategy" section → defines test requirements
+
+Templates work with **TWO execution patterns**:
+
+#### Pattern 1: Direct Execution (Universal - Any MCP Client)
+
+You (the AI assistant) read the template sections and implement the work yourself:
+
+```
+1. Apply templates when creating task/feature
+2. Templates create sections (Requirements, Technical Approach, Testing)
+3. You read those sections for context
+4. You implement the code, tests, documentation yourself
+5. You update sections with results
+```
+
+#### Pattern 2: Sub-Agent Execution (Claude Code Only)
+
+Specialist agents read template sections and implement the work:
+
+```
+1. Apply templates when creating task/feature
+2. Templates create sections (Requirements, Technical Approach, Testing)
+3. Orchestrator launches specialist (Backend Engineer, Test Engineer, etc.)
+4. Specialist reads template sections for context
+5. Specialist implements the work
+6. Specialist updates sections with results
+```
+
+**Key Insight**: Templates create the same sections in both patterns. The difference is WHO reads them and implements the work - you directly, or a specialist agent.
 
 ### How Templates Work
 
@@ -489,12 +530,51 @@ Custom templates are stored in the database and automatically available to:
 
 ## Integration with Workflows
 
+### How Templates and Workflows Complement Each Other
+
+**Templates structure the WORK** (what needs to be documented):
+- Create sections automatically when applied
+- Define required documentation (Requirements, Technical Approach, Testing)
+- Provide consistent structure across all tasks and features
+
+**Workflow Prompts guide the PROCESS** (how to accomplish the work):
+- Provide step-by-step procedural guidance
+- Integrate MCP tools systematically
+- Offer quality validation checkpoints
+
 Templates work seamlessly with workflow prompts:
 
 - **PRD-Driven Development** ⭐: Analyzes PRD content to systematically apply appropriate templates across all features and tasks based on requirements and technical complexity
-- **create_feature_workflow**: Automatically suggests Context & Background + Requirements Specification
-- **task_breakdown_workflow**: Applies Task Implementation Workflow to subtasks
-- **implementation_workflow**: Auto-detects git and applies appropriate git workflows for any work type (tasks, features, and bugs)
+- **create_feature_workflow**: Automatically suggests Context & Background + Requirements Specification templates
+- **task_breakdown_workflow**: Applies Task Implementation Workflow template to subtasks
+- **implementation_workflow**: Auto-detects git and applies appropriate git workflow templates for any work type (tasks, features, and bugs)
+
+### Templates + Sub-Agents: Working Together
+
+When using Claude Code with sub-agent orchestration:
+
+1. **Templates create the sections** (Requirements, Technical Approach, Testing Strategy)
+2. **Sub-agents read those sections** for context when implementing
+3. **Templates provide consistent structure** that all specialists understand
+
+**Example Flow**:
+```
+1. Create task with Technical Approach template
+   → Creates "Technical Approach" section with architecture guidance
+
+2. Launch Backend Engineer specialist
+   → Reads "Technical Approach" section for context
+   → Implements code following the architecture
+   → Updates section with implementation notes
+
+3. Launch Test Engineer specialist
+   → Reads "Testing Strategy" section for test requirements
+   → Reads "Technical Approach" for implementation context
+   → Writes comprehensive tests
+   → Updates section with test results
+```
+
+**Key Point**: Templates work IDENTICALLY whether you're implementing directly or using sub-agents. The sections provide structure and context in both scenarios.
 
 > **Most Effective**: PRD-driven development provides optimal template selection by analyzing complete requirements. See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for how Claude intelligently applies templates during PRD breakdown.
 >

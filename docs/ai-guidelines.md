@@ -101,6 +101,557 @@ See **[Agent Orchestration Documentation](agent-orchestration.md)** for:
 
 ---
 
+## Orchestration Patterns and Decision Gates
+
+This section teaches AI assistants how to effectively use task-orchestrator's orchestration features including template discovery, sub-agent coordination, and proactive routing decisions.
+
+### Session Start Routine
+
+**ALWAYS start every session with these steps:**
+
+1. **Run `get_overview()` first** to understand current state
+   - Identify active projects, features, and tasks
+   - Check for in-progress work
+   - Review priorities and dependencies
+   - Understand project context
+
+2. **Check for in-progress tasks** before starting new work
+   - Incomplete work should be prioritized
+   - Ask user if they want to continue or start new work
+
+3. **Review priorities and dependencies**
+   - Understand what's blocked and what's blocking
+   - Identify critical path items
+   - Plan work in context of existing priorities
+
+**Example Session Start**:
+```
+1. get_overview()
+2. Analyze results
+3. Report to user: "You have 2 in-progress tasks, 5 pending high-priority items, and 1 blocked task"
+4. Ask: "Would you like to continue [task X] or start something new?"
+```
+
+---
+
+### Template Discovery Workflow (Universal - ALL MCP Clients)
+
+**CRITICAL**: Template discovery works on **ALL MCP-compatible AI clients** (Claude Desktop, Claude Code, Cursor, Windsurf, etc.) - not just Claude Code.
+
+**ALWAYS Required Pattern** (never skip):
+
+1. **ALWAYS run `list_templates` first** - NEVER assume templates exist
+2. **Filter by `targetEntityType`** - TASK or FEATURE
+3. **Filter by `isEnabled=true`** - Only show active templates
+4. **Apply via `templateIds` parameter** during creation
+5. **Templates work with both direct execution AND sub-agent execution**
+
+**Example Workflow**:
+```
+User: "Create a feature for authentication"
+
+AI Workflow:
+1. list_templates --targetEntityType FEATURE --isEnabled true
+2. Review available templates:
+   - Context & Background (context-and-background)
+   - Requirements Specification (requirements-specification)
+   - Technical Approach (technical-approach)
+3. Select appropriate templates based on work type
+4. create_feature with templateIds parameter:
+   {
+     "name": "User Authentication",
+     "templateIds": ["context-and-background", "requirements-specification"]
+   }
+```
+
+**Template Purpose**:
+- **Templates structure the WORK** (what needs to be documented)
+- Requirements template → creates "Requirements" section
+- Technical Approach template → creates "Technical Approach" section
+- Testing Strategy template → creates "Testing Strategy" section
+
+**Templates Work Two Ways**:
+- ✅ **Direct execution**: You read templates, implement yourself
+- ✅ **Sub-agent execution**: Specialists read templates, implement for you
+
+**Why This Matters**:
+- Templates are **database-driven**, not hardcoded
+- Templates vary by project and team
+- Templates evolve over time
+- Never assume what templates exist
+
+---
+
+### Sub-Agent Coordination Patterns (Claude Code Only)
+
+**IMPORTANT**: Sub-agent orchestration ONLY works in Claude Code (requires `.claude/agents/` directory). Other AI clients (Cursor, Windsurf, Claude Desktop) should use templates and workflow prompts directly.
+
+#### When to Use Feature Manager
+
+**Use Feature Manager when**:
+- Feature has 4+ tasks with dependencies
+- Need specialist coordination across domains
+- Want 97% token reduction (summaries vs full context)
+- Complex features requiring multi-specialist work
+
+**How to Launch**:
+```
+User: "Start working on the authentication feature"
+
+AI: [Checks feature task count]
+    [Feature has 6 tasks with dependencies]
+    [Decides to launch Feature Manager]
+
+"This feature has 6 interconnected tasks. I'll launch the Feature Manager
+to coordinate work efficiently."
+
+Launch: Feature Manager agent in START mode
+```
+
+#### When to Use Task Manager
+
+**Use Task Manager when**:
+- Individual task needs specialist routing
+- Task has specialist tags (backend, frontend, database, testing, docs)
+- Task has completed dependency context to pass
+- Part of feature manager coordination flow
+
+**How to Launch**:
+```
+AI: [Feature Manager recommends next task → T1]
+    [Check recommend_agent(T1)]
+    [Specialist: Backend Engineer]
+
+Launch: Task Manager agent in START mode with task ID
+Task Manager: Routes to Backend Engineer with dependency context
+```
+
+#### Dependency Context Passing Mechanism
+
+**How Context Flows Between Tasks**:
+
+1. **Task Manager END** (previous task completion):
+   - Specialist completes work
+   - Task Manager creates Summary section (300-500 tokens)
+   - Summary includes: Completed work, Files Changed, Next Steps, Notes
+
+2. **Task Manager START** (next task):
+   - Reads completed dependency summaries
+   - Passes relevant summaries to specialist
+   - Specialist has focused context (not full task details)
+
+**Example Flow**:
+```
+T1 (Database Schema) completes:
+  → Task Manager END creates Summary: "Created users table with auth columns..."
+
+T2 (API Implementation) starts:
+  → Task Manager START reads T1 Summary
+  → Passes to Backend Engineer: "Previous task created users table with..."
+  → Backend Engineer implements API with this context
+```
+
+**Benefits**:
+- **97% token reduction**: 300-500 token summaries vs 15k+ full context
+- **Focused context**: Only relevant information passed
+- **Automatic**: Task Manager handles context passing
+- **Scalable**: Works for any number of dependencies
+
+---
+
+### Decision Gates (Proactive Agent Routing)
+
+**These gates help you proactively route work to specialized agents.**
+
+#### Before Creating a Feature
+
+**Decision Gate**:
+```
+❓ Did user say "create/start/build a feature for..."?
+❓ Did user provide rich context (3+ paragraphs about a feature)?
+
+→ YES? Launch Feature Architect agent
+→ NO? Proceed with direct create_feature tool
+```
+
+**Why**:
+- Feature Architect specializes in feature design
+- Analyzes requirements comprehensively
+- Creates well-structured features
+- Applies appropriate templates automatically
+
+**Example**:
+```
+User: "I want to build a feature for user authentication with OAuth2,
+      password reset, and session management"
+
+AI: [Detects rich feature context]
+    "This is a complex feature with multiple components. I'll launch
+     the Feature Architect to design it properly."
+
+Launch: Feature Architect agent
+```
+
+#### Before Starting Multi-Task Feature Work
+
+**Decision Gate**:
+```
+❓ Does feature have 4+ tasks with dependencies?
+❓ Need specialist coordination across domains?
+
+→ YES? Launch Feature Manager agent (START mode)
+→ NO? Work through tasks sequentially yourself
+```
+
+**Why**:
+- Feature Manager coordinates multi-task workflows
+- Manages dependency sequencing
+- Routes tasks to specialists
+- Maintains feature-level context
+
+**Example**:
+```
+User: "Start working on the authentication feature"
+
+AI: [Checks feature]
+    [Feature has 7 tasks: DB schema, API, Frontend, Tests, Docs]
+    [Tasks have dependencies]
+    "This feature requires coordinated work across specialists.
+     I'll launch the Feature Manager."
+
+Launch: Feature Manager agent in START mode
+```
+
+#### Before Working on a Task
+
+**Decision Gate**:
+```
+❓ Is task part of a larger feature (has featureId)?
+❓ Does task have specialist tags (backend, frontend, database, testing, docs)?
+
+→ YES? Check recommend_agent(taskId) for specialist routing
+→ NO? Proceed with direct implementation
+```
+
+**Why**:
+- Specialists have focused expertise
+- Task Manager passes dependency context
+- More efficient than generalist implementation
+- Better quality from specialist attention
+
+**Example**:
+```
+User: "Implement the database schema task"
+
+AI: [Checks task]
+    [Task has featureId: authentication-feature]
+    [Task has tags: database, schema, backend]
+    [Runs recommend_agent(taskId)]
+    [Result: Database Engineer specialist]
+    "This task requires database expertise. I'll route to the
+     Database Engineer specialist."
+
+Launch: Task Manager agent in START mode with task ID
+```
+
+#### When User Reports a Bug
+
+**Decision Gate**:
+```
+❓ User says: "broken", "error", "crash", "doesn't work", "failing"?
+
+→ YES? Launch Bug Triage Specialist agent
+→ NO? If it's a feature request, use Feature Architect
+```
+
+**Why**:
+- Bug Triage Specialist systematically investigates
+- Applies Bug Investigation template
+- Documents root cause before implementation
+- Ensures proper regression testing
+
+**Example**:
+```
+User: "The login is broken - users are getting timeout errors"
+
+AI: [Detects bug keywords: "broken", "errors"]
+    "This sounds like a bug that needs systematic investigation.
+     I'll launch the Bug Triage Specialist."
+
+Launch: Bug Triage Specialist agent
+```
+
+#### After Feature Architect Creates Feature
+
+**Decision Gate**:
+```
+❓ Does the feature need task breakdown?
+
+→ YES? Launch Planning Specialist agent
+→ NO? If it's a simple feature, create tasks yourself
+```
+
+**Why**:
+- Planning Specialist excels at task decomposition
+- Creates well-sequenced task breakdown
+- Applies appropriate templates to each task
+- Establishes dependency relationships
+
+**Example**:
+```
+Feature Architect creates "User Authentication" feature
+
+AI: [Reviews feature complexity]
+    [Feature requires: DB, API, Frontend, Tests, Docs]
+    "This feature needs a structured task breakdown.
+     I'll launch the Planning Specialist."
+
+Launch: Planning Specialist agent
+```
+
+---
+
+### Specialist Routing Decisions
+
+#### How `recommend_agent` Analyzes Tasks
+
+**Recommendation Algorithm**:
+
+1. **Analyze task tags** for specialist indicators:
+   - `backend`, `api`, `server` → Backend Engineer
+   - `frontend`, `ui`, `react` → Frontend Engineer
+   - `database`, `schema`, `sql` → Database Engineer
+   - `testing`, `test`, `qa` → Test Engineer
+   - `documentation`, `docs`, `technical-writing` → Technical Writer
+   - `planning`, `breakdown`, `architecture` → Planning Specialist
+
+2. **Check task type** from tags:
+   - `task-type-bug` → Bug Triage Specialist
+   - `task-type-feature` → Appropriate domain specialist
+
+3. **Consider complexity and context**:
+   - Simple tasks (complexity 1-3) → May not need specialist
+   - Complex tasks (complexity 7+) → Always recommend specialist
+   - Tasks with dependencies → Pass dependency context
+
+**Example**:
+```
+Task: "Implement user authentication API endpoints"
+Tags: backend, api, authentication, high-priority
+Complexity: 7
+
+recommend_agent returns: "Backend Engineer"
+
+Reasoning:
+- "backend" and "api" tags indicate backend work
+- Complexity 7 warrants specialist attention
+- Authentication is complex domain requiring expertise
+```
+
+#### When to Launch Specialists Directly
+
+**Launch specialist when**:
+- Task clearly requires specialist expertise (complexity 7+)
+- Task has specialist tags
+- Task is part of coordinated feature work
+- `recommend_agent` suggests specialist
+
+**Work yourself when**:
+- Simple task (complexity 1-3)
+- No specialist tags
+- Standalone task not part of feature
+- Quick documentation or admin tasks
+
+**Example Decision Flow**:
+```
+Task: "Update README with installation instructions"
+Tags: documentation, simple
+Complexity: 2
+
+AI Decision: Work yourself
+Reasoning: Simple documentation, low complexity, no coordination needed
+
+---
+
+Task: "Implement OAuth2 token refresh flow"
+Tags: backend, api, security, authentication
+Complexity: 8
+
+AI Decision: Launch Backend Engineer specialist
+Reasoning: Complex backend work, security-critical, high complexity
+```
+
+#### Passing Dependency Context from Summaries
+
+**When launching a specialist**, Task Manager:
+
+1. **Identifies completed dependencies**:
+   - Checks task's incoming dependencies
+   - Finds dependencies with status "completed"
+
+2. **Reads dependency summaries**:
+   - Fetches Summary sections (300-500 tokens each)
+   - Extracts key information: what was completed, files changed, notes
+
+3. **Passes to specialist**:
+   - Brief focused context (not full task details)
+   - Specialist reads summaries to understand prior work
+   - Implements current task with dependency awareness
+
+**Example**:
+```
+Task: "Implement user authentication API"
+Dependency: "Design database schema for users" (completed)
+
+Task Manager reads dependency summary:
+  "Created users table with columns: id, email, password_hash,
+   created_at. Added indexes on email. Migration file: V5__users_table.sql"
+
+Task Manager passes to Backend Engineer:
+  "Previous task created users table with auth columns.
+   See migration V5__users_table.sql for schema details.
+   Implement API endpoints using this schema."
+
+Backend Engineer implements API with this context.
+```
+
+---
+
+### Quality Standards
+
+**Always enforce these quality standards** when creating tasks and features:
+
+#### Descriptive Titles and Summaries
+
+**Titles**:
+- Clear, specific, action-oriented
+- Include what is being done, not just topic
+- ✅ Good: "Implement OAuth2 authentication for user login"
+- ❌ Bad: "Authentication"
+
+**Summaries**:
+- 2-3 sentences minimum
+- Include context, scope, and acceptance criteria
+- Explain why, not just what
+- ✅ Good: "Implement OAuth2 authentication to support single sign-on. Users should be able to log in using Google and GitHub accounts. Success criteria: users can authenticate and token refresh works automatically."
+- ❌ Bad: "Add auth"
+
+#### Complexity Ratings (1-10)
+
+**Rating Scale**:
+- **1-2**: Trivial (update docs, fix typo, simple config)
+- **3-4**: Simple (small bug fix, minor feature, straightforward implementation)
+- **5-6**: Moderate (standard feature, requires testing, some edge cases)
+- **7-8**: Complex (cross-component work, requires design, multiple edge cases)
+- **9-10**: Very Complex (architectural changes, high risk, extensive testing)
+
+**Guidelines**:
+- Consider: scope, risk, unknowns, dependencies, testing needs
+- Rate honestly - helps with prioritization and estimation
+- When in doubt, rate higher (better to over-estimate)
+
+#### Consistent Tagging Conventions
+
+**Tag Categories**:
+
+**Work Type** (always include one):
+- `task-type-feature`, `task-type-bug`, `task-type-hotfix`, `task-type-enhancement`
+
+**Domain** (include relevant):
+- `backend`, `frontend`, `database`, `infrastructure`
+- `api`, `ui`, `data`, `devops`
+
+**Functional Area** (include relevant):
+- `authentication`, `authorization`, `logging`, `monitoring`
+- `user-management`, `reporting`, `integration`
+
+**Technology** (include if relevant):
+- `kotlin`, `react`, `sql`, `docker`
+- `oauth`, `rest-api`, `graphql`
+
+**Priority Indicators** (optional):
+- `urgent`, `critical`, `high-priority`
+- `technical-debt`, `refactoring`
+
+**Example**:
+```
+Task: "Implement OAuth2 authentication"
+Tags: task-type-feature, backend, api, authentication, oauth, security, high-priority
+```
+
+#### Acceptance Criteria in Summaries
+
+**Always include** clear acceptance criteria:
+
+**Format**:
+```
+Summary: [Context and scope]
+
+Acceptance Criteria:
+- [ ] Criterion 1 (specific, testable)
+- [ ] Criterion 2 (specific, testable)
+- [ ] Criterion 3 (specific, testable)
+```
+
+**Example**:
+```
+Task: "Implement user login API endpoint"
+
+Summary: Create REST API endpoint for user authentication using JWT tokens.
+Users should be able to log in with email/password and receive an access token.
+
+Acceptance Criteria:
+- [ ] POST /api/auth/login endpoint exists
+- [ ] Accepts email and password in request body
+- [ ] Returns JWT token on successful authentication
+- [ ] Returns 401 on invalid credentials
+- [ ] Passwords are verified using bcrypt
+- [ ] Tests cover success and failure cases
+```
+
+---
+
+### Decision Guide: Templates vs Sub-Agents
+
+**Use Templates + Workflow Prompts ONLY when**:
+- Simple tasks (1-3 tasks total)
+- Single-agent work (you're doing everything yourself)
+- Not using Claude Code (using Cursor, Windsurf, Claude Desktop, etc.)
+- Learning the system (workflows teach best practices)
+
+**Add Sub-Agent Orchestration when**:
+- Complex features (4+ related tasks with dependencies)
+- Using Claude Code (only tool with sub-agent support)
+- Token efficiency critical (large context, many tasks)
+- Specialist coordination valuable (backend → database → frontend → test flow)
+
+**Example Comparison**:
+
+**Simple (Templates only)**:
+```
+You: create_task(templateIds=["technical-approach", "testing-strategy"])
+You: Read technical-approach section
+You: Implement the code yourself
+You: Read testing-strategy section
+You: Write tests yourself
+```
+
+**Complex (Templates + Sub-agents)**:
+```
+You: create_feature with 4 tasks, apply templates to each
+You: Launch Feature Manager (START mode)
+Feature Manager: Recommends next task → T1 (Database schema)
+You: Launch Task Manager for T1
+Task Manager: Routes to Database Engineer specialist
+Database Engineer: Reads "Technical Approach" section, implements schema, creates Summary
+Task Manager: Reports completion (2 sentences) to you
+You: Launch Feature Manager again
+Feature Manager: Recommends next task → T2 (API implementation, reads T1 Summary)
+[continues with automatic dependency context passing]
+```
+
+---
+
 ## Three-Layer Guidance Architecture
 
 The system uses three complementary layers to provide comprehensive guidance:

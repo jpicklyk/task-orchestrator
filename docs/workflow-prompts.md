@@ -5,7 +5,9 @@ title: Workflow Prompts
 
 # Workflow Prompts
 
-Workflow prompts provide structured, step-by-step guidance for complex project management scenarios. They complement AI's autonomous pattern application by offering explicit workflows when needed.
+Workflow prompts provide structured, step-by-step guidance for complex project management scenarios. **Workflow prompts guide the PROCESS** of accomplishing work, while templates structure the WORK itself. They complement AI's autonomous pattern application by offering explicit workflows when needed.
+
+**Available on all MCP clients**: Workflow prompts work with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP-compatible AI assistant.
 
 ## Table of Contents
 
@@ -24,10 +26,40 @@ Workflow prompts are AI-invokable guides that provide comprehensive instructions
 
 ### What They Provide
 
-- **Structured Processes**: Step-by-step instructions for complex workflows
+- **Structured Processes**: Step-by-step instructions for complex workflows (the HOW)
 - **Quality Validation**: Built-in checkpoints and validation steps
-- **Template Integration**: Automatic template selection and application
+- **Template Integration**: Automatic template selection and application (the WHAT)
 - **Best Practices**: Proven patterns for common scenarios
+- **Universal Availability**: Works with ANY MCP client (not Claude Code specific)
+
+### Templates vs. Workflow Prompts
+
+**Templates structure the WORK** (WHAT needs to be documented):
+- Create sections: Requirements, Technical Approach, Testing Strategy
+- Define what information must be captured
+- Provide consistent documentation structure
+- Work with both direct execution and sub-agent orchestration
+
+**Workflow Prompts guide the PROCESS** (HOW to accomplish the work):
+- Provide step-by-step procedural guidance
+- Integrate MCP tool calls systematically
+- Offer quality validation checkpoints
+- Guide from start to completion
+
+**Example**:
+```
+Template (Technical Approach):
+→ Creates "Technical Approach" section
+→ Defines: Architecture, Technology Stack, Design Patterns
+
+Workflow Prompt (implementation_workflow):
+→ Step 1: Check current state
+→ Step 2: Auto-detect git and apply git workflow templates
+→ Step 3: Read Technical Approach section for context
+→ Step 4: Implement following the architecture
+→ Step 5: Validate implementation
+→ Step 6: Mark task complete
+```
 
 ### What Makes Them Different
 
@@ -431,43 +463,90 @@ Ready to begin implementation?"
 
 ## Integration with Templates
 
+### How Workflows and Templates Work Together
+
+**Workflow prompts guide the PROCESS, templates structure the WORK**:
+
+| Aspect | Templates | Workflow Prompts |
+|--------|-----------|------------------|
+| **Purpose** | Define WHAT to document | Define HOW to accomplish work |
+| **Creates** | Sections (Requirements, Technical Approach) | Step-by-step procedural guidance |
+| **Works With** | Any MCP client | Any MCP client |
+| **Sub-Agents** | Sections read by specialists | Process followed by orchestrator |
+| **Example** | "Technical Approach" section with architecture | "Step 3: Read Technical Approach and implement" |
+
 ### How Workflows Use Templates
 
 All workflow prompts integrate with the template system:
 
 1. **Automatic Discovery**: Workflows use `list_templates` to find applicable templates
 2. **Smart Selection**: Workflows suggest templates based on work type and context
-3. **Multiple Templates**: Workflows often apply 2-3 templates for comprehensive coverage
-4. **Git Detection**: Workflows automatically suggest git templates when .git directory detected
+3. **Section Creation**: Templates create the sections (WORK structure)
+4. **Process Guidance**: Workflows guide you through using those sections (PROCESS steps)
+5. **Multiple Templates**: Workflows often apply 2-3 templates for comprehensive coverage
+6. **Git Detection**: Workflows automatically suggest git templates when .git directory detected
 
 ### Template Categories by Workflow
 
-**Feature Creation Workflow** typically uses:
-- Context & Background (business context)
-- Requirements Specification (detailed requirements)
-- Technical Approach (architecture planning)
+**Feature Creation Workflow** (creates WORK structure):
+- Context & Background → creates "Business Context" section
+- Requirements Specification → creates "Requirements" section
+- Technical Approach → creates "Technical Approach" section
 
-**Task Breakdown Workflow** typically uses:
-- Task Implementation Workflow (implementation guidance)
-- Local Git Branching Workflow (if git detected)
-- Technical Approach (for complex subtasks)
+**Then workflow guides PROCESS**:
+1. Apply templates (creates sections)
+2. Fill in business context section
+3. Document requirements section
+4. Plan technical approach section
 
-**Bug Triage Workflow** typically uses:
-- Bug Investigation Workflow (systematic investigation)
-- Local Git Branching Workflow (if git detected)
-- Definition of Done (completion criteria)
+---
 
-**Project Setup Workflow** typically uses:
-- Multiple templates for features and foundation tasks
-- Custom templates created for project-specific needs
+**Task Breakdown Workflow** (creates WORK structure):
+- Task Implementation Workflow → creates "Implementation Steps" section
+- Local Git Branching Workflow → creates "Git Workflow" section (if git detected)
+- Technical Approach → creates "Technical Approach" section (for complex subtasks)
 
-**Implement Feature Workflow** uses:
-- Task Implementation Workflow (always)
-- Local Git Branching Workflow (if git detected)
-- GitHub PR Workflow (if user confirms they use PRs)
-- Technical Approach (for complex tasks)
+**Then workflow guides PROCESS**:
+1. Apply templates to subtasks (creates sections)
+2. Analyze complex task
+3. Create subtasks with template sections
+4. Establish dependencies
+5. Sequence implementation
 
-> **See**: [Templates Guide](templates) for complete template documentation and [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for discovery patterns
+---
+
+**Implementation Workflow** (uses existing WORK structure):
+1. Check if templates already applied
+2. If not, suggest and apply appropriate templates (creates sections)
+3. Read template sections for context (Requirements, Technical Approach)
+4. Follow procedural steps to implement
+5. Update template sections with results
+
+**Key Insight**: Templates create the sections FIRST, then workflows guide you through USING those sections.
+
+### Templates Work With Both Execution Patterns
+
+**Direct Execution** (any MCP client):
+```
+1. Workflow applies templates → creates sections
+2. Workflow guides you through process
+3. You read template sections for context
+4. You implement the work
+5. You update template sections with results
+```
+
+**Sub-Agent Execution** (Claude Code only):
+```
+1. Workflow applies templates → creates sections
+2. Orchestrator launches specialist
+3. Specialist reads template sections for context
+4. Specialist implements the work
+5. Specialist updates template sections with results
+```
+
+**Templates are identical in both patterns** - they create the same sections (Requirements, Technical Approach, Testing Strategy). The difference is WHO reads and implements: you directly, or a specialist agent.
+
+> **See**: [Templates Guide](templates) for complete template documentation, including how templates work with both direct and sub-agent execution patterns, and [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for discovery patterns
 
 ---
 
