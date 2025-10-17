@@ -55,7 +55,7 @@ bin/
 /doc_research/
 
 ### Claude Code configuration files ###
-/.claude/settings.local.json
+/.claude/
 CLAUDE.local.md
 
 ### Task Orchestrator folder ###
