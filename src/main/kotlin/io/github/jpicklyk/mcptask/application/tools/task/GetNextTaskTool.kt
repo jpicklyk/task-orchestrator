@@ -27,7 +27,7 @@ class GetNextTaskTool : BaseToolDefinition() {
     override val description: String = """Recommends next task based on status, dependencies, priority, and complexity. Filters out blocked tasks and ranks by priority (quick wins first).
 
         Selection Logic:
-        1. Retrieves all pending and in-progress tasks
+        1. Retrieves all pending tasks (not yet started)
         2. Filters out blocked tasks (with incomplete dependencies)
         3. Sorts by priority (HIGH → MEDIUM → LOW)
         4. Within same priority, sorts by complexity (lower first for quick wins)
@@ -266,7 +266,7 @@ class GetNextTaskTool : BaseToolDefinition() {
     }
 
     /**
-     * Gets all active (pending or in-progress) tasks, optionally filtered by project/feature.
+     * Gets all pending (not yet started) tasks, optionally filtered by project/feature.
      */
     private suspend fun getActiveTasks(
         projectId: UUID?,
@@ -288,9 +288,9 @@ class GetNextTaskTool : BaseToolDefinition() {
 
         return when (tasksResult) {
             is Result.Success -> {
-                // Filter to only active statuses
+                // Filter to only pending tasks (not yet started)
                 tasksResult.data.filter { task ->
-                    task.status == TaskStatus.PENDING || task.status == TaskStatus.IN_PROGRESS
+                    task.status == TaskStatus.PENDING
                 }
             }
             is Result.Error -> {

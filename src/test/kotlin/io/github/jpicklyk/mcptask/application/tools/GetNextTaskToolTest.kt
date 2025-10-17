@@ -288,7 +288,7 @@ class GetNextTaskToolTest {
             id = blockerId,
             title = "Blocker",
             summary = "Not done",
-            status = TaskStatus.IN_PROGRESS,
+            status = TaskStatus.PENDING,
             priority = Priority.HIGH,
             complexity = 5
         )

@@ -377,6 +377,10 @@ class ParallelTaskProcessingIntegrationTest {
 
             coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
                 Result.Success(listOf(t1, t2, t3, t4, t5))
+            // Mock dependencies for all tasks
+            coEvery { mockDependencyRepository.findByToTaskId(t1.id) } returns emptyList()
+            coEvery { mockDependencyRepository.findByToTaskId(t2.id) } returns emptyList()
+            coEvery { mockDependencyRepository.findByToTaskId(t3.id) } returns emptyList()
             coEvery { mockDependencyRepository.findByToTaskId(t4.id) } returns listOf(dep1)
             coEvery { mockDependencyRepository.findByToTaskId(t5.id) } returns listOf(dep2)
             coEvery { mockTaskRepository.getById(t1.id) } returns Result.Success(t1)
@@ -417,6 +421,10 @@ class ParallelTaskProcessingIntegrationTest {
 
             coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
                 Result.Success(tasks)
+            // Mock no dependencies for any task
+            tasks.forEach { task ->
+                coEvery { mockDependencyRepository.findByToTaskId(task.id) } returns emptyList()
+            }
 
             // When at capacity, Feature Manager would call with limit=1 but get 0 results
             // (all tasks are in-progress, so no pending tasks available)
@@ -616,9 +624,10 @@ class ParallelTaskProcessingIntegrationTest {
 
             // Mock feature repository
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
+            coEvery { mockTaskRepository.findByFeature(featureId, any(), any(), any()) } returns
                 Result.Success(listOf(task1, task2))
             coEvery { mockDependencyRepository.findByToTaskId(task1.id) } returns emptyList()
+            coEvery { mockDependencyRepository.findByToTaskId(task2.id) } returns emptyList()
             coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, featureId) } returns
                 Result.Success(emptyList())
 
@@ -635,7 +644,7 @@ class ParallelTaskProcessingIntegrationTest {
 
             // Update state - mark task2 as completed
             val task2Completed = task2.copy(status = TaskStatus.COMPLETED)
-            coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
+            coEvery { mockTaskRepository.findByFeature(featureId, any(), any(), any()) } returns
                 Result.Success(listOf(task1, task2Completed))
 
             // Second call - should reflect updated state
@@ -796,7 +805,8 @@ class ParallelTaskProcessingIntegrationTest {
 
             coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
                 Result.Success(tasks)
-            tasks.filter { it.status == TaskStatus.PENDING }.forEach { task ->
+            // Mock no dependencies for all tasks
+            tasks.forEach { task ->
                 coEvery { mockDependencyRepository.findByToTaskId(task.id) } returns emptyList()
             }
 
@@ -864,6 +874,10 @@ class ParallelTaskProcessingIntegrationTest {
 
             coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
                 Result.Success(tasksInProgress)
+            // Mock no dependencies for in-progress tasks
+            tasksInProgress.forEach { task ->
+                coEvery { mockDependencyRepository.findByToTaskId(task.id) } returns emptyList()
+            }
 
             val params = JsonObject(mapOf(
                 "featureId" to JsonPrimitive(featureId.toString()),
@@ -885,7 +899,8 @@ class ParallelTaskProcessingIntegrationTest {
 
             coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
                 Result.Success(tasksCompleted + newTasks)
-            newTasks.forEach { task ->
+            // Mock no dependencies for all tasks
+            (tasksCompleted + newTasks).forEach { task ->
                 coEvery { mockDependencyRepository.findByToTaskId(task.id) } returns emptyList()
             }
 
@@ -920,7 +935,11 @@ class ParallelTaskProcessingIntegrationTest {
 
             coEvery { mockTaskRepository.findByFeature(featureId, limit = 1000) } returns
                 Result.Success(listOf(t1, t2, t3, t4, t5))
+            // Mock dependencies for all tasks
             coEvery { mockDependencyRepository.findByToTaskId(t1.id) } returns emptyList()
+            coEvery { mockDependencyRepository.findByToTaskId(t2.id) } returns emptyList()
+            coEvery { mockDependencyRepository.findByToTaskId(t3.id) } returns emptyList()
+            coEvery { mockDependencyRepository.findByToTaskId(t4.id) } returns emptyList()
             coEvery { mockDependencyRepository.findByToTaskId(t5.id) } returns listOf(dep)
             coEvery { mockTaskRepository.getById(t2.id) } returns Result.Success(t2)
 
