@@ -20,6 +20,7 @@ object TaskTable : UUIDTable("tasks") {
     // Required task properties
     val title = text("title")
     val summary = text("summary")
+    val description = text("description").nullable()
     val status = enumerationByName("status", 20, TaskStatus::class)
     val priority = enumerationByName("priority", 20, Priority::class)
     val complexity = integer("complexity")

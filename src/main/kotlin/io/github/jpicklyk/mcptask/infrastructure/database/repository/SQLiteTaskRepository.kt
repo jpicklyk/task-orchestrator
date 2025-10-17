@@ -48,6 +48,7 @@ class SQLiteTaskRepository(
             featureId = row[TaskTable.featureId],
             projectId = row[TaskTable.projectId],
             title = row[TaskTable.title],
+            description = row[TaskTable.description],
             summary = row[TaskTable.summary],
             status = row[TaskTable.status],
             priority = row[TaskTable.priority],
@@ -67,6 +68,7 @@ class SQLiteTaskRepository(
         return buildString {
             append(entity.title)
             append(" ").append(entity.summary)
+            entity.description?.let { append(" ").append(it) }
             entity.tags.forEach { tag -> append(" ").append(tag) }
         }
     }
@@ -95,6 +97,7 @@ class SQLiteTaskRepository(
             it[featureId] = entity.featureId
             it[projectId] = entity.projectId
             it[title] = entity.title
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
@@ -113,6 +116,7 @@ class SQLiteTaskRepository(
             it[featureId] = entity.featureId
             it[projectId] = entity.projectId
             it[title] = entity.title
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority

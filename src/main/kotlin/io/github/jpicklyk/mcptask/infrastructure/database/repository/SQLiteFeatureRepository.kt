@@ -48,6 +48,7 @@ class SQLiteFeatureRepository(
             id = row[FeaturesTable.id].value,
             projectId = row[FeaturesTable.projectId],
             name = row[FeaturesTable.name],
+            description = row[FeaturesTable.description],
             summary = row[FeaturesTable.summary],
             status = row[FeaturesTable.status],
             priority = row[FeaturesTable.priority],
@@ -66,6 +67,7 @@ class SQLiteFeatureRepository(
         return buildString {
             append(entity.name)
             append(" ").append(entity.summary)
+            entity.description?.let { append(" ").append(it) }
             entity.tags.forEach { tag -> append(" ").append(tag) }
         }
     }
@@ -90,6 +92,7 @@ class SQLiteFeatureRepository(
             it[id] = entity.id
             it[projectId] = entity.projectId
             it[name] = entity.name
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
@@ -106,6 +109,7 @@ class SQLiteFeatureRepository(
         }) {
             it[projectId] = entity.projectId
             it[name] = entity.name
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
