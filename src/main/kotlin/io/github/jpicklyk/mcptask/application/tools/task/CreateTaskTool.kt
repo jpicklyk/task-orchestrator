@@ -69,10 +69,16 @@ class CreateTaskTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Task title")
                                     )
                                 ),
+                                "description" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))),
+                                        "description" to JsonPrimitive("Detailed description of what needs to be done (user-provided)")
+                                    )
+                                ),
                                 "summary" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Task summary/description")
+                                        "description" to JsonPrimitive("Brief summary of what was accomplished (agent-generated)")
                                     )
                                 ),
                                 "status" to JsonObject(
@@ -250,10 +256,16 @@ class CreateTaskTool : BaseToolDefinition() {
                         "description" to JsonPrimitive("The title of the task (required)")
                     )
                 ),
+                "description" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Detailed description of what needs to be done (user-provided)")
+                    )
+                ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Brief summary of the task content (required for task creation)")
+                        "description" to JsonPrimitive("Brief summary of what was accomplished (agent-generated, max 500 chars)")
                     )
                 ),
                 "status" to JsonObject(
@@ -315,7 +327,7 @@ class CreateTaskTool : BaseToolDefinition() {
                 )
             )
         ),
-        required = listOf("title", "summary")
+        required = listOf("title")
     )
 
     override fun validateParams(params: JsonElement) {
@@ -326,12 +338,11 @@ class CreateTaskTool : BaseToolDefinition() {
             throw ToolValidationException("Title validation failed: ${e.message}")
         }
 
-        // Validate required summary parameter  
-        try {
-            requireString(params, "summary")
-        } catch (e: ToolValidationException) {
-            throw ToolValidationException("Summary validation failed: ${e.message}")
-        }
+        // Validate description if provided
+        optionalString(params, "description")
+
+        // Validate summary if provided
+        optionalString(params, "summary")
         
         // Validate status if present
         optionalString(params, "status")?.let { status ->
@@ -421,23 +432,13 @@ class CreateTaskTool : BaseToolDefinition() {
             // Extract parameters
             val title = requireString(params, "title")
             logger.info("DEBUG: Extracted title: '$title' (length=${title.length})")
-            val summary = requireString(params, "summary")
-            logger.info("DEBUG: Extracted summary: '$summary' (length=${summary.length})")
-
-            // Additional debug info
-            logger.info("DEBUG: Title isBlank: ${title.isBlank()}, isEmpty: ${title.isEmpty()}")
-            logger.info("DEBUG: Summary isBlank: ${summary.isBlank()}, isEmpty: ${summary.isEmpty()}")
-            logger.info("DEBUG: Title chars: ${title.map { it.code }.joinToString(",")}")
-            logger.info("DEBUG: Summary chars: ${summary.map { it.code }.joinToString(",")}")
+            val description = optionalString(params, "description")
+            val summary = optionalString(params, "summary") ?: ""
+            logger.info("DEBUG: Extracted description: ${description?.length ?: 0} chars, summary: ${summary.length} chars")
 
             if (title.isBlank()) {
                 logger.error("Title is blank: '$title'")
                 throw ToolValidationException("Title cannot be blank")
-            }
-            
-            if (summary.isBlank()) {
-                logger.error("Summary is blank: '$summary'")
-                throw ToolValidationException("Summary cannot be blank")
             }
 
             // Parse status
@@ -511,6 +512,7 @@ class CreateTaskTool : BaseToolDefinition() {
             // Create the task entity
             val task = Task(
                 title = title,
+                description = description,
                 summary = summary,
                 status = status,
                 priority = priority,
@@ -542,6 +544,11 @@ class CreateTaskTool : BaseToolDefinition() {
                     val responseBuilder = buildJsonObject {
                         put("id", createdTask.id.toString())
                         put("title", createdTask.title)
+                        if (createdTask.description != null) {
+                            put("description", createdTask.description)
+                        } else {
+                            put("description", JsonNull)
+                        }
                         put("summary", createdTask.summary)
                         put("status", createdTask.status.name.lowercase())
                         put("priority", createdTask.priority.name.lowercase())

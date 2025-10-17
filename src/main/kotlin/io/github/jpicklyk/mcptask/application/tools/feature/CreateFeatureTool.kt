@@ -74,10 +74,16 @@ class CreateFeatureTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Feature name")
                                     )
                                 ),
+                                "description" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))),
+                                        "description" to JsonPrimitive("Detailed description of what needs to be done (user-provided)")
+                                    )
+                                ),
                                 "summary" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Feature summary/description")
+                                        "description" to JsonPrimitive("Brief summary of what was accomplished (agent-generated)")
                                     )
                                 ),
                                 "status" to JsonObject(
@@ -306,10 +312,16 @@ class CreateFeatureTool : BaseToolDefinition() {
                         "description" to JsonPrimitive("Required feature name (e.g., 'User Authentication', 'Data Export')")
                     )
                 ),
+                "description" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Detailed description of what needs to be done (user-provided)")
+                    )
+                ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Required feature summary describing its purpose and scope")
+                        "description" to JsonPrimitive("Brief summary of what was accomplished (agent-generated, max 500 chars)")
                     )
                 ),
                 "status" to JsonObject(
@@ -361,7 +373,7 @@ class CreateFeatureTool : BaseToolDefinition() {
                 )
             )
         ),
-        required = listOf("name", "summary")
+        required = listOf("name")
     )
 
     override fun validateParams(params: JsonElement) {
@@ -372,12 +384,9 @@ class CreateFeatureTool : BaseToolDefinition() {
             }
         }
 
-        // Validate summary parameter
-        requireString(params, "summary").also {
-            if (it.isBlank()) {
-                throw ToolValidationException("Feature summary cannot be empty")
-            }
-        }
+        // Validate optional description and summary
+        optionalString(params, "description")
+        optionalString(params, "summary")
 
         // Validate status if present
         optionalString(params, "status")?.let { status ->
@@ -439,7 +448,8 @@ class CreateFeatureTool : BaseToolDefinition() {
         try {
             // Extract parameters
             val name = requireString(params, "name")
-            val summary = requireString(params, "summary")
+            val description = optionalString(params, "description")
+            val summary = optionalString(params, "summary") ?: ""
             val statusStr = optionalString(params, "status") ?: "planning"
             val priorityStr = optionalString(params, "priority") ?: "medium"
             val tagsStr = optionalString(params, "tags")
@@ -485,6 +495,7 @@ class CreateFeatureTool : BaseToolDefinition() {
             // Create a new feature entity
             val feature = Feature(
                 name = name,
+                description = description,
                 summary = summary,
                 status = status,
                 priority = priority,
@@ -511,6 +522,11 @@ class CreateFeatureTool : BaseToolDefinition() {
                     val responseBuilder = buildJsonObject {
                         put("id", createdFeature.id.toString())
                         put("name", createdFeature.name)
+                        if (createdFeature.description != null) {
+                            put("description", createdFeature.description)
+                        } else {
+                            put("description", JsonNull)
+                        }
                         put("summary", createdFeature.summary)
                         put("status", createdFeature.status.name.lowercase().replace('_', '-'))
                         put("priority", createdFeature.priority.name.lowercase())

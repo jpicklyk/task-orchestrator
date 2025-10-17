@@ -120,10 +120,16 @@ class UpdateFeatureTool(
                         "description" to JsonPrimitive("(optional) New feature name")
                     )
                 ),
+                "description" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("(optional) Detailed description of what needs to be done (user-provided)")
+                    )
+                ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("(optional) New feature summary")
+                        "description" to JsonPrimitive("(optional) Brief summary of what was accomplished (agent-generated, max 500 chars)")
                     )
                 ),
                 "status" to JsonObject(
@@ -249,6 +255,7 @@ class UpdateFeatureTool(
 
                 // Extract update parameters
                 val name = optionalString(params, "name") ?: feature.name
+                val description = optionalString(params, "description") ?: feature.description
                 val summary = optionalString(params, "summary") ?: feature.summary
                 val status = optionalString(params, "status")?.let { parseStatus(it) } ?: feature.status
                 val priority = optionalString(params, "priority")?.let { parsePriority(it) } ?: feature.priority
@@ -279,6 +286,7 @@ class UpdateFeatureTool(
                 val updatedFeature = feature.update(
                     name = name,
                     projectId = projectId,
+                    description = description,
                     summary = summary,
                     status = status,
                     priority = priority,

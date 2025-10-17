@@ -153,10 +153,16 @@ class UpdateProjectTool(
                         "description" to JsonPrimitive("(optional) New project name")
                     )
                 ),
+                "description" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("(optional) Detailed description of what needs to be done (user-provided)")
+                    )
+                ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("(optional) New project summary describing its purpose and scope")
+                        "description" to JsonPrimitive("(optional) Brief summary of what was accomplished (agent-generated, max 500 chars)")
                     )
                 ),
                 "status" to JsonObject(
@@ -271,6 +277,7 @@ class UpdateProjectTool(
     ): JsonElement {
         // Extract parameters
         val name = optionalString(params, "name")
+        val description = optionalString(params, "description")
         val summary = optionalString(params, "summary")
         val statusStr = optionalString(params, "status")
         val tagsStr = optionalString(params, "tags")
@@ -289,6 +296,7 @@ class UpdateProjectTool(
                 // Create an updated project entity
                 val updatedProject = existingProject.update(
                     name = name ?: existingProject.name,
+                    description = description ?: existingProject.description,
                     summary = summary ?: existingProject.summary,
                     status = status ?: existingProject.status,
                     tags = tags ?: existingProject.tags

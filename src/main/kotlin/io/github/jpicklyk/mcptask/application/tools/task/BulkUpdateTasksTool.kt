@@ -350,7 +350,13 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
                                         "description" to JsonObject(
                                             mapOf(
                                                 "type" to JsonPrimitive("string"),
-                                                "description" to JsonPrimitive("(optional) New detailed description/summary")
+                                                "description" to JsonPrimitive("(optional) Detailed description of what needs to be done (user-provided)")
+                                            )
+                                        ),
+                                        "summary" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("string"),
+                                                "description" to JsonPrimitive("(optional) Brief summary of what was accomplished (agent-generated, max 500 chars)")
                                             )
                                         ),
                                         "status" to JsonObject(
@@ -441,7 +447,7 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
             }
 
             // Validate at least one update field is provided
-            val updateFields = listOf("title", "description", "status", "priority", "complexity", "featureId", "tags")
+            val updateFields = listOf("title", "description", "summary", "status", "priority", "complexity", "featureId", "tags")
             if (updateFields.none { taskObj.containsKey(it) }) {
                 throw ToolValidationException(
                     "Task at index $index has no fields to update. " +
@@ -542,7 +548,8 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
 
                 // Parse update parameters (use existing values if not provided)
                 val title = optionalString(taskParams, "title") ?: existingTask.title
-                val description = optionalString(taskParams, "description") ?: existingTask.summary
+                val description = optionalString(taskParams, "description") ?: existingTask.description
+                val summary = optionalString(taskParams, "summary") ?: existingTask.summary
 
                 val statusStr = optionalString(taskParams, "status")
                 val status = if (statusStr != null) parseStatus(statusStr) else existingTask.status
@@ -582,7 +589,8 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
                 // Create the updated task
                 val updatedTask = existingTask.copy(
                     title = title,
-                    summary = description,
+                    description = description,
+                    summary = summary,
                     status = status,
                     priority = priority,
                     complexity = complexity,

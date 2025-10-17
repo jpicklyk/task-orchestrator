@@ -51,6 +51,7 @@ class CreateProjectTool : BaseToolDefinition() {
                             mapOf(
                                 "id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
                                 "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                "description" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null"))))),
                                 "summary" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                 "status" to JsonObject(
                                     mapOf(
@@ -112,10 +113,16 @@ class CreateProjectTool : BaseToolDefinition() {
                         "description" to JsonPrimitive("Project name (e.g., 'Mobile App Redesign', 'Backend API')")
                     )
                 ),
+                "description" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Detailed description of what needs to be done (user-provided)")
+                    )
+                ),
                 "summary" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Project description explaining its purpose and scope")
+                        "description" to JsonPrimitive("Brief summary of what was accomplished (agent-generated, max 500 chars)")
                     )
                 ),
                 "status" to JsonObject(
@@ -140,7 +147,7 @@ class CreateProjectTool : BaseToolDefinition() {
                 )
             )
         ),
-        required = listOf("name", "summary")
+        required = listOf("name")
     )
 
     override fun validateParams(params: JsonElement) {
@@ -151,12 +158,9 @@ class CreateProjectTool : BaseToolDefinition() {
             }
         }
 
-        // Validate summary parameter
-        requireString(params, "summary").also {
-            if (it.isBlank()) {
-                throw ToolValidationException("Project summary cannot be empty")
-            }
-        }
+        // Validate optional description and summary
+        optionalString(params, "description")
+        optionalString(params, "summary")
 
         // Validate status if present
         optionalString(params, "status")?.let { status ->
@@ -175,7 +179,8 @@ class CreateProjectTool : BaseToolDefinition() {
         try {
             // Extract parameters
             val name = requireString(params, "name")
-            val summary = requireString(params, "summary")
+            val description = optionalString(params, "description")
+            val summary = optionalString(params, "summary") ?: ""
             val statusStr = optionalString(params, "status") ?: "planning"
             val tagsStr = optionalString(params, "tags")
 
@@ -186,6 +191,7 @@ class CreateProjectTool : BaseToolDefinition() {
             // Create a new project entity
             val project = Project(
                 name = name,
+                description = description,
                 summary = summary,
                 status = status,
                 tags = tags
@@ -202,6 +208,11 @@ class CreateProjectTool : BaseToolDefinition() {
                     val responseBuilder = buildJsonObject {
                         put("id", createdProject.id.toString())
                         put("name", createdProject.name)
+                        if (createdProject.description != null) {
+                            put("description", createdProject.description)
+                        } else {
+                            put("description", JsonNull)
+                        }
                         put("summary", createdProject.summary)
                         put("status", createdProject.status.name.lowercase().replace('_', '-'))
                         put("createdAt", createdProject.createdAt.toString())
