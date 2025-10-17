@@ -43,4 +43,5 @@ ENV LOG_LEVEL=info
 ENV USE_FLYWAY=true
 
 # Run the application with explicit stdio handling
-CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "-jar", "orchestrator.jar"]
+# --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+
+CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]
