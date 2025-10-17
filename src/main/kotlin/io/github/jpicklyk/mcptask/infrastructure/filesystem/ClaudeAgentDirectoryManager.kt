@@ -44,11 +44,15 @@ class ClaudeAgentDirectoryManager(
         // Default Claude Code agent template files
         val DEFAULT_AGENT_FILES = listOf(
             "backend-engineer.md",
-            "frontend-developer.md",
+            "bug-triage-specialist.md",
             "database-engineer.md",
-            "test-engineer.md",
+            "feature-architect.md",
+            "feature-manager.md",
+            "frontend-developer.md",
             "planning-specialist.md",
-            "technical-writer.md"
+            "task-manager.md",
+            "technical-writer.md",
+            "test-engineer.md"
         )
 
         init {

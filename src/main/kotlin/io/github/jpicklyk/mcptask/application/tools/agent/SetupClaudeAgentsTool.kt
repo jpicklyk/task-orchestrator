@@ -37,11 +37,15 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
         2. **Installs Claude Code Agent Templates**:
            - backend-engineer.md - Backend/API/service development (model: sonnet)
-           - frontend-developer.md - Frontend/UI development (model: sonnet)
+           - bug-triage-specialist.md - Bug intake and triage (model: sonnet)
            - database-engineer.md - Database/migration work (model: sonnet)
-           - test-engineer.md - Testing and QA (model: sonnet)
-           - planning-specialist.md - Requirements and planning (model: opus)
+           - feature-architect.md - Feature authoring and structuring (model: opus)
+           - feature-manager.md - Feature lifecycle coordination (model: sonnet)
+           - frontend-developer.md - Frontend/UI development (model: sonnet)
+           - planning-specialist.md - Task breakdown and planning (model: opus)
+           - task-manager.md - Task lifecycle coordination (model: sonnet)
            - technical-writer.md - Documentation (model: sonnet)
+           - test-engineer.md - Testing and QA (model: sonnet)
 
         ## Claude Code Compatibility
         Agent files are formatted for Claude Code with:
