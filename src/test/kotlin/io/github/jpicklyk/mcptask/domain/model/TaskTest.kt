@@ -89,16 +89,21 @@ class TaskTest {
     }
 
     @Test
-    fun `create task fails with empty summary`() {
-        // When & Then
-        assertThrows<IllegalArgumentException> {
-            Task.create {
-                it.copy(
-                    title = "Task with no summary",
-                    summary = ""
-                )
-            }
+    fun `create task with empty summary is allowed`() {
+        // Given - summary defaults to empty string and is allowed
+        val title = "Task with empty summary"
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = title,
+                summary = ""
+            )
         }
+
+        // Then
+        assertEquals("", task.summary)
+        assertNull(task.description)
     }
     
     @Test
@@ -231,17 +236,17 @@ class TaskTest {
             }
         }
 
-        // When & Then - Empty summary
-        assertThrows<IllegalArgumentException> {
-            originalTask.update {
-                it.copy(summary = "")
-            }
-        }
-        
         // When & Then - Invalid complexity
         assertThrows<IllegalArgumentException> {
             originalTask.update {
                 it.copy(complexity = 0)
+            }
+        }
+
+        // When & Then - Summary exceeding max length
+        assertThrows<IllegalArgumentException> {
+            originalTask.update {
+                it.copy(summary = "x".repeat(501))
             }
         }
     }
@@ -250,7 +255,7 @@ class TaskTest {
     fun `task with tags is created correctly`() {
         // Given
         val tags = listOf("kotlin", "entity", "model")
-        
+
         // When
         val task = Task.create {
             it.copy(
@@ -259,9 +264,281 @@ class TaskTest {
                 tags = tags
             )
         }
-        
+
         // Then
         assertEquals(tags, task.tags)
         assertEquals(3, task.tags.size)
+    }
+
+    // ========== Description Field Tests ==========
+
+    @Test
+    fun `create task with nullable description`() {
+        // Given
+        val title = "Task without description"
+        val summary = "Task summary"
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = title,
+                summary = summary,
+                description = null
+            )
+        }
+
+        // Then
+        assertEquals(title, task.title)
+        assertEquals(summary, task.summary)
+        assertNull(task.description)
+    }
+
+    @Test
+    fun `create task with description`() {
+        // Given
+        val title = "Task with description"
+        val summary = "Task summary"
+        val description = "Detailed description of what needs to be done"
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = title,
+                summary = summary,
+                description = description
+            )
+        }
+
+        // Then
+        assertEquals(title, task.title)
+        assertEquals(summary, task.summary)
+        assertEquals(description, task.description)
+    }
+
+    @Test
+    fun `create task with description but empty summary`() {
+        // Given - description provided but summary empty
+        val description = "This is what needs to be done"
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = "Task title",
+                summary = "",
+                description = description
+            )
+        }
+
+        // Then
+        assertEquals("", task.summary)
+        assertEquals(description, task.description)
+    }
+
+    @Test
+    fun `create task fails with blank description`() {
+        // When & Then - Blank description should fail validation
+        assertThrows<IllegalArgumentException> {
+            Task.create {
+                it.copy(
+                    title = "Task title",
+                    summary = "Task summary",
+                    description = "   " // Only whitespace
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `create task fails with empty string description`() {
+        // When & Then - Empty string description should fail validation
+        assertThrows<IllegalArgumentException> {
+            Task.create {
+                it.copy(
+                    title = "Task title",
+                    summary = "Task summary",
+                    description = "" // Empty string
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `update task can set description from null to value`() {
+        // Given
+        val originalTask = Task.create {
+            it.copy(
+                title = "Original task",
+                summary = "Original summary",
+                description = null
+            )
+        }
+
+        val newDescription = "Added description after creation"
+
+        // When
+        val updatedTask = originalTask.update {
+            it.copy(description = newDescription)
+        }
+
+        // Then
+        assertEquals(newDescription, updatedTask.description)
+        assertEquals(originalTask.summary, updatedTask.summary) // Summary unchanged
+    }
+
+    @Test
+    fun `update task can change description`() {
+        // Given
+        val originalTask = Task.create {
+            it.copy(
+                title = "Original task",
+                summary = "Original summary",
+                description = "Original description"
+            )
+        }
+
+        val newDescription = "Updated description"
+
+        // When
+        val updatedTask = originalTask.update {
+            it.copy(description = newDescription)
+        }
+
+        // Then
+        assertEquals(newDescription, updatedTask.description)
+        assertEquals(originalTask.summary, updatedTask.summary)
+    }
+
+    @Test
+    fun `update task can remove description`() {
+        // Given
+        val originalTask = Task.create {
+            it.copy(
+                title = "Original task",
+                summary = "Original summary",
+                description = "Original description"
+            )
+        }
+
+        // When
+        val updatedTask = originalTask.update {
+            it.copy(description = null)
+        }
+
+        // Then
+        assertNull(updatedTask.description)
+        assertEquals(originalTask.summary, updatedTask.summary)
+    }
+
+    @Test
+    fun `update task fails with blank description`() {
+        // Given
+        val originalTask = Task.create {
+            it.copy(
+                title = "Original task",
+                summary = "Original summary",
+                description = "Original description"
+            )
+        }
+
+        // When & Then
+        assertThrows<IllegalArgumentException> {
+            originalTask.update {
+                it.copy(description = "   ")
+            }
+        }
+    }
+
+    @Test
+    fun `update task can modify summary independently of description`() {
+        // Given
+        val originalTask = Task.create {
+            it.copy(
+                title = "Original task",
+                summary = "Original summary",
+                description = "Original description"
+            )
+        }
+
+        val newSummary = "Updated summary - what was accomplished"
+
+        // When
+        val updatedTask = originalTask.update {
+            it.copy(summary = newSummary)
+        }
+
+        // Then
+        assertEquals(newSummary, updatedTask.summary)
+        assertEquals("Original description", updatedTask.description) // Description unchanged
+    }
+
+    @Test
+    fun `create task with summary exceeding max length fails`() {
+        // Given - Summary longer than 500 characters
+        val longSummary = "x".repeat(501)
+
+        // When & Then
+        assertThrows<IllegalArgumentException> {
+            Task.create {
+                it.copy(
+                    title = "Task with long summary",
+                    summary = longSummary
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `create task with summary at max length succeeds`() {
+        // Given - Summary exactly 500 characters
+        val maxLengthSummary = "x".repeat(500)
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = "Task with max summary",
+                summary = maxLengthSummary
+            )
+        }
+
+        // Then
+        assertEquals(500, task.summary.length)
+    }
+
+    @Test
+    fun `description has no length limit`() {
+        // Given - Very long description (no limit specified)
+        val veryLongDescription = "x".repeat(10000)
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = "Task with long description",
+                summary = "Brief summary",
+                description = veryLongDescription
+            )
+        }
+
+        // Then
+        assertEquals(10000, task.description?.length)
+    }
+
+    @Test
+    fun `both description and summary can be set together`() {
+        // Given - Both fields provided
+        val description = "This is what needs to be done - the user-provided intent"
+        val summary = "This is what was accomplished - the agent-generated result"
+
+        // When
+        val task = Task.create {
+            it.copy(
+                title = "Task with both fields",
+                description = description,
+                summary = summary
+            )
+        }
+
+        // Then
+        assertEquals(description, task.description)
+        assertEquals(summary, task.summary)
     }
 }

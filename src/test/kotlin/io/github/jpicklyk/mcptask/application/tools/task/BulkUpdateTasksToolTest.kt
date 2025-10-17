@@ -488,7 +488,7 @@ class BulkUpdateTasksToolTest {
 
         val updatedTask = (mockTaskRepository.getById(testTask1Id) as Result.Success).data
         assertEquals("Updated Title", updatedTask.title)
-        assertEquals("Updated description", updatedTask.summary)
+        assertEquals("Updated description", updatedTask.description)
         assertEquals(TaskStatus.COMPLETED, updatedTask.status)
         assertEquals(Priority.HIGH, updatedTask.priority)
         assertEquals(9, updatedTask.complexity)

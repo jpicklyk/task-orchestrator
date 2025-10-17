@@ -81,17 +81,16 @@ class CreateProjectToolTest {
     }
 
     @Test
-    fun `test validate params with empty summary`() {
+    fun `test validate params with empty summary is allowed`() {
         val params = buildJsonObject {
             put("name", "Test Project")
             put("summary", "")
         }
 
-        val exception = assertThrows<ToolValidationException> {
+        // Empty summary is allowed (agent-generated field)
+        assertDoesNotThrow {
             createProjectTool.validateParams(params)
         }
-
-        assertTrue(exception.message!!.contains("summary cannot be empty"))
     }
 
     @Test

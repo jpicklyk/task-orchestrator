@@ -392,44 +392,6 @@ class GetProjectToolTest {
     }
 
     @Test
-    fun `test execute with summaryView truncates long text`() = runBlocking {
-        val projectId = UUID.randomUUID()
-        val now = Instant.now()
-
-        // Create a project with a very long summary
-        val longSummary = "A".repeat(1000)
-        val project = Project(
-            id = projectId,
-            name = "Test Project",
-            summary = longSummary,
-            status = ProjectStatus.IN_DEVELOPMENT,
-            createdAt = now,
-            modifiedAt = now
-        )
-
-        coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
-
-        val params = buildJsonObject {
-            put("id", projectId.toString())
-            put("summaryView", true)
-        }
-
-        val result = getProjectTool.execute(params, executionContext)
-
-        // Verify result
-        assertTrue(result is JsonObject)
-        assertEquals(true, result.jsonObject["success"]?.jsonPrimitive?.boolean)
-
-        // Check that summary is truncated
-        val data = result.jsonObject["data"]?.jsonObject
-        assertNotNull(data)
-        val summary = data!!["summary"]?.jsonPrimitive?.content
-        assertNotNull(summary)
-        assertEquals(500, summary!!.length)
-        assertTrue(summary.endsWith("..."))
-    }
-
-    @Test
     fun `test execute with includeTasks should only return tasks with valid project relationships`() = runBlocking {
         val projectId = UUID.randomUUID()
         val now = Instant.now()

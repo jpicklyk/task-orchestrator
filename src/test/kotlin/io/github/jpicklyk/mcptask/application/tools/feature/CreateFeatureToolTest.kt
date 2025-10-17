@@ -116,22 +116,21 @@ class CreateFeatureToolTest {
     }
 
     @Test
-    fun `test missing summary parameter validation`() {
+    fun `test summary parameter is optional`() {
         val params = JsonObject(
             mapOf(
                 "name" to JsonPrimitive("Test Feature")
             )
         )
 
-        // Should throw an exception for missing summary
-        val exception = assertThrows(ToolValidationException::class.java) {
+        // Summary is now optional (agent-generated), should not throw
+        assertDoesNotThrow {
             tool.validateParams(params)
         }
-        assertTrue(exception.message!!.contains("Missing required parameter: summary"))
     }
 
     @Test
-    fun `test empty summary parameter validation`() {
+    fun `test empty summary parameter is allowed`() {
         val params = JsonObject(
             mapOf(
                 "name" to JsonPrimitive("Test Feature"),
@@ -139,11 +138,10 @@ class CreateFeatureToolTest {
             )
         )
 
-        // Should throw an exception for empty summary
-        val exception = assertThrows(ToolValidationException::class.java) {
+        // Empty summary is allowed (agent-generated field)
+        assertDoesNotThrow {
             tool.validateParams(params)
         }
-        assertTrue(exception.message!!.contains("Required parameter summary cannot be empty"))
     }
 
     @Test

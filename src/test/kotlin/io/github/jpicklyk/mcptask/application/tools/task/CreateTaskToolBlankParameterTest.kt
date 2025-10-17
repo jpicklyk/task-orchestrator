@@ -53,7 +53,7 @@ class CreateTaskToolBlankParameterTest {
     }
 
     @Test
-    fun `test empty summary parameter validation`() {
+    fun `test empty summary parameter is allowed`() {
         val params = JsonObject(
             mapOf(
                 "title" to JsonPrimitive("Test Task"),
@@ -61,16 +61,14 @@ class CreateTaskToolBlankParameterTest {
             )
         )
 
-        // Should throw an exception for empty summary
-        val exception = assertThrows(ToolValidationException::class.java) {
+        // Empty summary is allowed (agent-generated field)
+        assertDoesNotThrow {
             tool.validateParams(params)
         }
-        assertTrue(exception.message!!.contains("Summary validation failed"))
-        assertTrue(exception.message!!.contains("cannot be empty"))
     }
 
     @Test
-    fun `test blank summary parameter validation`() {
+    fun `test blank summary parameter is allowed`() {
         val params = JsonObject(
             mapOf(
                 "title" to JsonPrimitive("Test Task"),
@@ -78,12 +76,10 @@ class CreateTaskToolBlankParameterTest {
             )
         )
 
-        // Should throw an exception for blank summary
-        val exception = assertThrows(ToolValidationException::class.java) {
+        // Blank summary is allowed (agent-generated field, will be trimmed)
+        assertDoesNotThrow {
             tool.validateParams(params)
         }
-        assertTrue(exception.message!!.contains("Summary validation failed"))
-        assertTrue(exception.message!!.contains("cannot be empty"))
     }
 
     @Test
@@ -116,7 +112,7 @@ class CreateTaskToolBlankParameterTest {
     }
 
     @Test
-    fun `test whitespace-only summary is rejected`() {
+    fun `test whitespace-only summary is allowed`() {
         val params = JsonObject(
             mapOf(
                 "title" to JsonPrimitive("Valid Title"),
@@ -124,10 +120,9 @@ class CreateTaskToolBlankParameterTest {
             )
         )
 
-        val exception = assertThrows(ToolValidationException::class.java) {
+        // Whitespace summary is allowed (agent-generated field)
+        assertDoesNotThrow {
             tool.validateParams(params)
         }
-        assertTrue(exception.message!!.contains("Summary validation failed"))
-        assertTrue(exception.message!!.contains("cannot be empty"))
     }
 }
