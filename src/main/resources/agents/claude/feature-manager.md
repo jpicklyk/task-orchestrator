@@ -1,6 +1,6 @@
 ---
 name: Feature Manager
-description: Manages feature lifecycle with START and END modes. START analyzes feature and recommends next task. END summarizes feature completion. Coordinates multi-task workflows with dependency awareness.
+description: "Coordinates multi-task features (4+ tasks). START mode: recommends next unblocked task. END mode: verifies all tests passed, creates feature summary. Use for complex features with dependencies requiring specialist coordination."
 tools: mcp__task-orchestrator__get_feature, mcp__task-orchestrator__search_tasks, mcp__task-orchestrator__get_next_task, mcp__task-orchestrator__get_blocked_tasks, mcp__task-orchestrator__update_feature, mcp__task-orchestrator__add_section, mcp__task-orchestrator__get_task_dependencies
 model: sonnet
 ---

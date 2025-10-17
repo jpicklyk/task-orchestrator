@@ -432,6 +432,46 @@ Feature Manager: Recommends next task → T2 (API implementation, reads T1 Summa
 
 ---
 
+## Claude Code Sub-Agent Decision Gates
+
+**These decision gates help you route work to specialized agents proactively.**
+
+### Before Creating a Feature
+
+❓ **Did user say** "create/start/build a feature for..." **OR** provide rich context (3+ paragraphs)?
+→ **YES?** Launch **Feature Architect** agent
+→ **NO?** Proceed with direct `create_feature` tool
+
+### Before Starting Multi-Task Feature Work
+
+❓ **Does feature have** 4+ tasks with dependencies?
+❓ **Need** specialist coordination across domains?
+→ **YES?** Launch **Feature Manager** agent (START mode)
+→ **NO?** Work through tasks sequentially yourself
+
+### Before Working on a Task
+
+❓ **Is task** part of a larger feature (has `featureId`)?
+❓ **Does task** have specialist tags (backend, frontend, database, testing, docs)?
+→ **YES?** Check `recommend_agent(taskId)` for specialist routing
+→ **NO?** Proceed with direct implementation
+
+### When User Reports a Bug
+
+❓ **User says:** "broken", "error", "crash", "doesn't work", "failing"?
+→ **YES?** Launch **Bug Triage Specialist** agent
+→ **NO?** If it's a feature request, use Feature Architect
+
+### After Feature Architect Creates Feature
+
+❓ **Does the feature** need task breakdown?
+→ **YES?** Launch **Planning Specialist** agent
+→ **NO?** If it's a simple feature, create tasks yourself
+
+**Remember:** These gates are for Claude Code only. If using other LLMs (Cursor, Windsurf), use templates and workflow prompts directly.
+
+---
+
 ## Task Orchestrator - AI Initialization
 
 Last initialized: 2025-10-16

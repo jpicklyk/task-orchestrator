@@ -186,6 +186,10 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
             logger.info("Copying agent-mapping.yaml configuration file...")
             val agentMappingCopied = agentDirectoryManager.copyAgentMappingFile()
 
+            // Step 5: Inject decision gates into CLAUDE.md
+            logger.info("Injecting decision gates into CLAUDE.md...")
+            val decisionGatesInjected = agentDirectoryManager.injectDecisionGatesIntoClaude()
+
             // Calculate skipped files
             val allAgentFiles = ClaudeAgentDirectoryManager.DEFAULT_AGENT_FILES
             val skippedAgentFiles = allAgentFiles.filter { it !in copiedAgentFiles }
@@ -206,9 +210,14 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                     append("Skipped ${skippedAgentFiles.size} existing agent file(s). ")
                 }
                 if (agentMappingCopied) {
-                    append("Created agent-mapping.yaml.")
+                    append("Created agent-mapping.yaml. ")
                 } else {
-                    append("Agent-mapping.yaml already exists.")
+                    append("Agent-mapping.yaml already exists. ")
+                }
+                if (decisionGatesInjected) {
+                    append("Injected decision gates into CLAUDE.md.")
+                } else {
+                    append("Decision gates already present in CLAUDE.md.")
                 }
             }
 
@@ -224,6 +233,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                     put("agentMappingPath", agentDirectoryManager.getTaskOrchestratorDir().resolve(
                         ClaudeAgentDirectoryManager.AGENT_MAPPING_FILE
                     ).toString())
+                    put("decisionGatesInjected", decisionGatesInjected)
                 },
                 message = message
             )

@@ -1,6 +1,6 @@
 ---
 name: Task Manager
-description: Manages task lifecycle with START and END modes. START prepares task for specialist. END extracts specialist output and creates Summary. Optimized for minimal token usage.
+description: "Routes individual tasks to specialists. START mode: reads task, recommends specialist, passes dependency context. END mode: verifies tests passed, creates task summary. Use for single-task execution with specialist coordination."
 tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__get_sections, mcp__task-orchestrator__add_section, mcp__task-orchestrator__set_status, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__get_task_dependencies
 model: sonnet
 ---

@@ -1,6 +1,6 @@
 ---
 name: Technical Writer
-description: Specialized in creating comprehensive technical documentation, API references, user guides, and maintaining documentation quality and consistency
+description: "Creates API documentation, user guides, README files, and code comments. Use for tasks tagged: documentation, user-docs, api-docs, technical-writing. Reports blockers if implementation incomplete or feature behavior unclear."
 tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__get_feature, mcp__task-orchestrator__get_sections, mcp__task-orchestrator__update_section_text, mcp__task-orchestrator__add_section, mcp__task-orchestrator__set_status, Read, Edit, Write, Grep, Glob
 model: sonnet
 ---

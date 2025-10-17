@@ -40,6 +40,8 @@ class ClaudeAgentDirectoryManager(
         const val RESOURCE_PATH_PREFIX = "/agents/claude"
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
+        const val CLAUDE_MD_FILE = "CLAUDE.md"
+        const val DECISION_GATES_MARKER = "## Claude Code Sub-Agent Decision Gates"
 
         // Default Claude Code agent template files
         val DEFAULT_AGENT_FILES = listOf(
@@ -260,6 +262,95 @@ class ClaudeAgentDirectoryManager(
         }
 
         logger.info("Copied agent mapping file: $AGENT_MAPPING_FILE")
+        return true
+    }
+
+    /**
+     * Inject decision gates section into CLAUDE.md file.
+     * Skips if the section already exists (idempotent).
+     *
+     * Returns true if the section was injected, false if it already existed or CLAUDE.md doesn't exist.
+     */
+    fun injectDecisionGatesIntoClaude(): Boolean {
+        val claudeMdPath = projectRoot.resolve(CLAUDE_MD_FILE)
+
+        // Check if CLAUDE.md exists
+        if (!Files.exists(claudeMdPath)) {
+            logger.warn("CLAUDE.md not found at: $claudeMdPath")
+            return false
+        }
+
+        // Read current content
+        val currentContent = Files.readString(claudeMdPath)
+
+        // Check if decision gates already present (idempotent)
+        if (currentContent.contains(DECISION_GATES_MARKER)) {
+            logger.debug("Decision gates already present in CLAUDE.md")
+            return false
+        }
+
+        // Find injection point: before "## Task Orchestrator - AI Initialization"
+        val injectionMarker = "## Task Orchestrator - AI Initialization"
+        val injectionIndex = currentContent.indexOf(injectionMarker)
+
+        if (injectionIndex == -1) {
+            logger.warn("Could not find injection point in CLAUDE.md (looking for: $injectionMarker)")
+            return false
+        }
+
+        // Build decision gates content
+        val decisionGatesContent = """
+## Claude Code Sub-Agent Decision Gates
+
+**These decision gates help you route work to specialized agents proactively.**
+
+### Before Creating a Feature
+
+❓ **Did user say** "create/start/build a feature for..." **OR** provide rich context (3+ paragraphs)?
+→ **YES?** Launch **Feature Architect** agent
+→ **NO?** Proceed with direct `create_feature` tool
+
+### Before Starting Multi-Task Feature Work
+
+❓ **Does feature have** 4+ tasks with dependencies?
+❓ **Need** specialist coordination across domains?
+→ **YES?** Launch **Feature Manager** agent (START mode)
+→ **NO?** Work through tasks sequentially yourself
+
+### Before Working on a Task
+
+❓ **Is task** part of a larger feature (has `featureId`)?
+❓ **Does task** have specialist tags (backend, frontend, database, testing, docs)?
+→ **YES?** Check `recommend_agent(taskId)` for specialist routing
+→ **NO?** Proceed with direct implementation
+
+### When User Reports a Bug
+
+❓ **User says:** "broken", "error", "crash", "doesn't work", "failing"?
+→ **YES?** Launch **Bug Triage Specialist** agent
+→ **NO?** If it's a feature request, use Feature Architect
+
+### After Feature Architect Creates Feature
+
+❓ **Does the feature** need task breakdown?
+→ **YES?** Launch **Planning Specialist** agent
+→ **NO?** If it's a simple feature, create tasks yourself
+
+**Remember:** These gates are for Claude Code only. If using other LLMs (Cursor, Windsurf), use templates and workflow prompts directly.
+
+---
+
+"""
+
+        // Insert decision gates before the AI Initialization section
+        val updatedContent = currentContent.substring(0, injectionIndex) +
+                decisionGatesContent +
+                currentContent.substring(injectionIndex)
+
+        // Write updated content back to file
+        Files.writeString(claudeMdPath, updatedContent)
+        logger.info("Injected decision gates into CLAUDE.md")
+
         return true
     }
 }

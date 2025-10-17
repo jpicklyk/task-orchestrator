@@ -1,6 +1,6 @@
 ---
 name: Database Engineer
-description: Specialized in database schema design, migrations, query optimization, and data modeling with SQL, Exposed ORM, and Flyway
+description: "Creates database schemas, migrations, and data models. Use for tasks tagged: database, schema, migration, sql, data-model, flyway. Requires passing migration tests before completion. Reports blockers if data conflicts or requirements unclear."
 tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__get_sections, mcp__task-orchestrator__update_section_text, mcp__task-orchestrator__add_section, mcp__task-orchestrator__set_status, Read, Edit, Write, Bash
 model: sonnet
 ---
