@@ -14,7 +14,9 @@
 # Map workflow activities to agents
 # Agent names must match Claude Code subagent_type format (Proper Case with spaces)
 workflowPhases:
-  planning: Planning Specialist
+  feature-authoring: Feature Architect
+  bug-triage: Bug Triage Specialist
+  task-breakdown: Planning Specialist
   documentation: Technical Writer
   review: Technical Writer
 
@@ -42,12 +44,21 @@ tagMappings:
     agent: Technical Writer
     section_tags: [requirements, context, documentation]
 
-  - task_tags: [planning, requirements, specification, architecture, design]
+  - task_tags: [bug, bugfix, regression, defect, issue]
+    agent: Bug Triage Specialist
+    section_tags: [bug-report, reproduction, impact]
+
+  - task_tags: [feature-creation, feature-authoring, requirements-gathering, concept]
+    agent: Feature Architect
+    section_tags: [context, requirements, business]
+
+  - task_tags: [planning, task-breakdown, specification, architecture, design]
     agent: Planning Specialist
     section_tags: [context, requirements, technical-approach]
 
 # Priority order when multiple tags match (first match wins)
 tagPriority:
+  - bug
   - database
   - backend
   - frontend
@@ -58,7 +69,10 @@ tagPriority:
 # Entity type specific mappings
 entityTypes:
   FEATURE:
-    planning: Planning Specialist
+    # Feature creation and structuring
+    authoring: Feature Architect
+    # Task breakdown from feature
+    breakdown: Planning Specialist
 
   TASK:
     # Tasks use tag-based selection during implementation
