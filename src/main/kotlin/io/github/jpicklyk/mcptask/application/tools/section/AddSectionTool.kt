@@ -78,37 +78,15 @@ class AddSectionTool(
         )
     )
 
-    override val description = """Adds a section to a task, feature, or project. Sections store detailed content
-        in structured blocks with specific formats and purposes, keeping core entities lightweight.
+    override val description = """Adds section to task, feature, or project. Sections store detailed content in structured blocks.
 
-        Key features:
-        - Supports MARKDOWN, PLAIN_TEXT, JSON, and CODE formats
-        - Ordinal field controls display order (0-based)
-        - Optional tags for categorization
-        - Section title becomes ## H2 heading in markdown output
+        Required: entityType (PROJECT/TASK/FEATURE), entityId (UUID), title, usageDescription, content, ordinal (0-based order)
+        Optional: contentFormat (MARKDOWN/PLAIN_TEXT/JSON/CODE, default MARKDOWN), tags
 
-        Parameters
-        
-        | Parameter | Type | Required | Default | Description |
-        |-----------|------|----------|---------|-------------|
-        | entityType | string | Yes | - | Type of entity to attach this section to: 'PROJECT', 'TASK', or 'FEATURE' |
-        | entityId | UUID string | Yes | - | ID of the project, task, or feature to add the section to (e.g., '550e8400-e29b-41d4-a716-446655440000') |
-        | title | string | Yes | - | Section title (e.g., 'Requirements', 'Implementation Notes', 'Testing Plan') |
-        | usageDescription | string | Yes | - | Description of how this section should be used by AI models or users |
-        | content | string | Yes | - | The actual content of the section in the specified format |
-        | contentFormat | string | No | "MARKDOWN" | Format of the content: 'MARKDOWN', 'PLAIN_TEXT', 'JSON', or 'CODE' |
-        | ordinal | integer | Yes | - | Order position (0-based). Lower numbers appear first when ordered. |
-        | tags | string | No | - | Comma-separated list of tags for categorization |
-
-        Usage notes:
-        - For multiple sections, use bulk_create_sections instead (more efficient)
-        - Do NOT duplicate section title as ## H2 heading in content field
-        - Use ordinal to control display order (lower numbers first)
-        - Templates create sections automatically; use this to add custom content
+        For multiple sections use bulk_create_sections. Don't duplicate title in content.
 
         Related: bulk_create_sections, get_sections, update_section, delete_section
-
-        For detailed examples and patterns: task-orchestrator://docs/tools/add-section
+        Docs: task-orchestrator://docs/tools/add-section
     """
 
     override val parameterSchema = Tool.Input(

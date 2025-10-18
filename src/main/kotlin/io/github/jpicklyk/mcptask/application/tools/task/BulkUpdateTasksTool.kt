@@ -93,39 +93,15 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
         )
     )
 
-    override val description = """Updates multiple tasks in a single operation. More efficient than individual
-        update_task calls due to atomic transaction and single network round-trip. Use for multi-task
-        operations (2+ tasks).
-
-        Key features:
-        - Atomic operation (all succeed or detailed failures)
-        - Single network round-trip
-        - Supports partial updates (only send changed fields)
-        - Maximum 100 tasks per request
+    override val description = """Updates multiple tasks in atomic transaction. More efficient than individual update_task calls for 2+ tasks.
 
         Parameters:
-        | Field | Type | Required | Description |
-        | tasks | array | Yes | Array of task update objects |
+        - tasks (array, required): Task update objects with id (required) and optional fields (title, summary, status, priority, complexity, featureId, tags)
+        - Maximum 100 tasks per request
+        - Only send fields being changed for each task
 
-        Each task object:
-        - id: UUID (required) - Task identifier
-        - title: string (optional) - New title
-        - summary: string (optional) - New summary
-        - status: enum (optional) - pending, in_progress, completed, cancelled, deferred
-        - priority: enum (optional) - high, medium, low
-        - complexity: integer (optional) - 1-10
-        - featureId: UUID (optional) - New feature association
-        - tags: string (optional) - Comma-separated tags
-
-        Usage notes:
-        - For single task, use update_task instead
-        - Only send fields being changed (CRITICAL: avoid sending unchanged fields)
-        - All updates in single transaction
-        - Check failures array for partial success scenarios
-
-        Related: update_task, bulk_create_sections, bulk_update_sections, get_overview
-
-        For detailed examples and patterns: task-orchestrator://docs/tools/bulk-update-tasks
+        Related: update_task, bulk_create_sections, bulk_update_sections
+        Docs: task-orchestrator://docs/tools/bulk-update-tasks
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(

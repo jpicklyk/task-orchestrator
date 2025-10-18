@@ -100,36 +100,14 @@ class SearchTasksTool : BaseToolDefinition() {
         required = listOf("success", "message")
     )
 
-    override val description: String = """Searches tasks with flexible filtering and pagination.
+    override val description: String = """Searches tasks with flexible filtering and pagination. Returns lightweight results (excludes summary/sections).
 
-Key features:
-- Multiple filter combinations (status, priority, tag, feature, project, text query)
-- Configurable sorting (createdAt, modifiedAt, priority, status, complexity)
-- Paginated results (default: 20 per page, max: 100)
-- Lightweight results (excludes summary and sections for efficiency)
+        Filters: query (text), status, priority, featureId, projectId, tag
+        Sorting: createdAt, modifiedAt, priority, status, complexity (default: modifiedAt desc)
+        Pagination: limit (1-100, default 20), offset
 
-Parameters:
-| Field | Type | Required | Default | Description |
-| query | string | No | - | Text search in titles and descriptions |
-| status | enum | No | - | Filter by status (pending, in-progress, completed, cancelled, deferred) |
-| priority | enum | No | - | Filter by priority (high, medium, low) |
-| featureId | UUID | No | - | Filter by parent feature |
-| projectId | UUID | No | - | Filter by parent project |
-| tag | string | No | - | Filter by tag (case-insensitive) |
-| limit | integer | No | 20 | Results per page (1-100) |
-| offset | integer | No | 0 | Skip N results |
-| sortBy | string | No | modifiedAt | Sort field |
-| sortDirection | string | No | desc | Sort direction (asc, desc) |
-
-Usage notes:
-- Combine filters for precise targeting (e.g., status + priority + tag)
-- Default returns all tasks sorted by most recently modified
-- Use get_task for detailed information on specific results
-- Complements get_overview (overview for hierarchy, search for filtering)
-
-Related: get_task, get_overview, update_task, create_task
-
-For detailed examples and patterns: task-orchestrator://docs/tools/search-tasks
+        Related: get_task, get_overview, update_task, create_task
+        Docs: task-orchestrator://docs/tools/search-tasks
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(
