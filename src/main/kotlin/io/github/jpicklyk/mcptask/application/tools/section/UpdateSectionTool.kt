@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.section
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.application.tools.UpdateEfficiencyMetrics
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
@@ -57,43 +58,7 @@ class UpdateSectionTool(
         )
     )
 
-    override val description = """Updates an existing section by its ID.
-
-        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-        For content changes, use 'update_section_text' (90%+ more efficient). Example: {\"id\": \"uuid\", \"title\": \"New Title\"}
-
-        ## Efficient vs Inefficient Updates
-
-        ❌ **INEFFICIENT** (wastes ~300+ characters):
-        ```json
-        {
-          "id": "section-uuid",
-          "title": "Existing Title",                        // Unchanged - unnecessary
-          "usageDescription": "Existing description...",    // Unchanged - unnecessary
-          "content": "Long existing content...",            // Unchanged - 300+ chars wasted
-          "contentFormat": "MARKDOWN",                      // Unchanged - unnecessary
-          "ordinal": 0,                                     // Unchanged - unnecessary
-          "tags": "tag1,tag2"                              // ✓ Only this changed
-        }
-        ```
-
-        ✅ **EFFICIENT** (uses ~40 characters):
-        ```json
-        {
-          "id": "section-uuid",
-          "tags": "tag1,tag2,tag3"  // Only send what changed!
-        }
-        ```
-
-        **Token Savings**: 88% reduction by only sending changed fields!
-
-        ## Alternative Efficient Tools
-        - For content changes: Use `update_section_text` (90%+ more efficient)
-        - For metadata only: Use `update_section_metadata` (excludes content)
-        - For full replacement: Use this tool with selective fields
-
-        ## Partial Updates
-        Only specify fields you want to change. Unspecified fields remain unchanged.
+    override val description = """Updates section properties. Only send fields you want to change. For content-only changes, use update_section_text.
 
         Parameters:
         | Field | Type | Required | Description |
@@ -101,13 +66,12 @@ class UpdateSectionTool(
         | title | string | No | New section title |
         | usageDescription | string | No | New usage description |
         | content | string | No | New section content |
-        | contentFormat | enum | No | MARKDOWN, PLAIN_TEXT, JSON, or CODE |
+        | contentFormat | enum | No | MARKDOWN, PLAIN_TEXT, JSON, CODE |
         | ordinal | integer | No | Display order position (0-based) |
         | tags | string | No | Comma-separated tags |
 
         Related: update_section_text, update_section_metadata, get_sections
-
-        For detailed examples and patterns: task-orchestrator://docs/tools/update-section
+        Docs: task-orchestrator://docs/tools/update-section
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -213,6 +177,9 @@ class UpdateSectionTool(
         logger.info("Executing update_section tool")
 
         try {
+            // Analyze update efficiency
+            val efficiencyMetrics = UpdateEfficiencyMetrics.analyzeUpdate("update_section", params)
+
             // Extract ID parameter
             val idStr = requireString(params, "id")
             val sectionId = UUID.fromString(idStr)
@@ -297,13 +264,23 @@ class UpdateSectionTool(
                 is Result.Success -> {
                     val updatedSection = updateResult.data
 
+                    // Build response message with efficiency guidance
+                    val efficiencyLevel = efficiencyMetrics["efficiencyLevel"]?.jsonPrimitive?.content
+                    val efficiencyGuidance = efficiencyMetrics["guidance"]?.jsonPrimitive?.content ?: ""
+                    val baseMessage = "Section updated successfully"
+                    val message = if (efficiencyLevel == "inefficient") {
+                        "$baseMessage. ⚠️ $efficiencyGuidance"
+                    } else {
+                        baseMessage
+                    }
+
                     // Return minimal response to optimize bandwidth and performance
                     // Sections don't have a status field, so only return id and modifiedAt
                     val data = buildJsonObject {
                         put("id", updatedSection.id.toString())
                         put("modifiedAt", updatedSection.modifiedAt.toString())
                     }
-                    successResponse(data, "Section updated successfully")
+                    successResponse(data, message)
                 }
 
                 is Result.Error -> {

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.project
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.application.tools.UpdateEfficiencyMetrics
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
@@ -77,52 +78,19 @@ class UpdateProjectTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = """Updates an existing project's properties.
-
-⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
-
-## Efficient vs Inefficient Updates
-
-❌ **INEFFICIENT** (wastes ~400+ characters):
-```json
-{
-  "id": "project-uuid",
-  "name": "Existing Project Name",        // Unchanged - unnecessary
-  "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
-  "status": "in-development",             // ✓ Only this changed
-  "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
-}
-```
-
-✅ **EFFICIENT** (uses ~40 characters):
-```json
-{
-  "id": "project-uuid",
-  "status": "in-development"  // Only send what changed!
-}
-```
-
-**Token Savings**: 90% reduction by only sending changed fields!
-
-## Partial Updates
-Only specify fields you want to change. Unspecified fields remain unchanged.
+    override val description: String = """Updates project properties. Only send fields you want to change.
 
 Parameters:
 | Field | Type | Required | Description |
 | id | UUID | Yes | Project identifier |
 | name | string | No | New project name |
 | summary | string | No | New summary (max 500 chars) |
-| status | enum | No | New status (planning, in-development, completed, archived) |
-| tags | string | No | New comma-separated tags |
-
-Usage notes:
-- Summary limited to 500 characters
-- Tags parameter replaces entire tag set
+| description | string | No | New detailed description |
+| status | enum | No | planning, in-development, completed, archived |
+| tags | string | No | Comma-separated tags (replaces entire set) |
 
 Related: create_project, get_project, delete_project, search_projects
-
-For detailed examples and patterns: task-orchestrator://docs/tools/update-project
+Docs: task-orchestrator://docs/tools/update-project
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -262,6 +230,9 @@ For detailed examples and patterns: task-orchestrator://docs/tools/update-projec
         context: ToolExecutionContext,
         projectId: UUID
     ): JsonElement {
+        // Analyze update efficiency
+        val efficiencyMetrics = UpdateEfficiencyMetrics.analyzeUpdate("update_project", params)
+
         // Extract parameters
         val name = optionalString(params, "name")
         val description = optionalString(params, "description")
@@ -296,6 +267,16 @@ For detailed examples and patterns: task-orchestrator://docs/tools/update-projec
                     is Result.Success -> {
                         val project = updateResult.data
 
+                        // Build response message with efficiency guidance
+                        val efficiencyLevel = efficiencyMetrics["efficiencyLevel"]?.jsonPrimitive?.content
+                        val efficiencyGuidance = efficiencyMetrics["guidance"]?.jsonPrimitive?.content ?: ""
+                        val baseMessage = "Project updated successfully"
+                        val message = if (efficiencyLevel == "inefficient") {
+                            "$baseMessage. ⚠️ $efficiencyGuidance"
+                        } else {
+                            baseMessage
+                        }
+
                         // Return minimal response to optimize bandwidth and performance
                         // Only return essential fields: id, status, and modifiedAt
                         val responseBuilder = buildJsonObject {
@@ -306,7 +287,7 @@ For detailed examples and patterns: task-orchestrator://docs/tools/update-projec
 
                         successResponse(
                             data = responseBuilder,
-                            message = "Project updated successfully"
+                            message = message
                         )
                     }
 

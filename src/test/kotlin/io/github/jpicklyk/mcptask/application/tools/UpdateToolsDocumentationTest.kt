@@ -11,15 +11,13 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 
 /**
- * Tests to verify that all update tools have proper efficiency documentation.
+ * Tests to verify that all update tools have:
+ * 1. Concise descriptions with links to detailed docs
+ * 2. Tool-level efficiency enforcement via UpdateEfficiencyMetrics
+ * 3. Proper parameter schemas
  *
- * These tests ensure that AI agents receive clear guidance about partial updates:
- * 1. Efficiency tip appears prominently in the first 3 lines
- * 2. All non-id parameters are clearly marked as "(optional)"
- * 3. Examples demonstrating partial update patterns exist
- *
- * Related to Feature: AI Update Efficiency Improvements
- * Related Task: Create Tests for Partial Update Documentation
+ * Related to Feature: MCP Context Optimization
+ * Related Task: Reduce MCP tool description verbosity to lower context usage
  */
 class UpdateToolsDocumentationTest {
 
@@ -38,82 +36,64 @@ class UpdateToolsDocumentationTest {
 
     @ParameterizedTest
     @MethodSource("updateTools")
-    fun `should have efficiency tip in first 3 lines of description`(tool: ToolDefinition) {
+    fun `should have concise description under 900 characters`(tool: ToolDefinition) {
         val description = tool.description
-        val firstThreeLines = description.lines().take(3).joinToString("\n")
-
-        // Check for the efficiency tip marker
         assertTrue(
-            firstThreeLines.contains("⚡") || firstThreeLines.contains("EFFICIENCY"),
-            "${tool.name}: Efficiency tip should appear in first 3 lines of description. Found:\n$firstThreeLines"
-        )
-
-        // Verify it mentions "optional" or "only send"
-        assertTrue(
-            firstThreeLines.contains("optional", ignoreCase = true) ||
-            firstThreeLines.contains("only send", ignoreCase = true),
-            "${tool.name}: Efficiency tip should mention 'optional' or 'only send' in first 3 lines"
+            description.length < 900,
+            "${tool.name}: Description should be concise (<900 chars, down from ~1500). Found: ${description.length} chars"
         )
     }
 
     @ParameterizedTest
     @MethodSource("updateTools")
-    fun `should have examples of efficient vs inefficient patterns`(tool: ToolDefinition) {
+    fun `should mention to only send fields you want to change`(tool: ToolDefinition) {
         val description = tool.description
-
-        // Check for example sections
         assertTrue(
-            description.contains("EFFICIENT", ignoreCase = true),
-            "${tool.name}: Description should contain 'EFFICIENT' example section"
-        )
-
-        assertTrue(
-            description.contains("INEFFICIENT", ignoreCase = true),
-            "${tool.name}: Description should contain 'INEFFICIENT' example section"
-        )
-
-        // Check for checkmark and cross symbols
-        assertTrue(
-            description.contains("✅") || description.contains("✓"),
-            "${tool.name}: Description should use ✅ or ✓ to mark efficient examples"
-        )
-
-        assertTrue(
-            description.contains("❌") || description.contains("✗"),
-            "${tool.name}: Description should use ❌ or ✗ to mark inefficient examples"
-        )
-
-        // Check for JSON code blocks
-        val jsonCodeBlockCount = description.split("```json").size - 1
-        assertTrue(
-            jsonCodeBlockCount >= 2,
-            "${tool.name}: Description should contain at least 2 JSON code blocks for examples (found $jsonCodeBlockCount)"
+            description.contains("only send", ignoreCase = true) ||
+            description.contains("fields you want to change", ignoreCase = true),
+            "${tool.name}: Description should mention 'only send fields you want to change'"
         )
     }
 
     @ParameterizedTest
     @MethodSource("updateTools")
-    fun `should mention token savings percentage`(tool: ToolDefinition) {
+    fun `should link to detailed documentation`(tool: ToolDefinition) {
         val description = tool.description
-
-        // Check for percentage mentions (90%, 94%, 88%, etc.)
-        val percentagePattern = Regex("\\d{2,}%")
-        val percentages = percentagePattern.findAll(description).toList()
-
         assertTrue(
-            percentages.isNotEmpty(),
-            "${tool.name}: Description should mention specific token savings percentage"
+            description.contains("task-orchestrator://docs/tools/") ||
+            description.contains("Docs:"),
+            "${tool.name}: Description should link to detailed documentation"
+        )
+    }
+
+    @ParameterizedTest
+    @MethodSource("updateTools")
+    fun `should NOT contain verbose JSON examples in description`(tool: ToolDefinition) {
+        val description = tool.description
+        val jsonCodeBlocks = description.split("```json").size - 1
+        assertTrue(
+            jsonCodeBlocks == 0,
+            "${tool.name}: Description should NOT contain JSON code blocks (enforcement moved to tool-level). Found: $jsonCodeBlocks blocks"
+        )
+    }
+
+    @ParameterizedTest
+    @MethodSource("updateTools")
+    fun `should NOT contain verbose efficiency tips in description`(tool: ToolDefinition) {
+        val description = tool.description
+        val lines = description.lines()
+
+        // Should NOT have multi-line efficiency tip sections
+        assertFalse(
+            description.contains("INEFFICIENT") && description.contains("EFFICIENT"),
+            "${tool.name}: Verbose efficiency tips should be removed from description (enforcement moved to tool-level)"
         )
 
-        // Verify it's a substantial percentage (>= 80%)
-        val hasSubstantialSavings = percentages.any { match ->
-            val percentage = match.value.trimEnd('%').toIntOrNull() ?: 0
-            percentage >= 80
-        }
-
+        // Should NOT have emoji-heavy formatting
+        val emojiCount = description.count { it == '⚡' || it == '❌' || it == '✅' }
         assertTrue(
-            hasSubstantialSavings,
-            "${tool.name}: Description should mention at least 80% token savings"
+            emojiCount == 0,
+            "${tool.name}: Verbose emoji formatting should be removed. Found $emojiCount emojis"
         )
     }
 
@@ -185,64 +165,6 @@ class UpdateToolsDocumentationTest {
     }
 
     @Test
-    fun `UpdateTaskTool should have proper efficiency documentation`() {
-        val tool = UpdateTaskTool()
-
-        // Verify tool name
-        assertEquals("update_task", tool.name)
-
-        // Verify description contains key phrases
-        val description = tool.description
-        assertTrue(description.contains("partial update", ignoreCase = true) ||
-                   description.contains("only send", ignoreCase = true))
-        assertTrue(description.contains("token", ignoreCase = true))
-    }
-
-    @Test
-    fun `UpdateFeatureTool should have proper efficiency documentation`() {
-        val tool = UpdateFeatureTool()
-
-        // Verify tool name
-        assertEquals("update_feature", tool.name)
-
-        // Verify description contains key phrases
-        val description = tool.description
-        assertTrue(description.contains("partial update", ignoreCase = true) ||
-                   description.contains("only send", ignoreCase = true))
-        assertTrue(description.contains("token", ignoreCase = true))
-    }
-
-    @Test
-    fun `UpdateProjectTool should have proper efficiency documentation`() {
-        val tool = UpdateProjectTool()
-
-        // Verify tool name
-        assertEquals("update_project", tool.name)
-
-        // Verify description contains key phrases
-        val description = tool.description
-        assertTrue(description.contains("partial update", ignoreCase = true) ||
-                   description.contains("only send", ignoreCase = true))
-        assertTrue(description.contains("token", ignoreCase = true))
-    }
-
-    @Test
-    fun `UpdateSectionTool should have proper efficiency documentation`() {
-        val tool = UpdateSectionTool()
-
-        // Verify tool name
-        assertEquals("update_section", tool.name)
-
-        // Verify description contains key phrases
-        val description = tool.description
-        assertTrue(description.contains("partial update", ignoreCase = true) ||
-                   description.contains("only send", ignoreCase = true) ||
-                   description.contains("update_section_text", ignoreCase = true))
-        assertTrue(description.contains("token", ignoreCase = true) ||
-                   description.contains("efficient", ignoreCase = true))
-    }
-
-    @Test
     fun `UpdateSectionTool should reference specialized efficiency tools`() {
         val tool = UpdateSectionTool()
         val description = tool.description
@@ -252,48 +174,38 @@ class UpdateToolsDocumentationTest {
             description.contains("update_section_text"),
             "UpdateSectionTool should reference update_section_text for content-only changes"
         )
-
-        assertTrue(
-            description.contains("update_section_metadata"),
-            "UpdateSectionTool should reference update_section_metadata for metadata-only changes"
-        )
     }
 
-    @ParameterizedTest
-    @MethodSource("updateTools")
-    fun `should have clear separation between efficient and inefficient examples`(tool: ToolDefinition) {
-        val description = tool.description
-
-        // Find the efficient and inefficient sections
-        val lines = description.lines()
-        var efficientLineIndex = -1
-        var inefficientLineIndex = -1
-
-        lines.forEachIndexed { index, line ->
-            if (line.contains("EFFICIENT", ignoreCase = true) &&
-                (line.contains("✅") || line.contains("✓"))) {
-                efficientLineIndex = index
-            }
-            if (line.contains("INEFFICIENT", ignoreCase = true) &&
-                (line.contains("❌") || line.contains("✗"))) {
-                inefficientLineIndex = index
-            }
+    @Test
+    fun `UpdateEfficiencyMetrics should detect inefficient updates`() {
+        // Test with inefficient update (many fields)
+        val inefficientParams = buildJsonObject {
+            put("id", "test-id")
+            put("title", "Test")
+            put("summary", "Test summary")
+            put("description", "Test description")
+            put("status", "completed")
+            put("priority", "high")
+            put("complexity", 5)
         }
 
-        assertTrue(
-            efficientLineIndex >= 0,
-            "${tool.name}: Should have clearly marked EFFICIENT section"
-        )
+        val metrics = UpdateEfficiencyMetrics.analyzeUpdate("update_task", inefficientParams)
 
-        assertTrue(
-            inefficientLineIndex >= 0,
-            "${tool.name}: Should have clearly marked INEFFICIENT section"
-        )
+        assertEquals("inefficient", metrics["efficiencyLevel"]?.jsonPrimitive?.content)
+        assertTrue(metrics["changedParams"]?.jsonPrimitive?.int!! >= 5)
+    }
 
-        // Inefficient should come before efficient (show problem, then solution)
-        assertTrue(
-            inefficientLineIndex < efficientLineIndex,
-            "${tool.name}: INEFFICIENT example should appear before EFFICIENT example (problem then solution)"
-        )
+    @Test
+    fun `UpdateEfficiencyMetrics should detect optimal updates`() {
+        // Test with optimal update (1 field)
+        val optimalParams = buildJsonObject {
+            put("id", "test-id")
+            put("status", "completed")
+        }
+
+        val metrics = UpdateEfficiencyMetrics.analyzeUpdate("update_task", optimalParams)
+
+        assertEquals("optimal", metrics["efficiencyLevel"]?.jsonPrimitive?.content)
+        assertEquals(1, metrics["changedParams"]?.jsonPrimitive?.int)
     }
 }

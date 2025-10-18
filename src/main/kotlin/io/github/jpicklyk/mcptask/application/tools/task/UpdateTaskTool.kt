@@ -118,38 +118,7 @@ class UpdateTaskTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = """Updates an existing task with the specified properties.
-
-        ⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-        Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "completed"}
-
-        ## Efficient vs Inefficient Updates
-
-        ❌ **INEFFICIENT** (wastes ~500+ characters):
-        ```json
-        {
-          "id": "task-uuid",
-          "title": "Existing Title",              // Unchanged - unnecessary
-          "summary": "Long existing summary...",   // Unchanged - 500+ chars wasted
-          "status": "completed",                   // ✓ Only this changed
-          "priority": "medium",                    // Unchanged - unnecessary
-          "complexity": 5,                         // Unchanged - unnecessary
-          "tags": "tag1,tag2,tag3"                // Unchanged - unnecessary
-        }
-        ```
-
-        ✅ **EFFICIENT** (uses ~30 characters):
-        ```json
-        {
-          "id": "task-uuid",
-          "status": "completed"  // Only send what changed!
-        }
-        ```
-
-        **Token Savings**: 94% reduction by only sending changed fields!
-
-        ## Partial Updates
-        Only specify fields you want to change. Unspecified fields remain unchanged.
+    override val description: String = """Updates task properties. Only send fields you want to change.
 
         Parameters:
         | Field | Type | Required | Description |
@@ -161,17 +130,10 @@ class UpdateTaskTool(
         | priority | enum | No | high, medium, low |
         | complexity | integer | No | Complexity rating (1-10) |
         | featureId | UUID | No | New feature association (or null for orphaned) |
-        | projectId | UUID | No | New project association (or null) |
         | tags | string | No | Comma-separated tags (replaces entire set) |
 
-        Usage notes:
-        - Common patterns: pending→in_progress (start work), in_progress→completed (finish)
-        - Tag management replaces entire set (include all existing tags when adding one)
-        - Locking system prevents concurrent modifications
-
         Related: create_task, get_task, delete_task, bulk_update_tasks
-
-        For detailed examples and patterns: task-orchestrator://docs/tools/update-task
+        Docs: task-orchestrator://docs/tools/update-task
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -336,9 +298,8 @@ class UpdateTaskTool(
         context: ToolExecutionContext,
         taskId: UUID
     ): JsonElement {
-        // Analyze update efficiency and log metrics
+        // Analyze update efficiency
         val efficiencyMetrics = UpdateEfficiencyMetrics.analyzeUpdate("update_task", params)
-        logger.debug("Update efficiency metrics: $efficiencyMetrics")
 
         // Get an existing task from repository
         val existingTaskResult = context.taskRepository().getById(taskId)
@@ -402,10 +363,20 @@ class UpdateTaskTool(
         // Save updated task to repository
         val updateResult = context.taskRepository().update(updatedTask)
 
+        // Build response message with efficiency guidance
+        val efficiencyLevel = efficiencyMetrics["efficiencyLevel"]?.jsonPrimitive?.content
+        val efficiencyGuidance = efficiencyMetrics["guidance"]?.jsonPrimitive?.content ?: ""
+        val baseMessage = "Task updated successfully"
+        val message = if (efficiencyLevel == "inefficient") {
+            "$baseMessage. ⚠️ $efficiencyGuidance"
+        } else {
+            baseMessage
+        }
+
         // Return minimal response to optimize bandwidth and performance
         // Only return essential fields: id (to identify what was updated),
         // status (current state), and modifiedAt (timestamp of update)
-        return handleRepositoryResult(updateResult, "Task updated successfully") { updatedTaskData ->
+        return handleRepositoryResult(updateResult, message) { updatedTaskData ->
             buildJsonObject {
                 put("id", updatedTaskData.id.toString())
                 put("status", updatedTaskData.status.name.lowercase().replace('_', '-'))

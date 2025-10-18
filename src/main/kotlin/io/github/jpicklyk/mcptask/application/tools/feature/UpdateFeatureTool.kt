@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.feature
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.application.tools.UpdateEfficiencyMetrics
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
@@ -71,55 +72,21 @@ class UpdateFeatureTool(
         )
     )
 
-    override val description: String = """Updates an existing feature's properties.
-
-⚡ **EFFICIENCY TIP**: Only send fields you want to change! All fields except 'id' are optional.
-Sending unchanged fields wastes 90%+ tokens. Example: To update status, send only {"id": "uuid", "status": "in-development"}
-
-## Efficient vs Inefficient Updates
-
-❌ **INEFFICIENT** (wastes ~400+ characters):
-```json
-{
-  "id": "feature-uuid",
-  "name": "Existing Feature Name",        // Unchanged - unnecessary
-  "summary": "Long existing summary...",  // Unchanged - 400+ chars wasted
-  "status": "in-development",             // ✓ Only this changed
-  "priority": "high",                     // Unchanged - unnecessary
-  "tags": "tag1,tag2,tag3"               // Unchanged - unnecessary
-}
-```
-
-✅ **EFFICIENT** (uses ~40 characters):
-```json
-{
-  "id": "feature-uuid",
-  "status": "in-development"  // Only send what changed!
-}
-```
-
-**Token Savings**: 90% reduction by only sending changed fields!
-
-## Partial Updates
-Only specify fields you want to change. Unspecified fields remain unchanged.
+    override val description: String = """Updates feature properties. Only send fields you want to change.
 
 Parameters:
 | Field | Type | Required | Description |
 | id | UUID | Yes | Feature identifier |
 | name | string | No | New feature name |
 | summary | string | No | New summary (max 500 chars) |
-| status | enum | No | New status (planning, in-development, completed, archived) |
-| priority | enum | No | New priority (high, medium, low) |
+| description | string | No | New detailed description |
+| status | enum | No | planning, in-development, completed, archived |
+| priority | enum | No | high, medium, low |
 | projectId | UUID | No | New parent project |
-| tags | string | No | New comma-separated tags |
-
-Usage notes:
-- Summary limited to 500 characters
-- Tags parameter replaces entire tag set
+| tags | string | No | Comma-separated tags (replaces entire set) |
 
 Related: create_feature, get_feature, delete_feature, search_features
-
-For detailed examples and patterns: task-orchestrator://docs/tools/update-feature
+Docs: task-orchestrator://docs/tools/update-feature
     """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -263,6 +230,9 @@ For detailed examples and patterns: task-orchestrator://docs/tools/update-featur
         context: ToolExecutionContext,
         featureId: UUID
     ): JsonElement {
+        // Analyze update efficiency
+        val efficiencyMetrics = UpdateEfficiencyMetrics.analyzeUpdate("update_feature", params)
+
         // Get the existing feature
         val featureResult = context.featureRepository().getById(featureId)
 
@@ -315,6 +285,16 @@ For detailed examples and patterns: task-orchestrator://docs/tools/update-featur
                     is Result.Success -> {
                         val savedFeature = updateResult.data
 
+                        // Build response message with efficiency guidance
+                        val efficiencyLevel = efficiencyMetrics["efficiencyLevel"]?.jsonPrimitive?.content
+                        val efficiencyGuidance = efficiencyMetrics["guidance"]?.jsonPrimitive?.content ?: ""
+                        val baseMessage = "Feature updated successfully"
+                        val message = if (efficiencyLevel == "inefficient") {
+                            "$baseMessage. ⚠️ $efficiencyGuidance"
+                        } else {
+                            baseMessage
+                        }
+
                         // Return minimal response to optimize bandwidth and performance
                         // Only return essential fields: id, status, and modifiedAt
                         val responseData = buildJsonObject {
@@ -325,7 +305,7 @@ For detailed examples and patterns: task-orchestrator://docs/tools/update-featur
 
                         successResponse(
                             data = responseData,
-                            message = "Feature updated successfully"
+                            message = message
                         )
                     }
 
