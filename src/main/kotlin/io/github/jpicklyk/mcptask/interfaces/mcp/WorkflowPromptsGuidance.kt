@@ -170,9 +170,7 @@ object WorkflowPromptsGuidance {
                             ```markdown
                             ## Task Orchestrator - AI Initialization
 
-                            Last initialized: YYYY-MM-DD
-                            Version: 1.1.0-beta
-                            Features: [none|hooks|subagents|hooks,subagents]
+                            **Last initialized:** YYYY-MM-DD | **Version:** 1.1.0-beta | **Features:** [none|hooks|subagents|hooks,subagents]
 
                             ### Critical Patterns
 

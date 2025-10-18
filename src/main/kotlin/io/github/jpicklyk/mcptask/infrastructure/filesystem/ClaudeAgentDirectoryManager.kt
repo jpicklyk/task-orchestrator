@@ -49,7 +49,7 @@ class ClaudeAgentDirectoryManager(
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
         const val CLAUDE_MD_FILE = "CLAUDE.md"
-        const val DECISION_GATES_MARKER = "## Claude Code Sub-Agent Decision Gates"
+        const val DECISION_GATES_MARKER = "## Decision Gates (Claude Code)"
 
         // Default Claude Code agent template files
         val DEFAULT_AGENT_FILES = listOf(
@@ -315,45 +315,31 @@ class ClaudeAgentDirectoryManager(
             return false
         }
 
-        // Build decision gates content
+        // Build decision gates content (optimized format)
         val decisionGatesContent = """
-## Claude Code Sub-Agent Decision Gates
+## Decision Gates (Claude Code)
 
-**These decision gates help you route work to specialized agents proactively.**
+**Quick routing for Skills vs Subagents:**
 
-### Before Creating a Feature
+### When User Asks About Progress/Status/Coordination
+→ **Use Skills** (60-82% token savings):
+- "What's next?" → Feature Management Skill
+- "Complete feature/task" → Feature/Task Management Skill
+- "What's blocking?" → Dependency Analysis Skill
 
-❓ **Did user say** "create/start/build a feature for..." **OR** provide rich context (3+ paragraphs)?
-→ **YES?** Launch **Feature Architect** agent
-→ **NO?** Proceed with direct `create_feature` tool
+### When User Requests Implementation Work
+→ **Use Subagents** (complex reasoning + code):
+- "Create feature for X" / rich context (3+ paragraphs) → Feature Architect
+- "Implement X" / task with code → Use `recommend_agent(taskId)` for specialist routing
+- "Fix bug X" / "broken"/"error" → Bug Triage Specialist
+- "Break down X" → Planning Specialist
 
-### Before Starting Multi-Task Feature Work
+### Critical Patterns
+- **Always** run `list_templates` before creating tasks/features
+- Feature Architect creates feature → Planning Specialist breaks into tasks → Specialists implement
+- Use `recommend_agent(taskId)` for automatic specialist routing based on task tags
 
-❓ **Does feature have** 4+ tasks with dependencies?
-❓ **Need** specialist coordination across domains?
-→ **YES?** Launch **Feature Manager** agent (START mode)
-→ **NO?** Work through tasks sequentially yourself
-
-### Before Working on a Task
-
-❓ **Is task** part of a larger feature (has `featureId`)?
-❓ **Does task** have specialist tags (backend, frontend, database, testing, docs)?
-→ **YES?** Check `recommend_agent(taskId)` for specialist routing
-→ **NO?** Proceed with direct implementation
-
-### When User Reports a Bug
-
-❓ **User says:** "broken", "error", "crash", "doesn't work", "failing"?
-→ **YES?** Launch **Bug Triage Specialist** agent
-→ **NO?** If it's a feature request, use Feature Architect
-
-### After Feature Architect Creates Feature
-
-❓ **Does the feature** need task breakdown?
-→ **YES?** Launch **Planning Specialist** agent
-→ **NO?** If it's a simple feature, create tasks yourself
-
-**Remember:** These gates are for Claude Code only. If using other LLMs (Cursor, Windsurf), use templates and workflow prompts directly.
+**Complete guide**: See [hybrid-architecture.md](docs/hybrid-architecture.md) for detailed decision matrices and examples.
 
 ---
 
