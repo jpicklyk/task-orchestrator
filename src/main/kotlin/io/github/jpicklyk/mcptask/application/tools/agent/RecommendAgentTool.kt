@@ -24,33 +24,46 @@ class RecommendAgentTool : BaseToolDefinition() {
 
     override val title: String = "Recommend AI Agent for Task"
 
-    override val description: String = """Recommends specialized AI agent for task based on tags, status, and complexity. Uses agent-mapping.yaml to match task characteristics with agent capabilities.
+    override val description: String = """Recommends appropriate execution method (Skill vs Subagent) for a task based on tags, complexity, and work type.
 
         CRITICAL Workflow:
-        - When recommendation returned: Launch recommended agent using Task tool (parameters provided in nextAction)
+        - When Skill recommended: Use Skill directly (lightweight coordination, 2-5 tool calls, ~500 tokens)
+        - When Subagent recommended: Launch subagent using Task tool (deep implementation work, 2000+ tokens)
         - When NO recommendation: Work on task yourself using general capabilities
+
+        Decision Logic (Skills vs Subagents):
+        - **Skills** (Coordination): Recommended for task routing, dependency analysis, feature management, creating summaries
+        - **Subagents** (Implementation): Recommended for code implementation, complex documentation, architecture, testing
 
         How It Works:
         1. Retrieves task metadata (tags, status, complexity)
-        2. Matches task tags against agent mappings
-        3. Returns recommended agent with execution instructions in nextAction field
+        2. Analyzes work type: coordination vs implementation
+        3. Matches task tags against agent/skill mappings in .taskorchestrator/agent-mapping.yaml
+        4. Returns recommendation with execution instructions in nextAction field
 
         Parameters:
         - taskId (required): Task UUID
 
         Response Fields:
-        - recommended (boolean): Whether agent was recommended
-        - agent (string): Recommended agent name (e.g., "Database Engineer")
-        - reason (string): Why this agent or why no recommendation
-        - matchedTags (array): Task tags that matched agent mapping
+        - recommended (boolean): Whether skill/agent was recommended
+        - recommendationType (string): "SKILL" or "SUBAGENT" (indicates routing decision)
+        - agent (string): Recommended skill/agent name (e.g., "Task Management Skill" or "Database Engineer")
+        - reason (string): Why this skill/agent or why no recommendation
+        - matchedTags (array): Task tags that matched mapping
         - sectionTags (array): Section tags for efficient information retrieval
-        - nextAction (object): Instructions and parameters for launching agent
+        - nextAction (object): Instructions and parameters for launching skill/subagent
 
-        Agent Selection:
-        - Matches task tags against agent tag mappings in .taskorchestrator/agent-mapping.yaml
-        - Agent names in Proper Case format
-        - Returns section tags to help agent find relevant information
-        - No recommendation when task tags don't match any agent mappings
+        Routing Examples:
+        - Task with tags [task-routing, coordination] → Recommends "Task Management Skill"
+        - Task with tags [backend, api-implementation] → Recommends "Backend Engineer" subagent
+        - Task with tags [dependency-check] → Recommends "Dependency Analysis Skill"
+        - Task with tags [database, schema] → Recommends "Database Engineer" subagent
+
+        Agent/Skill Selection:
+        - Matches task tags against mappings in .taskorchestrator/agent-mapping.yaml
+        - Names in Proper Case format
+        - Returns section tags to help skill/agent find relevant information
+        - No recommendation when task tags don't match any mappings
 
         Usage notes:
         - Run setup_claude_agents first to install agent definitions

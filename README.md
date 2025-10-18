@@ -165,7 +165,73 @@ Payment Integration: Database (2) → Backend (2) → Frontend (2) → Testing (
 
 ## Core Capabilities
 
-### 1. Persistent AI Memory Across Sessions
+### 1. Hybrid Skills + Hooks Architecture (4-Tier System)
+
+**The Problem**: AI workflows involve repetitive coordination (route tasks, mark complete, check dependencies) alongside complex implementation work. Traditional approaches treat everything equally, wasting tokens on simple operations.
+
+**The Solution**: 4-tier hybrid architecture that matches the right execution model to the job.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  TIER 1: Direct Tools (50-100 tokens)                   │
+│  Purpose: Single operations with known parameters        │
+│  Example: create_task, get_feature, set_status          │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  TIER 2: Skills (300-600 tokens)                        │
+│  Purpose: Coordination workflows (2-5 tool calls)        │
+│  Example: "What's next?" "Mark complete" "Show blockers"│
+│  Token Savings: 60-82% vs subagents for coordination    │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  TIER 3: Hooks (0 tokens)                               │
+│  Purpose: Event-driven side effects (bash scripts)       │
+│  Example: Auto-commit, run tests, send notifications    │
+│  Token Savings: 100% (no LLM calls)                     │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  TIER 4: Subagents (1500-3000 tokens)                   │
+│  Purpose: Complex implementation and reasoning           │
+│  Example: Backend Engineer, Test Engineer, Planning     │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key Benefits**:
+- **60-82% token savings** for coordination tasks (Skills vs Subagents)
+- **100% savings** for automation (Hooks run without LLM calls)
+- **Faster execution** - Skills respond in seconds vs minutes for subagents
+- **Clear separation** - Coordination (Skills) vs Implementation (Subagents) vs Automation (Hooks)
+
+**How They Work Together**:
+```
+1. You: "What's the next task?"
+   → Feature Management Skill (300 tokens)
+   → Returns: "Task T4: Implement login endpoint"
+
+2. You: "Work on that task"
+   → Task Management Skill routes to Backend Engineer (300 tokens)
+   → Backend Engineer implements endpoint (2000 tokens)
+   → Creates tests, documentation, summary
+
+3. Backend Engineer: set_status(status="completed")
+   → Hook triggers: task-complete-commit.sh (0 tokens)
+   → Automatic git commit with task details
+
+4. You: "What's next?"
+   → Feature Management Skill (300 tokens)
+   → Cycle continues with 60%+ token savings
+```
+
+**Skills Documentation**: See [`.claude/skills/README.md`](.claude/skills/README.md) - 5 included Skills for task/feature coordination
+
+**Hooks Documentation**: See [`.claude/hooks/README.md`](.claude/hooks/README.md) - 3 included Hooks for git automation, quality gates, metrics
+
+**Complete Guide**: [docs/hybrid-architecture.md](docs/hybrid-architecture.md) - Decision flowchart and integration patterns
+
+### 2. Persistent AI Memory Across Sessions
 
 **The Problem**: AI forgets project state when you close your editor.
 
@@ -188,7 +254,7 @@ Next morning, your AI asks: "Show me the project overview" and instantly knows:
 
 **No re-explaining. No context rebuilding. Zero time wasted.**
 
-### 2. Sub-Agent Orchestration (Claude Code Only)
+### 3. Sub-Agent Orchestration (Claude Code Only)
 
 **The Problem**: Single AI agent accumulates context exponentially, fails at 12-15 tasks.
 
@@ -213,7 +279,7 @@ Next morning, your AI asks: "Show me the project overview" and instantly knows:
 
 > **📖 Complete guide**: [Agent Orchestration Documentation](docs/agent-orchestration.md)
 
-### 3. Template-Driven Workflows (All MCP Clients)
+### 4. Template-Driven Workflows (All MCP Clients)
 
 **The Problem**: AI doesn't know how to structure documentation, requirements, testing strategies.
 
@@ -242,7 +308,7 @@ AI: *Discovers templates with list_templates()*
 
 > **📋 See all templates**: [Templates Documentation](docs/templates.md)
 
-### 4. Cross-Domain Context Passing
+### 5. Cross-Domain Context Passing
 
 **The Problem**: Backend Engineer needs database schema details, Frontend Developer needs API specs, Test Engineer needs implementation details - but they don't need EVERYTHING.
 
@@ -277,7 +343,7 @@ Technical Writer (Task 9):
 
 **Result**: Writer reads 400 tokens instead of 51k - **99% reduction in cross-domain noise**.
 
-### 5. Dependency Management with Automatic Context
+### 6. Dependency Management with Automatic Context
 
 **The Problem**: You implement Task B that depends on Task A, but you have to manually remember what Task A did.
 

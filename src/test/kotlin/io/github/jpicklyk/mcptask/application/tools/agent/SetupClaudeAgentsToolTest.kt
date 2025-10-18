@@ -234,4 +234,118 @@ class SetupClaudeAgentsToolTest {
         assertTrue(tool.description.contains("Claude Code"), "Description should mention Claude Code")
         assertTrue(tool.description.contains(".claude/agents/"), "Description should mention .claude/agents/")
     }
+
+    @Test
+    fun `execute should create skills directory`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        // Verify .claude/skills/task-manager directory exists
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val skillsDir = workingDir.resolve(".claude/skills/task-manager")
+
+        assertTrue(Files.exists(skillsDir), ".claude/skills/task-manager directory should exist after execution")
+
+        // Verify response includes skills directory info
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data!!["skillsDirectoryCreated"], "Should have skillsDirectoryCreated field")
+        assertNotNull(data["skillsCopied"], "Should have skillsCopied field")
+        assertNotNull(data["skillsDirectory"], "Should have skillsDirectory field")
+        assertNotNull(data["totalSkills"], "Should have totalSkills field")
+    }
+
+    @Test
+    fun `execute should create hooks directory with subdirectories`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        // Verify .claude/hooks/task-manager directory exists
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val hooksDir = workingDir.resolve(".claude/hooks/task-manager")
+        val scriptsDir = hooksDir.resolve("scripts")
+        val templatesDir = hooksDir.resolve("templates")
+
+        assertTrue(Files.exists(hooksDir), ".claude/hooks/task-manager directory should exist after execution")
+        assertTrue(Files.exists(scriptsDir), ".claude/hooks/task-manager/scripts directory should exist")
+        assertTrue(Files.exists(templatesDir), ".claude/hooks/task-manager/templates directory should exist")
+
+        // Verify response includes hooks directory info
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data!!["hooksDirectoryCreated"], "Should have hooksDirectoryCreated field")
+        assertNotNull(data["hooksCopied"], "Should have hooksCopied field")
+        assertNotNull(data["hooksDirectory"], "Should have hooksDirectory field")
+    }
+
+    @Test
+    fun `execute should copy all expected skill directories`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val skillsDir = workingDir.resolve(".claude/skills/task-manager")
+
+        val expectedSkills = listOf(
+            "dependency-analysis",
+            "feature-management",
+            "hook-builder",
+            "skill-builder",
+            "task-management"
+        )
+
+        expectedSkills.forEach { skillName ->
+            val skillDir = skillsDir.resolve(skillName)
+            assertTrue(Files.exists(skillDir), "Skill directory $skillName should exist")
+
+            val skillFile = skillDir.resolve("SKILL.md")
+            assertTrue(Files.exists(skillFile), "SKILL.md should exist in $skillName")
+            assertTrue(Files.size(skillFile) > 0, "SKILL.md in $skillName should not be empty")
+        }
+
+        // Verify response indicates skills were copied
+        val data = responseObj["data"]?.jsonObject
+        val totalSkills = data!!["totalSkills"]?.jsonPrimitive?.int
+        assertEquals(5, totalSkills, "Should report 5 total skills")
+    }
+
+    @Test
+    fun `execute should copy hook examples with proper structure`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val hooksDir = workingDir.resolve(".claude/hooks/task-manager")
+
+        // Verify key hook files exist
+        val readme = hooksDir.resolve("README.md")
+        assertTrue(Files.exists(readme), "README.md should exist in hooks directory")
+
+        val quickRef = hooksDir.resolve("QUICK_REFERENCE.md")
+        assertTrue(Files.exists(quickRef), "QUICK_REFERENCE.md should exist in hooks directory")
+
+        // Verify scripts subdirectory has scripts
+        val scriptsDir = hooksDir.resolve("scripts")
+        val taskCompleteScript = scriptsDir.resolve("task-complete-commit.sh")
+        if (Files.exists(taskCompleteScript)) {
+            assertTrue(Files.size(taskCompleteScript) > 0, "task-complete-commit.sh should not be empty")
+        }
+
+        // Verify templates subdirectory has templates
+        val templatesDir = hooksDir.resolve("templates")
+        val settingsExample = templatesDir.resolve("settings.local.json.example")
+        if (Files.exists(settingsExample)) {
+            assertTrue(Files.size(settingsExample) > 0, "settings.local.json.example should not be empty")
+        }
+    }
 }

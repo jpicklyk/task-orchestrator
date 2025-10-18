@@ -229,6 +229,59 @@ Show me an overview of my current tasks
 
 Your AI should respond confirming the connection (showing no tasks initially).
 
+## Understanding Skills and Hooks
+
+Task Orchestrator provides a **4-tier hybrid architecture** for different operation types:
+
+| Tier | Use For | Token Cost | Example |
+|------|---------|------------|---------|
+| **Direct Tools** | Single operations | 50-100 | `create_task(...)` |
+| **Skills** | Coordination (2-5 tools) | 300-600 | "What's next?" |
+| **Subagents** | Complex implementation | 1500-3000 | Backend Engineer |
+| **Hooks** | Side effects | 0 | Auto-commit on complete |
+
+### Quick Example - Using Skills
+
+**Skills** are lightweight capabilities that Claude Code automatically invokes when your request matches their description. They save 60-82% tokens compared to subagents for coordination operations.
+
+**Example: Feature Management Skill**
+```
+You: "What task should I work on next in this feature?"
+
+→ Claude invokes Feature Management Skill (300 tokens)
+→ Returns: "Task T4: Add authentication tests (high priority, unblocked)"
+
+vs Subagent approach: 1400 tokens for same operation (78% savings)
+```
+
+**Example: Task Management Skill + Hook**
+```
+You: "Mark task T4 complete"
+
+→ Task Management Skill coordinates (450 tokens):
+  - Reads task details
+  - Creates Summary section
+  - Updates status to completed
+
+→ Hook triggers automatically (0 tokens):
+  - Creates git commit with task info
+  - No LLM calls needed
+
+Total: 450 tokens vs 1500 with subagent (70% savings)
+```
+
+**Token Efficiency Benefits**:
+- **Skills**: 60-82% savings for coordination operations
+- **Hooks**: 100% savings for automation (zero tokens)
+- **Hybrid approach**: Use Skills + Hooks for maximum efficiency
+
+**Learn More**:
+- **Skills Catalog**: `.claude/skills/README.md` - Complete Skills reference
+- **Decision Guide**: `docs/hybrid-architecture.md` - When to use what tier
+- **Skills Guide**: `docs/skills-guide.md` - Comprehensive examples and creation
+
+---
+
 ## Your First Task (Basic Setup)
 
 You're now ready for template-driven development. Try this:

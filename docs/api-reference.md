@@ -12,6 +12,7 @@ The MCP Task Orchestrator provides comprehensive MCP tools for AI-driven project
 - [How AI Uses Tools](#how-ai-uses-tools)
 - [Workflow-Based Tool Patterns](#workflow-based-tool-patterns)
 - [Tool Categories](#tool-categories)
+  - [Agent & Skill Management](#agent--skill-management-claude-code-only)
 - [Core Workflow Tools](#core-workflow-tools)
 - [Context Efficiency Features](#context-efficiency-features)
 - [Concurrent Access Protection](#concurrent-access-protection)
@@ -338,6 +339,242 @@ AI chooses tools based on:
 - "Create a markdown document for this feature" → `feature_to_markdown`
 - "Generate project documentation" → `project_to_markdown`
 - For terminal inspection, use `get_*` tools instead
+
+---
+
+### Agent & Skill Management (Claude Code Only)
+
+**Core Workflow**:
+- `setup_claude_agents` - Initialize agent configuration system
+- `recommend_agent` - Get routing recommendation (Skill vs Subagent)
+
+**When AI Uses**:
+- First-time setup of Claude Code agent orchestration
+- Routing tasks to appropriate execution method (Skills or Subagents)
+- Understanding agent/skill capabilities
+
+**Key Concepts**:
+
+**Three-Tier Architecture**:
+1. **Skills** (Tier 1) - Lightweight coordination, 2-5 tool calls, ~500-800 tokens
+2. **Subagents** (Tier 2) - Deep implementation work, complex reasoning, ~2000+ tokens
+3. **Hooks** (Tier 3) - Zero-token automation, bash scripts, side effects
+
+**Skills vs Subagents Decision**:
+- **Use Skills when**: Task routing, dependency analysis, feature coordination, status updates, creating summaries
+- **Use Subagents when**: Code implementation, complex documentation, architecture design, comprehensive testing
+
+---
+
+#### setup_claude_agents
+
+**Purpose**: One-time setup creating the complete Claude Code agent orchestration system
+
+**What It Creates**:
+
+**1. Subagent Definitions** (`.claude/agents/`):
+- 10 specialized agent markdown files
+- Backend Engineer, Database Engineer, Frontend Developer, Test Engineer, Technical Writer
+- Feature Architect, Planning Specialist
+- Feature Manager, Task Manager, Bug Triage Specialist
+- Each with YAML frontmatter (name, model, tools) and markdown instructions
+
+**2. Skills** (`.claude/skills/task-manager/`):
+- **dependency-analysis**: Analyze task dependencies, find blocked tasks, identify bottlenecks
+- **feature-management**: Recommend next tasks, check feature progress, complete features
+- **hook-builder**: Create custom hooks using templates and examples
+- **skill-builder**: Create custom skills using templates and best practices
+- **task-management**: Route tasks to specialists, manage lifecycle, create summaries
+
+Each Skill includes:
+- `SKILL.md` - Workflow guide with step-by-step instructions
+- `examples.md` - Working examples with real scenarios
+- Supporting files (templates, routing guides, troubleshooting)
+
+**3. Hooks** (`.claude/hooks/task-manager/`):
+- **task-complete-commit.sh**: Auto-commit when task status = completed
+- **subagent-stop-logger.sh**: Log subagent completion events
+- **feature-complete-gate.sh**: Validate feature readiness before completion
+
+Hook structure:
+- `scripts/` - Executable bash scripts
+- `templates/` - Hook templates for customization
+- Examples and documentation
+
+**4. Configuration**:
+- `.taskorchestrator/agent-mapping.yaml` - Tag-based routing rules
+- Decision gates injected into `CLAUDE.md`
+
+**Parameters**: None required
+
+**Output**:
+```json
+{
+  "success": true,
+  "data": {
+    "directoryCreated": true,
+    "agentFilesCreated": ["backend-engineer.md", "..."],
+    "skillsCopied": ["dependency-analysis", "feature-management", "..."],
+    "hooksCopied": true,
+    "totalAgents": 10,
+    "totalSkills": 5
+  }
+}
+```
+
+**Usage Notes**:
+- Idempotent: Safe to run multiple times
+- Skips existing files (won't overwrite customizations)
+- Commit `.claude/` directory to version control for team sharing
+- Works only with Claude Code (other IDEs don't support agent orchestration)
+
+**When to Use**:
+- First time enabling Claude Code agent features
+- After cloning repository
+- Restoring default configurations
+- Adding Skills and Hooks to existing agent setup
+
+**After Setup**:
+- Use `recommend_agent(taskId)` for routing recommendations
+- Skills appear in Claude Code skill picker
+- Hooks activate automatically on events
+- Subagents available via Task tool
+
+---
+
+#### recommend_agent
+
+**Purpose**: Intelligent routing recommendation between Skills (coordination) and Subagents (implementation)
+
+**Decision Logic**:
+
+**Recommends Skills When**:
+- Task involves coordination (2-5 tool calls)
+- Tags: `task-routing`, `coordination`, `dependency-check`, `feature-progress`
+- Work type: Status updates, summaries, next task selection, blocked task analysis
+- Token efficiency critical (quick operations, ~500 tokens)
+
+**Recommends Subagents When**:
+- Task involves implementation (deep work)
+- Tags: `backend`, `frontend`, `database`, `testing`, `documentation`, `planning`
+- Work type: Code writing, architecture, comprehensive docs, test suites
+- Complex reasoning required (~2000+ tokens)
+
+**Parameters**:
+- `taskId` (required): UUID of task to analyze
+
+**Response Fields**:
+```json
+{
+  "success": true,
+  "data": {
+    "recommended": true,
+    "recommendationType": "SKILL",  // or "SUBAGENT"
+    "agent": "Task Management Skill",  // or "Backend Engineer"
+    "reason": "Task requires lightweight coordination for routing",
+    "matchedTags": ["task-routing", "coordination"],
+    "sectionTags": ["requirements", "context"],
+    "taskId": "uuid",
+    "taskTitle": "Route task to specialist",
+    "nextAction": {
+      "instruction": "Use the Task Management Skill directly",
+      "tool": "Skill",  // or "Task" for subagents
+      "parameters": {
+        "skill": "Task Management Skill",
+        "prompt": "..."
+      }
+    }
+  }
+}
+```
+
+**Routing Examples**:
+
+**Skill Recommendations**:
+```
+Tags: [task-routing, coordination]
+→ Recommends: "Task Management Skill"
+→ Reason: Lightweight task routing workflow
+
+Tags: [dependency-check, blocked-tasks]
+→ Recommends: "Dependency Analysis Skill"
+→ Reason: Quick dependency chain analysis
+
+Tags: [feature-progress, next-task]
+→ Recommends: "Feature Management Skill"
+→ Reason: Feature coordination workflow
+```
+
+**Subagent Recommendations**:
+```
+Tags: [backend, api-implementation]
+→ Recommends: "Backend Engineer"
+→ Reason: Complex API implementation work
+
+Tags: [database, schema-design]
+→ Recommends: "Database Engineer"
+→ Reason: Database schema architecture
+
+Tags: [testing, integration-tests]
+→ Recommends: "Test Engineer"
+→ Reason: Comprehensive test suite creation
+```
+
+**No Recommendation**:
+```
+Tags: [general-task]
+→ Recommended: false
+→ Reason: "No specialized skill/agent matches these tags"
+→ Action: Work on task directly using general capabilities
+```
+
+**Configuration**:
+- Routing rules defined in `.taskorchestrator/agent-mapping.yaml`
+- Tag mappings determine skill/agent selection
+- Section tags guide focused information retrieval
+- Customizable per project
+
+**Integration with Skills**:
+- **Task Management Skill** uses `recommend_agent` to route tasks to specialists
+- Skills can call `recommend_agent` as part of coordination workflows
+- Subagents receive task context prepared by Skills
+- Skills handle pre/post subagent coordination
+
+**Usage Pattern**:
+```
+User: "Work on task T1"
+
+AI Workflow:
+1. recommend_agent(taskId="T1")
+2. Response: recommendationType="SKILL", agent="Task Management Skill"
+3. Activate Task Management Skill
+4. Skill calls recommend_agent again for specialist routing
+5. Skill launches Backend Engineer subagent
+6. Skill handles completion workflow
+```
+
+**Token Efficiency**:
+- Skill routing: ~500 tokens (coordination only)
+- Subagent routing: ~2000+ tokens (full implementation)
+- Total with Skills: ~2500 tokens
+- Without Skills (direct subagent): ~4000 tokens
+- Savings: ~40% token reduction
+
+**When to Use**:
+- Before starting any task work (check routing first)
+- When uncertain about skill vs subagent decision
+- For consistent routing across team
+- Optimizing token usage for coordination tasks
+
+**Prerequisites**:
+- Run `setup_claude_agents` first
+- `.taskorchestrator/agent-mapping.yaml` must exist
+- `.claude/agents/` and `.claude/skills/` directories populated
+
+**Related Tools**:
+- `setup_claude_agents` - Initial setup
+- `get_task` - Task details for context
+- `get_task_dependencies` - Dependency analysis for routing
 
 ---
 
@@ -1198,6 +1435,98 @@ Output order:
 - `featureId`: Filter to specific feature
 - `limit`: Number of recommendations (default: 1, max: 20)
 - `includeDetails`: Include summary, tags, featureId (default: false)
+
+---
+
+## Skills and Hooks Integration
+
+### Skills Invoking MCP Tools
+
+Skills are lightweight AI behaviors (300-600 tokens) that coordinate 2-5 MCP tool calls. They provide an efficiency layer between direct tool calls and subagents.
+
+**Available Skills** (5 included):
+
+| Skill | Purpose | Allowed MCP Tools | Token Savings |
+|-------|---------|-------------------|---------------|
+| **Feature Management** | Coordinate feature lifecycle | `get_feature`, `get_next_task`, `update_feature` | 77% vs subagent |
+| **Task Management** | Route tasks, update status | `get_task`, `recommend_agent`, `set_status`, `add_section` | 77% vs subagent |
+| **Dependency Analysis** | Analyze blockers, chains | `get_blocked_tasks`, `get_task_dependencies` | 75% vs subagent |
+| **Hook Builder** | Create automation hooks | Write (generates bash scripts) | N/A (interactive) |
+| **Skill Builder** | Create custom Skills | Write (generates SKILL.md files) | N/A (interactive) |
+
+**How Skills Work**:
+1. Claude Code scans `.claude/skills/` directory
+2. Reads YAML frontmatter from `SKILL.md` files
+3. When user request matches description, Claude automatically invokes Skill
+4. Skill executes predefined workflow using allowed MCP tools
+5. Returns result directly to user
+
+**Example: Feature Management Skill**
+
+User says: "What should I work on next?"
+
+```markdown
+Skill automatically executes:
+1. get_feature(includeTasks=true, includeTaskDependencies=true)
+2. get_next_task(featureId="...", limit=1)
+3. Returns: "Recommended Task: T4 - Implement login endpoint (high priority, unblocked)"
+
+Token Cost: ~300 tokens
+vs Subagent: ~1400 tokens (78% savings)
+```
+
+**Skills Catalog**: See [`.claude/skills/README.md`](../.claude/skills/README.md) for complete documentation.
+
+**Complete Skills Documentation**: [Skills Guide](skills-guide.md)
+
+---
+
+### Hooks Triggered by MCP Tools
+
+Hooks are bash scripts (0 tokens) that execute automatically when MCP tool events occur.
+
+**Available Hooks** (3 included):
+
+| Hook | Trigger Event | Tool Matcher | Purpose |
+|------|---------------|--------------|---------|
+| **task-complete-commit.sh** | PostToolUse | `set_status` (completed) | Auto-commit on completion |
+| **feature-complete-gate.sh** | PostToolUse | `update_feature` (completed) | Block if tests fail |
+| **subagent-stop-logger.sh** | SubagentStop | All subagents | Log metrics |
+
+**MCP Tools That Can Trigger Hooks**:
+- `set_status` - Auto-commit, notifications, metrics
+- `update_feature` - Quality gates, testing
+- `update_task` - External system sync
+- `create_task` - Template reminders
+
+**Hooks Catalog**: See [`.claude/hooks/README.md`](../.claude/hooks/README.md) for complete documentation.
+
+**Complete Hooks Documentation**: [Hooks Guide](hooks-guide.md)
+
+---
+
+### Integration Pattern: Skills + Hooks + MCP Tools
+
+**Complete Workflow Example**:
+
+```
+1. "What's next?" → Feature Management Skill (300 tokens)
+   ├─ get_feature, get_next_task
+   └─ "Task T4: Implement login endpoint"
+
+2. "Work on that" → Task Management Skill (300 tokens)
+   ├─ get_task, recommend_agent
+   └─ Routes to Backend Engineer
+
+3. Backend Engineer (2000 tokens)
+   ├─ get_task, add_section
+   └─ set_status(completed)
+      └─ Hook: task-complete-commit.sh (0 tokens)
+
+Total: 2600 tokens (vs 5000+ without Skills/Hooks = 48% savings)
+```
+
+**See Also**: [Hybrid Architecture Guide](hybrid-architecture.md)
 
 ---
 

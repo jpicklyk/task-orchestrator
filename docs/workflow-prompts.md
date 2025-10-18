@@ -14,6 +14,7 @@ Workflow prompts provide structured, step-by-step guidance for complex project m
 - [Overview](#overview)
 - [Dual Workflow Model](#dual-workflow-model)
 - [Available Workflow Prompts](#available-workflow-prompts)
+- [Skills Integration in Workflows](#skills-integration-in-workflows)
 - [When to Use Workflow Prompts](#when-to-use-workflow-prompts)
 - [Usage Patterns](#usage-patterns)
 - [Integration with Templates](#integration-with-templates)
@@ -152,6 +153,12 @@ Claude explicitly:
 4. Associated task creation with git workflow detection
 5. Dependency establishment
 6. Validation and review
+7. **Skills integration** for feature coordination (Feature Management Skill)
+
+**Skills Integration**:
+- **After feature creation**: Use Feature Management Skill to recommend first task
+- **Token savings**: 78% vs subagent-based recommendation (1400 → 300 tokens)
+- **Pattern**: Create feature → Get next task recommendation (Skill) → Route to specialist (Skill)
 
 **Key Decisions It Helps With**:
 - Which templates to apply for comprehensive coverage
@@ -180,6 +187,13 @@ Claude explicitly:
 4. Creating focused subtasks with proper templates
 5. Establishing dependencies and sequencing
 6. Updating original task to coordination role
+7. **Skills integration** for dependency validation (Dependency Analysis Skill)
+
+**Skills Integration**:
+- **Before finalizing breakdown**: Use Dependency Analysis Skill to validate dependencies
+- **Token savings**: 71% vs subagent-based analysis (1200 → 350 tokens)
+- **Validation**: Ensures no circular dependencies, identifies bottlenecks
+- **Pattern**: Create subtasks → Validate dependencies (Skill) → Adjust if issues found
 
 **Key Decisions It Helps With**:
 - When to create a feature vs. just subtasks
@@ -240,6 +254,13 @@ Claude explicitly:
 6. Implementation execution with template guidance
 7. **Mandatory regression testing** (for bug fixes)
 8. Completion validation before marking done
+9. **Skills integration** for task completion (Task Management Skill)
+
+**Skills Integration**:
+- **After implementation completes**: Use Task Management Skill for efficient completion
+- **Token savings**: 60% vs subagent-based completion (1500 → 600 tokens)
+- **Hook integration**: Completion triggers task-complete-commit hook if configured (0 additional tokens)
+- **Pattern**: Implement → Complete with Skill → Hook auto-commits
 
 **Key Decisions It Helps With**:
 - Which task to work on next
@@ -290,6 +311,370 @@ When working on bugs (task-type-bug), the workflow provides specialized guidance
 See [Regression Testing Requirements](#regression-testing-requirements) below for detailed guidance.
 
 **Autonomous Alternative**: Ask "What should I work on next?" or "I'll start implementing the login feature" and Claude will guide implementation automatically
+
+---
+
+### `coordination_workflow`
+
+**Purpose**: Handle common coordination operations efficiently using Skills instead of subagents
+
+**When to Use**:
+- Need to coordinate multiple tool calls (2-5 tools)
+- Want maximum token efficiency for coordination tasks
+- Performing repetitive operations (task completion, routing, dependency checks)
+- Working within feature lifecycle (what's next, progress tracking)
+
+**What It Covers**:
+1. Identifying coordination operation type
+2. Selecting appropriate Skill (Feature, Task, or Dependency)
+3. Invoking Skill with proper context
+4. Processing Skill output
+5. Determining next action
+
+**Key Decisions It Helps With**:
+- Which Skill handles this coordination operation
+- When to use Skill vs direct tool vs subagent
+- How to chain Skills for complex workflows
+- When to escalate from Skill to subagent
+
+**Workflow Steps**:
+
+**Step 1: Identify Operation Type**
+
+Determine which category of coordination:
+- **Feature-level**: "What's next?" "Feature progress?" "Complete feature?"
+- **Task-level**: "Route this task" "Complete task" "Update status"
+- **Dependency-level**: "What's blocked?" "Check dependencies" "Show blockers"
+- **Hook/Skill creation**: "Create automation" "Build custom Skill"
+
+**Step 2: Select Appropriate Skill**
+
+| Operation Type | Skill to Use | Example Invocations |
+|---------------|--------------|-------------------|
+| Feature coordination | Feature Management Skill | "What's the next task?" "Feature F1 progress?" |
+| Task lifecycle | Task Management Skill | "Complete task T1" "Route this task" |
+| Dependency analysis | Dependency Analysis Skill | "Check dependencies" "What's blocking T5?" |
+| Hook creation | Hook Builder Skill | "Create auto-commit hook" "Build test gate" |
+| Skill creation | Skill Builder Skill | "Help me create a Skill" "Build doc generator" |
+
+**Step 3: Invoke Skill**
+
+**For Feature Management**:
+```
+Examples:
+- "What should I work on next in feature F1?"
+- "Check progress on feature F2"
+- "Complete feature F1"
+- "Show blocked tasks in this feature"
+
+Expected Response: Task recommendation, progress report, completion summary, or blocker list (300-600 tokens)
+```
+
+**For Task Management**:
+```
+Examples:
+- "Complete task T1"
+- "Which specialist should handle task T2?"
+- "Mark task T3 as in-progress"
+- "Check if task T4 is ready to start"
+
+Expected Response: Task completion confirmation, specialist recommendation, status update, or dependency report (300-600 tokens)
+```
+
+**For Dependency Analysis**:
+```
+Examples:
+- "What's blocking progress in feature F1?"
+- "Show me the dependency chain for task T5"
+- "Which task should I unblock first?"
+- "Why is task T6 blocked?"
+
+Expected Response: Blocker analysis, dependency tree, prioritization recommendation (300-500 tokens)
+```
+
+**Step 4: Process Skill Output**
+
+Skills return:
+- **Brief summaries** (not full context) - keep orchestrator lean
+- **Clear recommendations** - what to do next
+- **Relevant context** - just enough for decision-making
+- **Action items** - explicit next steps
+
+**Step 5: Determine Next Action**
+
+Based on Skill output:
+
+**If Skill recommends implementation**:
+→ Launch appropriate subagent (Backend Engineer, Database Engineer, etc.)
+
+**If Skill identifies blocker**:
+→ Address blocker first (use another Skill or subagent to unblock)
+
+**If Skill completes operation**:
+→ Optional: Hooks may trigger automatically (git commit, tests, notifications)
+→ Return to user with confirmation
+
+**If Skill requests clarification**:
+→ Ask user for additional information
+
+**Example Coordination Workflows**:
+
+**Example 1: Feature Task Recommendation (Feature Management Skill)**
+
+```
+User: "What's the next unblocked task in authentication feature?"
+
+Coordination Workflow:
+1. Operation Type: Feature coordination
+2. Skill Selected: Feature Management Skill
+3. Invocation: Natural language triggers Skill
+4. Skill Executes:
+   - get_feature(id, includeTasks=true, includeTaskDependencies=true)
+   - get_next_task(featureId, limit=1, includeDetails=true)
+   - Analyzes task priorities and dependencies
+5. Output Processed:
+   "Next Task: T3 - Implement token refresh endpoint
+    Priority: high | Complexity: 6/10
+    Status: Unblocked (dependency T2 completed)
+    Recommended Specialist: Backend Engineer"
+6. Next Action: Launch Backend Engineer or ask user to confirm
+
+Tokens: ~300 (vs 1400 for subagent approach = 78% savings)
+```
+
+**Example 2: Task Completion (Task Management Skill + Hook)**
+
+```
+User: "Complete task T1"
+
+Coordination Workflow:
+1. Operation Type: Task lifecycle management
+2. Skill Selected: Task Management Skill
+3. Invocation: "Complete task T1"
+4. Skill Executes:
+   - get_task(T1, includeSections=true)
+   - add_section(entityType=TASK, title="Summary", content="...")
+   - set_status(T1, status="completed")
+5. Output Processed:
+   "Task T1 completed. Summary section created documenting implementation of user login API."
+6. Hook Triggers (if configured):
+   - PostToolUse hook on set_status
+   - Auto-creates git commit with task details
+   - 0 additional tokens
+7. Next Action: Return confirmation to user
+
+Tokens: ~600 for Skill + 0 for Hook (vs 1500 for subagent = 60% savings)
+```
+
+**Example 3: Dependency Validation (Dependency Analysis Skill)**
+
+```
+User: "Why is task T5 blocked?"
+
+Coordination Workflow:
+1. Operation Type: Dependency analysis
+2. Skill Selected: Dependency Analysis Skill
+3. Invocation: "Why is task T5 blocked?"
+4. Skill Executes:
+   - get_task(T5, includeSections=true)
+   - get_task_dependencies(T5, direction=incoming)
+   - For each dependency: get_task(id) to check status
+   - Analyzes blocker impact
+5. Output Processed:
+   "Task T5 blocked by 2 incomplete dependencies:
+    - T2: Implement authentication API (in-progress)
+    - T4: Create user database schema (pending)
+
+    Recommendation: Complete T4 first (unblocks T5 and T6)"
+6. Next Action: Ask user if they want to work on T4, or show T4 details
+
+Tokens: ~350 (vs 1200 for subagent = 71% savings)
+```
+
+**Example 4: Chaining Skills for Complete Feature Flow**
+
+```
+User: "Work through authentication feature systematically"
+
+Coordination Workflow (Multi-Step):
+
+Step A: Feature Management Skill
+→ "What's next in feature F1?"
+→ Response: "Task T1: Database schema (unblocked)"
+→ Tokens: 300
+
+Step B: Task Management Skill
+→ "Route task T1"
+→ Response: "Database Engineer recommended"
+→ Tokens: 300
+
+Step C: Launch Database Engineer (subagent)
+→ Implements database schema
+→ Returns brief
+→ Tokens: 1600
+
+Step D: Task Management Skill
+→ "Complete task T1"
+→ Creates summary, marks complete
+→ Tokens: 600
+
+Step E: Hook triggers (auto-commit)
+→ Git commit created
+→ Tokens: 0
+
+Step F: Feature Management Skill
+→ "What's next in feature F1?"
+→ Response: "Task T2: Implement auth API"
+→ Tokens: 300
+
+[Pattern continues...]
+
+Total per iteration: 3100 tokens
+vs Subagent-only: 5500 tokens
+Savings: 44% per task cycle
+```
+
+**When to Escalate from Skill to Subagent**:
+
+Skills handle coordination efficiently, but escalate to subagents when:
+- ✅ Need to generate code (Skills can't write implementation)
+- ✅ Need complex reasoning (architectural decisions, trade-off analysis)
+- ✅ Need multi-step workflows with backtracking
+- ✅ Need specialist domain knowledge (Backend Engineer, Database Engineer)
+
+**Pattern**:
+```
+Skill identifies work → Recommends specialist → Orchestrator launches subagent
+```
+
+**Token Efficiency Summary**:
+
+| Coordination Operation | Subagent Tokens | Skill Tokens | Savings |
+|----------------------|----------------|--------------|---------|
+| Feature recommendation | 1400 | 300 | 78% |
+| Task routing | 1300 | 300 | 77% |
+| Task completion | 1500 | 600 | 60% |
+| Dependency analysis | 1200 | 350 | 71% |
+| **Average** | **1350** | **388** | **71%** |
+
+**Autonomous Alternative**: Claude recognizes coordination patterns automatically and invokes appropriate Skills without explicit workflow invocation
+
+---
+
+## Skills Integration in Workflows
+
+Workflow prompts can leverage **Skills** to reduce token costs for coordination operations. Skills are lightweight, focused capabilities that achieve **60-82% token savings** compared to subagent operations through progressive disclosure.
+
+### What Are Skills?
+
+Skills are specialized mini-agents that:
+- Handle coordination tasks with 2-5 tool calls
+- Activate automatically based on description matching
+- Cost 300-600 tokens (vs 1400-1700 for subagents)
+- Work seamlessly with workflow prompts
+
+**Available Skills for Workflows**:
+1. **Feature Management Skill** - Feature coordination, next task recommendation (300-600 tokens)
+2. **Task Management Skill** - Task completion, status updates, specialist routing (300-600 tokens)
+3. **Dependency Analysis Skill** - Dependency validation, blocker identification (300-500 tokens)
+4. **Hook Builder Skill** - Custom automation hook creation (400-700 tokens, interactive)
+5. **Skill Builder Skill** - Custom skill creation (500-800 tokens, interactive)
+
+### When Workflows Should Use Skills
+
+**Use Skills when workflow steps involve**:
+- ✅ 2-5 tool calls in sequence (coordination patterns)
+- ✅ Repetitive operations (task completion, status checks)
+- ✅ Simple data queries and updates
+- ✅ Task routing and recommendation
+
+**Continue using direct tools or subagents for**:
+- ❌ Single tool calls (direct tools are simpler)
+- ❌ Complex reasoning or code generation (subagents required)
+- ❌ Multi-step workflows with backtracking (subagents handle better)
+
+### Decision Criteria for Workflows
+
+```
+Does this workflow step require...
+├─ Single tool call? → Use direct MCP tool
+├─ 2-5 coordinated tool calls? → Recommend Skill
+└─ Complex reasoning/code? → Launch subagent
+```
+
+### Token Efficiency Benefits
+
+| Operation | Without Skills | With Skills | Savings |
+|-----------|----------------|-------------|---------|
+| **Recommend next task** | 1400 tokens (subagent) | 300 tokens (Skill) | 78% |
+| **Complete task** | 1500 tokens (subagent) | 600 tokens (Skill) | 60% |
+| **Check dependencies** | 1200 tokens (subagent) | 350 tokens (Skill) | 71% |
+| **Route task to specialist** | 1300 tokens (subagent) | 300 tokens (Skill) | 77% |
+
+**Example workflow comparison**:
+```
+Traditional (subagent-only):
+→ Feature coordination: 1400 tokens
+→ Task routing: 1300 tokens
+→ Implementation: 2000 tokens (subagent)
+→ Task completion: 1500 tokens
+Total: 6,200 tokens
+
+Skills-enhanced:
+→ Feature coordination: 300 tokens (Skill)
+→ Task routing: 300 tokens (Skill)
+→ Implementation: 2000 tokens (subagent)
+→ Task completion: 600 tokens (Skill)
+Total: 3,200 tokens (48% savings)
+```
+
+### How to Recommend Skills in Workflows
+
+When a workflow identifies a coordination operation, recommend the appropriate Skill:
+
+**Pattern 1: Feature Coordination**
+```markdown
+Step 3: Determine next task to work on
+- Use Feature Management Skill to get recommendation
+- Invocation: "What's the next unblocked task in this feature?"
+- Expected: Task recommendation with context (300-600 tokens)
+```
+
+**Pattern 2: Task Completion**
+```markdown
+Step 7: Mark task complete
+- Use Task Management Skill for completion
+- Invocation: "Complete task [id]"
+- Expected: Summary created, status updated (600 tokens)
+- Benefit: Hook can auto-commit if configured (0 additional tokens)
+```
+
+**Pattern 3: Dependency Validation**
+```markdown
+Step 2: Validate dependencies before starting
+- Use Dependency Analysis Skill to check blockers
+- Invocation: "Check if task [id] has incomplete dependencies"
+- Expected: Dependency status report (300-500 tokens)
+```
+
+### Integration with Existing Workflows
+
+Skills **complement** workflow prompts by handling the coordination steps efficiently:
+
+- **Workflow prompts** guide the overall PROCESS (what to do, when, in what order)
+- **Skills** execute coordination OPERATIONS efficiently (how to coordinate specific steps)
+- **Subagents** perform complex WORK (implementation, reasoning, code generation)
+
+This three-tier approach provides maximum efficiency:
+```
+Workflow Prompt (process guidance)
+    ↓
+Skills (coordination - 300-600 tokens)
+    ↓
+Subagents (complex work - 1500-3000 tokens)
+```
+
+**See**: [Skills Guide](skills-guide.md) for complete Skills documentation and [Hybrid Architecture](hybrid-architecture.md) for decision patterns.
 
 ---
 

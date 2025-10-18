@@ -1,6 +1,6 @@
 # AI Agent Orchestration System
 
-**A 3-level agent coordination architecture for scalable, context-efficient AI workflows**
+**A hybrid 4-tier architecture combining Skills, Subagents, and Hooks for scalable, context-efficient AI workflows**
 
 ---
 
@@ -8,8 +8,11 @@
 
 - [Overview](#overview)
 - [Architecture](#architecture)
-  - [3-Level Architecture](#3-level-architecture)
-  - [Orchestrator-Driven Model](#orchestrator-driven-model)
+  - [Hybrid 4-Tier Architecture](#hybrid-4-tier-architecture)
+  - [When to Use What: Decision Guide](#when-to-use-what-decision-guide)
+  - [Skills Tier (Coordination)](#skills-tier-coordination)
+  - [Subagents Tier (Complex Work)](#subagents-tier-complex-work)
+  - [Hooks Layer (Automation)](#hooks-layer-automation)
   - [Key Design Principles](#key-design-principles)
 - [Agent-Mapping Configuration](#agent-mapping-configuration)
   - [Purpose](#purpose)
@@ -54,7 +57,14 @@
 
 ## Overview
 
-The MCP Task Orchestrator implements a **3-level agent coordination architecture** that enables scalable AI workflows with minimal token usage. This system coordinates multiple AI agents working together on complex projects while maintaining context isolation and efficiency.
+The MCP Task Orchestrator implements a **hybrid 4-tier architecture** that enables scalable AI workflows with minimal token usage. This system provides four complementary mechanisms for AI-driven work:
+
+1. **Direct Tools** - Single MCP tool calls for atomic operations
+2. **Skills** - Lightweight coordination (2-5 tool calls) for repetitive workflows
+3. **Subagents** - Complex reasoning and implementation for specialist work
+4. **Hooks** - Automated side effects (git commits, tests, notifications)
+
+This architecture achieves **60-82% token reduction** for coordination tasks while maintaining specialist capabilities for complex work.
 
 ### 🚀 Quick Start
 
@@ -83,89 +93,256 @@ See [Setup Tool](#setup-tool) for complete details.
 
 ### What Problem Does This Solve?
 
-Traditional single-agent AI workflows face several challenges:
+Traditional AI workflows face several challenges:
 
 1. **Context Overload**: Single agent accumulates massive context from all tasks
-2. **Lack of Specialization**: One agent tries to handle all work types
-3. **Poor Scaling**: Adding more work increases context linearly
-4. **No Coordination**: Multiple agents risk conflicts and duplication
+2. **Token Waste**: Launching subagents for simple coordination tasks (2-5 tool calls)
+3. **Manual Side Effects**: Manually running git commits, tests after task completion
+4. **Lack of Specialization**: One agent tries to handle all work types
+5. **Poor Scaling**: Adding more work increases context linearly
 
-### How Agent Orchestration Solves This
+### How Hybrid Architecture Solves This
 
-The 3-level architecture provides:
+The 4-tier architecture provides:
 
-- **Hierarchical Coordination**: Specialized agents at each level (feature, task, specialist)
-- **Context Isolation**: Each sub-agent starts with clean context
-- **Automatic Routing**: Task tags automatically select the right specialist
+- **Direct Tools**: Atomic operations (create task, update status) - fastest, lowest overhead
+- **Skills**: Lightweight coordination (recommend next task, complete feature) - **60-82% token savings** vs subagents
+- **Subagents**: Complex work (implementation, planning, architecture) - context isolation and specialization
+- **Hooks**: Automated workflows (git commits, test runs, notifications) - zero AI tokens, instant execution
 - **Token Efficiency**: Summary sections enable knowledge transfer at ~300-500 tokens
-- **Dependency Awareness**: Task Manager passes completed dependency context to specialists
+- **Dependency Awareness**: Skills and subagents pass completed dependency context automatically
 
 ---
 
 ## Architecture
 
-### 3-Level Architecture
+### Hybrid 4-Tier Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         ORCHESTRATOR                             │
-│                    (Main Claude Code Instance)                   │
-│  - Accumulates full conversation history                         │
-│  - Launches sub-agents (Feature Manager, Task Manager)           │
-│  - Receives brief summaries from sub-agents                      │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         │ Launches with feature ID
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      FEATURE MANAGER                             │
-│                     (Sub-Agent, Clean Context)                   │
-│                                                                   │
-│  START Mode:                                                     │
-│  - Analyzes feature progress                                     │
-│  - Recommends next task to orchestrator                          │
-│                                                                   │
-│  END Mode:                                                       │
-│  - Summarizes completed feature work                             │
-│  - Creates feature Summary section                               │
-│  - Marks feature complete                                        │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         │ Orchestrator launches with task ID
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       TASK MANAGER                               │
-│                     (Sub-Agent, Clean Context)                   │
-│                                                                   │
-│  START Mode:                                                     │
-│  - Reads task and calls recommend_agent                          │
-│  - Reads completed dependency summaries                          │
-│  - Briefs orchestrator on specialist needs                       │
-│                                                                   │
-│  END Mode:                                                       │
-│  - Extracts specialist output                                    │
-│  - Creates task Summary section                                  │
-│  - Marks task complete                                           │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         │ Orchestrator launches with task context
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    SPECIALIST AGENTS                             │
-│            (Sub-Agents, Clean Context, Specialized)              │
-│                                                                   │
-│  - Backend Engineer    - Database Engineer                       │
-│  - Frontend Developer  - Test Engineer                           │
-│  - Technical Writer    - Planning Specialist                     │
-│                                                                   │
-│  Each specialist:                                                │
-│  1. Reads task with sections                                     │
-│  2. Performs specialized work                                    │
-│  3. Updates task sections with results                           │
-│  4. Marks task complete                                          │
-│  5. Returns brief summary                                        │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         TIER 1: DIRECT TOOLS                             │
+│                         (Single MCP Tool Calls)                          │
+│                                                                           │
+│  create_task, update_task, set_status, add_section, etc.                 │
+│  Use for: Atomic operations requiring no coordination                    │
+│  Token Cost: ~100-200 tokens per call                                    │
+│  Example: Update task summary field, add single section                  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                      ↕
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         TIER 2: SKILLS                                   │
+│                    (Lightweight Coordination - 2-5 tool calls)           │
+│                                                                           │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐        │
+│  │ Feature         │  │ Task            │  │ Dependency       │        │
+│  │ Management      │  │ Management      │  │ Analysis         │        │
+│  │                 │  │                 │  │                  │        │
+│  │ • Recommend     │  │ • Route to      │  │ • Find blocked   │        │
+│  │   next task     │  │   specialist    │  │   tasks          │        │
+│  │ • Complete      │  │ • Complete      │  │ • Analyze        │        │
+│  │   feature       │  │   task          │  │   chains         │        │
+│  │ • Check         │  │ • Update        │  │ • Identify       │        │
+│  │   progress      │  │   status        │  │   bottlenecks    │        │
+│  └─────────────────┘  └─────────────────┘  └──────────────────┘        │
+│                                                                           │
+│  Use for: Repetitive coordination workflows                              │
+│  Token Cost: ~300-600 tokens (60-82% savings vs subagents)               │
+│  Example: Recommend next task (3 tool calls), complete task (4 calls)    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                      ↕
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      TIER 3: SUBAGENTS                                   │
+│                  (Complex Work - Clean Context, Specialized)             │
+│                                                                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │ Backend      │  │ Database     │  │ Frontend     │                  │
+│  │ Engineer     │  │ Engineer     │  │ Developer    │                  │
+│  └──────────────┘  └──────────────┘  └──────────────┘                  │
+│                                                                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │ Test         │  │ Technical    │  │ Planning     │                  │
+│  │ Engineer     │  │ Writer       │  │ Specialist   │                  │
+│  └──────────────┘  └──────────────┘  └──────────────┘                  │
+│                                                                           │
+│  Use for: Implementation, testing, documentation, planning               │
+│  Token Cost: ~2-5k tokens (context isolation, specialized work)          │
+│  Example: Implement auth API, write integration tests, create plan       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+                         PARALLEL LAYER: HOOKS
+                        (Automated Side Effects - Zero AI Tokens)
+
+  PostToolUse          │  SubagentStop        │  PreToolUse
+  ─────────────────────┼──────────────────────┼────────────────────
+  • Git commit on      │  • Log completion    │  • Validate before
+    task complete      │    metrics           │    operation
+  • Run tests on       │  • Send              │  • Check
+    feature complete   │    notifications     │    preconditions
+  • Update external    │  • Archive           │  • Warn about
+    systems (Jira)     │    transcripts       │    missing data
+
+  Use for: Automation that doesn't require AI reasoning
+  Token Cost: 0 (runs outside AI context)
+  Example: Auto-commit when task completed, run ./gradlew test
+═══════════════════════════════════════════════════════════════════════════
 ```
+
+### When to Use What: Decision Guide
+
+**Decision Matrix for AI Work**:
+
+| Work Type | Use | Why | Token Cost | Example |
+|-----------|-----|-----|------------|---------|
+| **Single operation** | Direct Tool | Fastest, lowest overhead | ~100-200 | `set_status(id, 'completed')` |
+| **Coordination (2-5 calls)** | Skill | 60-82% cheaper than subagent | ~300-600 | Recommend next task, complete feature |
+| **Complex reasoning** | Subagent | Needs full context, specialization | ~2-5k | Implement auth API, write test suite |
+| **Side effects** | Hook | Zero AI tokens, instant | 0 | Git commit, run tests, send Slack notification |
+
+**Detailed Decision Flow**:
+
+```
+START: What do you need to do?
+│
+├─ Update ONE field/status?
+│  └─> Use DIRECT TOOL (create_task, set_status, etc.)
+│      Token cost: ~100-200
+│
+├─ Coordinate 2-5 tool calls? (recommend task, complete feature, check deps)
+│  └─> Use SKILL (Feature Management, Task Management, Dependency Analysis)
+│      Token cost: ~300-600 (60-82% cheaper than subagent)
+│      Examples:
+│        • "What task should I work on next?" → Feature Management Skill
+│        • "Complete this task and create summary" → Task Management Skill
+│        • "Show me blocked tasks" → Dependency Analysis Skill
+│
+├─ Implement code, write tests, create docs, plan architecture?
+│  └─> Use SUBAGENT (Backend Engineer, Test Engineer, Planning Specialist, etc.)
+│      Token cost: ~2-5k (context isolation, specialized reasoning)
+│      Examples:
+│        • "Implement user authentication" → Backend Engineer
+│        • "Write integration tests" → Test Engineer
+│        • "Break down feature into tasks" → Planning Specialist
+│
+└─ Automate git commits, tests, notifications after task/feature changes?
+   └─> Use HOOK (PostToolUse, SubagentStop, PreToolUse)
+       Token cost: 0 (runs outside AI context, bash scripts)
+       Examples:
+         • Auto-commit when task completed
+         • Run ./gradlew test when feature marked complete
+         • Log metrics when subagent finishes
+```
+
+**Key Principle**: **Prefer the simplest mechanism that meets your needs**. Skills are cheaper than subagents; direct tools are cheaper than skills; hooks don't use AI tokens at all.
+
+### Skills Tier (Coordination)
+
+**Purpose**: Lightweight coordination operations that require 2-5 tool calls but no complex reasoning.
+
+**Core Skills**:
+
+1. **Feature Management Skill** (`.claude/skills/feature-management/SKILL.md`)
+   - Recommend next task to work on
+   - Complete feature with summary
+   - Check feature progress
+   - List blocked tasks
+
+2. **Task Management Skill** (`.claude/skills/task-management/SKILL.md`)
+   - Recommend specialist for task
+   - Complete task with summary
+   - Update task status
+   - Check task dependencies
+
+3. **Dependency Analysis Skill** (`.claude/skills/dependency-analysis/SKILL.md`)
+   - Find all blocked tasks
+   - Analyze dependency chains
+   - Identify bottleneck tasks
+   - Recommend resolution order
+
+**Token Savings**: **60-82% reduction** vs Feature Manager/Task Manager subagents
+
+**Comparison**:
+- Feature Manager subagent START: ~1400 tokens → Skill: ~300 tokens (78% reduction)
+- Feature Manager subagent END: ~1700 tokens → Skill: ~600 tokens (65% reduction)
+- Task Manager subagent START: ~1300 tokens → Skill: ~300 tokens (77% reduction)
+- Task Manager subagent END: ~1500 tokens → Skill: ~600 tokens (60% reduction)
+
+**How Skills Work**:
+- Model-invoked (activate automatically based on description keywords)
+- Restricted tool access via `allowed-tools` YAML frontmatter
+- Execute 2-5 tool calls in sequence
+- Return results directly to orchestrator
+- No separate context/conversation history
+
+**When NOT to Use Skills**: Complex reasoning, code generation, architectural decisions → use subagents instead
+
+### Subagents Tier (Complex Work)
+
+**Purpose**: Complex work requiring specialized reasoning, code generation, or substantial context.
+
+**Specialist Subagents**:
+- **Backend Engineer** - REST APIs, services, business logic
+- **Database Engineer** - Schemas, migrations, query optimization
+- **Frontend Developer** - UI components, state management
+- **Test Engineer** - Unit tests, integration tests, test automation
+- **Technical Writer** - API docs, user guides, README files
+- **Planning Specialist** - Requirements analysis, task breakdown, architecture
+
+**When to Use Subagents**:
+- Implementing code (requires reading codebase, writing files, testing)
+- Writing comprehensive tests (needs to understand implementation)
+- Creating documentation (needs to analyze API behavior)
+- Planning/architecture (needs to reason about trade-offs)
+
+**Subagent Benefits**:
+- **Context Isolation**: Each starts with clean context, no orchestrator history
+- **Specialization**: Domain-specific instructions and workflows
+- **Tag-Based Routing**: `recommend_agent` tool selects right specialist
+- **Dependency Context**: Receives summaries from completed dependencies
+
+**Token Cost**: ~2-5k tokens per subagent invocation (acceptable for complex work)
+
+### Hooks Layer (Automation)
+
+**Purpose**: Automate side effects that don't require AI reasoning (git commits, tests, notifications).
+
+**How Hooks Work**:
+- Claude Code executes bash scripts at specific events
+- Runs outside AI context (zero AI tokens)
+- Can be blocking (prevent operation) or non-blocking (observe only)
+
+**Hook Events**:
+- **PostToolUse**: After any MCP tool is called
+- **SubagentStop**: After a subagent completes
+- **PreToolUse**: Before a tool is called (validation)
+
+**Example Hooks**:
+
+1. **Task Completion Auto-Commit** (PostToolUse on `set_status`)
+   ```bash
+   # When task marked complete, auto-commit changes
+   git add -A
+   git commit -m "feat: $TASK_TITLE" -m "Task-ID: $TASK_ID"
+   ```
+
+2. **Feature Completion Quality Gate** (PostToolUse on `update_feature`)
+   ```bash
+   # When feature marked complete, run tests first
+   ./gradlew test
+   if [ $? -ne 0 ]; then
+     echo '{"decision": "block", "reason": "Tests failing"}'
+   fi
+   ```
+
+3. **Subagent Metrics Logger** (SubagentStop)
+   ```bash
+   # Log subagent completion times
+   echo "$TIMESTAMP,$SUBAGENT_TYPE" >> metrics/completions.csv
+   ```
+
+**Token Cost**: **Zero** (hooks run in bash, not through AI)
+
+**Integration with Skills/Subagents**: Hooks run automatically after Skills invoke tools or Subagents complete, providing automation without manual steps.
 
 ### Orchestrator-Driven Model
 
@@ -388,7 +565,13 @@ Task tags: ["mobile", "ios", "ui"]
 
 ---
 
-## Feature Manager Agent
+## Feature Manager Agent (DEPRECATED - Use Feature Management Skill)
+
+> ⚠️ **DEPRECATED**: This subagent approach is superseded by the **Feature Management Skill** which achieves the same functionality with **60-82% token savings**. See [Skills Tier](#skills-tier-coordination) for details.
+>
+> **Migration Path**: Instead of launching Feature Manager subagent, use Feature Management Skill which invokes the same tools but without subagent overhead.
+>
+> **Kept for Reference**: This documentation remains for historical context and backwards compatibility.
 
 ### Role and Responsibilities
 
@@ -588,7 +771,13 @@ Ready for integration with frontend.
 
 ---
 
-## Task Manager Agent
+## Task Manager Agent (DEPRECATED - Use Task Management Skill)
+
+> ⚠️ **DEPRECATED**: This subagent approach is superseded by the **Task Management Skill** which achieves the same functionality with **60-77% token savings**. See [Skills Tier](#skills-tier-coordination) for details.
+>
+> **Migration Path**: Instead of launching Task Manager subagent, use Task Management Skill which invokes the same tools but without subagent overhead.
+>
+> **Kept for Reference**: This documentation remains for historical context and backwards compatibility.
 
 ### Task Manager Role
 
@@ -1249,7 +1438,7 @@ Total Orchestrator Context: 35k tokens (grows linearly with each task)
 Context never cleared, always growing
 
 
-SUB-AGENT MODEL (Task Orchestrator):
+HYBRID MODEL (Task Orchestrator - Skills + Subagents + Hooks):
 ─────────────────────────────────────────────────────────────────
 Orchestrator accumulates ONLY briefs:
 - Task 1 brief: "Completed schema. Created V3 migration..." = 200 tokens
@@ -1260,29 +1449,57 @@ Orchestrator accumulates ONLY briefs:
 
 Total Orchestrator Context: 1k tokens (200 tokens per task, not 5-10k)
 
-Sub-Agent Contexts (isolated, discarded after completion):
-Each task workflow uses:
-- Feature Manager: 1.5k tokens → discarded
-- Task Manager START: 2k tokens → discarded
-- Specialist: 3k tokens → discarded
-- Task Manager END: 0.5k tokens → discarded
+Token Usage Per Task (Hybrid):
+Coordination (Skills):
+- Feature Management Skill (recommend next task): ~300 tokens
+- Task Management Skill (route to specialist): ~300 tokens
+- Task Management Skill (complete task): ~600 tokens
+Total Coordination: ~1200 tokens per task
 
-Peak sub-agent context: ~3k tokens per task
-But: Contexts don't accumulate! Each task starts fresh.
+Implementation (Specialist Subagent):
+- Backend/Frontend/Database Engineer: ~3k tokens → discarded after completion
+
+Automation (Hooks):
+- Git commit after completion: 0 tokens (bash script)
+- Test execution before completion: 0 tokens (bash script)
+
+Total Per Task: ~4.2k tokens spent (1.2k coordination + 3k specialist)
+Orchestrator Accumulation: ~200 tokens brief only
+
+Contexts are isolated and discarded after each operation!
 
 
 COMPARISON (Orchestrator Context Growth):
 ─────────────────────────────────────────────────────────────────
-             │ Traditional │ Sub-Agent │ Reduction
-─────────────┼─────────────┼───────────┼──────────
-Task 1       │     5k      │    200    │   96%
-Task 1+2     │    13k      │    400    │   97%
-Task 1+2+3   │    20k      │    600    │   97%
-Task 1+2+3+4 │    29k      │    800    │   97%
-All 5 tasks  │    35k      │   1,000   │   97%
+             │ Traditional │ Old Subagent │ Hybrid Model │ Hybrid vs Old
+─────────────┼─────────────┼──────────────┼──────────────┼──────────────
+Task 1       │     5k      │    200       │     200      │   Same
+Task 1+2     │    13k      │    400       │     400      │   Same
+Task 1+2+3   │    20k      │    600       │     600      │   Same
+Task 1+2+3+4 │    29k      │    800       │     800      │   Same
+All 5 tasks  │    35k      │   1,000      │    1,000     │   Same
 
-The 97% reduction comes from storing brief summaries (200 tokens) instead
-of full task context (5-10k tokens) in the orchestrator's conversation history.
+Orchestrator Context Growth: Identical for both approaches (200 tokens per task)
+The hybrid architecture optimizes TOTAL TOKENS SPENT, not orchestrator context.
+
+
+COMPARISON (Total Tokens Spent Per Task):
+─────────────────────────────────────────────────────────────────
+Task Operation         │ Old Subagent │ Hybrid Model │ Savings
+───────────────────────┼──────────────┼──────────────┼─────────
+Feature coordination   │   ~1400      │    ~300      │  78%
+Task routing           │   ~1300      │    ~300      │  77%
+Task completion        │   ~1500      │    ~600      │  60%
+Specialist work        │   ~3000      │   ~3000      │   0%
+Git commit             │   Manual     │      0       │  100%
+Test execution         │   Manual     │      0       │  100%
+───────────────────────┼──────────────┼──────────────┼─────────
+Per Task Total         │   ~7200      │   ~4200      │  42%
+
+**Key Insight**: Hybrid model reduces TOTAL TOKEN COST by 42% while maintaining
+same orchestrator context growth. Savings come from:
+- Skills replace coordination subagents (60-82% cheaper)
+- Hooks eliminate manual git/test operations (zero tokens)
 ```
 
 **Why This Matters**:
@@ -1851,6 +2068,237 @@ tagPriority:
    - Task summaries capture essential knowledge
    - Feature summaries show high-level progress
    - More efficient than reading all sections
+
+---
+
+## Migration Guide: From Subagents to Hybrid Architecture
+
+**For Existing Users**: This guide helps you migrate from the subagent-only approach to the hybrid Skills + Subagents + Hooks architecture.
+
+### Summary of Changes
+
+**What's New**:
+- ✅ Skills tier added for lightweight coordination (60-82% token savings)
+- ✅ Hooks layer added for zero-token automation (git commits, tests)
+- ✅ Feature Management Skill replaces Feature Manager subagent
+- ✅ Task Management Skill replaces Task Manager subagent
+- ✅ Dependency Analysis Skill added for dependency investigation
+
+**What's Unchanged**:
+- ✅ Specialist subagents (Backend, Frontend, Database, Test, Technical Writer, Planning) remain identical
+- ✅ Tag-based routing via `recommend_agent` tool still works
+- ✅ Dependency context passing via Summary sections unchanged
+- ✅ Agent-mapping configuration unchanged
+
+**Backwards Compatibility**: Feature Manager and Task Manager subagents continue to work. You can migrate gradually.
+
+### Migration Steps
+
+#### Step 1: Update setup_claude_agents
+
+Run the enhanced setup tool to create Skills and Hooks:
+
+```
+User: "Setup Claude Code agents"
+
+Result:
+✓ Created .claude/agents/ with agent definitions (existing)
+✓ Created .claude/skills/ with 3 core Skills (NEW)
+✓ Created .claude/hooks/ with hook examples (NEW)
+✓ Created README files for Skills and Hooks
+```
+
+After setup, you'll have:
+- `.claude/skills/feature-management/` - Feature coordination Skill
+- `.claude/skills/task-management/` - Task coordination Skill
+- `.claude/skills/dependency-analysis/` - Dependency analysis Skill
+- `.claude/hooks/task-complete-commit.sh` - Auto-commit example
+- `.claude/hooks/feature-complete-gate.sh` - Quality gate example
+
+#### Step 2: Enable Hooks (Optional)
+
+Hooks automate git commits and test runs without using AI tokens:
+
+```bash
+# Copy example configuration
+cp .claude/settings.local.json.example .claude/settings.local.json
+
+# Edit to enable desired hooks
+code .claude/settings.local.json
+```
+
+Common hooks to enable:
+- **Task completion auto-commit**: Automatically commits when task marked complete
+- **Feature completion quality gate**: Runs tests before allowing feature completion
+- **Subagent metrics logger**: Logs completion times for monitoring
+
+#### Step 3: Adopt Skills for Coordination
+
+**Before (Subagent Approach)**:
+```
+User: "What task should I work on next in this feature?"
+
+Orchestrator: Launches Feature Manager subagent
+Feature Manager: Reads feature, calls get_next_task, returns recommendation
+Cost: ~1400 tokens
+```
+
+**After (Skill Approach)**:
+```
+User: "What task should I work on next in this feature?"
+
+Orchestrator: Feature Management Skill activates automatically
+Skill: Reads feature, calls get_next_task, returns recommendation
+Cost: ~300 tokens (78% savings)
+```
+
+**How to Trigger Skills**:
+- Say: "What task should I work on next?" → Feature Management Skill
+- Say: "Complete this task" → Task Management Skill
+- Say: "Show me blocked tasks" → Dependency Analysis Skill
+
+Skills activate automatically based on keywords in their descriptions.
+
+#### Step 4: Continue Using Specialist Subagents
+
+**No changes needed** for specialist subagents:
+
+```
+User: "Implement user authentication API"
+
+Orchestrator: Launches Backend Engineer subagent (unchanged)
+Backend Engineer: Reads task, implements code, writes tests
+Result: Same as before
+```
+
+Specialist subagents remain the best choice for complex work.
+
+#### Step 5: Update Your Workflows
+
+**Old Workflow** (Subagent-Heavy):
+```
+1. User: "Work on feature F1"
+2. Orchestrator → Launch Feature Manager START
+3. Feature Manager → Recommend task T1
+4. Orchestrator → Launch Task Manager START for T1
+5. Task Manager → Recommend Backend Engineer
+6. Orchestrator → Launch Backend Engineer
+7. Backend Engineer → Implements, returns brief
+8. Orchestrator → Launch Task Manager END for T1
+9. Task Manager → Creates summary, marks complete
+10. Repeat steps 2-9 for remaining tasks
+```
+
+**New Workflow** (Hybrid):
+```
+1. User: "Work on feature F1"
+2. Feature Management Skill → Recommends task T1
+3. Task Management Skill → Routes to Backend Engineer
+4. Orchestrator → Launch Backend Engineer
+5. Backend Engineer → Implements, returns brief
+6. Task Management Skill → Creates summary, marks complete
+   [Hook automatically creates git commit]
+7. Feature Management Skill → Recommends next task
+8. Repeat steps 3-7 for remaining tasks
+```
+
+**Token Savings**: ~50% reduction for feature with 5 tasks.
+
+### Migration Examples
+
+#### Example 1: Feature Coordination
+
+**Old (Subagent)**:
+```
+Orchestrator: "I need to check feature progress"
+→ Launch Feature Manager START
+→ Feature Manager reads feature, returns progress
+→ ~1400 tokens
+```
+
+**New (Skill)**:
+```
+Orchestrator: "Check feature progress"
+→ Feature Management Skill activates
+→ Skill reads feature, returns progress
+→ ~300 tokens (78% savings)
+```
+
+#### Example 2: Task Completion
+
+**Old (Subagent)**:
+```
+Backend Engineer: "I completed the auth API implementation"
+→ Orchestrator: Launch Task Manager END
+→ Task Manager creates summary, marks complete
+→ ~1500 tokens
+```
+
+**New (Skill + Hook)**:
+```
+Backend Engineer: "I completed the auth API implementation"
+→ Task Management Skill creates summary, marks complete
+→ Hook automatically creates git commit
+→ ~600 tokens + 0 for hook (60% savings)
+```
+
+#### Example 3: Dependency Analysis
+
+**Old (Manual)**:
+```
+User: "Why is task T5 blocked?"
+→ Orchestrator manually calls get_task_dependencies
+→ Orchestrator reads each blocking task
+→ Orchestrator explains blockers
+→ ~2k tokens + effort
+```
+
+**New (Skill)**:
+```
+User: "Why is task T5 blocked?"
+→ Dependency Analysis Skill activates
+→ Skill analyzes dependencies, identifies blockers
+→ ~400 tokens (80% savings)
+```
+
+### Gradual Migration Strategy
+
+**Week 1: Setup**
+- Run `setup_claude_agents` to create Skills and Hooks
+- Review created files in `.claude/skills/` and `.claude/hooks/`
+- Read Skills documentation to understand capabilities
+
+**Week 2: Try Skills**
+- Start using Feature Management Skill for next-task recommendations
+- Use Task Management Skill for task completion
+- Continue using subagents for specialist work (no change)
+
+**Week 3: Enable Hooks**
+- Copy `.claude/settings.local.json.example` to enable hooks
+- Test auto-commit hook with one task
+- Gradually enable other hooks as comfortable
+
+**Week 4: Full Adoption**
+- Use Skills for all coordination (feature/task management)
+- Use Hooks for all automation (commits, tests)
+- Use Subagents only for complex work (implementation, planning)
+
+### Common Questions
+
+**Q: Do I have to stop using Feature Manager/Task Manager subagents?**
+A: No, they continue to work. Migrate at your own pace.
+
+**Q: Will my existing features/tasks work with Skills?**
+A: Yes, Skills use the same MCP tools as subagents. No data migration needed.
+
+**Q: What if Skills don't activate?**
+A: Check that you ran `setup_claude_agents` and Skills exist in `.claude/skills/`. Skills activate based on description keywords.
+
+**Q: Can I customize Skills?**
+A: Yes, edit SKILL.md files in `.claude/skills/*/SKILL.md`. Changes take effect immediately.
+
+**Q: What if I prefer subagents?**
+A: Continue using them. Skills are optional optimization, not mandatory.
 
 ---
 

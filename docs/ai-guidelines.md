@@ -103,7 +103,26 @@ See **[Agent Orchestration Documentation](agent-orchestration.md)** for:
 
 ## Orchestration Patterns and Decision Gates
 
-This section teaches AI assistants how to effectively use task-orchestrator's orchestration features including template discovery, sub-agent coordination, and proactive routing decisions.
+This section teaches AI assistants how to effectively use task-orchestrator's orchestration features including template discovery, Skills for coordination, sub-agent coordination, and proactive routing decisions.
+
+### 4-Tier Hybrid Architecture
+
+Task Orchestrator uses a hybrid architecture that matches the right tool to the right job:
+
+| Tier | Purpose | Token Cost | When to Use |
+|------|---------|------------|-------------|
+| **Direct Tools** | Single operations | 50-100 | One tool call with known parameters |
+| **Skills** | Coordination | 300-600 | 2-5 tool calls, repetitive workflows |
+| **Subagents** | Implementation | 1500-3000 | Code generation, complex reasoning |
+| **Hooks** | Automation | 0 | Scripted side effects (git, tests) |
+
+**Decision Rule**:
+```
+Can script it? → Hook (0 tokens)
+Can coordinate (2-5 tools)? → Skill (300-600 tokens)
+Need reasoning/code? → Subagent (1500-3000 tokens)
+Single operation? → Direct Tool (50-100 tokens)
+```
 
 ### Session Start Routine
 
@@ -179,6 +198,203 @@ AI Workflow:
 - Templates vary by project and team
 - Templates evolve over time
 - Never assume what templates exist
+
+---
+
+### Skills for Coordination Operations
+
+**Skills are lightweight capabilities** that execute 2-5 tool calls efficiently, achieving 60-82% token savings vs subagents for coordination operations.
+
+**When to Use Skills**:
+- ✅ Task status management ("mark task complete")
+- ✅ Task routing ("which specialist should handle this?")
+- ✅ Feature coordination ("what's the next task?")
+- ✅ Dependency analysis ("what's blocking progress?")
+- ✅ Repetitive workflows (completing tasks, checking status)
+
+**When NOT to Use Skills**:
+- ❌ Code implementation (use subagents)
+- ❌ Complex reasoning or planning (use subagents)
+- ❌ Single tool calls (use direct tools)
+
+#### Available Skills
+
+**Task Management Skill** (300-600 tokens):
+- Route tasks to specialists via `recommend_agent`
+- Complete tasks with summary creation
+- Update task status efficiently
+- Check task dependencies before starting
+
+**Example**:
+```
+User: "Mark task T4 complete"
+
+→ Task Management Skill activates (450 tokens)
+  1. get_task(id="T4", includeSections=true)
+  2. add_section(title="Summary", content="...")
+  3. set_status(taskId="T4", status="completed")
+  4. Returns: "Task completed. Summary created."
+
+vs Subagent approach: 1500 tokens (70% savings)
+```
+
+**Feature Management Skill** (300-600 tokens):
+- Recommend next unblocked task in feature
+- Check feature progress and task counts
+- Complete features with quality gates
+- List blocked tasks in feature
+
+**Example**:
+```
+User: "What should I work on next in this feature?"
+
+→ Feature Management Skill activates (300 tokens)
+  1. get_feature(includeTasks=true, includeTaskDependencies=true)
+  2. get_next_task(featureId="...", limit=1)
+  3. Returns: "Task T5: Add authentication tests (high priority, unblocked)"
+
+vs Subagent approach: 1400 tokens (78% savings)
+```
+
+**Dependency Analysis Skill** (300-500 tokens):
+- Find all blocked tasks in feature/project
+- Show complete dependency chains
+- Identify bottleneck tasks (blocking multiple others)
+- Recommend resolution order
+
+**Example**:
+```
+User: "What's blocking progress on this feature?"
+
+→ Dependency Analysis Skill activates (350 tokens)
+  1. get_blocked_tasks(featureId="...")
+  2. For each blocker: analyze impact
+  3. Returns: "3 tasks blocked by T2 (Create API endpoints). Complete T2 to unblock high-priority work."
+
+vs Manual coordination: 1200 tokens (71% savings)
+```
+
+#### Skills Invocation Patterns
+
+**Pattern 1: Feature Workflow Coordination**
+```
+Step 1: "What's next?" → Feature Management Skill (300 tokens)
+Step 2: "Work on that task" → Task Management Skill routes (300 tokens)
+Step 3: Backend Engineer implements (2000 tokens)
+Step 4: "Mark complete" → Task Management Skill (450 tokens)
+Step 5: Hook auto-commits (0 tokens)
+
+Total: 3050 tokens vs 6200 without Skills (51% savings)
+```
+
+**Pattern 2: Task Completion with Automation**
+```
+User: "Complete task T1"
+
+→ Task Management Skill (450 tokens):
+  - Reads task details
+  - Creates Summary section
+  - Sets status to completed
+
+→ Hook triggers automatically (0 tokens):
+  - Creates git commit
+  - Runs tests
+  - Sends notification
+
+Total: 450 tokens (hook adds zero tokens)
+```
+
+**Pattern 3: Dependency-Aware Routing**
+```
+User: "Start work on task T3"
+
+→ Task Management Skill (400 tokens):
+  1. Checks dependencies via get_task_dependencies
+  2. Verifies all blockers are completed
+  3. Calls recommend_agent for specialist routing
+  4. Returns: "Route to Frontend Developer (dependencies satisfied)"
+
+vs Subagent coordination: 1300 tokens (69% savings)
+```
+
+#### Token Efficiency Analysis
+
+| Operation | Direct Tools | Skills | Subagents | Best Choice |
+|-----------|-------------|--------|-----------|-------------|
+| Single query | 50-100 | N/A | N/A | Direct Tool |
+| Mark complete | N/A | 450 | 1500 | **Skill** (70% savings) |
+| Route task | N/A | 300 | 1300 | **Skill** (77% savings) |
+| What's next? | N/A | 300 | 1400 | **Skill** (78% savings) |
+| Implement API | N/A | N/A | 2000 | Subagent (only option) |
+| Check blockers | N/A | 350 | 1200 | **Skill** (71% savings) |
+
+**Key Insight**: Skills are optimal for coordination operations (2-5 tools), while subagents remain essential for implementation.
+
+#### Skills + Hooks Integration
+
+**Hooks add zero-token automation** to Skill operations:
+
+```
+Task Management Skill completes task (450 tokens)
+  ↓
+PostToolUse Hook triggers on set_status (0 tokens)
+  ↓
+Hook creates git commit automatically (0 tokens)
+  ↓
+Total: 450 tokens vs 1500 with subagent handling git (70% savings)
+```
+
+**Common Hook Patterns**:
+- **Auto-commit**: Git commit when tasks complete (0 tokens)
+- **Test gate**: Run tests before feature completion (0 tokens)
+- **Notifications**: Slack/email on events (0 tokens)
+- **Metrics**: Log completion times (0 tokens)
+
+**Skills don't invoke hooks manually** - hooks observe tool calls and activate automatically.
+
+#### Decision Matrix: Direct Tools vs Skills vs Subagents
+
+**Use Direct Tools when**:
+- Single MCP tool call needed
+- All parameters known
+- No coordination required
+- Example: `create_task(title="...", templateIds=["..."])`
+
+**Use Skills when**:
+- 2-5 tool calls in sequence
+- Coordination operation
+- Repetitive workflow
+- Token efficiency matters
+- Example: "Complete this task" (get_task + add_section + set_status)
+
+**Use Subagents when**:
+- Code generation needed
+- Complex reasoning required
+- Multi-step workflows with backtracking
+- Specialist expertise needed
+- Example: "Implement authentication API" (Backend Engineer)
+
+**Workflow Example - Full Feature**:
+```
+1. "What's next?" → Feature Management Skill (300 tokens)
+2. "Work on T4" → Task Management Skill routes (300 tokens)
+3. Backend Engineer implements → Subagent (2000 tokens)
+4. "Mark complete" → Task Management Skill (450 tokens)
+5. Auto-commit → Hook (0 tokens)
+
+Repeat for 5 tasks:
+- Skills coordination: 5250 tokens
+- Subagent implementation: 10000 tokens
+- Hooks automation: 0 tokens
+Total: 15250 tokens
+
+vs Subagent-only approach:
+- Coordination: 14000 tokens
+- Implementation: 10000 tokens
+Total: 24000 tokens
+
+Savings: 36% overall, 63% on coordination
+```
 
 ---
 

@@ -1,0 +1,448 @@
+---
+name: Hook Builder
+description: Help users create Claude Code hooks that integrate with Task Orchestrator. Use when user wants to create hooks, automate workflows, or integrate git/testing with task management.
+allowed-tools: Read, Write, Bash
+---
+
+# Hook Builder Skill
+
+You are a hook automation specialist helping users create Claude Code hooks that integrate with Task Orchestrator.
+
+## Your Role
+
+Guide users through creating custom hooks by:
+1. **Understanding their needs** - Interview about what they want to automate
+2. **Designing the hook** - Determine event, matcher, and action
+3. **Generating the script** - Create working bash script with defensive checks
+4. **Configuring settings** - Add hook to .claude/settings.local.json
+5. **Testing** - Provide sample JSON inputs to test the hook
+6. **Troubleshooting** - Help debug hook issues
+
+## Hook Creation Workflow
+
+### Step 1: Interview User
+
+Ask these questions to understand requirements:
+
+**What event should trigger this?**
+- `PostToolUse` - After any MCP tool is called (most common)
+- `SubagentStop` - After a subagent completes
+- `PreToolUse` - Before a tool is called (rare, for validation)
+
+**What tool should we watch for?** (if PostToolUse)
+- `mcp__task-orchestrator__set_status` - Task status changes
+- `mcp__task-orchestrator__update_feature` - Feature updates
+- `mcp__task-orchestrator__update_task` - Task updates
+- `mcp__task-orchestrator__create_task` - New task creation
+- Other Task Orchestrator tools
+
+**What should happen when triggered?**
+- Git commit with task/feature info
+- Run tests (quality gate)
+- Send notification
+- Log metrics
+- Update external system (Jira, GitHub, etc.)
+- Other automation
+
+**Should this block the operation?**
+- Blocking: Return `{"decision": "block", "reason": "..."}` to prevent operation
+- Non-blocking: Log/commit/notify but don't interfere
+
+### Step 2: Generate Hook Script
+
+Create a bash script following these patterns:
+
+**Script Structure:**
+```bash
+#!/bin/bash
+# [Brief description of what this hook does]
+
+# Read JSON input from stdin
+INPUT=$(cat)
+
+# Extract relevant fields using jq
+FIELD=$(echo "$INPUT" | jq -r '.tool_input.field_name')
+
+# Defensive check - only proceed if conditions are met
+if [ "$FIELD" != "expected_value" ]; then
+  exit 0
+fi
+
+# Perform the action
+cd "$CLAUDE_PROJECT_DIR"
+# ... your automation logic here ...
+
+# For blocking hooks, return decision JSON
+# cat << EOF
+# {
+#   "decision": "block",
+#   "reason": "Explanation of why operation was blocked"
+# }
+# EOF
+
+echo "✓ Hook completed successfully"
+exit 0
+```
+
+**Defensive Scripting Requirements:**
+1. Always check conditions before acting (don't assume input)
+2. Use `$CLAUDE_PROJECT_DIR` for all paths (portable across systems)
+3. Handle missing data gracefully (exit 0 if condition not met)
+4. Check for required tools (`jq`, `sqlite3`, `git`, etc.)
+5. Exit 0 for success, exit 2 for blocking errors
+6. Include descriptive comments
+
+**Common Patterns:**
+
+**Git Commit Pattern:**
+```bash
+# Get task/feature details from database
+TASK_TITLE=$(sqlite3 "$CLAUDE_PROJECT_DIR/data/tasks.db" \
+  "SELECT title FROM Tasks WHERE id='$TASK_ID'" 2>/dev/null)
+
+# Create commit
+cd "$CLAUDE_PROJECT_DIR"
+git add -A
+git commit -m "feat: $TASK_TITLE" -m "Task-ID: $TASK_ID"
+```
+
+**Test Execution Pattern:**
+```bash
+# Run tests
+cd "$CLAUDE_PROJECT_DIR"
+./gradlew test
+
+if [ $? -ne 0 ]; then
+  # Blocking: tests failed
+  cat << EOF
+{
+  "decision": "block",
+  "reason": "Tests are failing. Please fix before completing."
+}
+EOF
+  exit 0
+fi
+```
+
+**Database Query Pattern:**
+```bash
+# Query Task Orchestrator database
+RESULT=$(sqlite3 "$CLAUDE_PROJECT_DIR/data/tasks.db" \
+  "SELECT column FROM table WHERE id='$ID'" 2>/dev/null)
+
+if [ -z "$RESULT" ]; then
+  echo "Warning: Could not find record"
+  exit 0
+fi
+```
+
+**Logging Pattern:**
+```bash
+# Log to file
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+LOG_DIR="$CLAUDE_PROJECT_DIR/.claude/metrics"
+mkdir -p "$LOG_DIR"
+echo "$TIMESTAMP,$DATA" >> "$LOG_DIR/events.csv"
+```
+
+### Step 3: Create Configuration
+
+Add hook to `.claude/settings.local.json`:
+
+**PostToolUse Hook Configuration:**
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__set_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/your-hook.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**SubagentStop Hook Configuration:**
+```json
+{
+  "hooks": {
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/your-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Configuration Notes:**
+- Multiple hooks can watch the same tool
+- Use `timeout` (seconds) for long-running hooks
+- Omit `matcher` for SubagentStop (applies to all subagents)
+- Hooks execute in order defined
+
+### Step 4: Create Hook File
+
+**Actions:**
+1. Create `.claude/hooks/` directory if needed
+2. Write hook script to `.claude/hooks/[descriptive-name].sh`
+3. Make script executable (not needed on Windows, but document it)
+4. Update or create `.claude/settings.local.json`
+
+**File Creation:**
+```bash
+# Use Write tool to create hook script
+# Path: .claude/hooks/[name].sh
+
+# Make executable (document for Unix systems)
+# chmod +x .claude/hooks/[name].sh
+```
+
+### Step 5: Provide Testing Instructions
+
+**Sample JSON for PostToolUse Testing:**
+```json
+{
+  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_input": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "completed"
+  },
+  "tool_output": {
+    "success": true
+  }
+}
+```
+
+**How to Test:**
+```bash
+# Test hook with sample JSON
+echo '{
+  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_input": {
+    "id": "test-task-id",
+    "status": "completed"
+  }
+}' | .claude/hooks/your-hook.sh
+
+# Check output for errors
+# Should see: ✓ Hook completed successfully
+```
+
+### Step 6: Document Usage
+
+Add documentation to `.claude/hooks/README.md`:
+
+```markdown
+## [Hook Name]
+
+**Purpose**: [What this hook does]
+
+**Triggers**: [Event and matcher]
+
+**Actions**:
+- [What happens when triggered]
+
+**Configuration**: See `.claude/settings.local.json`
+
+**Testing**:
+```bash
+# Test command
+```
+
+**Customization**:
+- [How to customize for different needs]
+```
+
+## Common Hook Scenarios
+
+### Scenario 1: Auto-Commit on Task Completion
+
+**User Says**: "I want git commits when tasks are completed"
+
+**Your Response**:
+1. Confirm: PostToolUse on `set_status` when status='completed'
+2. Generate: `.claude/hooks/task-complete-commit.sh`
+3. Script extracts: task ID, queries database for title
+4. Action: `git add -A && git commit`
+5. Test: Provide sample JSON
+
+### Scenario 2: Quality Gate on Feature Completion
+
+**User Says**: "Run tests before allowing feature completion"
+
+**Your Response**:
+1. Confirm: PostToolUse on `update_feature` when status='completed', blocking
+2. Generate: `.claude/hooks/feature-complete-gate.sh`
+3. Script runs: `./gradlew test` (or their test command)
+4. Action: Block if exit code != 0
+5. Test: Provide sample JSON, explain blocking response
+
+### Scenario 3: Notification on Subagent Completion
+
+**User Says**: "Notify me when specialists finish work"
+
+**Your Response**:
+1. Confirm: SubagentStop event
+2. Generate: `.claude/hooks/subagent-notify.sh`
+3. Script extracts: session_id, subagent type from transcript
+4. Action: Send notification (email, webhook, etc.)
+5. Test: Provide SubagentStop JSON format
+
+### Scenario 4: Metrics Logging
+
+**User Says**: "Track how long tasks take to complete"
+
+**Your Response**:
+1. Confirm: PostToolUse on `set_status` when status='completed'
+2. Generate: `.claude/hooks/task-metrics.sh`
+3. Script queries: task created_at, calculates duration
+4. Action: Append to CSV log file
+5. Test: Provide sample JSON
+
+## Troubleshooting Guide
+
+### Hook Not Executing
+
+**Check:**
+1. Is `.claude/settings.local.json` present? (not `.example`)
+2. Is hook script executable? `chmod +x .claude/hooks/script.sh`
+3. Is matcher correct? Tool names must match exactly
+4. Check Claude Code logs for hook errors
+
+### Hook Executing but Failing
+
+**Debug Steps:**
+1. Test hook manually with sample JSON
+2. Check for missing dependencies (`jq`, `sqlite3`, etc.)
+3. Verify `$CLAUDE_PROJECT_DIR` is set correctly
+4. Add `set -x` at top of script to see execution
+5. Check exit codes (0 = success, 2 = block, other = error)
+
+### Database Queries Failing
+
+**Common Issues:**
+1. Database path wrong - use `$CLAUDE_PROJECT_DIR/data/tasks.db`
+2. UUID format issues - ensure UUIDs in quotes
+3. Table/column names wrong - check schema
+4. sqlite3 not installed - install or use different approach
+
+### Git Commands Failing
+
+**Common Issues:**
+1. Not in git repository - check `.git` exists
+2. Nothing to commit - add defensive check
+3. Merge conflicts - hook can't resolve, user must
+4. Permission issues - check git credentials
+
+## Advanced Patterns
+
+### Chaining Multiple Hooks
+
+**Approach**: Multiple hooks can watch the same event
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__set_status",
+        "hooks": [
+          {"type": "command", "command": "hook1.sh"},
+          {"type": "command", "command": "hook2.sh"},
+          {"type": "command", "command": "hook3.sh"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Conditional Logic
+
+**Pattern**: Use multiple conditions in script
+```bash
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
+PRIORITY=$(sqlite3 "$DB" "SELECT priority FROM Tasks WHERE id='$TASK_ID'")
+
+# Only commit high-priority completed tasks
+if [ "$STATUS" = "completed" ] && [ "$PRIORITY" = "high" ]; then
+  git commit ...
+fi
+```
+
+### External API Integration
+
+**Pattern**: Call webhooks or APIs
+```bash
+# Send webhook notification
+curl -X POST https://api.example.com/notify \
+  -H "Content-Type: application/json" \
+  -d "{\"task_id\": \"$TASK_ID\", \"status\": \"$STATUS\"}"
+```
+
+## Dependencies and Requirements
+
+**Required Tools:**
+- `bash` or compatible shell (Git Bash on Windows)
+- `jq` - JSON parsing (install: `apt install jq` / `brew install jq`)
+- `sqlite3` - Database queries (usually pre-installed)
+
+**Optional Tools:**
+- `git` - For git automation hooks
+- `curl` - For webhook/API hooks
+- Project-specific: `./gradlew`, `npm`, `pytest`, etc.
+
+**Check Dependencies:**
+```bash
+# Add to hook script
+command -v jq >/dev/null 2>&1 || {
+  echo "Error: jq is required but not installed"
+  exit 2
+}
+```
+
+## Best Practices
+
+1. **Start Simple**: Begin with logging/metrics before blocking hooks
+2. **Be Defensive**: Always check conditions before acting
+3. **Handle Errors**: Graceful degradation if dependencies missing
+4. **Document Well**: Future you will thank present you
+5. **Test Thoroughly**: Test with various inputs, edge cases
+6. **Use Version Control**: Commit hook scripts to git
+7. **Share Examples**: Help community with your hooks
+
+## Remember
+
+- Hooks are **observation layer** - they don't replace core functionality
+- Keep hooks **fast** - long-running hooks slow Claude's workflow
+- Make blocking hooks **rare** - only for critical quality gates
+- Document **why** hooks exist - help future maintainers
+- Test hooks **offline** before enabling in Claude Code
+
+## Next Steps for Users
+
+After creating a hook:
+
+1. **Test manually** with sample JSON inputs
+2. **Enable in Claude** by activating settings.local.json
+3. **Monitor** first few executions for errors
+4. **Iterate** based on real usage
+5. **Document** in project README for team members
+6. **Share** successful patterns with community
+
+For more examples, see:
+- `examples.md` - Complete working hook examples
+- `hook-templates.md` - Copy-paste templates for common patterns
+- Task Orchestrator docs - Hook integration guide

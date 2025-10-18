@@ -1,0 +1,312 @@
+{
+  // Claude Code Settings Configuration Example for Task Orchestrator
+  //
+  // This file demonstrates how to configure hooks that integrate with
+  // Task Orchestrator MCP tools for workflow automation.
+  //
+  // SETUP INSTRUCTIONS:
+  // 1. Copy this file: cp .claude/settings.local.json.example .claude/settings.local.json
+  // 2. Ensure hook scripts exist in .claude/hooks/ directory (created by setup_claude_agents)
+  // 3. Customize matchers and commands for your workflow
+  // 4. Restart Claude Code to load new configuration
+  //
+  // IMPORTANT:
+  // - settings.local.json is gitignored (personal configuration)
+  // - Hook scripts must be executable: chmod +x .claude/hooks/*.sh
+  // - Hooks require jq and sqlite3 (install if missing)
+  //
+  // For detailed documentation, see:
+  // - docs/hooks-guide.md - Comprehensive hooks guide
+  // - .claude/hooks/README.md - Hook examples documentation
+
+  "permissions": {
+    // Grant permissions for Task Orchestrator MCP tools
+    // These permissions allow hooks to read tool inputs/outputs
+    "allow": [
+      "mcp__task-orchestrator__*",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Read(//d/Projects/**)",
+      "Write(//d/Projects/**)"
+    ],
+    "deny": []
+  },
+
+  "hooks": {
+    // ================================================================
+    // PostToolUse Hooks
+    // ================================================================
+    // These hooks execute after specific MCP tools complete successfully.
+    // Use for automation based on task/feature lifecycle events.
+
+    "PostToolUse": [
+      // ------------------------------------------------------------
+      // Hook Example 1: Auto-commit when task is marked complete
+      // ------------------------------------------------------------
+      // Triggers when set_status tool is used to mark any task complete.
+      // Creates git commit with task title and ID.
+      //
+      // Use case: Automatically track task progress in git history
+      // Blocking: No (exits 0, doesn't block tool completion)
+      // Requirements: git, jq, sqlite3
+      {
+        "matcher": "mcp__task-orchestrator__set_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-complete-commit.sh",
+            "timeout": 30
+          }
+        ]
+      },
+
+      // ------------------------------------------------------------
+      // Hook Example 2: Quality gate before feature completion
+      // ------------------------------------------------------------
+      // Triggers when update_feature tool is used to mark feature complete.
+      // Runs project tests and BLOCKS completion if tests fail.
+      //
+      // Use case: Enforce quality standards before feature completion
+      // Blocking: YES (returns {"decision": "block"} if tests fail)
+      // Requirements: ./gradlew, jq
+      {
+        "matcher": "mcp__task-orchestrator__update_feature",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/feature-complete-gate.sh",
+            "timeout": 300
+          }
+        ]
+      },
+
+      // ------------------------------------------------------------
+      // Additional PostToolUse Hook Examples (Commented)
+      // ------------------------------------------------------------
+      // Uncomment and customize these examples for additional automation:
+
+      // Auto-commit when feature is completed
+      // {
+      //   "matcher": "mcp__task-orchestrator__update_feature",
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/feature-complete-commit.sh",
+      //       "timeout": 30
+      //     }
+      //   ]
+      // },
+
+      // Run linter when task status changes
+      // {
+      //   "matcher": "mcp__task-orchestrator__set_status",
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/run-linter.sh",
+      //       "timeout": 60
+      //     }
+      //   ]
+      // },
+
+      // Send notification when high-priority task is created
+      // {
+      //   "matcher": "mcp__task-orchestrator__create_task",
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/notify-task-created.sh",
+      //       "timeout": 10
+      //     }
+      //   ]
+      // },
+
+      // Export task to external system (Jira, Linear, etc.)
+      // {
+      //   "matcher": "mcp__task-orchestrator__create_task",
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/export-to-jira.sh",
+      //       "timeout": 30
+      //     }
+      //   ]
+      // },
+
+      // Auto-generate changelog entry on task completion
+      // {
+      //   "matcher": "mcp__task-orchestrator__set_status",
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/update-changelog.sh",
+      //       "timeout": 15
+      //     }
+      //   ]
+      // }
+    ],
+
+    // ================================================================
+    // SubagentStop Hooks
+    // ================================================================
+    // These hooks execute when a subagent session ends.
+    // Use for logging, metrics, cleanup, or post-processing.
+
+    "SubagentStop": [
+      // ------------------------------------------------------------
+      // Hook Example 3: Log subagent completion metrics
+      // ------------------------------------------------------------
+      // Triggers when any subagent session ends.
+      // Logs session ID, timestamp, and subagent type to CSV.
+      //
+      // Use case: Track subagent usage patterns and performance
+      // Blocking: No (metrics only, doesn't affect workflow)
+      // Requirements: jq
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/subagent-stop-logger.sh",
+            "timeout": 10
+          }
+        ]
+      }
+
+      // ------------------------------------------------------------
+      // Additional SubagentStop Hook Examples (Commented)
+      // ------------------------------------------------------------
+      // Uncomment and customize these examples for additional automation:
+
+      // Archive subagent transcripts for review
+      // {
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/archive-transcript.sh",
+      //       "timeout": 20
+      //     }
+      //   ]
+      // },
+
+      // Generate summary report from subagent session
+      // {
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/generate-summary.sh",
+      //       "timeout": 30
+      //     }
+      //   ]
+      // },
+
+      // Send metrics to analytics platform
+      // {
+      //   "hooks": [
+      //     {
+      //       "type": "command",
+      //       "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/send-metrics.sh",
+      //       "timeout": 15
+      //     }
+      //   ]
+      // }
+    ]
+
+    // ================================================================
+    // Other Hook Event Types (Not Used in Task Orchestrator Examples)
+    // ================================================================
+    // Claude Code supports additional hook events that can be configured:
+    //
+    // "PreToolUse": [...]      - Executes BEFORE tool is called
+    // "PreSubagentStart": [...] - Executes BEFORE subagent launches
+    // "PostSubagentStart": [...] - Executes AFTER subagent launches
+    //
+    // See Claude Code documentation for details on these event types.
+  }
+}
+
+// ====================================================================
+// CUSTOMIZATION GUIDE
+// ====================================================================
+//
+// MATCHER CONFIGURATION:
+// - Matcher format: "mcp__task-orchestrator__<tool_name>"
+// - Available tools: set_status, update_feature, create_task,
+//   update_task, create_feature, add_section, etc.
+// - See docs/api-reference.md for complete list of tools
+//
+// HOOK SCRIPT STRUCTURE:
+// All hook scripts receive JSON on stdin and should:
+// 1. Read input: INPUT=$(cat)
+// 2. Parse with jq: FIELD=$(echo "$INPUT" | jq -r '.path.to.field')
+// 3. Perform action (git commit, run tests, send notification, etc.)
+// 4. Exit appropriately:
+//    - exit 0: Success (non-blocking)
+//    - exit 2: Block with error
+//    - For blocking, output: {"decision": "block", "reason": "..."}
+//
+// BLOCKING VS NON-BLOCKING:
+// - Non-blocking: Hook executes, tool completes regardless of hook result
+// - Blocking: Hook can prevent tool completion by returning {"decision": "block"}
+// - Use blocking for quality gates, validation, approval workflows
+// - Use non-blocking for logging, notifications, side effects
+//
+// ENVIRONMENT VARIABLES AVAILABLE IN HOOKS:
+// - $CLAUDE_PROJECT_DIR: Absolute path to project root
+// - $CLAUDE_AGENT_NAME: Name of current agent (if in subagent)
+// - $CLAUDE_SESSION_ID: Unique session identifier
+//
+// TIMEOUT VALUES:
+// - Set based on expected execution time
+// - Default: 30 seconds
+// - Long-running operations (tests): 300+ seconds
+// - Quick operations (logging): 10-15 seconds
+//
+// HOOK INPUT STRUCTURE (PostToolUse):
+// {
+//   "tool_name": "mcp__task-orchestrator__set_status",
+//   "tool_input": {
+//     "id": "550e8400-e29b-41d4-a716-446655440000",
+//     "status": "completed"
+//   },
+//   "tool_output": {
+//     "success": true,
+//     "message": "Task status updated",
+//     "data": { ... }
+//   },
+//   "timestamp": "2025-10-18T15:00:00Z"
+// }
+//
+// HOOK INPUT STRUCTURE (SubagentStop):
+// {
+//   "session_id": "abc123",
+//   "agent_name": "Backend Engineer",
+//   "transcript_path": "/path/to/transcript.md",
+//   "start_time": "2025-10-18T14:00:00Z",
+//   "end_time": "2025-10-18T15:00:00Z",
+//   "duration_seconds": 3600
+// }
+//
+// TROUBLESHOOTING:
+// - Hook not running? Check permissions and executable flag
+// - Timeout errors? Increase timeout value in configuration
+// - JSON parsing errors? Validate jq syntax and input structure
+// - Git commit errors? Ensure git is configured and repo is initialized
+// - For detailed debugging, add set -x to top of hook script
+//
+// TESTING HOOKS:
+// Test hooks manually by piping sample JSON to the script:
+//
+// echo '{"tool_input": {"status": "completed", "id": "test-id"}}' | \
+//   .claude/hooks/task-complete-commit.sh
+//
+// SECURITY CONSIDERATIONS:
+// - Hook scripts execute with your user permissions
+// - Validate all inputs to prevent injection attacks
+// - Be cautious with hooks that make external API calls
+// - Review hook scripts before enabling them
+// - Use allowlists for matchers (not denylists)
+//
+// For more examples and detailed documentation:
+// - docs/hooks-guide.md - Complete hooks documentation
+// - .claude/hooks/README.md - Hook examples and usage
+// - Use Hook Builder Skill to generate custom hooks interactively

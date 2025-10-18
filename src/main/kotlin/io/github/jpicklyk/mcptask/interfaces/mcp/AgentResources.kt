@@ -57,7 +57,7 @@ object AgentResources {
                         agents.forEach { agentName ->
                             addJsonObject {
                                 put("name", agentName)
-                                put("definitionPath", ".taskorchestrator/agents/$agentName.md")
+                                put("definitionPath", ".claude/agents/$agentName.md")
                             }
                         }
                     }
@@ -163,7 +163,7 @@ object AgentResources {
                         putJsonArray("sectionTags") {
                             recommendation.sectionTags.forEach { add(it) }
                         }
-                        put("definitionPath", ".taskorchestrator/agents/${recommendation.agentName}.md")
+                        put("definitionPath", ".claude/agents/${recommendation.agentName}.md")
                         put("taskId", taskId.toString())
                     }
                 } else {
