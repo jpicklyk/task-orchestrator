@@ -319,7 +319,7 @@ See: [agent-orchestration.md](docs/agent-orchestration.md), [hybrid-architecture
 
 ## Task Orchestrator - AI Initialization
 
-**Last initialized:** 2025-10-16 | **Version:** 1.1.0-beta | **Features:** none
+**Last initialized:** 2025-10-18 | **Version:** 1.1.0-beta | **Features:** skills,subagents
 
 ### Critical Patterns
 
