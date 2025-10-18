@@ -76,6 +76,20 @@ class SQLiteSectionRepository(
                 )
 
                 val createdId = transaction {
+                    // Check for duplicate ordinal before inserting
+                    val existingWithOrdinal = SectionsTable.selectAll().where {
+                        (SectionsTable.entityType eq entityType.name) and
+                                (SectionsTable.entityId eq entityId) and
+                                (SectionsTable.ordinal eq updatedSection.ordinal)
+                    }.count()
+
+                    if (existingWithOrdinal > 0) {
+                        throw IllegalArgumentException(
+                            "A section with ordinal ${updatedSection.ordinal} already exists for this ${entityType.name.lowercase()}. " +
+                                    "Please use a different ordinal value or use the ReorderSections tool to reorganize existing sections."
+                        )
+                    }
+
                     SectionsTable.insert {
                         it[SectionsTable.id] = updatedSection.id
                         it[SectionsTable.entityType] = updatedSection.entityType.name
@@ -111,7 +125,25 @@ class SQLiteSectionRepository(
 
                 val result = transaction {
                     // Check if section exists first to distinguish NotFound from OptimisticLockError
-                    val exists = SectionsTable.selectAll().where { SectionsTable.id eq section.id }.count() > 0
+                    val existingSection = SectionsTable.selectAll().where { SectionsTable.id eq section.id }.singleOrNull()
+                    val exists = existingSection != null
+
+                    if (exists) {
+                        // Check for duplicate ordinal (excluding the section being updated)
+                        val duplicateOrdinal = SectionsTable.selectAll().where {
+                            (SectionsTable.entityType eq section.entityType.name) and
+                                    (SectionsTable.entityId eq section.entityId) and
+                                    (SectionsTable.ordinal eq updatedSection.ordinal) and
+                                    (SectionsTable.id neq section.id)
+                        }.count()
+
+                        if (duplicateOrdinal > 0) {
+                            throw IllegalArgumentException(
+                                "A section with ordinal ${updatedSection.ordinal} already exists for this ${section.entityType.name.lowercase()}. " +
+                                        "Please use a different ordinal value or use the ReorderSections tool to reorganize existing sections."
+                            )
+                        }
+                    }
 
                     // Optimistic locking: only update if version matches
                     val rowsUpdated = SectionsTable.update({
