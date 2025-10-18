@@ -7,12 +7,11 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
 /**
- * Manages the .claude/ directory structure for Claude Code agent definitions, skills, and hooks.
+ * Manages the .claude/ directory structure for Claude Code agent definitions and skills.
  *
  * Claude Code expects:
- * - Agent definitions in .claude/agents/ with YAML frontmatter and markdown content
+ * - Agent definitions in .claude/agents/task-orchestrator/ with YAML frontmatter and markdown content
  * - Skills in .claude/skills/task-orchestrator/ for lightweight coordination
- * - Hooks in .claude/hooks/task-orchestrator/ for side effects and automation
  *
  * Agent format:
  * - YAML frontmatter with name, description, tools, model
@@ -20,10 +19,9 @@ import java.nio.file.StandardCopyOption
  * - Model field: "sonnet" or "opus" (not full model names)
  *
  * Responsibilities:
- * - Create and manage .claude/agents/, .claude/skills/, .claude/hooks/ directories
+ * - Create and manage .claude/agents/task-orchestrator/, .claude/skills/task-orchestrator/ directories
  * - Copy Claude-specific agent template files from embedded resources
  * - Copy skill templates with all supporting files (SKILL.md, examples, guides)
- * - Copy hook examples with scripts and templates subdirectories
  * - Read/write agent definition files
  * - Handle Docker volume mounts
  * - Portable across Windows/Linux/macOS
@@ -45,11 +43,9 @@ class ClaudeAgentDirectoryManager(
         const val CLAUDE_DIR = ".claude"
         const val AGENTS_DIR = "agents"
         const val SKILLS_DIR = "skills"
-        const val HOOKS_DIR = "hooks"
-        const val TASK_MANAGER_SUBDIR = "task-orchestrator"
-        const val RESOURCE_PATH_PREFIX = "/agents/claude"
+        const val TASK_ORCHESTRATOR_SUBDIR = "task-orchestrator"
+        const val RESOURCE_PATH_PREFIX = "/agents/claude/task-orchestrator"
         const val SKILLS_RESOURCE_PATH = "/skills"
-        const val HOOKS_RESOURCE_PATH = "/hooks"
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
         const val CLAUDE_MD_FILE = "CLAUDE.md"
@@ -95,10 +91,10 @@ class ClaudeAgentDirectoryManager(
     }
 
     /**
-     * Get the agents directory path (.claude/agents/)
+     * Get the agents directory path (.claude/agents/task-orchestrator/)
      */
     fun getAgentsDir(): Path {
-        return getClaudeDir().resolve(AGENTS_DIR)
+        return getClaudeDir().resolve(AGENTS_DIR).resolve(TASK_ORCHESTRATOR_SUBDIR)
     }
 
     /**
@@ -116,7 +112,7 @@ class ClaudeAgentDirectoryManager(
     }
 
     /**
-     * Create the .claude/agents/ directory structure
+     * Create the .claude/agents/task-orchestrator/ directory structure
      * Returns true if created, false if already exists
      */
     fun createDirectoryStructure(): Boolean {
@@ -379,14 +375,15 @@ class ClaudeAgentDirectoryManager(
      * Get the skills directory path (.claude/skills/task-orchestrator/)
      */
     fun getSkillsDir(): Path {
-        return getClaudeDir().resolve(SKILLS_DIR).resolve(TASK_MANAGER_SUBDIR)
+        return getClaudeDir().resolve(SKILLS_DIR).resolve(TASK_ORCHESTRATOR_SUBDIR)
     }
 
     /**
      * Get the hooks directory path (.claude/hooks/task-orchestrator/)
+     * Note: Hooks are no longer automatically created, but this path is used for discovery of user-created hooks
      */
     fun getHooksDir(): Path {
-        return getClaudeDir().resolve(HOOKS_DIR).resolve(TASK_MANAGER_SUBDIR)
+        return getClaudeDir().resolve("hooks").resolve(TASK_ORCHESTRATOR_SUBDIR)
     }
 
     /**
@@ -394,13 +391,6 @@ class ClaudeAgentDirectoryManager(
      */
     fun skillsDirExists(): Boolean {
         return Files.exists(getSkillsDir())
-    }
-
-    /**
-     * Check if the hooks directory exists
-     */
-    fun hooksDirExists(): Boolean {
-        return Files.exists(getHooksDir())
     }
 
     /**
@@ -417,39 +407,6 @@ class ClaudeAgentDirectoryManager(
         }
 
         return false
-    }
-
-    /**
-     * Create the .claude/hooks/task-orchestrator/ directory structure with subdirectories
-     * Returns true if created, false if already exists
-     */
-    fun createHooksDirectory(): Boolean {
-        val hooksDir = getHooksDir()
-        var created = false
-
-        if (!Files.exists(hooksDir)) {
-            Files.createDirectories(hooksDir)
-            logger.info("Created directory: $hooksDir")
-            created = true
-        }
-
-        // Create subdirectories: scripts/ and templates/
-        val scriptsDir = hooksDir.resolve("scripts")
-        val templatesDir = hooksDir.resolve("templates")
-
-        if (!Files.exists(scriptsDir)) {
-            Files.createDirectories(scriptsDir)
-            logger.info("Created directory: $scriptsDir")
-            created = true
-        }
-
-        if (!Files.exists(templatesDir)) {
-            Files.createDirectories(templatesDir)
-            logger.info("Created directory: $templatesDir")
-            created = true
-        }
-
-        return created
     }
 
     /**
@@ -485,25 +442,6 @@ class ClaudeAgentDirectoryManager(
         }
 
         return copiedSkills
-    }
-
-    /**
-     * Copy hook examples from embedded resources to .claude/hooks/task-orchestrator/
-     * Skips files that already exist (idempotent).
-     *
-     * Returns true if any files were copied, false if all already existed.
-     */
-    fun copyHookExamples(): Boolean {
-        val hooksDir = getHooksDir()
-
-        if (!Files.exists(hooksDir)) {
-            throw IllegalStateException("Hooks directory does not exist. Call createHooksDirectory() first.")
-        }
-
-        val resourcePath = "$HOOKS_RESOURCE_PATH/task-orchestrator"
-        val filesCopied = copyResourceDirectory(resourcePath, hooksDir, "hooks/task-orchestrator")
-
-        return filesCopied > 0
     }
 
     /**

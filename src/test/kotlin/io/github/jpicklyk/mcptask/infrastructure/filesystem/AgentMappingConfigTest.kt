@@ -149,7 +149,7 @@ class AgentMappingConfigTest {
         val expectedAgentFiles = ClaudeAgentDirectoryManager.DEFAULT_AGENT_FILES
 
         expectedAgentFiles.forEach { fileName ->
-            val resourceStream = javaClass.getResourceAsStream("/agents/claude/$fileName")
+            val resourceStream = javaClass.getResourceAsStream("/agents/claude/task-orchestrator/$fileName")
             assertNotNull(
                 resourceStream,
                 "Agent definition file '$fileName' should exist in resources"

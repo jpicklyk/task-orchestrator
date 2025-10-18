@@ -23,12 +23,11 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
     override val title: String = "Setup Claude Code Agent Configuration"
 
-    override val description: String = """Initializes Claude Code agent configuration system including agents, skills, and hooks.
+    override val description: String = """Initializes Claude Code agent configuration system including agents and skills.
 
         What This Creates:
-        - `.claude/agents/` - 10 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, feature-manager, frontend-developer, planning-specialist, task-manager, technical-writer, test-engineer)
+        - `.claude/agents/task-orchestrator/` - 10 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, feature-manager, frontend-developer, planning-specialist, task-manager, technical-writer, test-engineer)
         - `.claude/skills/task-orchestrator/` - 5 Skills for lightweight coordination (2-5 tool calls)
-        - `.claude/hooks/task-orchestrator/` - 3 Hooks for automation with scripts/ and templates/ subdirectories
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
         - Decision gates in CLAUDE.md (if not present)
 
@@ -36,19 +35,11 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         Skills are lightweight coordination patterns for quick, focused workflows (500-800 tokens):
         - dependency-analysis: Analyze task dependencies, identify blocked tasks, find bottlenecks
         - feature-management: Recommend next tasks, check feature progress, complete features
-        - hook-builder: Create custom hooks using templates and examples
+        - hook-builder: Create custom hooks interactively (hooks are project-specific, not auto-installed)
         - skill-builder: Create custom skills using templates and best practices
         - task-management: Route tasks to specialists, manage task lifecycle, create summaries
 
         Each Skill includes: SKILL.md (workflow guide), examples.md (working examples), and supporting files.
-
-        Hooks (Zero-Token Side Effects & Automation):
-        Hooks run bash scripts at Claude Code lifecycle events (zero AI tokens consumed):
-        - task-complete-commit.sh: Automatically git commit when task status = completed
-        - subagent-stop-logger.sh: Log subagent completion events with timestamps
-        - feature-complete-gate.sh: Validate all feature tasks completed before allowing feature completion
-
-        Hook structure: scripts/ (bash scripts), templates/ (hook templates), examples.
 
         Subagents (Complex Implementation - 2000+ Tool Calls):
         - Backend Engineer, Database Engineer, Frontend Developer, Test Engineer, Technical Writer (sonnet model)
@@ -57,6 +48,11 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
         Routing Decision: Skills for coordination (quick), Subagents for implementation (deep work)
 
+        Note on Hooks:
+        Hooks are NOT automatically installed because they are too project-specific (git commands, test runners, etc.).
+        Use the hook-builder skill to create custom hooks tailored to your project's needs.
+        Hook examples and documentation remain available in the resources for reference.
+
         Parameters: None required
 
         Usage notes:
@@ -64,20 +60,19 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         - Won't overwrite user customizations
         - Returns list of created vs skipped files
         - Preserves directory structure for skills (includes supporting files)
-        - Preserves directory structure for hooks (scripts/ and templates/ subdirs)
 
         When to use:
         - First time using Claude Code agent features
         - Setting up new project or after cloning repository
         - Restoring default agent configurations
-        - Adding skills and hooks to existing agent setup
+        - Adding skills to existing agent setup
 
         After setup:
         - Use recommend_agent(taskId) to get agent recommendations
         - Use get_agent_definition(agentName) to read agent files
-        - Edit .claude/agents/*.md to customize behavior
+        - Edit .claude/agents/task-orchestrator/*.md to customize behavior
         - Browse .claude/skills/task-orchestrator/ for skill documentation
-        - Browse .claude/hooks/task-orchestrator/ for hook examples
+        - Use hook-builder skill to create project-specific hooks
         - Commit .claude/ directory to version control for team sharing
 
         Related tools: recommend_agent, get_agent_definition
@@ -149,12 +144,6 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Whether skills directory was newly created")
                                     )
                                 ),
-                                "hooksDirectoryCreated" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether hooks directory was newly created")
-                                    )
-                                ),
                                 "skillsCopied" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("array"),
@@ -162,10 +151,23 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                                         "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                                     )
                                 ),
-                                "hooksCopied" to JsonObject(
+                                "skillsSkipped" to JsonObject(
                                     mapOf(
-                                        "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether hook examples were copied")
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("List of skills that already existed"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                    )
+                                ),
+                                "skillsDirectory" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Path to the skills directory")
+                                    )
+                                ),
+                                "totalSkills" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("integer"),
+                                        "description" to JsonPrimitive("Total number of skills")
                                     )
                                 )
                             )
@@ -215,14 +217,6 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
             logger.info("Copying skill templates...")
             val copiedSkills = agentDirectoryManager.copySkillTemplates()
 
-            // Step 8: Create hooks directory
-            logger.info("Creating .claude/hooks/task-orchestrator/ directory structure...")
-            val hooksDirectoryCreated = agentDirectoryManager.createHooksDirectory()
-
-            // Step 9: Copy hook examples
-            logger.info("Copying hook examples...")
-            val hooksCopied = agentDirectoryManager.copyHookExamples()
-
             // Calculate skipped files
             val allAgentFiles = ClaudeAgentDirectoryManager.DEFAULT_AGENT_FILES
             val skippedAgentFiles = allAgentFiles.filter { it !in copiedAgentFiles }
@@ -232,7 +226,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
             // Build response message
             val message = buildString {
                 append("Claude Code agent system setup ")
-                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated || hooksDirectoryCreated) {
+                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated) {
                     append("completed successfully. ")
                 } else {
                     append("verified. ")
@@ -250,12 +244,6 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                 }
                 if (skippedSkills.isNotEmpty()) {
                     append("Skipped ${skippedSkills.size} existing skill(s). ")
-                }
-
-                if (hooksCopied) {
-                    append("Copied hook examples. ")
-                } else {
-                    append("Hook examples already exist. ")
                 }
 
                 if (agentMappingCopied) {
@@ -288,9 +276,6 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                     put("skillsSkipped", JsonArray(skippedSkills.map { JsonPrimitive(it) }))
                     put("skillsDirectory", agentDirectoryManager.getSkillsDir().toString())
                     put("totalSkills", allSkills.size)
-                    put("hooksDirectoryCreated", hooksDirectoryCreated)
-                    put("hooksCopied", hooksCopied)
-                    put("hooksDirectory", agentDirectoryManager.getHooksDir().toString())
                 },
                 message = message
             )

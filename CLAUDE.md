@@ -436,7 +436,7 @@ Feature Manager: Recommends next task → T2 (API implementation, reads T1 Summa
 
 **What**: Three-tier lightweight automation combining Skills for coordination, Hooks for side effects, and Subagents for complex work
 **Works with**: Claude Code only (requires `.claude/skills/` and `.claude/hooks/` support)
-**Setup required**: Run `setup_claude_agents` tool to create Skills and hook examples
+**Setup required**: Run `setup_claude_agents` tool to create Skills and agent definitions. **Hooks are user-created via hook-builder skill** (not auto-installed)
 
 **Architecture Tiers**:
 
@@ -447,10 +447,11 @@ Feature Manager: Recommends next task → T2 (API implementation, reads T1 Summa
    - Hook Builder Skill - Create custom hooks interactively
    - Skill Builder Skill - Create custom Skills interactively
 
-2. **Hooks** (Automated side effects, triggered by events)
-   - Task completion → git commit (PostToolUse on set_status)
-   - Feature completion → run tests (PostToolUse on update_feature, blocking quality gate)
-   - Subagent completion → log metrics (SubagentStop event)
+2. **Hooks** (Automated side effects, user-created via hook-builder skill)
+   - Example: Task completion → git commit (PostToolUse on set_status)
+   - Example: Feature completion → run tests (PostToolUse on update_feature, blocking quality gate)
+   - Example: Subagent completion → log metrics (SubagentStop event)
+   - **Note**: These examples show what hooks CAN do. Create your own using hook-builder skill.
 
 3. **Subagents** (Complex work requiring reasoning)
    - Specialist agents (Backend, Frontend, Database, Test, Technical Writer)
@@ -498,7 +499,7 @@ You: "Complete this task"
 → Task Management Skill activates
 → Creates Summary section
 → Runs set_status(completed)
-→ Hook triggers: git commit automatically created
+→ Hook (if configured) triggers: git commit automatically created
 
 You: "Show me what's blocking tasks"
 → Dependency Analysis Skill activates
@@ -508,27 +509,27 @@ You: "Show me what's blocking tasks"
 
 **Hooks Integration**:
 
-Hooks run automatically when tools are called, providing side effects:
+Hooks run automatically when tools are called, providing side effects (when configured by user):
 
-**Example: Task completion workflow with hooks**:
+**Example: Task completion workflow with hooks** (user must create this hook first):
 ```
 1. Specialist completes implementation
 2. Task Management Skill: set_status(id='...', status='completed')
-3. Hook triggers: task-complete-commit.sh
+3. Hook (if you created it) triggers: task-complete-commit.sh
    - Reads task title from database
    - Runs: git add -A && git commit -m "feat: Complete task - [title]"
    - Reports: "✓ Created git commit for completed task"
-4. You see: Task marked complete + automatic commit confirmation
+4. You see: Task marked complete + automatic commit confirmation (if hook configured)
 ```
 
-**Example: Feature completion quality gate**:
+**Example: Feature completion quality gate** (user must create this hook first):
 ```
 1. Feature Management Skill: update_feature(status='completed')
-2. Hook triggers: feature-complete-gate.sh
+2. Hook (if you created it) triggers: feature-complete-gate.sh
    - Runs: ./gradlew test
    - If tests fail: Returns {"decision": "block", "reason": "Tests failing"}
    - Operation blocked, feature remains in-development
-3. You see: "Cannot complete feature - tests failing. Please fix before marking complete."
+3. You see: "Cannot complete feature - tests failing. Please fix before marking complete." (if hook configured)
 ```
 
 **Working Together Example**:
@@ -536,8 +537,9 @@ Hooks run automatically when tools are called, providing side effects:
 *Scenario: Multi-task feature with automation*
 ```
 Setup (one-time):
-  You: Run setup_claude_agents → Creates Skills, Hooks, Subagents
-  You: Copy .claude/settings.local.json.example to enable hooks
+  You: Run setup_claude_agents → Creates Skills and Subagent definitions
+  You: Use hook-builder skill → Create project-specific hooks (git commits, test gates, etc.)
+  You: Enable hooks → Configure .claude/settings.local.json
 
 Feature Work:
   You: "What's next in feature F1?"
@@ -547,7 +549,7 @@ Feature Work:
   Backend Engineer: Implements schema, creates Summary section
   Backend Engineer: "Complete the task"
   Task Management Skill: Marks task complete
-  Hook: Automatically commits changes to git
+  Hook (if configured): Automatically commits changes to git
 
   You: "What's next?"
   Feature Management Skill: "Task T2 ready - API endpoints (depends on T1 Summary)"
@@ -556,15 +558,15 @@ Feature Work:
   Backend Engineer: Reads T1 Summary, implements API, writes tests
   Backend Engineer: "Complete the task"
   Task Management Skill: Marks task complete
-  Hook: Automatically commits changes
+  Hook (if configured): Automatically commits changes
 
   You: "All tasks done. Complete the feature"
   Feature Management Skill: Checks all tasks complete
   Feature Management Skill: update_feature(status='completed')
-  Hook: Runs ./gradlew test (quality gate)
-  Hook: Tests pass ✓
+  Hook (if configured): Runs ./gradlew test (quality gate)
+  Hook (if configured): Tests pass ✓
   Feature Management Skill: Creates feature Summary section
-  Result: Feature complete with full git history + validated quality
+  Result: Feature complete with full git history + validated quality (if hooks configured)
 ```
 
 **Benefits of Hybrid Architecture**:
@@ -577,9 +579,10 @@ Feature Work:
 
 **Setup**:
 ```
-1. Run: setup_claude_agents (creates Skills, Hooks, Subagents)
-2. Enable hooks: cp .claude/settings.local.json.example .claude/settings.local.json
-3. Customize: Edit hook scripts for your workflow
+1. Run: setup_claude_agents (creates Skills and Subagent definitions)
+2. Create hooks: Use hook-builder skill interactively to create project-specific hooks
+3. Enable hooks: Configure .claude/settings.local.json to activate your hooks
+4. Customize: Edit hook scripts for your workflow as needed
 ```
 
 **See Also**:
@@ -616,14 +619,14 @@ Feature Work:
 ❓ **User says:** "Complete the feature" / "Mark feature done" / "Feature is finished"
 → Use **Feature Management Skill** (not Feature Manager END mode)
 → Skill runs: verify completion + create Summary + update_feature → ~600 tokens
-→ Hook triggers: Runs tests automatically (quality gate)
+→ Hook (if configured) triggers: Runs tests automatically (quality gate)
 
 #### When User Asks About Task Status
 
 ❓ **User says:** "Complete this task" / "Update task status" / "Mark task done"
 → Use **Task Management Skill** (not Task Manager subagent)
 → Skill runs: create Summary + set_status → ~300 tokens
-→ Hook triggers: Automatically creates git commit
+→ Hook (if configured) triggers: Automatically creates git commit
 
 #### When User Asks About Blockers
 
@@ -686,7 +689,7 @@ Feature Work:
 **Remember:**
 - Skills for coordination (2-5 tool calls) = 60-82% token savings
 - Subagents for implementation (complex work) = full specialist context
-- Hooks automate side effects (commits, tests, metrics) = zero manual effort
+- Hooks automate side effects (commits, tests, metrics) = zero manual effort (when configured via hook-builder)
 
 ---
 

@@ -15,7 +15,7 @@ import java.nio.file.Paths
 /**
  * Test for SetupClaudeAgentsTool
  *
- * NOTE: This test creates files in .claude/agents/ in the project root.
+ * NOTE: This test creates files in .claude/agents/task-orchestrator/ in the project root.
  * The tool is designed to be idempotent, so running tests multiple times
  * will skip existing files rather than overwrite them.
  */
@@ -110,12 +110,12 @@ class SetupClaudeAgentsToolTest {
         val responseObj = response as JsonObject
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
-        // Verify .claude/agents directory exists
+        // Verify .claude/agents/task-orchestrator directory exists
         val workingDir = Paths.get(System.getProperty("user.dir"))
         val claudeDir = workingDir.resolve(".claude")
-        val agentsDir = claudeDir.resolve("agents")
+        val agentsDir = claudeDir.resolve("agents").resolve("task-orchestrator")
 
-        assertTrue(Files.exists(agentsDir), ".claude/agents directory should exist after execution")
+        assertTrue(Files.exists(agentsDir), ".claude/agents/task-orchestrator directory should exist after execution")
 
         // Verify expected agent files exist
         val expectedFiles = listOf(
@@ -169,7 +169,7 @@ class SetupClaudeAgentsToolTest {
         tool.execute(params, mockContext)
 
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val agentsDir = workingDir.resolve(".claude/agents")
+        val agentsDir = workingDir.resolve(".claude/agents/task-orchestrator")
 
         // Verify backend-engineer has model: sonnet (not claude-sonnet-4)
         val backendFile = agentsDir.resolve("backend-engineer.md")
@@ -225,6 +225,11 @@ class SetupClaudeAgentsToolTest {
         assertNotNull(data["agentFilesSkipped"], "Data should have agentFilesSkipped field")
         assertNotNull(data["directory"], "Data should have directory field")
         assertNotNull(data["totalAgents"], "Data should have totalAgents field")
+
+        // Verify hooks-related fields are NOT present
+        assertNull(data["hooksDirectoryCreated"], "Data should NOT have hooksDirectoryCreated field")
+        assertNull(data["hooksCopied"], "Data should NOT have hooksCopied field")
+        assertNull(data["hooksDirectory"], "Data should NOT have hooksDirectory field")
     }
 
     @Test
@@ -232,7 +237,7 @@ class SetupClaudeAgentsToolTest {
         assertEquals("setup_claude_agents", tool.name, "Tool name should be setup_claude_agents")
         assertEquals("Setup Claude Code Agent Configuration", tool.title, "Tool should have proper title")
         assertTrue(tool.description.contains("Claude Code"), "Description should mention Claude Code")
-        assertTrue(tool.description.contains(".claude/agents/"), "Description should mention .claude/agents/")
+        assertTrue(tool.description.contains(".claude/agents/task-orchestrator/"), "Description should mention .claude/agents/task-orchestrator/")
     }
 
     @Test
@@ -243,11 +248,11 @@ class SetupClaudeAgentsToolTest {
         val responseObj = response as JsonObject
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
-        // Verify .claude/skills/task-manager directory exists
+        // Verify .claude/skills/task-orchestrator directory exists
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val skillsDir = workingDir.resolve(".claude/skills/task-manager")
+        val skillsDir = workingDir.resolve(".claude/skills/task-orchestrator")
 
-        assertTrue(Files.exists(skillsDir), ".claude/skills/task-manager directory should exist after execution")
+        assertTrue(Files.exists(skillsDir), ".claude/skills/task-orchestrator directory should exist after execution")
 
         // Verify response includes skills directory info
         val data = responseObj["data"]?.jsonObject
@@ -258,28 +263,24 @@ class SetupClaudeAgentsToolTest {
     }
 
     @Test
-    fun `execute should create hooks directory with subdirectories`() = runBlocking {
+    fun `execute should NOT create hooks directory by default`() = runBlocking {
         val params = JsonObject(emptyMap())
 
         val response = tool.execute(params, mockContext)
         val responseObj = response as JsonObject
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
-        // Verify .claude/hooks/task-manager directory exists
+        // Verify .claude/hooks/task-orchestrator directory does NOT exist
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val hooksDir = workingDir.resolve(".claude/hooks/task-manager")
-        val scriptsDir = hooksDir.resolve("scripts")
-        val templatesDir = hooksDir.resolve("templates")
+        val hooksDir = workingDir.resolve(".claude/hooks/task-orchestrator")
 
-        assertTrue(Files.exists(hooksDir), ".claude/hooks/task-manager directory should exist after execution")
-        assertTrue(Files.exists(scriptsDir), ".claude/hooks/task-manager/scripts directory should exist")
-        assertTrue(Files.exists(templatesDir), ".claude/hooks/task-manager/templates directory should exist")
+        assertFalse(Files.exists(hooksDir), ".claude/hooks/task-orchestrator directory should NOT exist after execution (hooks not created by default)")
 
-        // Verify response includes hooks directory info
+        // Verify response does NOT include hooks directory info
         val data = responseObj["data"]?.jsonObject
-        assertNotNull(data!!["hooksDirectoryCreated"], "Should have hooksDirectoryCreated field")
-        assertNotNull(data["hooksCopied"], "Should have hooksCopied field")
-        assertNotNull(data["hooksDirectory"], "Should have hooksDirectory field")
+        assertNull(data!!["hooksDirectoryCreated"], "Should NOT have hooksDirectoryCreated field")
+        assertNull(data["hooksCopied"], "Should NOT have hooksCopied field")
+        assertNull(data["hooksDirectory"], "Should NOT have hooksDirectory field")
     }
 
     @Test
@@ -291,7 +292,7 @@ class SetupClaudeAgentsToolTest {
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val skillsDir = workingDir.resolve(".claude/skills/task-manager")
+        val skillsDir = workingDir.resolve(".claude/skills/task-orchestrator")
 
         val expectedSkills = listOf(
             "dependency-analysis",
@@ -317,7 +318,7 @@ class SetupClaudeAgentsToolTest {
     }
 
     @Test
-    fun `execute should copy hook examples with proper structure`() = runBlocking {
+    fun `execute should NOT copy hook examples by default`() = runBlocking {
         val params = JsonObject(emptyMap())
 
         val response = tool.execute(params, mockContext)
@@ -325,27 +326,24 @@ class SetupClaudeAgentsToolTest {
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val hooksDir = workingDir.resolve(".claude/hooks/task-manager")
+        val hooksDir = workingDir.resolve(".claude/hooks/task-orchestrator")
 
-        // Verify key hook files exist
-        val readme = hooksDir.resolve("README.md")
-        assertTrue(Files.exists(readme), "README.md should exist in hooks directory")
+        // Verify hooks directory and files do NOT exist
+        assertFalse(Files.exists(hooksDir), "Hooks directory should NOT exist by default")
 
-        val quickRef = hooksDir.resolve("QUICK_REFERENCE.md")
-        assertTrue(Files.exists(quickRef), "QUICK_REFERENCE.md should exist in hooks directory")
+        // If hooks directory exists for some reason (manual creation), verify key files are NOT copied
+        if (Files.exists(hooksDir)) {
+            val readme = hooksDir.resolve("README.md")
+            assertFalse(Files.exists(readme), "README.md should NOT be copied by setup tool")
 
-        // Verify scripts subdirectory has scripts
-        val scriptsDir = hooksDir.resolve("scripts")
-        val taskCompleteScript = scriptsDir.resolve("task-complete-commit.sh")
-        if (Files.exists(taskCompleteScript)) {
-            assertTrue(Files.size(taskCompleteScript) > 0, "task-complete-commit.sh should not be empty")
-        }
+            val quickRef = hooksDir.resolve("QUICK_REFERENCE.md")
+            assertFalse(Files.exists(quickRef), "QUICK_REFERENCE.md should NOT be copied by setup tool")
 
-        // Verify templates subdirectory has templates
-        val templatesDir = hooksDir.resolve("templates")
-        val settingsExample = templatesDir.resolve("settings.local.json.example")
-        if (Files.exists(settingsExample)) {
-            assertTrue(Files.size(settingsExample) > 0, "settings.local.json.example should not be empty")
+            val scriptsDir = hooksDir.resolve("scripts")
+            assertFalse(Files.exists(scriptsDir), "scripts/ subdirectory should NOT be created by setup tool")
+
+            val templatesDir = hooksDir.resolve("templates")
+            assertFalse(Files.exists(templatesDir), "templates/ subdirectory should NOT be created by setup tool")
         }
     }
 }

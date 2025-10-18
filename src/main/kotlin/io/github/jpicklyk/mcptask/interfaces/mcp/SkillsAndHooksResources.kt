@@ -10,10 +10,12 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * MCP Resources for Skills and Hooks Discovery and Management.
+ * MCP Resources for Skills Discovery and Management.
  *
- * These resources enable AI agents to discover available Skills and Hooks,
- * get Skill definitions, and retrieve Hook implementation details.
+ * These resources enable AI agents to discover available Skills and get Skill definitions.
+ *
+ * Note: Hooks resources have been removed. Hooks are project-specific and should be created
+ * using the hook-builder skill rather than auto-installed.
  */
 object SkillsAndHooksResources {
 
@@ -21,7 +23,7 @@ object SkillsAndHooksResources {
     private val json = Json { prettyPrint = true; encodeDefaults = false }
 
     /**
-     * Configures all Skills and Hooks MCP resources with the server.
+     * Configures all Skills MCP resources with the server.
      */
     fun configure(
         server: Server,
@@ -29,8 +31,6 @@ object SkillsAndHooksResources {
     ) {
         addListSkillsResource(server, directoryManager)
         addSkillDefinitionResource(server, directoryManager)
-        addListHooksResource(server, directoryManager)
-        addHookDefinitionResource(server, directoryManager)
     }
 
     /**
@@ -206,171 +206,6 @@ object SkillsAndHooksResources {
         }
     }
 
-    /**
-     * Adds resource for listing all available Hooks.
-     * URI: task-orchestrator://hooks/list
-     */
-    private fun addListHooksResource(
-        server: Server,
-        directoryManager: ClaudeAgentDirectoryManager
-    ) {
-        server.addResource(
-            uri = "task-orchestrator://hooks/list",
-            name = "Available Hooks",
-            description = "Lists all available Hooks in the task-orchestrator collection for automated side effects",
-            mimeType = "application/json"
-        ) { _ ->
-            try {
-                val hooksDir = directoryManager.getHooksDir()
-
-                // List README files in the hooks directory that aren't the main README
-                val hookReadmes = if (Files.exists(hooksDir)) {
-                    Files.list(hooksDir)
-                        .filter { Files.isRegularFile(it) && it.fileName.toString().contains("-README.md") && it.fileName.toString() != "README.md" }
-                        .map { file ->
-                            val hookName = file.fileName.toString().removeSuffix("-README.md")
-
-                            buildJsonObject {
-                                put("name", hookName)
-                                put("readmePath", ".claude/hooks/task-orchestrator/${file.fileName}")
-
-                                // Try to find associated script
-                                val scriptFile = hooksDir.resolve("scripts/$hookName.sh")
-                                if (Files.exists(scriptFile)) {
-                                    put("scriptPath", ".claude/hooks/task-orchestrator/scripts/$hookName.sh")
-                                }
-                            }
-                        }
-                        .toList()
-                } else {
-                    emptyList()
-                }
-
-                val responseData = buildJsonObject {
-                    putJsonArray("hooks") {
-                        hookReadmes.forEach { add(it) }
-                    }
-                    put("count", hookReadmes.size)
-                    put("collection", "task-orchestrator")
-                    put("directory", ".claude/hooks/task-orchestrator")
-                    putJsonObject("directories") {
-                        put("scripts", ".claude/hooks/task-orchestrator/scripts")
-                        put("templates", ".claude/hooks/task-orchestrator/templates")
-                    }
-                }
-
-                ReadResourceResult(
-                    contents = listOf(
-                        TextResourceContents(
-                            uri = "task-orchestrator://hooks/list",
-                            mimeType = "application/json",
-                            text = json.encodeToString(JsonElement.serializer(), responseData)
-                        )
-                    )
-                )
-            } catch (e: Exception) {
-                logger.error("Failed to list Hooks", e)
-                val errorResponse = buildJsonObject {
-                    put("error", "Failed to list Hooks: ${e.message}")
-                    putJsonArray("hooks") { }
-                    put("count", 0)
-                }
-                ReadResourceResult(
-                    contents = listOf(
-                        TextResourceContents(
-                            uri = "task-orchestrator://hooks/list",
-                            mimeType = "application/json",
-                            text = json.encodeToString(JsonElement.serializer(), errorResponse)
-                        )
-                    )
-                )
-            }
-        }
-    }
-
-    /**
-     * Adds resource for getting Hook definition file by name.
-     * URI: task-orchestrator://hooks/definition/{hookName}/{fileType}
-     * where fileType can be: readme, script, or template
-     */
-    private fun addHookDefinitionResource(
-        server: Server,
-        directoryManager: ClaudeAgentDirectoryManager
-    ) {
-        server.addResource(
-            uri = "task-orchestrator://hooks/definition",
-            name = "Hook Definition File",
-            description = "Returns Hook definition file content (README, script, or template). Path parameters: {hookName}/{fileType}",
-            mimeType = "text/markdown"
-        ) { request ->
-            try {
-                val uri = request.uri ?: "task-orchestrator://hooks/definition"
-                val (hookName, fileType) = extractHookNameAndFileType(uri)
-
-                if (hookName == null) {
-                    return@addResource ReadResourceResult(
-                        contents = listOf(
-                            TextResourceContents(
-                                uri = uri,
-                                mimeType = "text/plain",
-                                text = "Error: Missing hook name in URI path. Usage: task-orchestrator://hooks/definition/{hookName}/{fileType}\nfileType options: readme, script, template"
-                            )
-                        )
-                    )
-                }
-
-                val hooksDir = directoryManager.getHooksDir()
-
-                val targetFile = when (fileType?.lowercase()) {
-                    "script" -> hooksDir.resolve("scripts/$hookName.sh")
-                    "template" -> hooksDir.resolve("templates/$hookName.config.example.json")
-                    else -> hooksDir.resolve("$hookName-README.md") // default to readme
-                }
-
-                if (!Files.exists(targetFile)) {
-                    return@addResource ReadResourceResult(
-                        contents = listOf(
-                            TextResourceContents(
-                                uri = uri,
-                                mimeType = "text/plain",
-                                text = "Error: Hook file not found: ${targetFile.fileName}\n\nRun setup_claude_agents tool to initialize Hooks."
-                            )
-                        )
-                    )
-                }
-
-                val content = Files.readString(targetFile)
-                val fileName = targetFile.fileName.toString()
-                val mimeType = when {
-                    fileName.endsWith(".md") -> "text/markdown"
-                    fileName.endsWith(".sh") -> "text/x-shellscript"
-                    fileName.endsWith(".json") -> "application/json"
-                    else -> "text/plain"
-                }
-
-                ReadResourceResult(
-                    contents = listOf(
-                        TextResourceContents(
-                            uri = uri,
-                            mimeType = mimeType,
-                            text = content
-                        )
-                    )
-                )
-            } catch (e: Exception) {
-                logger.error("Failed to get Hook definition", e)
-                ReadResourceResult(
-                    contents = listOf(
-                        TextResourceContents(
-                            uri = request.uri ?: "task-orchestrator://hooks/definition",
-                            mimeType = "text/plain",
-                            text = "Error: Failed to get Hook definition: ${e.message}"
-                        )
-                    )
-                )
-            }
-        }
-    }
 
     /**
      * Extract description from SKILL.md file content.
