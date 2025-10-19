@@ -6,22 +6,20 @@ import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationS
 import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationServiceImpl
 import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
 import io.github.jpicklyk.mcptask.infrastructure.filesystem.ClaudeAgentDirectoryManager
-import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
-import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
-import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
-import io.github.jpicklyk.mcptask.application.tools.SetStatusTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.dependency.*
-import io.github.jpicklyk.mcptask.application.tools.feature.*
-import io.github.jpicklyk.mcptask.application.tools.project.*
-import io.github.jpicklyk.mcptask.application.tools.section.*
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.QueryDependenciesTool
+import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
+import io.github.jpicklyk.mcptask.application.tools.section.QuerySectionsTool
 import io.github.jpicklyk.mcptask.application.tools.tag.*
-import io.github.jpicklyk.mcptask.application.tools.task.*
-import io.github.jpicklyk.mcptask.application.tools.template.*
+import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
+import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
+import io.github.jpicklyk.mcptask.application.tools.template.ApplyTemplateTool
+import io.github.jpicklyk.mcptask.application.tools.template.ManageTemplateTool
 import io.github.jpicklyk.mcptask.application.tools.agent.*
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
@@ -257,6 +255,10 @@ class McpServer(
             ListTagsTool(),
             GetTagUsageTool(),
             RenameTagTool(),
+
+            // Workflow optimization - Task recommendations and blocking analysis
+            GetNextTaskTool(),
+            GetBlockedTasksTool(),
 
             // Agent management - AI workflow automation
             SetupClaudeAgentsTool(),

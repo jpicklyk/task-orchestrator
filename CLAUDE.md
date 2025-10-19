@@ -208,25 +208,37 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - SECTION_MANAGEMENT - Section content operations
 - DEPENDENCY_MANAGEMENT - Task dependency operations
 
-**Consolidated Tools (v1.1.0+):**
+**Consolidated Tools (v2.0+):**
 
-Task Orchestrator v1.1.0 introduces **consolidated task tools** that reduce token overhead by 84%:
+Task Orchestrator v2.0 introduces **unified container-based tools** that reduce token overhead by 68%:
 
-- **`manage_task`** - Unified single-entity operations (replaces 5 tools)
-  - Operations: create, get, update, delete, export
-  - Usage: `{"operation": "create", "title": "...", ...}`
-  - Replaces: create_task, get_task, update_task, delete_task, task_to_markdown
+- **`manage_container`** - Unified write operations for projects, features, and tasks
+  - Operations: create, update, delete, setStatus, bulkUpdate
+  - Usage: `{"operation": "create", "containerType": "task", "title": "...", ...}`
+  - Replaces: 13 individual CRUD tools (create_task, get_task, update_task, delete_task, create_feature, get_feature, update_feature, delete_feature, create_project, get_project, update_project, delete_project, set_status)
 
-- **`query_tasks`** - Unified multi-entity queries (replaces 4 tools)
-  - Query types: search, blocked, next, bulkUpdate
-  - Usage: `{"queryType": "search", "status": "pending", ...}`
-  - Replaces: search_tasks, get_blocked_tasks, get_next_task, bulk_update_tasks
+- **`query_container`** - Unified read operations for projects, features, and tasks
+  - Operations: get, search, export, overview
+  - Usage: `{"operation": "search", "containerType": "task", "status": "pending", ...}`
+  - Replaces: 9 individual query tools (search_tasks, search_features, search_projects, get_task, get_feature, get_project, task_to_markdown, feature_to_markdown, project_to_markdown)
 
-**Token Savings:** ~10.8k → ~1.7k characters (84% reduction)
+- **`manage_sections`** - Unified section operations
+  - Operations: add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete
+  - Replaces: 7 individual section tools
 
-**Migration:** Deprecated tools remain available until v2.0.0. See [migration guide](docs/migration/task-tool-consolidation.md).
+- **`query_sections`** - Unified section queries with filtering
+  - Replaces: get_sections tool
 
-**Recommendation:** Use consolidated tools for new code. Both old and new tools work simultaneously.
+- **Workflow Optimization Tools** (unchanged, NOT consolidated):
+  - **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
+  - **`get_blocked_tasks`** - Dependency blocking analysis
+  - These tools contain complex recommendation logic that cannot be replaced by simple query_container filters
+
+**Token Savings:** ~84k → ~36k characters (68% reduction) across all 56 → 18 tools
+
+**Migration:** v1 tools were removed in v2.0. See [migration guide](docs/migration/v2.0-migration-guide.md).
+
+**IMPORTANT:** Always use `operation` and `containerType` parameters with v2 consolidated tools.
 
 ## Documentation
 

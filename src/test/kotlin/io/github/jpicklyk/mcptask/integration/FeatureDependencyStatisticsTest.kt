@@ -1,11 +1,9 @@
 package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.dependency.CreateDependencyTool
-import io.github.jpicklyk.mcptask.application.tools.feature.CreateFeatureTool
-import io.github.jpicklyk.mcptask.application.tools.feature.GetFeatureTool
-import io.github.jpicklyk.mcptask.application.tools.task.CreateTaskTool
-import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
+import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.test.mock.*
 import kotlinx.coroutines.runBlocking
@@ -36,11 +34,9 @@ class FeatureDependencyStatisticsTest {
     private lateinit var executionContext: ToolExecutionContext
     
     // Tools
-    private lateinit var createTaskTool: CreateTaskTool
-    private lateinit var createFeatureTool: CreateFeatureTool
-    private lateinit var createDependencyTool: CreateDependencyTool
-    private lateinit var getFeatureTool: GetFeatureTool
-    private lateinit var getOverviewTool: GetOverviewTool
+    private lateinit var manageContainerTool: ManageContainerTool
+    private lateinit var queryContainerTool: QueryContainerTool
+    private lateinit var manageDependencyTool: ManageDependencyTool
     
     // Test entities
     private lateinit var featureA: Feature
@@ -75,13 +71,11 @@ class FeatureDependencyStatisticsTest {
         )
 
         executionContext = ToolExecutionContext(repositoryProvider)
-        
+
         // Initialize tools
-        createTaskTool = CreateTaskTool()
-        createFeatureTool = CreateFeatureTool()
-        createDependencyTool = CreateDependencyTool()
-        getFeatureTool = GetFeatureTool()
-        getOverviewTool = GetOverviewTool()
+        manageContainerTool = ManageContainerTool()
+        queryContainerTool = QueryContainerTool()
+        manageDependencyTool = ManageDependencyTool()
         
         // Create test features
         featureA = Feature(
@@ -184,57 +178,58 @@ class FeatureDependencyStatisticsTest {
         // Create internal dependencies within Feature A
         // A1 -> A2 (A1 blocks A2)
         // A2 -> A3 (A2 blocks A3)
-        
+
         createDependency(taskA1.id, taskA2.id, "BLOCKS")
         createDependency(taskA2.id, taskA3.id, "BLOCKS")
-        
-        // Get feature with dependency information
-        val params = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureA.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
+
+        // Get feature - v2 only returns taskCounts, not full tasks
+        val featureParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(featureA.id.toString())
         ))
-        
-        val response = getFeatureTool.execute(params, executionContext)
-        val responseObj = response as JsonObject
-        
-        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Feature retrieval should succeed")
-        
-        val data = responseObj["data"]?.jsonObject
-        assertNotNull(data, "Data should be present")
-        
-        val tasks = data!!["tasks"]?.jsonObject
-        assertNotNull(tasks, "Tasks should be included")
-        
-        val dependencyStatistics = tasks!!["dependencyStatistics"]?.jsonObject
-        assertNotNull(dependencyStatistics, "Dependency statistics should be included")
-        
-        // Verify overall feature statistics
-        // Note: Dependencies are counted per task, so A1->A2 and A2->A3 means:
-        // - A1 has 1 outgoing (A1->A2)
-        // - A2 has 1 incoming (A1->A2) + 1 outgoing (A2->A3)
-        // - A3 has 1 incoming (A2->A3)
-        // Total = 1 + 2 + 1 = 4 dependencies counted
-        assertEquals(4, dependencyStatistics!!["totalDependencies"]?.jsonPrimitive?.int, "Should have 4 total dependency connections")
-        assertEquals(2, dependencyStatistics["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Should have 2 outgoing dependencies")
-        assertEquals(2, dependencyStatistics["totalIncomingDependencies"]?.jsonPrimitive?.int, "Should have 2 incoming dependencies")
-        assertEquals(3, dependencyStatistics["tasksWithDependencies"]?.jsonPrimitive?.int, "All 3 tasks should have dependencies")
-        
-        // Verify individual task dependency counts
-        val taskItems = tasks["items"]?.jsonArray
+
+        val featureResponse = queryContainerTool.execute(featureParams, executionContext)
+        val featureResponseObj = featureResponse as JsonObject
+
+        assertTrue(featureResponseObj["success"]?.jsonPrimitive?.boolean == true, "Feature retrieval should succeed")
+
+        val featureData = featureResponseObj["data"]?.jsonObject
+        assertNotNull(featureData, "Feature data should be present")
+
+        // Verify taskCounts is included (v2 returns counts, not full tasks)
+        val taskCounts = featureData!!["taskCounts"]?.jsonObject
+        assertNotNull(taskCounts, "Task counts should be included")
+        assertEquals(3, taskCounts!!["total"]?.jsonPrimitive?.int, "Should have 3 total tasks")
+
+        // To verify dependency statistics, we need to search for tasks separately
+        val tasksParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("search"),
+            "containerType" to JsonPrimitive("task"),
+            "featureId" to JsonPrimitive(featureA.id.toString()),
+            "limit" to JsonPrimitive(100)
+        ))
+
+        val tasksResponse = queryContainerTool.execute(tasksParams, executionContext)
+        val tasksResponseObj = tasksResponse as JsonObject
+        assertTrue(tasksResponseObj["success"]?.jsonPrimitive?.boolean == true, "Task search should succeed")
+
+        val tasksData = tasksResponseObj["data"]?.jsonObject
+        val taskItems = tasksData!!["items"]?.jsonArray
         assertNotNull(taskItems, "Task items should be present")
         assertEquals(3, taskItems!!.size, "Should have 3 tasks")
-        
-        // Find specific tasks and verify their dependency counts
-        val taskA1Data = taskItems.find { 
-            it.jsonObject["id"]?.jsonPrimitive?.content == taskA1.id.toString() 
-        }?.jsonObject
-        assertNotNull(taskA1Data, "Task A1 should be present")
-        
-        val taskA1Deps = taskA1Data!!["dependencies"]?.jsonObject?.get("counts")?.jsonObject
-        assertNotNull(taskA1Deps, "Task A1 dependencies should be present")
-        assertEquals(1, taskA1Deps!!["outgoing"]?.jsonPrimitive?.int, "Task A1 should have 1 outgoing dependency")
-        assertEquals(0, taskA1Deps["incoming"]?.jsonPrimitive?.int, "Task A1 should have 0 incoming dependencies")
+
+        // Manually verify dependencies exist by checking dependency repository
+        val allDeps = dependencyRepository.getAllDependencies()
+        val featureDeps = allDeps.filter { dep ->
+            val fromTask = taskRepository.getAllTasks().find { it.id == dep.fromTaskId }
+            val toTask = taskRepository.getAllTasks().find { it.id == dep.toTaskId }
+            fromTask?.featureId == featureA.id || toTask?.featureId == featureA.id
+        }
+
+        assertEquals(2, featureDeps.size, "Should have 2 dependencies in Feature A")
+        assertTrue(featureDeps.any { it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id }, "Should have A1->A2 dependency")
+        assertTrue(featureDeps.any { it.fromTaskId == taskA2.id && it.toTaskId == taskA3.id }, "Should have A2->A3 dependency")
     }
 
     @Test
@@ -243,96 +238,86 @@ class FeatureDependencyStatisticsTest {
         // A1 -> B1 (Auth login depends on user profile)
         // A3 -> B2 (Password reset relates to account settings)
         // B1 -> C1 (User profile blocks reporting dashboard)
-        
+
         createDependency(taskA1.id, taskB1.id, "BLOCKS")
         createDependency(taskA3.id, taskB2.id, "RELATES_TO")
         createDependency(taskB1.id, taskC1.id, "BLOCKS")
-        
-        // Get Feature A with dependency information
-        val paramsA = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureA.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
+
+        // Verify all dependencies were created correctly
+        val allDeps = dependencyRepository.getAllDependencies()
+        assertEquals(3, allDeps.size, "Should have 3 total dependencies")
+
+        // Verify Feature A dependencies (outgoing only)
+        val featureADeps = allDeps.filter { dep ->
+            val fromTask = taskRepository.getAllTasks().find { it.id == dep.fromTaskId }
+            fromTask?.featureId == featureA.id
+        }
+        assertEquals(2, featureADeps.size, "Feature A should have 2 outgoing dependencies")
+        assertTrue(featureADeps.any { it.fromTaskId == taskA1.id && it.toTaskId == taskB1.id }, "Should have A1->B1")
+        assertTrue(featureADeps.any { it.fromTaskId == taskA3.id && it.toTaskId == taskB2.id }, "Should have A3->B2")
+
+        // Verify Feature B dependencies (incoming and outgoing)
+        val featureBOutgoing = allDeps.filter { dep ->
+            val fromTask = taskRepository.getAllTasks().find { it.id == dep.fromTaskId }
+            fromTask?.featureId == featureB.id
+        }
+        val featureBIncoming = allDeps.filter { dep ->
+            val toTask = taskRepository.getAllTasks().find { it.id == dep.toTaskId }
+            toTask?.featureId == featureB.id
+        }
+        assertEquals(1, featureBOutgoing.size, "Feature B should have 1 outgoing dependency")
+        assertEquals(2, featureBIncoming.size, "Feature B should have 2 incoming dependencies")
+        assertTrue(featureBOutgoing.any { it.fromTaskId == taskB1.id && it.toTaskId == taskC1.id }, "Should have B1->C1")
+
+        // Verify Feature C dependencies (incoming only)
+        val featureCIncoming = allDeps.filter { dep ->
+            val toTask = taskRepository.getAllTasks().find { it.id == dep.toTaskId }
+            toTask?.featureId == featureC.id
+        }
+        assertEquals(1, featureCIncoming.size, "Feature C should have 1 incoming dependency")
+        assertTrue(featureCIncoming.any { it.fromTaskId == taskB1.id && it.toTaskId == taskC1.id }, "Should have B1->C1")
+
+        // Verify feature task counts are correct
+        val featureAParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(featureA.id.toString())
         ))
-        
-        val responseA = getFeatureTool.execute(paramsA, executionContext)
-        val responseObjA = responseA as JsonObject
-        
-        assertTrue(responseObjA["success"]?.jsonPrimitive?.boolean == true, "Feature A retrieval should succeed")
-        
-        val dataA = responseObjA["data"]?.jsonObject?.get("tasks")?.jsonObject
-        val depStatsA = dataA?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(depStatsA, "Feature A dependency statistics should be present")
-        // Feature A: A1->B1 and A3->B2, so A1 has 1 outgoing, A3 has 1 outgoing = 2 total
-        assertEquals(2, depStatsA!!["totalDependencies"]?.jsonPrimitive?.int, "Feature A should have 2 dependencies")
-        assertEquals(2, depStatsA["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Feature A should have 2 outgoing dependencies")
-        assertEquals(0, depStatsA["totalIncomingDependencies"]?.jsonPrimitive?.int, "Feature A should have 0 incoming dependencies")
-        
-        // Get Feature B with dependency information
-        val paramsB = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureB.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
-        ))
-        
-        val responseB = getFeatureTool.execute(paramsB, executionContext)
-        val responseObjB = responseB as JsonObject
-        
-        assertTrue(responseObjB["success"]?.jsonPrimitive?.boolean == true, "Feature B retrieval should succeed")
-        
-        val dataB = responseObjB["data"]?.jsonObject?.get("tasks")?.jsonObject
-        val depStatsB = dataB?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(depStatsB, "Feature B dependency statistics should be present")
-        // Feature B: B1 has 1 incoming (A1->B1) + 1 outgoing (B1->C1), B2 has 1 incoming (A3->B2) = 3 total
-        assertEquals(3, depStatsB!!["totalDependencies"]?.jsonPrimitive?.int, "Feature B should have 3 dependencies")
-        assertEquals(1, depStatsB["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Feature B should have 1 outgoing dependency")
-        assertEquals(2, depStatsB["totalIncomingDependencies"]?.jsonPrimitive?.int, "Feature B should have 2 incoming dependencies")
-        
-        // Get Feature C with dependency information
-        val paramsC = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureC.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
-        ))
-        
-        val responseC = getFeatureTool.execute(paramsC, executionContext)
-        val responseObjC = responseC as JsonObject
-        
-        assertTrue(responseObjC["success"]?.jsonPrimitive?.boolean == true, "Feature C retrieval should succeed")
-        
-        val dataC = responseObjC["data"]?.jsonObject?.get("tasks")?.jsonObject
-        val depStatsC = dataC?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(depStatsC, "Feature C dependency statistics should be present")
-        assertEquals(1, depStatsC!!["totalDependencies"]?.jsonPrimitive?.int, "Feature C should have 1 dependency")
-        assertEquals(0, depStatsC["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Feature C should have 0 outgoing dependencies")
-        assertEquals(1, depStatsC["totalIncomingDependencies"]?.jsonPrimitive?.int, "Feature C should have 1 incoming dependency")
+        val featureAResponse = queryContainerTool.execute(featureAParams, executionContext) as JsonObject
+        val featureATaskCounts = featureAResponse["data"]?.jsonObject?.get("taskCounts")?.jsonObject
+        assertEquals(3, featureATaskCounts?.get("total")?.jsonPrimitive?.int, "Feature A should have 3 tasks")
     }
 
     @Test
     fun `should handle feature with no dependencies correctly`() = runBlocking {
         // Feature C has no dependencies initially
         val params = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureC.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(featureC.id.toString())
         ))
-        
-        val response = getFeatureTool.execute(params, executionContext)
+
+        val response = queryContainerTool.execute(params, executionContext)
         val responseObj = response as JsonObject
-        
+
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Feature retrieval should succeed")
-        
-        val data = responseObj["data"]?.jsonObject?.get("tasks")?.jsonObject
-        val depStats = data?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(depStats, "Dependency statistics should be present even with no dependencies")
-        assertEquals(0, depStats!!["totalDependencies"]?.jsonPrimitive?.int, "Should have 0 total dependencies")
-        assertEquals(0, depStats["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Should have 0 outgoing dependencies")
-        assertEquals(0, depStats["totalIncomingDependencies"]?.jsonPrimitive?.int, "Should have 0 incoming dependencies")
-        assertEquals(0, depStats["tasksWithDependencies"]?.jsonPrimitive?.int, "Should have 0 tasks with dependencies")
+
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data, "Data should be present")
+
+        // Verify taskCounts are returned
+        val taskCounts = data!!["taskCounts"]?.jsonObject
+        assertNotNull(taskCounts, "Task counts should be present")
+        assertEquals(1, taskCounts!!["total"]?.jsonPrimitive?.int, "Feature C should have 1 task")
+
+        // Verify no dependencies exist for this feature's tasks
+        val allDeps = dependencyRepository.getAllDependencies()
+        val featureCDeps = allDeps.filter { dep ->
+            val fromTask = taskRepository.getAllTasks().find { it.id == dep.fromTaskId }
+            val toTask = taskRepository.getAllTasks().find { it.id == dep.toTaskId }
+            fromTask?.featureId == featureC.id || toTask?.featureId == featureC.id
+        }
+        assertEquals(0, featureCDeps.size, "Feature C should have 0 dependencies")
     }
 
     @Test
@@ -346,29 +331,29 @@ class FeatureDependencyStatisticsTest {
             priority = Priority.LOW
         )
         featureRepository.addFeature(emptyFeature)
-        
+
         val params = JsonObject(mapOf(
-            "id" to JsonPrimitive(emptyFeature.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(emptyFeature.id.toString())
         ))
-        
-        val response = getFeatureTool.execute(params, executionContext)
+
+        val response = queryContainerTool.execute(params, executionContext)
         val responseObj = response as JsonObject
-        
+
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Empty feature retrieval should succeed")
-        
-        val data = responseObj["data"]?.jsonObject?.get("tasks")?.jsonObject
-        assertNotNull(data, "Tasks section should be present")
-        
-        assertEquals(0, data!!["total"]?.jsonPrimitive?.int, "Should have 0 total tasks")
-        assertEquals(0, data["included"]?.jsonPrimitive?.int, "Should have 0 included tasks")
-        assertEquals(false, data["hasMore"]?.jsonPrimitive?.boolean, "Should not have more tasks")
-        
-        val depStats = data["dependencyStatistics"]?.jsonObject
-        assertNotNull(depStats, "Dependency statistics should be present")
-        assertEquals(0, depStats!!["totalDependencies"]?.jsonPrimitive?.int, "Should have 0 dependencies")
-        assertEquals(0, depStats["tasksWithDependencies"]?.jsonPrimitive?.int, "Should have 0 tasks with dependencies")
+
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data, "Data should be present")
+
+        // Verify taskCounts shows 0 tasks
+        val taskCounts = data!!["taskCounts"]?.jsonObject
+        assertNotNull(taskCounts, "Task counts should be present")
+        assertEquals(0, taskCounts!!["total"]?.jsonPrimitive?.int, "Should have 0 total tasks")
+
+        // Verify basic feature data is correct
+        assertEquals(emptyFeature.id.toString(), data["id"]?.jsonPrimitive?.content, "Feature ID should match")
+        assertEquals(emptyFeature.name, data["name"]?.jsonPrimitive?.content, "Feature name should match")
     }
 
     @Test
@@ -379,48 +364,45 @@ class FeatureDependencyStatisticsTest {
         createDependency(taskB1.id, taskB2.id, "RELATES_TO")    // Internal to Feature B
         createDependency(taskB2.id, taskC1.id, "BLOCKS")        // B -> C cross-feature
         createDependency(orphanTask.id, taskA1.id, "BLOCKS")    // Orphan -> Feature A
-        
+
         val params = JsonObject(mapOf(
+            "operation" to JsonPrimitive("overview"),
+            "containerType" to JsonPrimitive("task"),
             "summaryLength" to JsonPrimitive(50)
         ))
-        
-        val response = getOverviewTool.execute(params, executionContext)
+
+        val response = queryContainerTool.execute(params, executionContext)
         val responseObj = response as JsonObject
-        
+
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Task overview should succeed")
-        
+
         val data = responseObj["data"]?.jsonObject
         assertNotNull(data, "Data should be present")
-        
-        val features = data!!["features"]?.jsonArray
-        val orphanedTasks = data["orphanedTasks"]?.jsonArray
-        val counts = data["counts"]?.jsonObject
-        
-        assertNotNull(features, "Features should be present")
-        assertNotNull(orphanedTasks, "Orphaned tasks should be present")
-        assertNotNull(counts, "Counts should be present")
-        
-        // Verify basic counts
-        assertEquals(3, counts!!["features"]?.jsonPrimitive?.int, "Should have 3 features")
-        assertEquals(7, counts["tasks"]?.jsonPrimitive?.int, "Should have 7 total tasks")
-        assertEquals(1, counts["orphanedTasks"]?.jsonPrimitive?.int, "Should have 1 orphaned task")
-        
-        // Verify each feature has the correct tasks
-        assertEquals(3, features!!.size, "Should have 3 features in overview")
-        
-        val featureAData = features.find { 
-            it.jsonObject["id"]?.jsonPrimitive?.content == featureA.id.toString() 
-        }?.jsonObject
-        assertNotNull(featureAData, "Feature A should be present")
-        
-        val featureATasks = featureAData!!["tasks"]?.jsonArray
-        assertNotNull(featureATasks, "Feature A tasks should be present")
-        assertEquals(3, featureATasks!!.size, "Feature A should have 3 tasks")
-        
-        // Verify orphaned task is listed separately
-        assertEquals(1, orphanedTasks!!.size, "Should have 1 orphaned task")
-        val orphanTaskData = orphanedTasks[0].jsonObject
-        assertEquals(orphanTask.id.toString(), orphanTaskData["id"]?.jsonPrimitive?.content, "Orphaned task ID should match")
+
+        // v2 overview returns simple list of items with count
+        val items = data!!["items"]?.jsonArray
+        val count = data["count"]?.jsonPrimitive?.int
+
+        assertNotNull(items, "Items should be present")
+        assertNotNull(count, "Count should be present")
+        assertEquals(7, count, "Should have 7 total tasks")
+        assertEquals(7, items!!.size, "Should have 7 task items in overview")
+
+        // Verify dependencies were created correctly
+        val allDeps = dependencyRepository.getAllDependencies()
+        assertEquals(5, allDeps.size, "Should have 5 total dependencies")
+
+        // Verify specific dependencies exist
+        assertTrue(allDeps.any { it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id }, "Should have A1->A2")
+        assertTrue(allDeps.any { it.fromTaskId == taskA2.id && it.toTaskId == taskB1.id }, "Should have A2->B1")
+        assertTrue(allDeps.any { it.fromTaskId == taskB1.id && it.toTaskId == taskB2.id }, "Should have B1->B2")
+        assertTrue(allDeps.any { it.fromTaskId == taskB2.id && it.toTaskId == taskC1.id }, "Should have B2->C1")
+        assertTrue(allDeps.any { it.fromTaskId == orphanTask.id && it.toTaskId == taskA1.id }, "Should have orphan->A1")
+
+        // Verify tasks can be found in overview
+        val taskIds = items.map { it.jsonObject["id"]?.jsonPrimitive?.content }
+        assertTrue(taskIds.contains(taskA1.id.toString()), "Should include task A1")
+        assertTrue(taskIds.contains(orphanTask.id.toString()), "Should include orphan task")
     }
 
     @Test
@@ -430,37 +412,48 @@ class FeatureDependencyStatisticsTest {
         createDependency(taskA2.id, taskA3.id, "IS_BLOCKED_BY")
         createDependency(taskA3.id, taskB1.id, "RELATES_TO")
         createDependency(taskB1.id, taskB2.id, "BLOCKS")
-        
+
+        // Verify all dependencies were created with correct types
+        val allDeps = dependencyRepository.getAllDependencies()
+        assertEquals(4, allDeps.size, "Should have 4 total dependencies")
+
+        // Verify dependency types
+        val a1ToA2 = allDeps.find { it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id }
+        assertNotNull(a1ToA2, "Should have A1->A2 dependency")
+        assertEquals(DependencyType.BLOCKS, a1ToA2!!.type, "A1->A2 should be BLOCKS")
+
+        val a2ToA3 = allDeps.find { it.fromTaskId == taskA2.id && it.toTaskId == taskA3.id }
+        assertNotNull(a2ToA3, "Should have A2->A3 dependency")
+        assertEquals(DependencyType.IS_BLOCKED_BY, a2ToA3!!.type, "A2->A3 should be IS_BLOCKED_BY")
+
+        val a3ToB1 = allDeps.find { it.fromTaskId == taskA3.id && it.toTaskId == taskB1.id }
+        assertNotNull(a3ToB1, "Should have A3->B1 dependency")
+        assertEquals(DependencyType.RELATES_TO, a3ToB1!!.type, "A3->B1 should be RELATES_TO")
+
+        val b1ToB2 = allDeps.find { it.fromTaskId == taskB1.id && it.toTaskId == taskB2.id }
+        assertNotNull(b1ToB2, "Should have B1->B2 dependency")
+        assertEquals(DependencyType.BLOCKS, b1ToB2!!.type, "B1->B2 should be BLOCKS")
+
+        // Verify Feature A task count
         val params = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureA.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(featureA.id.toString())
         ))
-        
-        val response = getFeatureTool.execute(params, executionContext)
+
+        val response = queryContainerTool.execute(params, executionContext)
         val responseObj = response as JsonObject
-        
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Feature retrieval should succeed")
-        
-        val data = responseObj["data"]?.jsonObject?.get("tasks")?.jsonObject
-        val depStats = data?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(depStats, "Dependency statistics should be present")
-        
-        // Should count all dependency types
-        // A1->A2 (BLOCKS), A2->A3 (IS_BLOCKED_BY), A3->B1 (RELATES_TO)
-        // A1: 1 outgoing, A2: 1 incoming + 1 outgoing, A3: 1 incoming + 1 outgoing = 5 total
-        assertEquals(5, depStats!!["totalDependencies"]?.jsonPrimitive?.int, "Should count all dependency types")
-        assertEquals(3, depStats["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Should have 3 outgoing dependencies")
-        assertEquals(2, depStats["totalIncomingDependencies"]?.jsonPrimitive?.int, "Should have 2 incoming dependencies")
-        assertEquals(3, depStats["tasksWithDependencies"]?.jsonPrimitive?.int, "All tasks should have dependencies")
+
+        val taskCounts = responseObj["data"]?.jsonObject?.get("taskCounts")?.jsonObject
+        assertEquals(3, taskCounts?.get("total")?.jsonPrimitive?.int, "Feature A should have 3 tasks")
     }
 
     @Test
     fun `should handle large dependency graphs efficiently`() = runBlocking {
         // Create a complex dependency graph with many connections
         val additionalTasks = mutableListOf<Task>()
-        
+
         // Create 10 additional tasks for Feature A
         repeat(10) { i ->
             val task = Task(
@@ -473,51 +466,47 @@ class FeatureDependencyStatisticsTest {
             additionalTasks.add(task)
             taskRepository.addTask(task)
         }
-        
+
         // Create dependencies: each task depends on the previous one
         var previousTask = taskA1
         for (task in listOf(taskA2, taskA3) + additionalTasks) {
             createDependency(previousTask.id, task.id, "BLOCKS")
             previousTask = task
         }
-        
+
         // Add some cross-connections
         createDependency(taskA2.id, additionalTasks[5].id, "RELATES_TO")
         createDependency(additionalTasks[3].id, taskB1.id, "BLOCKS")
         createDependency(additionalTasks[7].id, taskC1.id, "RELATES_TO")
-        
+
+        // Verify all dependencies were created
+        val allDeps = dependencyRepository.getAllDependencies()
+        val expectedDeps = 12 + 3  // 12 linear chain + 3 cross-connections
+        assertEquals(expectedDeps, allDeps.size, "Should have $expectedDeps total dependencies")
+
+        // Verify Feature A has correct task count
         val params = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureA.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true),
-            "maxTaskCount" to JsonPrimitive(20)  // Include all tasks
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(featureA.id.toString())
         ))
-        
-        val response = getFeatureTool.execute(params, executionContext)
+
+        val response = queryContainerTool.execute(params, executionContext)
         val responseObj = response as JsonObject
-        
+
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Large feature retrieval should succeed")
-        
-        val data = responseObj["data"]?.jsonObject?.get("tasks")?.jsonObject
-        val depStats = data?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(depStats, "Dependency statistics should be present")
-        
-        // Verify statistics for large graph
-        val totalDeps = depStats!!["totalDependencies"]?.jsonPrimitive?.int
-        val outgoingDeps = depStats["totalOutgoingDependencies"]?.jsonPrimitive?.int
-        val incomingDeps = depStats["totalIncomingDependencies"]?.jsonPrimitive?.int
-        val tasksWithDeps = depStats["tasksWithDependencies"]?.jsonPrimitive?.int
-        
-        assertNotNull(totalDeps, "Total dependencies should be present")
-        assertNotNull(outgoingDeps, "Outgoing dependencies should be present")
-        assertNotNull(incomingDeps, "Incoming dependencies should be present")
-        assertNotNull(tasksWithDeps, "Tasks with dependencies should be present")
-        
-        // Should handle the linear chain plus cross-connections
-        assertTrue(totalDeps!! >= 14, "Should have at least 14 dependencies (12 linear + 2 cross)")
-        assertTrue(tasksWithDeps!! >= 12, "Most tasks should have dependencies")
-        assertEquals(totalDeps, outgoingDeps!! + incomingDeps!!, "Total should equal outgoing + incoming")
+
+        val taskCounts = responseObj["data"]?.jsonObject?.get("taskCounts")?.jsonObject
+        assertNotNull(taskCounts, "Task counts should be present")
+        assertEquals(13, taskCounts!!["total"]?.jsonPrimitive?.int, "Feature A should have 13 tasks (3 original + 10 additional)")
+
+        // Verify cross-feature dependencies exist
+        assertTrue(allDeps.any { it.fromTaskId == additionalTasks[3].id && it.toTaskId == taskB1.id }, "Should have cross-feature dep to B1")
+        assertTrue(allDeps.any { it.fromTaskId == additionalTasks[7].id && it.toTaskId == taskC1.id }, "Should have cross-feature dep to C1")
+
+        // Verify linear chain dependencies
+        assertTrue(allDeps.any { it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id }, "Should have A1->A2")
+        assertTrue(allDeps.any { it.fromTaskId == taskA2.id && it.toTaskId == taskA3.id }, "Should have A2->A3")
     }
 
     @Test
@@ -526,54 +515,64 @@ class FeatureDependencyStatisticsTest {
         createDependency(taskA1.id, taskA2.id, "BLOCKS")
         createDependency(taskA2.id, taskA3.id, "BLOCKS")
         createDependency(taskA1.id, taskB1.id, "RELATES_TO")
-        
-        // Get initial statistics
-        val initialParams = JsonObject(mapOf(
-            "id" to JsonPrimitive(featureA.id.toString()),
-            "includeTasks" to JsonPrimitive(true),
-            "includeTaskDependencies" to JsonPrimitive(true)
-        ))
-        
-        val initialResponse = getFeatureTool.execute(initialParams, executionContext)
-        val initialResponseObj = initialResponse as JsonObject
-        val initialDepStats = initialResponseObj["data"]?.jsonObject
-            ?.get("tasks")?.jsonObject
-            ?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(initialDepStats, "Initial dependency statistics should be present")
-        // A1->A2, A2->A3, A1->B1: A1 has 2 outgoing, A2 has 1 incoming + 1 outgoing, A3 has 1 incoming = 5 total
-        assertEquals(5, initialDepStats!!["totalDependencies"]?.jsonPrimitive?.int, "Should initially have 5 dependency connections")
-        
-        // Delete one dependency
-        val dependency = dependencyRepository.getAllDependencies().first { 
-            it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id 
+
+        // Verify initial state
+        var allDeps = dependencyRepository.getAllDependencies()
+        assertEquals(3, allDeps.size, "Should initially have 3 dependencies")
+
+        // Verify specific dependencies exist
+        val a1ToA2Initial = allDeps.find { it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id }
+        assertNotNull(a1ToA2Initial, "Should have A1->A2 initially")
+
+        val a2ToA3Initial = allDeps.find { it.fromTaskId == taskA2.id && it.toTaskId == taskA3.id }
+        assertNotNull(a2ToA3Initial, "Should have A2->A3 initially")
+
+        val a1ToB1Initial = allDeps.find { it.fromTaskId == taskA1.id && it.toTaskId == taskB1.id }
+        assertNotNull(a1ToB1Initial, "Should have A1->B1 initially")
+
+        // Delete one dependency (A1->A2)
+        val dependency = allDeps.first {
+            it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id
         }
         dependencyRepository.delete(dependency.id)
-        
-        // Get updated statistics
-        val updatedResponse = getFeatureTool.execute(initialParams, executionContext)
-        val updatedResponseObj = updatedResponse as JsonObject
-        val updatedDepStats = updatedResponseObj["data"]?.jsonObject
-            ?.get("tasks")?.jsonObject
-            ?.get("dependencyStatistics")?.jsonObject
-        
-        assertNotNull(updatedDepStats, "Updated dependency statistics should be present")
-        // After deleting A1->A2: A2->A3, A1->B1: A1 has 1 outgoing, A2 has 1 outgoing, A3 has 1 incoming = 3 total
-        assertEquals(3, updatedDepStats!!["totalDependencies"]?.jsonPrimitive?.int, "Should have 3 dependencies after deletion")
-        assertEquals(2, updatedDepStats["totalOutgoingDependencies"]?.jsonPrimitive?.int, "Should have 2 outgoing dependencies")
-        assertEquals(1, updatedDepStats["totalIncomingDependencies"]?.jsonPrimitive?.int, "Should have 1 incoming dependency")
+
+        // Verify dependency was deleted
+        allDeps = dependencyRepository.getAllDependencies()
+        assertEquals(2, allDeps.size, "Should have 2 dependencies after deletion")
+
+        // Verify correct dependency was deleted
+        val a1ToA2After = allDeps.find { it.fromTaskId == taskA1.id && it.toTaskId == taskA2.id }
+        assertNull(a1ToA2After, "A1->A2 should be deleted")
+
+        // Verify remaining dependencies still exist
+        val a2ToA3After = allDeps.find { it.fromTaskId == taskA2.id && it.toTaskId == taskA3.id }
+        assertNotNull(a2ToA3After, "A2->A3 should still exist")
+
+        val a1ToB1After = allDeps.find { it.fromTaskId == taskA1.id && it.toTaskId == taskB1.id }
+        assertNotNull(a1ToB1After, "A1->B1 should still exist")
+
+        // Verify task count is unchanged
+        val params = JsonObject(mapOf(
+            "operation" to JsonPrimitive("get"),
+            "containerType" to JsonPrimitive("feature"),
+            "id" to JsonPrimitive(featureA.id.toString())
+        ))
+        val response = queryContainerTool.execute(params, executionContext) as JsonObject
+        val taskCounts = response["data"]?.jsonObject?.get("taskCounts")?.jsonObject
+        assertEquals(3, taskCounts?.get("total")?.jsonPrimitive?.int, "Feature A should still have 3 tasks")
     }
 
     private suspend fun createDependency(fromTaskId: UUID, toTaskId: UUID, type: String) {
         val params = JsonObject(mapOf(
+            "operation" to JsonPrimitive("create"),
             "fromTaskId" to JsonPrimitive(fromTaskId.toString()),
             "toTaskId" to JsonPrimitive(toTaskId.toString()),
             "type" to JsonPrimitive(type)
         ))
-        
-        val response = createDependencyTool.execute(params, executionContext)
+
+        val response = manageDependencyTool.execute(params, executionContext)
         val responseObj = response as JsonObject
-        
+
         assertTrue(
             responseObj["success"]?.jsonPrimitive?.boolean == true,
             "Dependency creation should succeed: ${fromTaskId} -> ${toTaskId} ($type)"

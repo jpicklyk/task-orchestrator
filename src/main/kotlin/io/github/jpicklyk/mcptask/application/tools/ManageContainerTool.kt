@@ -1029,6 +1029,9 @@ Docs: task-orchestrator://docs/tools/manage-container
         val outgoingDeps = dependencies.filter { it.fromTaskId == id }
 
         if (dependencies.isNotEmpty() && !force) {
+            // Calculate affected tasks (unique task IDs involved in dependencies)
+            val affectedTaskIds = dependencies.flatMap { listOf(it.fromTaskId, it.toTaskId) }.distinct().filter { it != id }
+
             return errorResponse(
                 "Cannot delete task with existing dependencies",
                 ErrorCodes.VALIDATION_ERROR,
@@ -1037,6 +1040,7 @@ Docs: task-orchestrator://docs/tools/manage-container
                     put("totalDependencies", dependencies.size)
                     put("incomingDependencies", incomingDeps.size)
                     put("outgoingDependencies", outgoingDeps.size)
+                    put("affectedTasks", affectedTaskIds.size)
                 }
             )
         }
@@ -1074,10 +1078,14 @@ Docs: task-orchestrator://docs/tools/manage-container
                 put("sectionsDeleted", sectionsDeleted)
                 put("dependenciesDeleted", dependenciesDeleted)
                 if (dependencies.isNotEmpty() && force) {
+                    // Calculate affected tasks (unique task IDs involved in dependencies)
+                    val affectedTaskIds = dependencies.flatMap { listOf(it.fromTaskId, it.toTaskId) }.distinct().filter { it != id }
+
                     put("warningsBrokenDependencies", true)
                     put("brokenDependencyChains", buildJsonObject {
                         put("incomingDependencies", incomingDeps.size)
                         put("outgoingDependencies", outgoingDeps.size)
+                        put("affectedTasks", affectedTaskIds.size)
                     })
                 }
             }

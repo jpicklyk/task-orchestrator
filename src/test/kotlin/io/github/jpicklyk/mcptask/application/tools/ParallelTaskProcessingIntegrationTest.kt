@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools
 
-import io.github.jpicklyk.mcptask.application.tools.feature.GetFeatureTool
+import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.*
@@ -35,7 +35,7 @@ import java.util.*
 @DisplayName("Parallel Task Processing Integration Tests")
 class ParallelTaskProcessingIntegrationTest {
     private lateinit var getNextTaskTool: GetNextTaskTool
-    private lateinit var getFeatureTool: GetFeatureTool
+    private lateinit var queryContainerTool: QueryContainerTool
     private lateinit var context: ToolExecutionContext
     private lateinit var mockTaskRepository: TaskRepository
     private lateinit var mockFeatureRepository: FeatureRepository
@@ -46,7 +46,7 @@ class ParallelTaskProcessingIntegrationTest {
     @BeforeEach
     fun setup() {
         getNextTaskTool = GetNextTaskTool()
-        getFeatureTool = GetFeatureTool()
+        queryContainerTool = QueryContainerTool()
 
         // Create mock repositories
         mockTaskRepository = mockk<TaskRepository>()
@@ -633,10 +633,12 @@ class ParallelTaskProcessingIntegrationTest {
 
             // First call
             val params1 = JsonObject(mapOf(
+                "operation" to JsonPrimitive("get"),
+                "containerType" to JsonPrimitive("feature"),
                 "id" to JsonPrimitive(featureId.toString()),
-                "includeTasks" to JsonPrimitive(true)
+                "includeSections" to JsonPrimitive(false)
             ))
-            val result1 = getFeatureTool.execute(params1, context)
+            val result1 = queryContainerTool.execute(params1, context)
 
             val responseObj1 = result1 as JsonObject
             val data1 = responseObj1["data"]?.jsonObject
@@ -648,7 +650,7 @@ class ParallelTaskProcessingIntegrationTest {
                 Result.Success(listOf(task1, task2Completed))
 
             // Second call - should reflect updated state
-            val result2 = getFeatureTool.execute(params1, context)
+            val result2 = queryContainerTool.execute(params1, context)
 
             val responseObj2 = result2 as JsonObject
             val data2 = responseObj2["data"]?.jsonObject

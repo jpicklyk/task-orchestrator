@@ -466,4 +466,11 @@ class MockTaskRepository : TaskRepository {
         nextUpdateResult = null
         nextDeleteResult = null
     }
+
+    /**
+     * Test helper method to get all tasks
+     */
+    fun getAllTasks(): List<Task> {
+        return tasks.values.toList()
+    }
 }

@@ -923,7 +923,15 @@ Docs: task-orchestrator://docs/tools/query-container
         val tasksResult = if (featureId != null) {
             context.taskRepository().findByFeature(featureId)
         } else if (projectId != null) {
-            context.taskRepository().findByProject(projectId)
+            // Use findByFilters to include tasks through feature relationships
+            context.taskRepository().findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000  // High limit to get all tasks for counting
+            )
         } else {
             return buildJsonObject {
                 put("total", 0)

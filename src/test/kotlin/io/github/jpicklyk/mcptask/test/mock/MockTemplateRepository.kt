@@ -271,7 +271,7 @@ class MockTemplateRepository : TemplateRepository {
         targetEntityType: EntityType?
     ): Result<List<Template>> {
         val queryLower = query.lowercase()
-        var filteredTemplates = templates.values.filter { template ->
+        var filteredTemplates: List<Template> = templates.values.filter { template ->
             template.name.lowercase().contains(queryLower) ||
                     template.description.lowercase().contains(queryLower)
         }

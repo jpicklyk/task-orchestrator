@@ -450,7 +450,14 @@ class QueryContainerToolTest {
                 }
 
                 coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-                coEvery { mockTaskRepository.findByProject(projectId) } returns Result.Success(listOf(mockTask))
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = any()
+                ) } returns Result.Success(listOf(mockTask))
 
                 val result = tool.execute(params, context)
 
@@ -471,7 +478,14 @@ class QueryContainerToolTest {
                 val projectSection = mockSection.copy(entityType = EntityType.PROJECT, entityId = projectId)
 
                 coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-                coEvery { mockTaskRepository.findByProject(projectId) } returns Result.Success(listOf(mockTask))
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = any()
+                ) } returns Result.Success(listOf(mockTask))
                 coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
                     Result.Success(listOf(projectSection))
 

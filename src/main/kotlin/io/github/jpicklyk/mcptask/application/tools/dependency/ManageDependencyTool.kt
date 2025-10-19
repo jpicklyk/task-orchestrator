@@ -328,6 +328,15 @@ Docs: task-orchestrator://docs/tools/manage-dependency
                 }
             }
 
+            // Check for self-dependency (task cannot depend on itself)
+            if (fromTaskId == toTaskId) {
+                return errorResponse(
+                    message = "Self-dependency not allowed",
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    details = "A task cannot depend on itself. fromTaskId and toTaskId must be different."
+                )
+            }
+
             // Check for duplicate dependency
             val existingDependencies = context.dependencyRepository().findByFromTaskId(fromTaskId)
             val duplicate = existingDependencies.find {
