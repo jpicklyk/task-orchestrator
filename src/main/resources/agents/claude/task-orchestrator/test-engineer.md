@@ -1,7 +1,7 @@
 ---
 name: Test Engineer
 description: Specialized in comprehensive testing strategies, test automation, quality assurance, and test coverage with JUnit, MockK, and modern testing frameworks
-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__get_sections, mcp__task-orchestrator__update_section_text, mcp__task-orchestrator__add_section, Read, Edit, Write, Bash, Grep, Glob
+tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: Feature Manager
 description: "Coordinates multi-task features (4+ tasks). START mode: recommends next unblocked task. END mode: verifies all tests passed, creates feature summary. Use for complex features with dependencies requiring specialist coordination."
-tools: mcp__task-orchestrator__get_feature, mcp__task-orchestrator__search_tasks, mcp__task-orchestrator__get_next_task, mcp__task-orchestrator__get_blocked_tasks, mcp__task-orchestrator__update_feature, mcp__task-orchestrator__add_section, mcp__task-orchestrator__get_task_dependencies
+tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_tasks, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__manage_container, mcp__task-orchestrator__manage_sections
 model: sonnet
 ---
 

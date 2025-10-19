@@ -1,7 +1,7 @@
 ---
 name: Task Management
 description: Coordinate task workflows including routing tasks to specialists, updating task status, and completing tasks. Use when managing task lifecycle, marking tasks complete, or checking task details.
-allowed-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__set_status, mcp__task-orchestrator__update_task, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__get_task_dependencies, mcp__task-orchestrator__add_section
+allowed-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__set_status, mcp__task-orchestrator__manage_container, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__manage_sections
 ---
 
 # Task Management Skill
@@ -31,8 +31,8 @@ allowed-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__set_sta
 **When**: You need to determine which specialist agent should work on a task
 
 **Steps**:
-1. Get task details: `get_task(id, includeSections=true, includeFeature=false)`
-2. Get specialist recommendation: `recommend_agent(taskId)`
+1. Get task details: `query_container(operation='get', containerType='task', id='[task-id]', includeSections=true)`
+2. Get specialist recommendation: `recommend_agent(taskId='[task-id]')`
 3. Format recommendation with context from task sections
 
 **What to Include in Recommendation**:

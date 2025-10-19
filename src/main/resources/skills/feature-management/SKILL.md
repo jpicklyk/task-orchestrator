@@ -1,7 +1,7 @@
 ---
 name: Feature Management
 description: Coordinate feature workflows including recommending next tasks, checking progress, and completing features. Use when managing feature lifecycle, checking feature status, or marking features complete.
-allowed-tools: mcp__task-orchestrator__get_feature, mcp__task-orchestrator__get_next_task, mcp__task-orchestrator__update_feature, mcp__task-orchestrator__add_section, mcp__task-orchestrator__get_blocked_tasks, mcp__task-orchestrator__search_tasks
+allowed-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_tasks, mcp__task-orchestrator__manage_container, mcp__task-orchestrator__manage_sections
 ---
 
 # Feature Management Skill
@@ -30,15 +30,15 @@ You coordinate feature lifecycle management using lightweight, focused tool sequ
 
 **Steps**:
 ```
-Step 1: Get feature with tasks and dependencies
-  get_feature(id='[feature-id]', includeTasks=true, includeTaskDependencies=true, includeTaskCounts=true)
+Step 1: Get feature with task counts
+  query_container(operation='get', containerType='feature', id='[feature-id]')
 
 Step 2: Get next recommended task
-  get_next_task(featureId='[feature-id]', limit=1, includeDetails=true)
+  query_tasks(queryType='next', featureId='[feature-id]', limit=1, includeDetails=true)
 
 Step 3 (optional): Update feature status if starting work
   If feature status is 'planning' and recommending first task:
-    update_feature(id='[feature-id]', status='in_development')
+    manage_container(operation='update', containerType='feature', id='[feature-id]', status='in-development')
 
 Step 4: Return recommendation
   Format: Clear task recommendation with ID, title, priority, complexity, why it's ready
@@ -80,7 +80,7 @@ Next: [Wait for in-progress tasks OR resolve blockers OR complete feature if don
 **Steps**:
 ```
 Step 1: Get feature with full details
-  get_feature(id='[feature-id]', includeTasks=true, includeTaskCounts=true)
+  query_container(operation='get', containerType='feature', id='[feature-id]')
 
 Step 2: Analyze and report
   - Review taskCounts.byStatus (pending, in-progress, completed, cancelled)

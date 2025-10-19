@@ -1,7 +1,7 @@
 ---
 name: Planning Specialist
 description: "PROACTIVE: Launch after Feature Architect creates a feature that needs task breakdown. Decomposes features into domain-isolated tasks (database, backend, frontend, testing, docs) with dependencies. One task = one specialist domain."
-tools: mcp__task-orchestrator__get_overview, mcp__task-orchestrator__get_feature, mcp__task-orchestrator__create_task, mcp__task-orchestrator__add_section, mcp__task-orchestrator__bulk_create_sections, mcp__task-orchestrator__create_dependency, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template
+tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__manage_container, mcp__task-orchestrator__manage_sections, mcp__task-orchestrator__manage_dependency, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template
 model: opus
 ---
 

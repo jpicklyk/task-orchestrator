@@ -9,6 +9,9 @@ import io.github.jpicklyk.mcptask.infrastructure.filesystem.ClaudeAgentDirectory
 import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
 import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
 import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
+import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
+import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
 import io.github.jpicklyk.mcptask.application.tools.SetStatusTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
@@ -231,78 +234,31 @@ class McpServer(
      */
     private fun createTools(): List<ToolDefinition> {
         return listOf(
-            // Task management tools - New consolidated tools
-            ManageTaskTool(null, null),
-            QueryTasksTool(),
+            // ========== v2.0 CONSOLIDATED TOOLS ==========
 
-            // Task management tools - Deprecated (use manage_task or query_tasks instead)
-            CreateTaskTool(),
-            UpdateTaskTool(null, null),
-            BulkUpdateTasksTool(),
-            GetTaskTool(),
-            DeleteTaskTool(null, null),
-            SearchTasksTool(),
-            GetOverviewTool(),
-            SetStatusTool(),
+            // Container management - Unified operations for Projects/Features/Tasks
+            QueryContainerTool(),
+            ManageContainerTool(null, null),
+
+            // Section management - Unified operations for all section types
+            QuerySectionsTool(null, null),
+            ManageSectionsTool(null, null),
+
+            // Template management - Read, write, and apply operations
+            QueryTemplatesTool(null, null),
+            ManageTemplateTool(null, null),
+            ApplyTemplateTool(null, null),
+
+            // Dependency management - Query and manage task dependencies
+            QueryDependenciesTool(null, null),
+            ManageDependencyTool(null, null),
+
+            // Tag management - Discovery and organization
             ListTagsTool(),
             GetTagUsageTool(),
             RenameTagTool(),
-            GetBlockedTasksTool(),
-            GetNextTaskTool(),
-            TaskToMarkdownTool(),
 
-            // Dependency management tools
-            CreateDependencyTool(),
-            GetTaskDependenciesTool(),
-            DeleteDependencyTool(),
-
-            // Feature management tools - New consolidated tool
-            ManageFeatureTool(null, null),
-
-            // Feature management tools - Deprecated (use manage_feature instead)
-            CreateFeatureTool(),
-            UpdateFeatureTool(),
-            GetFeatureTool(),
-            DeleteFeatureTool(),
-            SearchFeaturesTool(),
-            FeatureToMarkdownTool(),
-
-            // Project management tools - New consolidated tool
-            ManageProjectTool(null, null),
-
-            // Project management tools - Deprecated (use manage_project instead)
-            CreateProjectTool(),
-            GetProjectTool(),
-            UpdateProjectTool(),
-            DeleteProjectTool(),
-            SearchProjectsTool(),
-            ProjectToMarkdownTool(),
-
-            // Section management tools
-            AddSectionTool(null, null),
-            GetSectionsTool(),
-            UpdateSectionTool(null, null),
-            DeleteSectionTool(),
-            BulkUpdateSectionsTool(),
-            BulkCreateSectionsTool(),
-            BulkDeleteSectionsTool(),
-            // Enhanced section tools for context-efficiency
-            UpdateSectionTextTool(),
-            UpdateSectionMetadataTool(),
-            ReorderSectionsTool(),
-
-            // Template management tools
-            CreateTemplateTool(),
-            GetTemplateTool(),
-            ApplyTemplateTool(null, null),
-            ListTemplatesTool(),
-            AddTemplateSectionTool(),
-            UpdateTemplateMetadataTool(),
-            DeleteTemplateTool(),
-            EnableTemplateTool(),
-            DisableTemplateTool(),
-
-            // Agent management tools
+            // Agent management - AI workflow automation
             SetupClaudeAgentsTool(),
             GetAgentDefinitionTool(),
             RecommendAgentTool()

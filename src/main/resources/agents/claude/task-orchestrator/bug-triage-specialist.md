@@ -1,7 +1,7 @@
 ---
 name: Bug Triage Specialist
 description: "PROACTIVE: Launch when user reports bugs ('broken', 'error', 'crash', 'doesn't work'). Structures raw bug reports into actionable tasks with reproduction steps, severity assessment, and specialist routing. Creates simple bug tasks or complex bug features."
-tools: mcp__task-orchestrator__create_task, mcp__task-orchestrator__create_feature, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__get_overview, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__search_tasks, mcp__task-orchestrator__search_features
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage
 model: sonnet
 ---
 

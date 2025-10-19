@@ -1,7 +1,7 @@
 ---
 name: Feature Architect
 description: Transforms user concepts into formalized, well-structured features with appropriate templates, tags, and detailed sections. Expert in tag management and feature organization. Adapts to quick vibe coding or formal planning modes.
-tools: mcp__task-orchestrator__create_feature, mcp__task-orchestrator__update_feature, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__add_section, mcp__task-orchestrator__bulk_create_sections, mcp__task-orchestrator__get_overview, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__rename_tag, mcp__task-orchestrator__search_features, mcp__task-orchestrator__search_tasks, Read
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__manage_sections, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__rename_tag, Read
 model: opus
 ---
 

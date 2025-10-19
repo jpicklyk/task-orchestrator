@@ -1,7 +1,7 @@
 ---
 name: Dependency Analysis
 description: Analyze task dependencies including finding blocked tasks, checking dependency chains, and identifying bottlenecks. Use when investigating why tasks are blocked or planning parallel work.
-allowed-tools: mcp__task-orchestrator__get_blocked_tasks, mcp__task-orchestrator__get_task_dependencies, mcp__task-orchestrator__get_task, mcp__task-orchestrator__search_tasks
+allowed-tools: mcp__task-orchestrator__query_tasks, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__query_container
 ---
 
 # Dependency Analysis Skill
@@ -25,9 +25,9 @@ This Skill helps you analyze task dependencies within Task Orchestrator to:
 - ✅ Optimizing task execution order
 
 **Don't use this Skill when:**
-- ❌ Creating new dependencies (use direct MCP tools)
-- ❌ Removing dependencies (use direct MCP tools)
-- ❌ Just checking a single task's dependencies (use `get_task_dependencies` directly)
+- ❌ Creating new dependencies (use `manage_dependency` directly)
+- ❌ Removing dependencies (use `manage_dependency` directly)
+- ❌ Just checking a single task's dependencies (use `query_dependencies` directly)
 
 ## Core Workflows
 
@@ -37,9 +37,9 @@ This Skill helps you analyze task dependencies within Task Orchestrator to:
 
 **Steps**:
 1. Get feature ID (from context or ask user)
-2. Call `get_blocked_tasks(featureId=<id>)`
+2. Call `query_tasks(queryType="blocked", featureId=<id>)`
 3. For each blocked task:
-   - Get task details with `get_task(id=<task_id>)`
+   - Get task details with `query_container(operation="get", containerType="task", id=<task_id>)`
    - Identify what it's waiting for (dependency titles)
 4. Present summary: "X tasks are blocked, waiting on Y dependencies"
 
@@ -48,7 +48,7 @@ This Skill helps you analyze task dependencies within Task Orchestrator to:
 User: "What's blocking progress on the authentication feature?"
 
 You (using this Skill):
-1. get_blocked_tasks(featureId="auth-feature-id")
+1. query_tasks(queryType="blocked", featureId="auth-feature-id")
 2. Found 3 blocked tasks:
    - "Implement login UI" (blocked by "Create auth API")
    - "Add logout flow" (blocked by "Create auth API")
@@ -62,10 +62,10 @@ You (using this Skill):
 
 **Steps**:
 1. Start with target task ID
-2. Call `get_task_dependencies(taskId=<id>, includeTransitive=true)`
+2. Call `query_dependencies(taskId=<id>, direction="incoming")`
 3. Build dependency tree:
    - Direct dependencies (must complete immediately before)
-   - Transitive dependencies (must complete somewhere in chain)
+   - Full dependency chain from returned data
 4. Identify longest chain (critical path)
 5. Present visual representation
 
@@ -74,7 +74,7 @@ You (using this Skill):
 User: "What needs to happen before we can deploy the feature?"
 
 You (using this Skill):
-1. get_task_dependencies(taskId="deploy-task-id", includeTransitive=true)
+1. query_dependencies(taskId="deploy-task-id", direction="incoming", includeTaskInfo=true)
 2. Chain discovered:
    - Deploy Feature (target)
      ← Integration Tests
@@ -89,7 +89,7 @@ You (using this Skill):
 **When to use**: Want to know which tasks are blocking the most work
 
 **Steps**:
-1. Get all tasks in feature with `search_tasks(featureId=<id>)`
+1. Get all tasks in feature with `query_container(operation="search", containerType="task", featureId=<id>)`
 2. For each pending/in-progress task:
    - Count how many tasks depend on it (outgoing dependencies)
 3. Sort by dependent count (descending)
@@ -100,7 +100,7 @@ You (using this Skill):
 User: "Which tasks should we prioritize to unblock the most work?"
 
 You (using this Skill):
-1. search_tasks(featureId="feature-id", status="pending,in_progress")
+1. query_container(operation="search", containerType="task", featureId="feature-id", status="pending,in_progress")
 2. Analyze outgoing dependencies:
    - "Create auth API" → 5 tasks depend on this (BOTTLENECK)
    - "Setup database" → 3 tasks depend on this
@@ -135,7 +135,7 @@ Complexity: use inverse (10 - complexity_rating)
 User: "We have 10 blocked tasks. What should we work on first?"
 
 You (using this Skill):
-1. get_blocked_tasks(featureId="feature-id")
+1. query_tasks(queryType="blocked", featureId="feature-id")
 2. Analyze blocking dependencies:
    - "Create auth API": unblocks 5 tasks, priority=high, complexity=6
      Score = (5×10) + (4×5) - (6×2) = 50 + 20 - 12 = 58
@@ -193,11 +193,12 @@ All 3 tasks have no dependencies and can proceed simultaneously."
 
 ## Tool Usage Guidelines
 
-### get_blocked_tasks
+### query_tasks (blocked)
 
 **Purpose**: Find all tasks blocked by dependencies
 
 **Parameters**:
+- `queryType`: "blocked" (required)
 - `featureId` (optional): Limit to specific feature
 - `projectId` (optional): Limit to specific project
 
@@ -205,62 +206,68 @@ All 3 tasks have no dependencies and can proceed simultaneously."
 
 **Usage**:
 ```javascript
-get_blocked_tasks(featureId="550e8400-e29b-41d4-a716-446655440000")
+query_tasks(queryType="blocked", featureId="550e8400-e29b-41d4-a716-446655440000")
 ```
 
-### get_task_dependencies
+### query_dependencies
 
 **Purpose**: Get dependencies for a specific task
 
 **Parameters**:
 - `taskId` (required): Task to analyze
-- `includeTransitive` (optional): Include full chain (default: false)
+- `direction` (optional): "incoming", "outgoing", or "all" (default: all)
+- `type` (optional): "BLOCKS", "IS_BLOCKED_BY", "RELATES_TO", or "all"
+- `includeTaskInfo` (optional): Include task titles and status
 
-**Returns**: Direct dependencies, and optionally transitive dependencies
+**Returns**: Dependencies with direction filtering and counts
 
 **Usage**:
 ```javascript
-// Just direct dependencies
-get_task_dependencies(taskId="task-id")
+// All dependencies
+query_dependencies(taskId="task-id")
 
-// Full dependency chain
-get_task_dependencies(taskId="task-id", includeTransitive=true)
+// Just incoming dependencies (what blocks this task)
+query_dependencies(taskId="task-id", direction="incoming", includeTaskInfo=true)
 ```
 
-### get_task
+### query_container (get task)
 
 **Purpose**: Get full task details including summary and priority
 
 **Parameters**:
+- `operation`: "get" (required)
+- `containerType`: "task" (required)
 - `id` (required): Task UUID
-- `includeDependencies` (optional): Include dependency info
-- `includeFeature` (optional): Include parent feature info
+- `includeSections` (optional): Include detailed content sections
 
 **Usage**:
 ```javascript
-get_task(
+query_container(
+  operation="get",
+  containerType="task",
   id="task-id",
-  includeDependencies=true,
-  includeFeature=true
+  includeSections=false
 )
 ```
 
-### search_tasks
+### query_container (search tasks)
 
 **Purpose**: Find tasks by criteria
 
 **Parameters**:
+- `operation`: "search" (required)
+- `containerType`: "task" (required)
 - `featureId` (optional): Filter by feature
-- `status` (optional): Filter by status (comma-separated)
+- `status` (optional): Filter by status
 - `tags` (optional): Filter by tags
 
 **Usage**:
 ```javascript
 // Find all pending tasks in feature
-search_tasks(featureId="feature-id", status="pending")
+query_container(operation="search", containerType="task", featureId="feature-id", status="pending")
 
 // Find all in-progress tasks
-search_tasks(status="in_progress")
+query_container(operation="search", containerType="task", status="in_progress")
 ```
 
 ## Best Practices
@@ -269,8 +276,8 @@ search_tasks(status="in_progress")
 
 Always begin with feature-level analysis:
 ```
-Step 1: get_blocked_tasks(featureId=X) → See overall blocking situation
-Step 2: get_task_dependencies(taskId=Y) → Drill into specific blockages
+Step 1: query_tasks(queryType="blocked", featureId=X) → See overall blocking situation
+Step 2: query_dependencies(taskId=Y) → Drill into specific blockages
 ```
 
 ### 2. Consider Task Metadata
