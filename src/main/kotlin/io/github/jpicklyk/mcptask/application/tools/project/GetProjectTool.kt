@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Feature
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -272,8 +273,8 @@ For detailed examples and patterns: task-orchestrator://docs/tools/get-project
                                 // Get features for this project
                                 val featuresFuture = context.featureRepository().findByFilters(
                                     projectId = projectId,
-                                    status = null,
-                                    priority = null,
+                                    statusFilter = null,
+                                    priorityFilter = null,
                                     tags = null,
                                     textQuery = null,
                                     limit = 20,
@@ -332,8 +333,8 @@ For detailed examples and patterns: task-orchestrator://docs/tools/get-project
                                 // Get tasks directly associated with this project (not through features)
                                 val tasksResult = context.taskRepository().findByFilters(
                                     projectId = projectId,
-                                    status = null,
-                                    priority = null,
+                                    statusFilter = null,
+                                    priorityFilter = null,
                                     tags = null,
                                     textQuery = null,
                                     limit = 20,

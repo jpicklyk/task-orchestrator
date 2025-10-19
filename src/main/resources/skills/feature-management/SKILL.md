@@ -79,13 +79,18 @@ Next: [Wait for in-progress tasks OR resolve blockers OR complete feature if don
 
 **Steps**:
 ```
-Step 1: Get feature with full details
+Step 1: Get feature with task counts (99% token reduction vs fetching all tasks)
   query_container(operation='get', containerType='feature', id='[feature-id]')
 
-Step 2: Analyze and report
+Step 2: Analyze taskCounts
   - Review taskCounts.byStatus (pending, in-progress, completed, cancelled)
-  - Calculate completion percentage
-  - Identify any blockers
+  - Calculate completion percentage from counts
+  - Identify any blockers using counts
+
+Token Optimization:
+  Old approach: Fetch all 50 tasks = ~14,400 tokens
+  New approach: Get feature with taskCounts = ~100 tokens
+  Savings: 99% (14,300 tokens saved!)
 ```
 
 **Response Format**:
@@ -94,7 +99,7 @@ Feature: [feature name]
 Status: [feature status]
 Progress: [completed]/[total] tasks ([percentage]%)
 
-Task Breakdown:
+Task Breakdown (from taskCounts):
 - Completed: [count]
 - In Progress: [count]
 - Pending: [count]

@@ -67,6 +67,308 @@ Include in your completion summary:
 "Implemented auth API endpoints. Should be good."  ← ❌ NO TEST INFORMATION
 ```
 
+## Writing Backend Tests - Universal Principles
+
+**These principles apply across all backend technologies, frameworks, and test approaches.**
+
+### Principle 1: Use Real Infrastructure for Integration Tests
+
+**Why mocks fail for backend integration testing:**
+- Mocks don't validate actual request/response formats
+- Mocks miss serialization/deserialization issues
+- Mocks don't catch integration problems with real repositories
+- Mocks create brittle tests tied to implementation details
+
+**Universal guidance:**
+
+❌ **AVOID mocking infrastructure layers in integration tests**
+```java
+// BAD - Mocking repositories in tool/API tests
+@Mock private UserRepository mockUserRepo;
+when(mockUserRepo.findById(any())).thenReturn(mockUser);
+// Misses: actual SQL errors, constraint violations, serialization issues
+```
+
+✅ **USE real test infrastructure**
+```java
+// GOOD - Real in-memory database + real repositories
+@SpringBootTest
+@Transactional  // Auto-rollback after each test
+class UserApiTest {
+    @Autowired private UserRepository userRepo;  // Real repository
+    @Autowired private UserService userService;   // Real service
+    // Tests actual integration, not mocked behavior
+}
+```
+
+**When to use each approach:**
+
+**Integration Tests (PREFERRED for tools/APIs):**
+- Test tools that interact with repositories ✅
+- Test API endpoints end-to-end ✅
+- Validate request parsing → business logic → repository → response ✅
+- Use real in-memory database (H2, SQLite, etc.)
+
+**Unit Tests (for isolated business logic):**
+- Test pure functions with no external dependencies ✅
+- Test complex algorithms/calculations ✅
+- Test validation logic in isolation ✅
+- Use mocks only for external services (APIs, message queues)
+
+### Principle 2: Discover and Follow Existing Test Patterns
+
+**BEFORE writing any test code:**
+
+**Step 1 - Find similar tests in the codebase:**
+```bash
+# Find existing tool/API tests
+find . -name "*ToolTest*"
+find . -name "*ApiTest*"
+find . -name "*ControllerTest*"
+grep -r "integration" test/
+```
+
+**Step 2 - Examine the pattern:**
+Look for:
+- How is test infrastructure set up? (databases, services, etc.)
+- How are test entities created? (builders? factories? direct construction?)
+- How are requests made? (REST client? direct method calls?)
+- How are responses validated? (assertions on JSON? object properties?)
+- What naming conventions are used?
+
+**Step 3 - Copy the pattern exactly:**
+
+Don't reinvent test setup - follow existing conventions. This ensures:
+- Tests integrate seamlessly with CI/CD
+- Consistency reduces maintenance burden
+- Existing patterns already solve project-specific issues
+
+### Principle 3: Test Incrementally, Not in Batches
+
+**Anti-pattern (leads to debugging nightmares):**
+```
+1. Write tool/API implementation (200 lines)
+2. Write 15 test methods (300 lines)
+3. Run all tests
+4. Get 12 failures
+5. Don't know which code issue caused which test failure
+```
+
+**Correct approach (fast feedback):**
+
+**Cycle 1 - Happy path first:**
+```
+1. Write basic tool/API implementation
+2. Write ONE test for happy path
+3. Run ONLY that test: ./gradlew test --tests "ToolTest.shouldHandleBasicCase"
+4. Fix compilation/runtime errors immediately
+5. Verify test passes
+```
+
+**Cycle 2 - Edge cases incrementally:**
+```
+6. Write ONE edge case test
+7. Run ONLY that test
+8. Fix issues (implementation or assertion)
+9. Verify test passes
+10. Repeat for next edge case
+```
+
+**Commands for incremental testing:**
+
+```bash
+# Run single test method (fastest - 2-5 seconds)
+./gradlew test --tests "QueryContainerToolTest.shouldParseSingleValue"
+mvn test -Dtest=QueryContainerToolTest#shouldParseSingleValue
+npm test -- QueryContainerToolTest.test.ts -t "should parse single value"
+pytest tests/test_query_tool.py::test_should_parse_single_value
+
+# Run test class (medium - 10-30 seconds)
+./gradlew test --tests "QueryContainerToolTest"
+
+# Run full suite (slow - 1-5 minutes)
+./gradlew test
+```
+
+**Benefits**: Feedback in seconds, isolates root cause immediately, less context switching.
+
+### Principle 4: Debug with Actual Output, Not Assumptions
+
+**When a test fails, follow this systematic process:**
+
+**Step 1 - Read the error message carefully:**
+```
+AssertionError: expected: <"items"> but was: <"results">
+```
+This tells you EXACTLY what's wrong: looking for "results" key but response has "items"
+
+**Step 2 - Print actual output to understand the format:**
+
+```kotlin
+@Test
+fun `should parse filter`() {
+    val result = tool.execute(params, context)
+
+    // DEBUG: See what we actually got
+    println("Full response: $result")
+    println("Response keys: ${result.jsonObject.keys}")
+
+    // Now write assertions based on ACTUAL structure
+    val items = result.jsonObject["data"]?.jsonObject?.get("items")?.jsonArray
+    assertEquals(2, items?.size)
+}
+```
+
+**Step 3 - Verify assumptions about test data:**
+
+```kotlin
+// Assumption: "Should find 2 tasks"
+// Reality check: Count the test data manually
+
+val testData = listOf(
+    Task(status = PENDING),      // 1 - matches
+    Task(status = IN_PROGRESS),  // 2 - matches
+    Task(status = DEFERRED)      // 3 - wait, does this match too?
+)
+
+// Check filter logic to verify expected count
+```
+
+**Step 4 - Fix root cause, not symptoms:**
+
+❌ Bad: Adjust test data to make assertion pass
+✅ Good: Adjust assertion to match correct behavior, or fix code if behavior is wrong
+
+### Principle 5: Create Complete Test Entities
+
+**Common mistake causing test failures:**
+
+```kotlin
+// ❌ BAD - Missing required fields
+val task = Task(
+    id = UUID.randomUUID(),
+    title = "Test Task",
+    status = TaskStatus.PENDING
+    // Missing: summary, priority, complexity, timestamps
+)
+
+taskRepository.create(task)  // FAILS: NOT NULL constraint violation
+```
+
+**Why this fails:**
+- Database has NOT NULL constraints on required fields
+- ORM validation fails on missing required properties
+- Serialization fails when reading back from database
+
+**Correct approach:**
+
+**Step 1 - Check what fields are required** (look at migration or ORM model)
+
+**Step 2 - Provide ALL required fields:**
+```kotlin
+// ✅ GOOD - Complete entity
+val task = Task(
+    id = UUID.randomUUID(),
+    title = "Test Task",
+    summary = "Test summary",               // Required
+    status = TaskStatus.PENDING,            // Required
+    priority = Priority.HIGH,               // Required
+    complexity = 5,                         // Required
+    tags = listOf("test"),
+    projectId = testProjectId,
+    featureId = testFeatureId,
+    createdAt = Instant.now(),              // Required
+    modifiedAt = Instant.now()              // Required
+)
+```
+
+**Step 3 - Look for existing test data builders or factories** in the codebase to reuse.
+
+### Principle 6: Verify Response Format Before Writing Assertions
+
+**Common mistake:**
+```python
+# Assuming API response structure without checking
+response = api.search_tasks(status='pending')
+tasks = response['results']  # ❌ KeyError: 'results'
+```
+
+**Correct approach:**
+
+**Step 1 - Debug print the actual response:**
+```kotlin
+@Test
+fun `should return filtered tasks`() {
+    val response = tool.execute(params, context)
+
+    // DEBUG: See actual structure
+    println("Response: ${response.jsonObject}")
+    // Output: {"success":true,"data":{"items":[...],"count":5}}
+
+    // Ah! It's "items" not "results"
+    val items = response.jsonObject["data"]?.jsonObject?.get("items")?.jsonArray
+    assertEquals(2, items?.size)
+}
+```
+
+**Step 2 - Document the actual format for future reference**
+
+### Principle 7: Understand Business Logic Before Writing Assertions
+
+**Common mistake:**
+```kotlin
+// Filter: StatusFilter(exclude = [COMPLETED, CANCELLED])
+// Assumption: "Excludes 2 statuses, so should find 3 records"
+assertEquals(3, items?.size)  // ❌ FAILS - actually found different count
+```
+
+**Correct approach:**
+
+**Step 1 - List all possible values:**
+```kotlin
+// What are ALL possible task statuses?
+enum class TaskStatus {
+    PENDING, IN_PROGRESS, COMPLETED, CANCELLED, DEFERRED
+}
+```
+
+**Step 2 - Manually count test data matching filter:**
+```kotlin
+// Test data:
+Task(status = PENDING)       // 1 - included
+Task(status = IN_PROGRESS)   // 2 - included
+Task(status = COMPLETED)     // - excluded
+Task(status = CANCELLED)     // - excluded
+Task(status = DEFERRED)      // 3 - included!
+
+// Filter: exclude [COMPLETED, CANCELLED]
+// Expected: 3 tasks (pending, in-progress, deferred)
+```
+
+**Step 3 - Understand filter semantics:**
+- Include filter: matches ONLY specified values
+- Exclude filter: matches EVERYTHING except specified values
+- These are NOT equivalent!
+
+### Principle 8: Test Scope - What Backend Engineers Test
+
+**You DO test:**
+✅ Tool/API request parameter validation
+✅ Business logic and service layer code
+✅ Request parsing (e.g., "status=pending,in-progress" → StatusFilter)
+✅ Response formatting and JSON structure
+✅ Error handling and error messages
+✅ Integration between services and repositories
+✅ End-to-end tool/API workflows
+
+**You DO NOT test:**
+❌ Database schema correctness (Database Engineer's job)
+❌ Migration scripts (Database Engineer's job)
+❌ Query performance optimization (Database Engineer's job)
+❌ Repository implementation internals (Database Engineer's job)
+
+---
+
 ## If You Cannot Fix Test Failures (Blocked)
 
 **Sometimes you'll encounter failures you cannot fix** due to external blockers.

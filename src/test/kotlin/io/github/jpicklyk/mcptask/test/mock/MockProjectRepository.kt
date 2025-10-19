@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.test.mock
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.repository.ProjectRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -172,8 +173,8 @@ class MockProjectRepository : ProjectRepository {
     // FilterableRepository methods
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: ProjectStatus?,
-        priority: Nothing?,
+        statusFilter: StatusFilter<ProjectStatus>?,
+        priorityFilter: StatusFilter<Nothing>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -183,8 +184,8 @@ class MockProjectRepository : ProjectRepository {
         // Note: projectId is ignored for projects since they don't belong to other projects
         // Note: priority is ignored for projects since they don't have a priority
 
-        if (status != null) {
-            filteredProjects = filteredProjects.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredProjects = filteredProjects.filter { statusFilter.matches(it.status) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -214,15 +215,15 @@ class MockProjectRepository : ProjectRepository {
 
     override suspend fun countByFilters(
         projectId: UUID?,
-        status: ProjectStatus?,
-        priority: Nothing?,
+        statusFilter: StatusFilter<ProjectStatus>?,
+        priorityFilter: StatusFilter<Nothing>?,
         tags: List<String>?,
         textQuery: String?
     ): Result<Long> {
         var filteredProjects = projects.values.toList()
 
-        if (status != null) {
-            filteredProjects = filteredProjects.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredProjects = filteredProjects.filter { statusFilter.matches(it.status) }
         }
 
         if (!tags.isNullOrEmpty()) {

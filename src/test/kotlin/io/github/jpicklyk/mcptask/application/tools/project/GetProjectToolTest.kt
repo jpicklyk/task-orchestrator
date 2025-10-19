@@ -445,8 +445,8 @@ class GetProjectToolTest {
         coEvery {
             mockTaskRepository.findByFilters(
                 projectId = projectId,
-                status = null,
-                priority = null,
+                statusFilter = null,
+                priorityFilter = null,
                 tags = null,
                 textQuery = null,
                 limit = 20

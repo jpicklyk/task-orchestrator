@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -380,24 +381,24 @@ class QueryTasksTool : SimpleLockAwareToolDefinition() {
                     when {
                         featureId != null -> context.taskRepository().findByFeatureAndFilters(
                             featureId = featureId,
-                            status = status,
-                            priority = priority,
+                            statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                            priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                             tags = tags,
                             textQuery = query,
                             limit = 1000
                         )
                         projectId != null -> context.taskRepository().findByProjectAndFilters(
                             projectId = projectId,
-                            status = status,
-                            priority = priority,
+                            statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                            priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                             tags = tags,
                             textQuery = query,
                             limit = 1000
                         )
                         else -> context.taskRepository().findByFilters(
                             projectId = projectId,
-                            status = status,
-                            priority = priority,
+                            statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                            priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                             tags = tags,
                             textQuery = query,
                             limit = 1000

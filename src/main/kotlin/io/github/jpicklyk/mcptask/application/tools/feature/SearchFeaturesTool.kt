@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.Tool
@@ -304,8 +305,8 @@ For detailed examples and patterns: task-orchestrator://docs/tools/search-featur
                 // Use filter search for other criteria, let the repository handle status, priority, projectId
                 context.featureRepository().findByFilters(
                     projectId = projectId,
-                    status = status,
-                    priority = priority,
+                    statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                    priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                     tags = if (!tag.isNullOrBlank()) listOf(tag) else null,
                     textQuery = null,
                     limit = 1000, // Use max limit for client-side filtering of non-repo parameters

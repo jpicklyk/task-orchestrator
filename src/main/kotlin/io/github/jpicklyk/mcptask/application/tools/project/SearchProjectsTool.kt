@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.Tool
@@ -260,8 +261,8 @@ For detailed examples and patterns: task-orchestrator://docs/tools/search-projec
             // Use the repository's findByFilters method for efficient database querying
             val projectsResult = context.projectRepository().findByFilters(
                 projectId = null,
-                status = status,
-                priority = null, // Projects don't have priority
+                statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                priorityFilter = null, // Projects don't have priority
                 tags = tags,
                 textQuery = query,
                 limit = 1000, // Use large limit to get all matching results then filter client-side for date range

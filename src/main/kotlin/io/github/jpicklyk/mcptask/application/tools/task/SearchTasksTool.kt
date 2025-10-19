@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -322,8 +323,8 @@ class SearchTasksTool : BaseToolDefinition() {
                         featureId != null -> {
                             context.taskRepository().findByFeatureAndFilters(
                                 featureId = featureId,
-                                status = status,
-                                priority = priority,
+                                statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                                priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                                 tags = tags,
                                 textQuery = query,
                                 limit = 1000, // Use large limit to get all matching results then filter client-side
@@ -333,8 +334,8 @@ class SearchTasksTool : BaseToolDefinition() {
                         projectId != null -> {
                             context.taskRepository().findByProjectAndFilters(
                                 projectId = projectId,
-                                status = status,
-                                priority = priority,
+                                statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                                priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                                 tags = tags,
                                 textQuery = query,
                                 limit = 1000, // Use large limit to get all matching results then filter client-side
@@ -345,8 +346,8 @@ class SearchTasksTool : BaseToolDefinition() {
                             // Use the unified findByFilters from base repository
                             context.taskRepository().findByFilters(
                                 projectId = projectId,
-                                status = status,
-                                priority = priority,
+                                statusFilter = status?.let { StatusFilter(include = listOf(it)) },
+                                priorityFilter = priority?.let { StatusFilter(include = listOf(it)) },
                                 tags = tags,
                                 textQuery = query,
                                 limit = 1000, // Use large limit to get all matching results then filter client-side

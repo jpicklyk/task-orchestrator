@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.test.mock
 
 import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -169,8 +170,8 @@ class MockTaskRepository : TaskRepository {
     // FilterableRepository methods
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<TaskStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -182,12 +183,12 @@ class MockTaskRepository : TaskRepository {
             filteredTasks = filteredTasks.filter { it.projectId == projectId }
         }
 
-        if (status != null) {
-            filteredTasks = filteredTasks.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredTasks = filteredTasks.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -217,8 +218,8 @@ class MockTaskRepository : TaskRepository {
 
     override suspend fun countByFilters(
         projectId: UUID?,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<TaskStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?
     ): Result<Long> {
@@ -228,12 +229,12 @@ class MockTaskRepository : TaskRepository {
             filteredTasks = filteredTasks.filter { it.projectId == projectId }
         }
 
-        if (status != null) {
-            filteredTasks = filteredTasks.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredTasks = filteredTasks.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -281,8 +282,8 @@ class MockTaskRepository : TaskRepository {
 
     override suspend fun findByProjectAndFilters(
         projectId: UUID,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<TaskStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -290,12 +291,12 @@ class MockTaskRepository : TaskRepository {
         var filteredTasks = tasks.values.toList()
             .filter { it.projectId == projectId }
 
-        if (status != null) {
-            filteredTasks = filteredTasks.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredTasks = filteredTasks.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -329,19 +330,19 @@ class MockTaskRepository : TaskRepository {
     // TaskRepository-specific methods
     override suspend fun findByFeature(
         featureId: UUID,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<TaskStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         limit: Int,
     ): Result<List<Task>> {
         var filteredTasks = tasks.values.toList()
             .filter { it.featureId == featureId }
 
-        if (status != null) {
-            filteredTasks = filteredTasks.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredTasks = filteredTasks.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { priorityFilter.matches(it.priority) }
         }
 
         filteredTasks = filteredTasks.sortedByDescending { it.modifiedAt }
@@ -354,8 +355,8 @@ class MockTaskRepository : TaskRepository {
 
     override suspend fun findByFeatureAndFilters(
         featureId: UUID,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<TaskStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         complexityMin: Int?,
@@ -365,12 +366,12 @@ class MockTaskRepository : TaskRepository {
         var filteredTasks = tasks.values.toList()
             .filter { it.featureId == featureId }
 
-        if (status != null) {
-            filteredTasks = filteredTasks.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredTasks = filteredTasks.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredTasks = filteredTasks.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {

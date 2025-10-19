@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.domain.repository
 
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import java.util.*
@@ -14,25 +15,35 @@ interface TaskRepository : ProjectScopedRepository<Task, TaskStatus, Priority> {
     /**
      * Finds tasks by feature with additional filtering options.
      * @param featureId The feature ID to filter by
-     * @param status Optional status filter
-     * @param priority Optional priority filter
+     * @param statusFilter Multi-value status filter supporting inclusion/exclusion
+     * @param priorityFilter Multi-value priority filter supporting inclusion/exclusion
      * @param limit Maximum number of results
      */
     suspend fun findByFeature(
         featureId: UUID,
-        status: TaskStatus? = null,
-        priority: Priority? = null,
+        statusFilter: StatusFilter<TaskStatus>? = null,
+        priorityFilter: StatusFilter<Priority>? = null,
         limit: Int = 20,
     ): Result<List<Task>>
 
     /**
      * Advanced filtering with feature scope support.
      * Extends the base filtering to include feature-specific filtering.
+     *
+     * @param featureId The feature to filter within
+     * @param statusFilter Multi-value status filter supporting inclusion/exclusion
+     * @param priorityFilter Multi-value priority filter supporting inclusion/exclusion
+     * @param tags Optional list of tags to filter by
+     * @param textQuery Optional text search query
+     * @param complexityMin Optional minimum complexity (1-10)
+     * @param complexityMax Optional maximum complexity (1-10)
+     * @param limit Maximum number of results to return
+     * @return List of tasks matching the filter criteria within the feature
      */
     suspend fun findByFeatureAndFilters(
         featureId: UUID,
-        status: TaskStatus? = null,
-        priority: Priority? = null,
+        statusFilter: StatusFilter<TaskStatus>? = null,
+        priorityFilter: StatusFilter<Priority>? = null,
         tags: List<String>? = null,
         textQuery: String? = null,
         complexityMin: Int? = null,

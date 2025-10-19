@@ -189,8 +189,8 @@ class SQLiteFeatureRepository(
 
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<FeatureStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -205,14 +205,28 @@ class SQLiteFeatureRepository(
                     query = query.where { FeaturesTable.projectId eq projectId }
                 }
 
-                // Apply status filter
-                if (status != null) {
-                    query = query.andWhere { FeaturesTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                // Apply priority filter
-                if (priority != null) {
-                    query = query.andWhere { FeaturesTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply text search filter
@@ -300,8 +314,8 @@ class SQLiteFeatureRepository(
 
     override suspend fun findByProjectAndFilters(
         projectId: UUID,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<FeatureStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -311,13 +325,28 @@ class SQLiteFeatureRepository(
                 // Start with project filter
                 var query = FeaturesTable.selectAll().where { FeaturesTable.projectId eq projectId }
 
-                // Apply additional filters
-                if (status != null) {
-                    query = query.andWhere { FeaturesTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                if (priority != null) {
-                    query = query.andWhere { FeaturesTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 if (!textQuery.isNullOrBlank()) {

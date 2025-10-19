@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -96,8 +97,8 @@ class SearchFeaturesToolTest {
         coEvery {
             mockFeatureRepository.findByFilters(
                 projectId = any(),
-                status = any(),
-                priority = any(),
+                statusFilter = any(),
+                priorityFilter = any(),
                 tags = any(),
                 textQuery = any(),
                 limit = any(),
@@ -105,8 +106,8 @@ class SearchFeaturesToolTest {
         } answers {
             // Extract arguments
             val projectId = arg<UUID?>(0)
-            val status = arg<FeatureStatus?>(1)
-            val priority = arg<Priority?>(2)
+            val statusFilter = arg<StatusFilter<FeatureStatus>?>(1)
+            val priorityFilter = arg<StatusFilter<Priority>?>(2)
             val tags = arg<List<String>?>(3)
             val textQuery = arg<String?>(4)
 
@@ -117,8 +118,8 @@ class SearchFeaturesToolTest {
                                 feature.name.contains(textQuery, ignoreCase = true) ||
                                 feature.summary.contains(textQuery, ignoreCase = true)) &&
                         (tags == null || tags.isEmpty() || feature.tags.any { tag -> tags.contains(tag) }) &&
-                        (status == null || feature.status == status) &&
-                        (priority == null || feature.priority == priority)
+                        (statusFilter == null || statusFilter.isEmpty() || statusFilter.matches(feature.status)) &&
+                        (priorityFilter == null || priorityFilter.isEmpty() || priorityFilter.matches(feature.priority))
             }
 
             Result.Success(filteredFeatures)
@@ -144,8 +145,8 @@ class SearchFeaturesToolTest {
         coEvery {
             mockFeatureRepository.findByFilters(
                 projectId = eq(testProjectId),
-                status = any(),
-                priority = any(),
+                statusFilter = any(),
+                priorityFilter = any(),
                 tags = any(),
                 textQuery = any(),
                 limit = any(),
@@ -685,8 +686,8 @@ class SearchFeaturesToolTest {
             coEvery {
                 mockFeatureRepository.findByFilters(
                     projectId = any(),
-                    status = any(),
-                    priority = any(),
+                    statusFilter = any(),
+                    priorityFilter = any(),
                     tags = any(),
                     textQuery = any(),
                     limit = any(),
@@ -713,8 +714,8 @@ class SearchFeaturesToolTest {
             coEvery {
                 mockFeatureRepository.findByFilters(
                     projectId = any(),
-                    status = any(),
-                    priority = any(),
+                    statusFilter = any(),
+                    priorityFilter = any(),
                     tags = any(),
                     textQuery = any(),
                     limit = any(),

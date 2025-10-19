@@ -387,6 +387,7 @@ class QueryContainerToolTest {
                 }
 
                 coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+                coEvery { mockTaskRepository.findByFeature(featureId) } returns Result.Success(listOf(mockTask))
 
                 val result = tool.execute(params, context)
 
@@ -407,6 +408,7 @@ class QueryContainerToolTest {
                 val featureSection = mockSection.copy(entityType = EntityType.FEATURE, entityId = featureId)
 
                 coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+                coEvery { mockTaskRepository.findByFeature(featureId) } returns Result.Success(listOf(mockTask))
                 coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, featureId) } returns
                     Result.Success(listOf(featureSection))
 
@@ -448,6 +450,7 @@ class QueryContainerToolTest {
                 }
 
                 coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockTaskRepository.findByProject(projectId) } returns Result.Success(listOf(mockTask))
 
                 val result = tool.execute(params, context)
 
@@ -468,6 +471,7 @@ class QueryContainerToolTest {
                 val projectSection = mockSection.copy(entityType = EntityType.PROJECT, entityId = projectId)
 
                 coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockTaskRepository.findByProject(projectId) } returns Result.Success(listOf(mockTask))
                 coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
                     Result.Success(listOf(projectSection))
 
@@ -545,7 +549,7 @@ class QueryContainerToolTest {
                     put("status", "pending")
                 }
 
-                coEvery { mockTaskRepository.findByFilters(null, TaskStatus.PENDING, null, null, null, 20) } returns
+                coEvery { mockTaskRepository.findByFilters(null, StatusFilter(include = listOf(TaskStatus.PENDING)), null, null, null, 20) } returns
                     Result.Success(listOf(mockTask))
 
                 val result = tool.execute(params, context)
@@ -562,7 +566,7 @@ class QueryContainerToolTest {
                     put("priority", "high")
                 }
 
-                coEvery { mockTaskRepository.findByFilters(null, null, Priority.HIGH, null, null, 20) } returns
+                coEvery { mockTaskRepository.findByFilters(null, null, StatusFilter(include = listOf(Priority.HIGH)), null, null, 20) } returns
                     Result.Success(listOf(mockTask))
 
                 val result = tool.execute(params, context)
@@ -613,8 +617,16 @@ class QueryContainerToolTest {
                     put("featureId", featureId.toString())
                 }
 
-                coEvery { mockTaskRepository.findByFeature(featureId, null, null, 20) } returns
-                    Result.Success(listOf(mockTask))
+                coEvery {
+                    mockTaskRepository.findByFeatureAndFilters(
+                        featureId = featureId,
+                        statusFilter = null,
+                        priorityFilter = null,
+                        tags = null,
+                        textQuery = null,
+                        limit = 20
+                    )
+                } returns Result.Success(listOf(mockTask))
 
                 val result = tool.execute(params, context)
 
@@ -698,7 +710,7 @@ class QueryContainerToolTest {
                     put("status", "in-development")
                 }
 
-                coEvery { mockFeatureRepository.findByFilters(null, FeatureStatus.IN_DEVELOPMENT, null, null, null, 20) } returns
+                coEvery { mockFeatureRepository.findByFilters(null, StatusFilter(include = listOf(FeatureStatus.IN_DEVELOPMENT)), null, null, null, 20) } returns
                     Result.Success(listOf(mockFeature))
 
                 val result = tool.execute(params, context)
@@ -715,7 +727,7 @@ class QueryContainerToolTest {
                     put("priority", "high")
                 }
 
-                coEvery { mockFeatureRepository.findByFilters(null, null, Priority.HIGH, null, null, 20) } returns
+                coEvery { mockFeatureRepository.findByFilters(null, null, StatusFilter(include = listOf(Priority.HIGH)), null, null, 20) } returns
                     Result.Success(listOf(mockFeature))
 
                 val result = tool.execute(params, context)
@@ -785,7 +797,7 @@ class QueryContainerToolTest {
                     put("status", "in-development")
                 }
 
-                coEvery { mockProjectRepository.findByFilters(null, ProjectStatus.IN_DEVELOPMENT, null, null, null, 20) } returns
+                coEvery { mockProjectRepository.findByFilters(null, StatusFilter(include = listOf(ProjectStatus.IN_DEVELOPMENT)), null, null, null, 20) } returns
                     Result.Success(listOf(mockProject))
 
                 val result = tool.execute(params, context)
@@ -1188,7 +1200,7 @@ class QueryContainerToolTest {
                 put("status", "in-progress")
             }
 
-            coEvery { mockTaskRepository.findByFilters(null, TaskStatus.IN_PROGRESS, null, null, null, 20) } returns
+            coEvery { mockTaskRepository.findByFilters(null, StatusFilter(include = listOf(TaskStatus.IN_PROGRESS)), null, null, null, 20) } returns
                 Result.Success(listOf(mockTask))
 
             assertDoesNotThrow {
@@ -1206,7 +1218,7 @@ class QueryContainerToolTest {
                 put("status", "in_progress")
             }
 
-            coEvery { mockTaskRepository.findByFilters(null, TaskStatus.IN_PROGRESS, null, null, null, 20) } returns
+            coEvery { mockTaskRepository.findByFilters(null, StatusFilter(include = listOf(TaskStatus.IN_PROGRESS)), null, null, null, 20) } returns
                 Result.Success(listOf(mockTask))
 
             assertDoesNotThrow {

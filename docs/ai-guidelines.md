@@ -1867,6 +1867,96 @@ AI: "Fix complete with 5 regression tests:
 
 ## Token Optimization Best Practices
 
+### Enhanced Search and Filtering (Phase 5 - NEW)
+
+**Problem**: AI agents waste tokens fetching full task objects when only basic status checks are needed.
+
+**Solution**: Use multi-value filters and minimal search results for 89-99% token savings.
+
+#### Multi-Value Filters
+
+**Status filtering with OR logic**:
+```
+Single value:  status="pending"
+Multi-value:   status="pending,in-progress"  (matches pending OR in-progress)
+Negation:      status="!completed"           (matches anything EXCEPT completed)
+Multi-negation: status="!completed,!cancelled" (excludes multiple values)
+```
+
+**Priority filtering**:
+```
+Single:     priority="high"
+Multi:      priority="high,medium"  (HIGH or MEDIUM)
+Negation:   priority="!low"         (anything except LOW)
+```
+
+**Examples**:
+```
+Find all active tasks:
+query_container(operation="search", containerType="task",
+                status="pending,in-progress")
+
+Find all non-completed tasks:
+query_container(operation="search", containerType="task",
+                status="!completed")
+
+Find high/medium priority pending work:
+query_container(operation="search", containerType="task",
+                status="pending", priority="high,medium")
+```
+
+#### Minimal Search Results (89% Token Reduction)
+
+**Search operations return minimal data automatically**:
+- Tasks: Only id, title, status, priority, complexity, featureId (~30 tokens)
+- Full object would include: summary, description, tags, timestamps (~280 tokens)
+- **Token savings: 89% per task**
+
+**When to use**:
+- Listing tasks to pick one to work on
+- Finding tasks by status/priority
+- Checking what's available
+- Filtering large result sets
+
+**Example workflow**:
+```
+Step 1: Search with minimal results (cheap)
+query_container(operation="search", containerType="task",
+                status="pending", priority="high")
+→ Returns: 10 tasks × 30 tokens = 300 tokens
+
+Step 2: Get full details only for selected task (when needed)
+query_container(operation="get", containerType="task",
+                id="selected-task-id")
+→ Returns: Full task object with sections
+```
+
+#### Task Counts in Features/Projects (99% Token Reduction)
+
+**Problem**: Checking feature progress by fetching all tasks wastes massive tokens.
+
+**Solution**: Use taskCounts automatically included in get operations.
+
+**Example**:
+```
+Old approach (WASTEFUL):
+query_container(operation="get", containerType="feature", id="...")
+→ Fetch all 50 tasks = ~14,400 tokens
+
+New approach (EFFICIENT):
+query_container(operation="get", containerType="feature", id="...")
+→ Returns feature with taskCounts = ~100 tokens
+→ taskCounts: {total: 50, byStatus: {completed: 25, in-progress: 15, pending: 10}}
+```
+
+**Token Savings**: 99% (14,300 tokens saved!)
+
+**Use taskCounts for**:
+- Feature progress checks
+- Project status overview
+- Sprint planning
+- Completion validation
+
 ### Selective Section Loading
 
 **Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata or specific sections are needed.

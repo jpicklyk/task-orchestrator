@@ -209,8 +209,8 @@ class QueryTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = null,
-                    status = TaskStatus.PENDING,
-                    priority = null,
+                    statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                    priorityFilter = null,
                     tags = null,
                     projectId = null,
                     limit = any()
@@ -240,8 +240,8 @@ class QueryTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = null,
-                    status = null,
-                    priority = Priority.HIGH,
+                    statusFilter = null,
+                    priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                     tags = null,
                     projectId = null,
                     limit = any()
@@ -270,8 +270,8 @@ class QueryTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = null,
-                    status = null,
-                    priority = null,
+                    statusFilter = null,
+                    priorityFilter = null,
                     tags = listOf("api"),
                     projectId = null,
                     limit = any()
@@ -304,8 +304,8 @@ class QueryTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = "authentication",
-                    status = null,
-                    priority = null,
+                    statusFilter = null,
+                    priorityFilter = null,
                     tags = null,
                     projectId = null,
                     limit = any()

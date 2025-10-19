@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.task
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -105,8 +106,8 @@ class SearchTasksToolTest {
         coEvery {
             mockTaskRepository.findByFilters(
                 textQuery = any(),
-                status = any(),
-                priority = any(),
+                statusFilter = any(),
+                priorityFilter = any(),
                 tags = any(),
                 projectId = any(),
                 limit = any(),
@@ -114,8 +115,8 @@ class SearchTasksToolTest {
         } answers {
             // Extract arguments
             val textQuery = arg<String?>(0)
-            val status = arg<TaskStatus?>(1)
-            val priority = arg<Priority?>(2)
+            val statusFilter = arg<StatusFilter<TaskStatus>?>(1)
+            val priorityFilter = arg<StatusFilter<Priority>?>(2)
             val tags = arg<List<String>?>(3)
 
             // Filter tasks based on the provided criteria
@@ -123,8 +124,8 @@ class SearchTasksToolTest {
                 (textQuery == null ||
                         task.title.contains(textQuery, ignoreCase = true) ||
                         task.summary.contains(textQuery, ignoreCase = true)) &&
-                        (status == null || task.status == status) &&
-                        (priority == null || task.priority == priority) &&
+                        (statusFilter == null || statusFilter.matches(task.status)) &&
+                        (priorityFilter == null || priorityFilter.matches(task.priority)) &&
                         (tags == null || tags.isEmpty() || tags.any { tag -> task.tags.contains(tag) })
             }
 
@@ -135,19 +136,19 @@ class SearchTasksToolTest {
         coEvery {
             mockTaskRepository.findByFeature(
                 featureId = any(),
-                status = any(),
-                priority = any(),
+                statusFilter = any(),
+                priorityFilter = any(),
                 limit = any(),
             )
         } answers {
             val featureId = arg<UUID>(0)
-            val status = arg<TaskStatus?>(1)
-            val priority = arg<Priority?>(2)
+            val statusFilter = arg<StatusFilter<TaskStatus>?>(1)
+            val priorityFilter = arg<StatusFilter<Priority>?>(2)
 
             val filteredTasks = allTasks.filter { task ->
                 task.featureId == featureId &&
-                        (status == null || task.status == status) &&
-                        (priority == null || task.priority == priority)
+                        (statusFilter == null || statusFilter.matches(task.status)) &&
+                        (priorityFilter == null || priorityFilter.matches(task.priority))
             }
 
             Result.Success(filteredTasks)
@@ -157,8 +158,8 @@ class SearchTasksToolTest {
         coEvery {
             mockTaskRepository.findByFeatureAndFilters(
                 featureId = any(),
-                status = any(),
-                priority = any(),
+                statusFilter = any(),
+                priorityFilter = any(),
                 tags = any(),
                 textQuery = any(),
                 complexityMin = any(),
@@ -167,15 +168,15 @@ class SearchTasksToolTest {
             )
         } answers {
             val featureId = arg<UUID>(0)
-            val status = arg<TaskStatus?>(1)
-            val priority = arg<Priority?>(2)
+            val statusFilter = arg<StatusFilter<TaskStatus>?>(1)
+            val priorityFilter = arg<StatusFilter<Priority>?>(2)
             val tags = arg<List<String>?>(3)
             val textQuery = arg<String?>(4)
 
             val filteredTasks = allTasks.filter { task ->
                 task.featureId == featureId &&
-                        (status == null || task.status == status) &&
-                        (priority == null || task.priority == priority) &&
+                        (statusFilter == null || statusFilter.matches(task.status)) &&
+                        (priorityFilter == null || priorityFilter.matches(task.priority)) &&
                         (tags == null || tags.isEmpty() || tags.any { tag -> task.tags.contains(tag) }) &&
                         (textQuery == null ||
                                 task.title.contains(textQuery, ignoreCase = true) ||
@@ -205,23 +206,23 @@ class SearchTasksToolTest {
         coEvery {
             mockTaskRepository.findByProjectAndFilters(
                 projectId = any(),
-                status = any(),
-                priority = any(),
+                statusFilter = any(),
+                priorityFilter = any(),
                 tags = any(),
                 textQuery = any(),
                 limit = any(),
             )
         } answers {
             val projectId = arg<UUID>(0)
-            val status = arg<TaskStatus?>(1)
-            val priority = arg<Priority?>(2)
+            val statusFilter = arg<StatusFilter<TaskStatus>?>(1)
+            val priorityFilter = arg<StatusFilter<Priority>?>(2)
             val tags = arg<List<String>?>(3)
             val textQuery = arg<String?>(4)
 
             val filteredTasks = allTasks.filter { task ->
                 task.projectId == projectId &&
-                        (status == null || task.status == status) &&
-                        (priority == null || task.priority == priority) &&
+                        (statusFilter == null || statusFilter.matches(task.status)) &&
+                        (priorityFilter == null || priorityFilter.matches(task.priority)) &&
                         (tags == null || tags.isEmpty() || tags.any { tag -> task.tags.contains(tag) }) &&
                         (textQuery == null ||
                                 task.title.contains(textQuery, ignoreCase = true) ||
@@ -439,8 +440,8 @@ class SearchTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = eq("authentication"),
-                    status = null,
-                    priority = null,
+                    statusFilter = null,
+                    priorityFilter = null,
                     tags = null,
                     projectId = null,
                     limit = any(),
@@ -481,8 +482,8 @@ class SearchTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = eq("nonexistent task name"),
-                    status = null,
-                    priority = null,
+                    statusFilter = null,
+                    priorityFilter = null,
                     tags = null,
                     projectId = null,
                     limit = any(),
@@ -640,8 +641,8 @@ class SearchTasksToolTest {
             coEvery {
                 mockTaskRepository.findByFilters(
                     textQuery = null,
-                    status = TaskStatus.IN_PROGRESS,
-                    priority = Priority.MEDIUM,
+                    statusFilter = StatusFilter(include = listOf(TaskStatus.IN_PROGRESS)),
+                    priorityFilter = StatusFilter(include = listOf(Priority.MEDIUM)),
                     tags = eq(listOf("ui")),
                     projectId = null,
                     limit = any(),

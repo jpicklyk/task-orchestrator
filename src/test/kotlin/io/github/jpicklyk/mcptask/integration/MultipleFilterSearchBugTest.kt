@@ -164,8 +164,8 @@ class MultipleFilterSearchBugTest {
         fun `findByFilters with status only should work correctly`() = runBlocking {
             val result = taskRepository.findByFilters(
                 projectId = null,
-                status = TaskStatus.PENDING,
-                priority = null,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                priorityFilter = null,
                 tags = null,
                 textQuery = null,
                 limit = 100
@@ -183,8 +183,8 @@ class MultipleFilterSearchBugTest {
         fun `findByFilters with priority only should work correctly`() = runBlocking {
             val result = taskRepository.findByFilters(
                 projectId = null,
-                status = null,
-                priority = Priority.HIGH,
+                statusFilter = null,
+                priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                 tags = null,
                 textQuery = null,
                 limit = 100
@@ -206,8 +206,8 @@ class MultipleFilterSearchBugTest {
             // This is the specific test case that was failing before the fix
             val result = taskRepository.findByFilters(
                 projectId = null,
-                status = TaskStatus.PENDING,
-                priority = Priority.HIGH,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                 tags = null,
                 textQuery = null,
                 limit = 100
@@ -230,8 +230,8 @@ class MultipleFilterSearchBugTest {
         fun `findByFilters with status AND priority AND tags should work correctly`() = runBlocking {
             val result = taskRepository.findByFilters(
                 projectId = null,
-                status = TaskStatus.PENDING,
-                priority = Priority.HIGH,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                 tags = listOf("api"),
                 textQuery = null,
                 limit = 100
@@ -252,8 +252,8 @@ class MultipleFilterSearchBugTest {
         fun `findByFilters with status AND priority AND textQuery should work correctly`() = runBlocking {
             val result = taskRepository.findByFilters(
                 projectId = null,
-                status = TaskStatus.PENDING,
-                priority = Priority.HIGH,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                 tags = null,
                 textQuery = "authentication",
                 limit = 100
@@ -277,8 +277,8 @@ class MultipleFilterSearchBugTest {
         fun `findByFilters with ALL filters (status, priority, tags, textQuery) should work correctly`() = runBlocking {
             val result = taskRepository.findByFilters(
                 projectId = null,
-                status = TaskStatus.IN_PROGRESS,
-                priority = Priority.MEDIUM,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.IN_PROGRESS)),
+                priorityFilter = StatusFilter(include = listOf(Priority.MEDIUM)),
                 tags = listOf("ui"),
                 textQuery = "interface",
                 limit = 100
@@ -308,8 +308,8 @@ class MultipleFilterSearchBugTest {
             // Test the countByFilters method which had the same bug
             val result = taskRepository.countByFilters(
                 projectId = null,
-                status = TaskStatus.PENDING,
-                priority = Priority.HIGH,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                 tags = null,
                 textQuery = null
             )
@@ -323,8 +323,8 @@ class MultipleFilterSearchBugTest {
         fun `countByFilters with all filters should work correctly`() = runBlocking {
             val result = taskRepository.countByFilters(
                 projectId = null,
-                status = TaskStatus.IN_PROGRESS,
-                priority = Priority.MEDIUM,
+                statusFilter = StatusFilter(include = listOf(TaskStatus.IN_PROGRESS)),
+                priorityFilter = StatusFilter(include = listOf(Priority.MEDIUM)),
                 tags = listOf("ui"),
                 textQuery = "interface"
             )
@@ -350,8 +350,8 @@ class MultipleFilterSearchBugTest {
             testCases.forEach { (status, priority) ->
                 val result = taskRepository.findByFilters(
                     projectId = null,
-                    status = status,
-                    priority = priority,
+                    statusFilter = StatusFilter(include = listOf(status)),
+                    priorityFilter = StatusFilter(include = listOf(priority)),
                     tags = null,
                     textQuery = null,
                     limit = 100
@@ -370,8 +370,8 @@ class MultipleFilterSearchBugTest {
             repeat(10) { iteration ->
                 val result = taskRepository.findByFilters(
                     projectId = null,
-                    status = TaskStatus.PENDING,
-                    priority = Priority.HIGH,
+                    statusFilter = StatusFilter(include = listOf(TaskStatus.PENDING)),
+                    priorityFilter = StatusFilter(include = listOf(Priority.HIGH)),
                     tags = null,
                     textQuery = null,
                     limit = 100

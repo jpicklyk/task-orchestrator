@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import io.github.jpicklyk.mcptask.domain.repository.ProjectRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -79,8 +80,8 @@ class SearchProjectsToolTest {
         coEvery {
             mockProjectRepository.findByFilters(
                 projectId = any(),
-                status = any(),
-                priority = null,
+                statusFilter = any(),
+                priorityFilter = null,
                 tags = any(),
                 textQuery = any(),
                 limit = any(),
@@ -88,7 +89,7 @@ class SearchProjectsToolTest {
         } answers {
             // Extract arguments
             val projectId = arg<UUID?>(0)
-            val status = arg<ProjectStatus?>(1)
+            val statusFilter = arg<StatusFilter<ProjectStatus>?>(1)
             val tags = arg<List<String>?>(3)
             val textQuery = arg<String?>(4)
 
@@ -99,7 +100,7 @@ class SearchProjectsToolTest {
                                 project.name.contains(textQuery, ignoreCase = true) ||
                                 project.summary.contains(textQuery, ignoreCase = true)) &&
                         (tags == null || tags.isEmpty() || project.tags.any { tag -> tags.contains(tag) }) &&
-                        (status == null || project.status == status)
+                        (statusFilter == null || statusFilter.matches(project.status))
             }
 
             Result.Success(filteredProjects)
@@ -109,8 +110,8 @@ class SearchProjectsToolTest {
         coEvery {
             mockProjectRepository.findByFilters(
                 projectId = any(),
-                status = any(),
-                priority = null,
+                statusFilter = any(),
+                priorityFilter = null,
                 tags = any(),
                 textQuery = eq("API"),
                 limit = any(),
@@ -121,8 +122,8 @@ class SearchProjectsToolTest {
         coEvery {
             mockProjectRepository.findByFilters(
                 projectId = any(),
-                status = any(),
-                priority = null,
+                statusFilter = any(),
+                priorityFilter = null,
                 tags = any(),
                 textQuery = eq("nonexistent"),
                 limit = any(),
@@ -573,8 +574,8 @@ class SearchProjectsToolTest {
             coEvery {
                 mockProjectRepository.findByFilters(
                     projectId = any(),
-                    status = any(),
-                    priority = null,
+                    statusFilter = any(),
+                    priorityFilter = null,
                     tags = any(),
                     textQuery = any(),
                     limit = any(),
@@ -601,8 +602,8 @@ class SearchProjectsToolTest {
             coEvery {
                 mockProjectRepository.findByFilters(
                     projectId = any(),
-                    status = any(),
-                    priority = null,
+                    statusFilter = any(),
+                    priorityFilter = null,
                     tags = any(),
                     textQuery = any(),
                     limit = any(),

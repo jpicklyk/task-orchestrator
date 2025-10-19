@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.domain.repository
 
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
 import java.util.*
 
 /**
@@ -131,11 +132,19 @@ interface TaggableRepository<T> : SearchableRepository<T> {
 interface FilterableRepository<T, TStatus, TPriority> : TaggableRepository<T> {
     /**
      * Advanced filtering with multiple criteria.
+     *
+     * @param projectId Optional project scope filter
+     * @param statusFilter Multi-value status filter supporting inclusion/exclusion
+     * @param priorityFilter Multi-value priority filter supporting inclusion/exclusion
+     * @param tags Optional list of tags to filter by
+     * @param textQuery Optional text search query
+     * @param limit Maximum number of results to return
+     * @return List of entities matching the filter criteria
      */
     suspend fun findByFilters(
         projectId: UUID? = null,
-        status: TStatus? = null,
-        priority: TPriority? = null,
+        statusFilter: StatusFilter<TStatus>? = null,
+        priorityFilter: StatusFilter<TPriority>? = null,
         tags: List<String>? = null,
         textQuery: String? = null,
         limit: Int = 20,
@@ -143,11 +152,18 @@ interface FilterableRepository<T, TStatus, TPriority> : TaggableRepository<T> {
 
     /**
      * Counts entities matching the filter criteria.
+     *
+     * @param projectId Optional project scope filter
+     * @param statusFilter Multi-value status filter supporting inclusion/exclusion
+     * @param priorityFilter Multi-value priority filter supporting inclusion/exclusion
+     * @param tags Optional list of tags to filter by
+     * @param textQuery Optional text search query
+     * @return Count of entities matching the filter criteria
      */
     suspend fun countByFilters(
         projectId: UUID? = null,
-        status: TStatus? = null,
-        priority: TPriority? = null,
+        statusFilter: StatusFilter<TStatus>? = null,
+        priorityFilter: StatusFilter<TPriority>? = null,
         tags: List<String>? = null,
         textQuery: String? = null
     ): Result<Long>
@@ -183,11 +199,19 @@ interface ProjectScopedRepository<T, TStatus, TPriority> : FilterableRepository<
 
     /**
      * Advanced filtering within a project scope.
+     *
+     * @param projectId The project to filter within
+     * @param statusFilter Multi-value status filter supporting inclusion/exclusion
+     * @param priorityFilter Multi-value priority filter supporting inclusion/exclusion
+     * @param tags Optional list of tags to filter by
+     * @param textQuery Optional text search query
+     * @param limit Maximum number of results to return
+     * @return List of entities matching the filter criteria within the project
      */
     suspend fun findByProjectAndFilters(
         projectId: UUID,
-        status: TStatus? = null,
-        priority: TPriority? = null,
+        statusFilter: StatusFilter<TStatus>? = null,
+        priorityFilter: StatusFilter<TPriority>? = null,
         tags: List<String>? = null,
         textQuery: String? = null,
         limit: Int = 20,

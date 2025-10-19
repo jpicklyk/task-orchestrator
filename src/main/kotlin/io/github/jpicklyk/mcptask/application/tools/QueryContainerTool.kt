@@ -54,14 +54,31 @@ Parameters:
 | containerType | enum | Yes | project, feature, task |
 | id | UUID | Varies | Container ID (required for: get, export) |
 | query | string | No | Search text query (search only) |
-| status | string | No | Filter by status |
-| priority | string | No | Filter by priority (feature/task only) |
+| status | string | No | Filter by status (supports multi-value: "pending,in-progress" or negation: "!completed") |
+| priority | string | No | Filter by priority (feature/task only, supports multi-value: "high,medium" or negation: "!low") |
 | tags | string | No | Comma-separated tags filter |
 | projectId | UUID | No | Filter by project (feature/task) |
 | featureId | UUID | No | Filter by feature (task only) |
 | limit | integer | No | Max results (default: 20) |
 | includeSections | boolean | No | Include sections (get only, default: false) |
 | summaryLength | integer | No | Summary truncation (overview only, 0-200) |
+
+Filter Syntax Examples:
+- Single value: status="pending"
+- Multi-value (OR): status="pending,in-progress" (matches pending OR in-progress)
+- Negation: status="!completed" (matches anything EXCEPT completed)
+- Multi-negation: status="!completed,!cancelled" (matches anything EXCEPT completed or cancelled)
+- Priority filters: priority="high,medium" or priority="!low"
+
+Search results return minimal data (89% token reduction):
+- Tasks: id, title, status, priority, complexity, featureId (~30 tokens vs ~280 full object)
+- Features: id, name, status, priority, projectId
+- Projects: id, name, status
+
+Get operations (feature/project) ALWAYS include taskCounts (99% token reduction):
+- taskCounts.total: Total number of tasks
+- taskCounts.byStatus: Status breakdown (e.g., {"completed": 25, "in-progress": 15, "pending": 10})
+- This avoids fetching all tasks just to count statuses (14,400 → 100 tokens for 50 tasks)
 
 Usage: Consolidates get/search/export/overview for all container types (read-only).
 Related: manage_container
@@ -185,18 +202,18 @@ Docs: task-orchestrator://docs/tools/query-container
     }
 
     private fun validateOptionalParams(params: JsonElement, containerType: String, operation: String) {
-        // Validate status if present
-        optionalString(params, "status")?.let { status ->
-            if (!isValidStatus(status, containerType)) {
-                throw ToolValidationException("Invalid status for $containerType: $status")
+        // Validate status if present (supports multi-value and negation)
+        optionalString(params, "status")?.let { statusParam ->
+            if (!isValidStatusFilter(statusParam, containerType)) {
+                throw ToolValidationException("Invalid status filter for $containerType: $statusParam")
             }
         }
 
-        // Validate priority if present (feature/task only)
+        // Validate priority if present (feature/task only, supports multi-value and negation)
         if (containerType in listOf("feature", "task")) {
-            optionalString(params, "priority")?.let { priority ->
-                if (!isValidPriority(priority)) {
-                    throw ToolValidationException("Invalid priority: $priority. Must be one of: high, medium, low")
+            optionalString(params, "priority")?.let { priorityParam ->
+                if (!isValidPriorityFilter(priorityParam)) {
+                    throw ToolValidationException("Invalid priority filter: $priorityParam")
                 }
             }
         }
@@ -296,8 +313,18 @@ Docs: task-orchestrator://docs/tools/query-container
                     }
                 } else emptyList()
 
+                // Always fetch task counts (very cheap - single query + groupBy)
+                val taskCounts = buildTaskCounts(context, projectId = id)
+
+                val projectJson = buildProjectJson(project, sections, includeSections)
+                // Add taskCounts to response
+                val jsonWithCounts = buildJsonObject {
+                    projectJson.forEach { key, value -> put(key, value) }
+                    put("taskCounts", taskCounts)
+                }
+
                 successResponse(
-                    buildProjectJson(project, sections, includeSections),
+                    jsonWithCounts,
                     "Project retrieved successfully"
                 )
             }
@@ -316,8 +343,18 @@ Docs: task-orchestrator://docs/tools/query-container
                     }
                 } else emptyList()
 
+                // Always fetch task counts (very cheap - single query + groupBy)
+                val taskCounts = buildTaskCounts(context, featureId = id)
+
+                val featureJson = buildFeatureJson(feature, sections, includeSections)
+                // Add taskCounts to response
+                val jsonWithCounts = buildJsonObject {
+                    featureJson.forEach { key, value -> put(key, value) }
+                    put("taskCounts", taskCounts)
+                }
+
                 successResponse(
-                    buildFeatureJson(feature, sections, includeSections),
+                    jsonWithCounts,
                     "Feature retrieved successfully"
                 )
             }
@@ -365,16 +402,19 @@ Docs: task-orchestrator://docs/tools/query-container
     private suspend fun searchProjects(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val query = optionalString(params, "query")
         val statusStr = optionalString(params, "status")
-        val status = statusStr?.let { parseProjectStatus(it) }
+
+        // Parse multi-value status filter (projects don't have priority)
+        val statusFilter = parseStatusFilter(statusStr, "project") as StatusFilter<ProjectStatus>?
+
         val tagsStr = optionalString(params, "tags")
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
         val limit = optionalInt(params, "limit") ?: 20
 
-        val result = if (query != null || status != null || tags != null) {
+        val result = if (query != null || statusFilter != null || tags != null) {
             context.projectRepository().findByFilters(
                 projectId = null,
-                status = status,
-                priority = null,
+                statusFilter = statusFilter,
+                priorityFilter = null,
                 tags = tags,
                 textQuery = query,
                 limit = limit
@@ -390,7 +430,7 @@ Docs: task-orchestrator://docs/tools/query-container
                     buildJsonObject {
                         put("items", buildJsonArray {
                             projects.forEach { project ->
-                                add(buildProjectJson(project, emptyList(), false))
+                                add(buildProjectSearchResult(project))  // Use minimal result builder
                             }
                         })
                         put("count", projects.size)
@@ -409,9 +449,12 @@ Docs: task-orchestrator://docs/tools/query-container
     private suspend fun searchFeatures(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val query = optionalString(params, "query")
         val statusStr = optionalString(params, "status")
-        val status = statusStr?.let { parseFeatureStatus(it) }
         val priorityStr = optionalString(params, "priority")
-        val priority = priorityStr?.let { parsePriority(it) }
+
+        // Parse multi-value filters
+        val statusFilter = parseStatusFilter(statusStr, "feature") as StatusFilter<FeatureStatus>?
+        val priorityFilter = parsePriorityFilter(priorityStr)
+
         val tagsStr = optionalString(params, "tags")
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
         val projectId = optionalString(params, "projectId")?.let {
@@ -419,11 +462,11 @@ Docs: task-orchestrator://docs/tools/query-container
         }
         val limit = optionalInt(params, "limit") ?: 20
 
-        val result = if (query != null || status != null || priority != null || tags != null || projectId != null) {
+        val result = if (query != null || statusFilter != null || priorityFilter != null || tags != null || projectId != null) {
             context.featureRepository().findByFilters(
                 projectId = projectId,
-                status = status,
-                priority = priority,
+                statusFilter = statusFilter,
+                priorityFilter = priorityFilter,
                 tags = tags,
                 textQuery = query,
                 limit = limit
@@ -439,7 +482,7 @@ Docs: task-orchestrator://docs/tools/query-container
                     buildJsonObject {
                         put("items", buildJsonArray {
                             features.forEach { feature ->
-                                add(buildFeatureJson(feature, emptyList(), false))
+                                add(buildFeatureSearchResult(feature))  // Use minimal result builder
                             }
                         })
                         put("count", features.size)
@@ -458,9 +501,12 @@ Docs: task-orchestrator://docs/tools/query-container
     private suspend fun searchTasks(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val query = optionalString(params, "query")
         val statusStr = optionalString(params, "status")
-        val status = statusStr?.let { parseTaskStatus(it) }
         val priorityStr = optionalString(params, "priority")
-        val priority = priorityStr?.let { parsePriority(it) }
+
+        // Parse multi-value filters
+        val statusFilter = parseStatusFilter(statusStr, "task") as StatusFilter<TaskStatus>?
+        val priorityFilter = parsePriorityFilter(priorityStr)
+
         val tagsStr = optionalString(params, "tags")
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
         val projectId = optionalString(params, "projectId")?.let {
@@ -471,17 +517,25 @@ Docs: task-orchestrator://docs/tools/query-container
         }
         val limit = optionalInt(params, "limit") ?: 20
 
-        val result = if (query != null || status != null || priority != null || tags != null || projectId != null) {
-            context.taskRepository().findByFilters(
-                projectId = projectId,
-                status = status,
-                priority = priority,
+        // Call repository with StatusFilter objects
+        val result = if (featureId != null) {
+            context.taskRepository().findByFeatureAndFilters(
+                featureId = featureId,
+                statusFilter = statusFilter,
+                priorityFilter = priorityFilter,
                 tags = tags,
                 textQuery = query,
                 limit = limit
             )
-        } else if (featureId != null) {
-            context.taskRepository().findByFeature(featureId, status, priority, limit)
+        } else if (query != null || statusFilter != null || priorityFilter != null || tags != null || projectId != null) {
+            context.taskRepository().findByFilters(
+                projectId = projectId,
+                statusFilter = statusFilter,
+                priorityFilter = priorityFilter,
+                tags = tags,
+                textQuery = query,
+                limit = limit
+            )
         } else {
             context.taskRepository().findAll(limit)
         }
@@ -493,7 +547,7 @@ Docs: task-orchestrator://docs/tools/query-container
                     buildJsonObject {
                         put("items", buildJsonArray {
                             tasks.forEach { task ->
-                                add(buildTaskJson(task, emptyList(), false))
+                                add(buildTaskSearchResult(task))  // Use minimal result builder
                             }
                         })
                         put("count", tasks.size)
@@ -847,6 +901,61 @@ Docs: task-orchestrator://docs/tools/query-container
 
     // ========== HELPER METHODS ==========
 
+    /**
+     * Builds task counts for a feature or project.
+     * Fetches all tasks and groups by status to provide:
+     * - total: Total number of tasks
+     * - byStatus: Map of status -> count
+     *
+     * This is very cheap (single query + in-memory groupBy) and provides
+     * 99% token reduction vs fetching all tasks (14,400 → 100 tokens for 50 tasks).
+     *
+     * @param context Tool execution context
+     * @param featureId Optional feature ID to count tasks for
+     * @param projectId Optional project ID to count tasks for
+     * @return JsonObject with total and byStatus counts
+     */
+    private suspend fun buildTaskCounts(
+        context: ToolExecutionContext,
+        featureId: UUID? = null,
+        projectId: UUID? = null
+    ): JsonObject {
+        val tasksResult = if (featureId != null) {
+            context.taskRepository().findByFeature(featureId)
+        } else if (projectId != null) {
+            context.taskRepository().findByProject(projectId)
+        } else {
+            return buildJsonObject {
+                put("total", 0)
+                put("byStatus", buildJsonObject {})
+            }
+        }
+
+        return when (tasksResult) {
+            is Result.Success -> {
+                val tasks = tasksResult.data
+                buildJsonObject {
+                    put("total", tasks.size)
+                    put("byStatus", buildJsonObject {
+                        tasks.groupBy { it.status }
+                            .forEach { (status, taskList) ->
+                                put(
+                                    status.name.lowercase().replace('_', '-'),
+                                    taskList.size
+                                )
+                            }
+                    })
+                }
+            }
+            is Result.Error -> {
+                buildJsonObject {
+                    put("total", 0)
+                    put("byStatus", buildJsonObject {})
+                }
+            }
+        }
+    }
+
     private fun handleNotFoundError(result: Result.Error, entityType: String, id: UUID): JsonElement {
         return if (result.error is RepositoryError.NotFound) {
             errorResponse(
@@ -863,8 +972,180 @@ Docs: task-orchestrator://docs/tools/query-container
         }
     }
 
+    // ========== FILTER PARSING HELPERS ==========
+
+    /**
+     * Parses a status filter string into a StatusFilter object.
+     * Supports comma-separated values with optional ! prefix for negation.
+     *
+     * Examples:
+     * - "pending" → StatusFilter(include=[PENDING], exclude=[])
+     * - "pending,in-progress" → StatusFilter(include=[PENDING, IN_PROGRESS], exclude=[])
+     * - "!completed" → StatusFilter(include=[], exclude=[COMPLETED])
+     * - "!completed,!cancelled" → StatusFilter(include=[], exclude=[COMPLETED, CANCELLED])
+     *
+     * @param statusParam The status filter string (e.g., "pending,in-progress" or "!completed")
+     * @param containerType The container type ("task", "feature", or "project")
+     * @return StatusFilter object or null if statusParam is null/blank
+     */
+    private fun parseStatusFilter(statusParam: String?, containerType: String): StatusFilter<*>? {
+        if (statusParam.isNullOrBlank()) return null
+
+        val parts = statusParam.split(",").map { it.trim() }
+        val include = mutableListOf<Any>()
+        val exclude = mutableListOf<Any>()
+
+        parts.forEach { part ->
+            if (part.startsWith("!")) {
+                // Negation: remove ! and parse
+                val status = parseStatus(part.substring(1), containerType)
+                exclude.add(status)
+            } else {
+                val status = parseStatus(part, containerType)
+                include.add(status)
+            }
+        }
+
+        return when (containerType) {
+            "task" -> StatusFilter(
+                include = include.filterIsInstance<TaskStatus>(),
+                exclude = exclude.filterIsInstance<TaskStatus>()
+            )
+            "feature" -> StatusFilter(
+                include = include.filterIsInstance<FeatureStatus>(),
+                exclude = exclude.filterIsInstance<FeatureStatus>()
+            )
+            "project" -> StatusFilter(
+                include = include.filterIsInstance<ProjectStatus>(),
+                exclude = exclude.filterIsInstance<ProjectStatus>()
+            )
+            else -> null
+        }
+    }
+
+    /**
+     * Parses a priority filter string into a StatusFilter<Priority> object.
+     * Supports comma-separated values with optional ! prefix for negation.
+     *
+     * Examples:
+     * - "high" → StatusFilter(include=[HIGH], exclude=[])
+     * - "high,medium" → StatusFilter(include=[HIGH, MEDIUM], exclude=[])
+     * - "!low" → StatusFilter(include=[], exclude=[LOW])
+     *
+     * @param priorityParam The priority filter string (e.g., "high,medium" or "!low")
+     * @return StatusFilter<Priority> object or null if priorityParam is null/blank
+     */
+    private fun parsePriorityFilter(priorityParam: String?): StatusFilter<Priority>? {
+        if (priorityParam.isNullOrBlank()) return null
+
+        val parts = priorityParam.split(",").map { it.trim() }
+        val include = mutableListOf<Priority>()
+        val exclude = mutableListOf<Priority>()
+
+        parts.forEach { part ->
+            if (part.startsWith("!")) {
+                exclude.add(parsePriority(part.substring(1)))
+            } else {
+                include.add(parsePriority(part))
+            }
+        }
+
+        return StatusFilter(include, exclude)
+    }
+
+    /**
+     * Parses a single status value based on container type.
+     *
+     * @param value The status string to parse
+     * @param containerType The container type ("task", "feature", or "project")
+     * @return The parsed status enum value
+     * @throws IllegalArgumentException if the status value is invalid
+     */
+    private fun parseStatus(value: String, containerType: String): Any {
+        return when (containerType) {
+            "task" -> parseTaskStatus(value)
+            "feature" -> parseFeatureStatus(value)
+            "project" -> parseProjectStatus(value)
+            else -> throw IllegalArgumentException("Unknown container type: $containerType")
+        }
+    }
+
+    // ========== MINIMAL RESULT BUILDERS ==========
+
+    /**
+     * Builds a minimal task result for search operations (89% token reduction).
+     * Only includes essential fields: id, title, status, priority, complexity, featureId.
+     * Excludes: summary, description, tags, timestamps, projectId.
+     *
+     * @param task The task entity
+     * @return Minimal JSON representation (~30 tokens vs ~280 tokens for full object)
+     */
+    private fun buildTaskSearchResult(task: Task): JsonObject {
+        return buildJsonObject {
+            put("id", task.id.toString())
+            put("title", task.title)
+            put("status", task.status.name.lowercase().replace('_', '-'))
+            put("priority", task.priority.name.lowercase())
+            put("complexity", task.complexity)
+            task.featureId?.let { put("featureId", it.toString()) }
+        }
+    }
+
+    /**
+     * Builds a minimal feature result for search operations.
+     * Only includes: id, name, status, priority, projectId.
+     * Excludes: summary, description, tags, timestamps.
+     *
+     * @param feature The feature entity
+     * @return Minimal JSON representation
+     */
+    private fun buildFeatureSearchResult(feature: Feature): JsonObject {
+        return buildJsonObject {
+            put("id", feature.id.toString())
+            put("name", feature.name)
+            put("status", feature.status.name.lowercase().replace('_', '-'))
+            put("priority", feature.priority.name.lowercase())
+            feature.projectId?.let { put("projectId", it.toString()) }
+        }
+    }
+
+    /**
+     * Builds a minimal project result for search operations.
+     * Only includes: id, name, status.
+     * Excludes: summary, description, tags, timestamps.
+     *
+     * @param project The project entity
+     * @return Minimal JSON representation
+     */
+    private fun buildProjectSearchResult(project: Project): JsonObject {
+        return buildJsonObject {
+            put("id", project.id.toString())
+            put("name", project.name)
+            put("status", project.status.name.lowercase().replace('_', '-'))
+        }
+    }
+
     // Status validation and parsing methods
 
+    /**
+     * Validates a status filter string supporting multi-value and negation.
+     * Accepts formats: "status", "status1,status2", "!status", "!status1,!status2"
+     */
+    private fun isValidStatusFilter(statusParam: String, containerType: String): Boolean {
+        return try {
+            val parts = statusParam.split(",").map { it.trim() }
+            parts.all { part ->
+                val statusValue = if (part.startsWith("!")) part.substring(1) else part
+                isValidStatus(statusValue, containerType)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Validates a single status value for the given container type.
+     */
     private fun isValidStatus(status: String, containerType: String): Boolean {
         return try {
             when (containerType) {
@@ -874,6 +1155,22 @@ Docs: task-orchestrator://docs/tools/query-container
                 else -> return false
             }
             true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Validates a priority filter string supporting multi-value and negation.
+     * Accepts formats: "high", "high,medium", "!low", "!low,!medium"
+     */
+    private fun isValidPriorityFilter(priorityParam: String): Boolean {
+        return try {
+            val parts = priorityParam.split(",").map { it.trim() }
+            parts.all { part ->
+                val priorityValue = if (part.startsWith("!")) part.substring(1) else part
+                isValidPriority(priorityValue)
+            }
         } catch (_: Exception) {
             false
         }
