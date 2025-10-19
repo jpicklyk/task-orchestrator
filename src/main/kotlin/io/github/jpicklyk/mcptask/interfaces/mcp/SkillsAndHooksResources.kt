@@ -67,7 +67,7 @@ object SkillsAndHooksResources {
                             buildJsonObject {
                                 put("name", skillName)
                                 put("description", description)
-                                put("path", ".claude/skills/task-orchestrator/$skillName")
+                                put("path", ".claude/skills/$skillName")
                                 putJsonArray("files") {
                                     Files.list(dir).use { fileStream ->
                                         fileStream.filter { Files.isRegularFile(it) }
@@ -89,7 +89,7 @@ object SkillsAndHooksResources {
                     }
                     put("count", skills.size)
                     put("collection", "task-orchestrator")
-                    put("directory", ".claude/skills/task-orchestrator")
+                    put("directory", ".claude/skills")
                 }
 
                 ReadResourceResult(

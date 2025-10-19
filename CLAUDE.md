@@ -146,8 +146,6 @@ See [database-migrations.md](docs/developer-guides/database-migrations.md) for p
 - **Direct** (Development) - Exposed ORM schema updates for faster iteration
 
 **Migration Files:** `src/main/resources/db/migration/`
-- `V1__initial_schema.sql` - Initial database schema
-- `V2__template_section_ordinal.sql` - Template section ordering
 
 ## Dependency Management
 

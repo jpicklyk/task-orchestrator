@@ -248,11 +248,11 @@ class SetupClaudeAgentsToolTest {
         val responseObj = response as JsonObject
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
-        // Verify .claude/skills/task-orchestrator directory exists
+        // Verify .claude/skills directory exists
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val skillsDir = workingDir.resolve(".claude/skills/task-orchestrator")
+        val skillsDir = workingDir.resolve(".claude/skills")
 
-        assertTrue(Files.exists(skillsDir), ".claude/skills/task-orchestrator directory should exist after execution")
+        assertTrue(Files.exists(skillsDir), ".claude/skills directory should exist after execution")
 
         // Verify response includes skills directory info
         val data = responseObj["data"]?.jsonObject
@@ -292,7 +292,7 @@ class SetupClaudeAgentsToolTest {
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
         val workingDir = Paths.get(System.getProperty("user.dir"))
-        val skillsDir = workingDir.resolve(".claude/skills/task-orchestrator")
+        val skillsDir = workingDir.resolve(".claude/skills")
 
         val expectedSkills = listOf(
             "dependency-analysis",

@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
  *
  * Claude Code expects:
  * - Agent definitions in .claude/agents/task-orchestrator/ with YAML frontmatter and markdown content
- * - Skills in .claude/skills/task-orchestrator/ for lightweight coordination
+ * - Skills in .claude/skills/ (root level, not in subdirectory) for lightweight coordination
  *
  * Agent format:
  * - YAML frontmatter with name, description, tools, model
@@ -19,7 +19,7 @@ import java.nio.file.StandardCopyOption
  * - Model field: "sonnet" or "opus" (not full model names)
  *
  * Responsibilities:
- * - Create and manage .claude/agents/task-orchestrator/, .claude/skills/task-orchestrator/ directories
+ * - Create and manage .claude/agents/task-orchestrator/, .claude/skills/ directories
  * - Copy Claude-specific agent template files from embedded resources
  * - Copy skill templates with all supporting files (SKILL.md, examples, guides)
  * - Read/write agent definition files
@@ -358,10 +358,10 @@ class ClaudeAgentDirectoryManager(
     }
 
     /**
-     * Get the skills directory path (.claude/skills/task-orchestrator/)
+     * Get the skills directory path (.claude/skills/)
      */
     fun getSkillsDir(): Path {
-        return getClaudeDir().resolve(SKILLS_DIR).resolve(TASK_ORCHESTRATOR_SUBDIR)
+        return getClaudeDir().resolve(SKILLS_DIR)
     }
 
     /**
@@ -380,7 +380,7 @@ class ClaudeAgentDirectoryManager(
     }
 
     /**
-     * Create the .claude/skills/task-orchestrator/ directory structure
+     * Create the .claude/skills/ directory structure
      * Returns true if created, false if already exists
      */
     fun createSkillsDirectory(): Boolean {
@@ -396,7 +396,7 @@ class ClaudeAgentDirectoryManager(
     }
 
     /**
-     * Copy skill templates from embedded resources to .claude/skills/task-orchestrator/
+     * Copy skill templates from embedded resources to .claude/skills/
      * Skips files that already exist (idempotent).
      *
      * Returns list of skills that were copied (skill directory names).

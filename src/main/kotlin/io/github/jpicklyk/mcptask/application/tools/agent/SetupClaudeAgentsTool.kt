@@ -27,7 +27,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
         What This Creates:
         - `.claude/agents/task-orchestrator/` - 10 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, feature-manager, frontend-developer, planning-specialist, task-manager, technical-writer, test-engineer)
-        - `.claude/skills/task-orchestrator/` - 5 Skills for lightweight coordination (2-5 tool calls)
+        - `.claude/skills/` - 5 Skills for lightweight coordination (2-5 tool calls)
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
         - Decision gates in CLAUDE.md (if not present)
 
@@ -71,7 +71,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         - Use recommend_agent(taskId) to get agent recommendations
         - Use get_agent_definition(agentName) to read agent files
         - Edit .claude/agents/task-orchestrator/*.md to customize behavior
-        - Browse .claude/skills/task-orchestrator/ for skill documentation
+        - Browse .claude/skills/ for skill documentation
         - Use hook-builder skill to create project-specific hooks
         - Commit .claude/ directory to version control for team sharing
 
@@ -210,7 +210,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
             val decisionGatesInjected = agentDirectoryManager.injectDecisionGatesIntoClaude()
 
             // Step 6: Create skills directory
-            logger.info("Creating .claude/skills/task-orchestrator/ directory structure...")
+            logger.info("Creating .claude/skills/ directory structure...")
             val skillsDirectoryCreated = agentDirectoryManager.createSkillsDirectory()
 
             // Step 7: Copy skill templates
