@@ -210,6 +210,26 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - SECTION_MANAGEMENT - Section content operations
 - DEPENDENCY_MANAGEMENT - Task dependency operations
 
+**Consolidated Tools (v1.1.0+):**
+
+Task Orchestrator v1.1.0 introduces **consolidated task tools** that reduce token overhead by 84%:
+
+- **`manage_task`** - Unified single-entity operations (replaces 5 tools)
+  - Operations: create, get, update, delete, export
+  - Usage: `{"operation": "create", "title": "...", ...}`
+  - Replaces: create_task, get_task, update_task, delete_task, task_to_markdown
+
+- **`query_tasks`** - Unified multi-entity queries (replaces 4 tools)
+  - Query types: search, blocked, next, bulkUpdate
+  - Usage: `{"queryType": "search", "status": "pending", ...}`
+  - Replaces: search_tasks, get_blocked_tasks, get_next_task, bulk_update_tasks
+
+**Token Savings:** ~10.8k → ~1.7k characters (84% reduction)
+
+**Migration:** Deprecated tools remain available until v2.0.0. See [migration guide](docs/migration/task-tool-consolidation.md).
+
+**Recommendation:** Use consolidated tools for new code. Both old and new tools work simultaneously.
+
 ## Documentation
 
 **Developer Guides:** `docs/developer-guides/`

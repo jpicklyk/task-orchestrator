@@ -24,7 +24,9 @@ class GetNextTaskTool : BaseToolDefinition() {
 
     override val title: String = "Get Next Task Recommendation"
 
-    override val description: String = """Recommends next task based on status, dependencies, priority, and complexity. Filters out blocked tasks and ranks by priority (quick wins first).
+    override val description: String = """⚠️ DEPRECATED: Use query_tasks with queryType="next" instead.
+
+        Recommends next task based on status, dependencies, priority, and complexity. Filters out blocked tasks and ranks by priority (quick wins first).
 
         Selection Logic:
         1. Retrieves all pending tasks (not yet started)

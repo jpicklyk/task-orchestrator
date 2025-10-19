@@ -93,7 +93,9 @@ class BulkUpdateTasksTool : BaseToolDefinition() {
         )
     )
 
-    override val description = """Updates multiple tasks in atomic transaction. More efficient than individual update_task calls for 2+ tasks.
+    override val description = """⚠️ DEPRECATED: Use query_tasks with queryType="bulkUpdate" instead.
+
+        Updates multiple tasks in atomic transaction. More efficient than individual update_task calls for 2+ tasks.
 
         Parameters:
         - tasks (array, required): Task update objects with id (required) and optional fields (title, summary, status, priority, complexity, featureId, tags)

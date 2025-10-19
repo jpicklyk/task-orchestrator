@@ -23,7 +23,9 @@ class GetBlockedTasksTool : BaseToolDefinition() {
 
     override val title: String = "Get Blocked Tasks"
 
-    override val description: String = """Identifies tasks blocked by incomplete dependencies. Essential for workflow management and bottleneck identification.
+    override val description: String = """⚠️ DEPRECATED: Use query_tasks with queryType="blocked" instead.
+
+        Identifies tasks blocked by incomplete dependencies. Essential for workflow management and bottleneck identification.
 
         Task is Blocked When:
         1. Status is pending or in-progress (active work)

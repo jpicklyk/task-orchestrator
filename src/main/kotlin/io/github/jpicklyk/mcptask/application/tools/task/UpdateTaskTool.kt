@@ -118,21 +118,10 @@ class UpdateTaskTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = """Updates task properties. Only send fields you want to change.
+    override val description: String = """⚠️ DEPRECATED: Use manage_task operation="update".
 
-        Parameters:
-        | Field | Type | Required | Description |
-        | id | UUID | Yes | Task identifier |
-        | title | string | No | New title |
-        | summary | string | No | New summary (max 500 chars) |
-        | description | string | No | New detailed description |
-        | status | enum | No | pending, in-progress, completed, cancelled, deferred |
-        | priority | enum | No | high, medium, low |
-        | complexity | integer | No | Complexity rating (1-10) |
-        | featureId | UUID | No | New feature association (or null for orphaned) |
-        | tags | string | No | Comma-separated tags (replaces entire set) |
+        Updates task properties. Only send fields you want to change.
 
-        Related: create_task, get_task, delete_task, bulk_update_tasks
         Docs: task-orchestrator://docs/tools/update-task
         """
 

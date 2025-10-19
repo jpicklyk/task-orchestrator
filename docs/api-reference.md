@@ -187,29 +187,38 @@ AI chooses tools based on:
 
 ### Task Management
 
-**Core Workflow**:
-- `create_task` - Create tasks with templates
+**Consolidated Tools** ⭐ **NEW - Recommended**:
+- `manage_task` - **Unified single-entity operations** (create, get, update, delete, export) - Replaces 5 tools, 84% token savings
+- `query_tasks` - **Unified multi-entity queries** (search, blocked, next, bulkUpdate) - Replaces 4 tools, massive efficiency gains
+
+**Legacy Tools** (Deprecated - use consolidated tools above):
+- `create_task` - Create tasks with templates → Use `manage_task` (operation: create)
+- `get_task` - Fetch task details → Use `manage_task` (operation: get)
+- `update_task` - Status, priority updates → Use `manage_task` (operation: update)
+- `delete_task` - Remove tasks → Use `manage_task` (operation: delete)
+- `task_to_markdown` - Export to markdown → Use `manage_task` (operation: export)
+- `search_tasks` - Filter and find tasks → Use `query_tasks` (queryType: search)
+- `get_blocked_tasks` - Identify blocked tasks → Use `query_tasks` (queryType: blocked)
+- `get_next_task` - Task recommendations → Use `query_tasks` (queryType: next)
+- `bulk_update_tasks` - Update multiple tasks → Use `query_tasks` (queryType: bulkUpdate)
+
+**Universal Tools** (Use with all task operations):
 - `set_status` - Simple, unified status updates for tasks, features, and projects ⭐ **Preferred for status-only changes**
-- `update_task` - Status, priority, complexity updates
-- `bulk_update_tasks` - Update multiple tasks efficiently (70-95% token savings)
-- `get_task` - Fetch task details with progressive loading
-- `search_tasks` - Filter and find tasks
 - `list_tags` - Discover all tags with usage counts ⭐ **Use before searching by tag**
 - `get_tag_usage` - Find all entities using a specific tag ⭐ **Use before renaming tags**
 - `rename_tag` - Bulk rename tags across all entities ⭐ **Use for tag standardization**
-- `get_blocked_tasks` - Identify blocked tasks for workflow optimization ⭐ **Use for bottleneck analysis**
-- `get_next_task` - Recommend next task based on priority and dependencies ⭐ **Use for work prioritization**
 - `get_overview` - Hierarchical project view
-- `delete_task` - Remove tasks with cleanup
-- `task_to_markdown` - Transform task to markdown format
 
 **When AI Uses**: Most frequently - tasks are primary work units
 
+**Migration**: See [Task Tool Consolidation Guide](migration/task-tool-consolidation.md) for migration from deprecated tools
+
 **Key Features**:
-- Progressive loading (`includeSections`, `includeDependencies`, `includeFeature`)
-- `set_status` for simple status updates - auto-detects entity type, provides dependency warnings
-- `list_tags` for tag discovery - shows usage across all entity types
-- `get_tag_usage` and `rename_tag` for comprehensive tag management and standardization
+- **Consolidated tools**: 84% token reduction through operation-based routing
+- **Partial updates**: Send only changed fields (90-95% token savings)
+- **Progressive loading**: `includeSections`, `includeDependencies`, `includeFeature`
+- **Bulk operations**: Update multiple tasks in single call (95% token savings)
+- **Smart queries**: Blocked task analysis, priority-based recommendations
 
 ---
 

@@ -174,7 +174,9 @@ class CreateTaskTool : BaseToolDefinition() {
         required = listOf("success", "message")
     )
 
-    override val description: String = """Creates a task with metadata and optional template application.
+    override val description: String = """⚠️ DEPRECATED: Use manage_task with operation="create" instead.
+
+        Creates a task with metadata and optional template application.
         Tasks are discrete work items that can be independent or organized under features.
 
         Parameters:

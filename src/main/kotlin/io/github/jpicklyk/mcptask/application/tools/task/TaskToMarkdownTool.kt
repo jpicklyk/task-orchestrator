@@ -68,7 +68,9 @@ class TaskToMarkdownTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Transforms a task into markdown format with YAML frontmatter.
+    override val description: String = """⚠️ DEPRECATED: Use manage_task with operation="toMarkdown" instead.
+
+        Transforms a task into markdown format with YAML frontmatter.
 
         This tool retrieves a task and all its sections, then renders them as a markdown document
         with YAML frontmatter containing task metadata. The output is suitable for:

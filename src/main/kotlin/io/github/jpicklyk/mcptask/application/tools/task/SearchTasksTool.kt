@@ -100,7 +100,9 @@ class SearchTasksTool : BaseToolDefinition() {
         required = listOf("success", "message")
     )
 
-    override val description: String = """Searches tasks with flexible filtering and pagination. Returns lightweight results (excludes summary/sections).
+    override val description: String = """⚠️ DEPRECATED: Use query_tasks with queryType="search" instead.
+
+        Searches tasks with flexible filtering and pagination. Returns lightweight results (excludes summary/sections).
 
         Filters: query (text), status, priority, featureId, projectId, tag
         Sorting: createdAt, modifiedAt, priority, status, complexity (default: modifiedAt desc)

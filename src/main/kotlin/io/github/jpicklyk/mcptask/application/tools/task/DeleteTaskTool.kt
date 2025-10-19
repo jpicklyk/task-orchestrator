@@ -110,7 +110,9 @@ class DeleteTaskTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = """Deletes a task by ID with cascade and dependency handling.
+    override val description: String = """⚠️ DEPRECATED: Use manage_task with operation="delete" instead.
+
+Deletes a task by ID with cascade and dependency handling.
 
 Parameters:
 | Field | Type | Required | Default | Description |

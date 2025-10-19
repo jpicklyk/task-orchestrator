@@ -231,7 +231,11 @@ class McpServer(
      */
     private fun createTools(): List<ToolDefinition> {
         return listOf(
-            // Task management tools
+            // Task management tools - New consolidated tools
+            ManageTaskTool(null, null),
+            QueryTasksTool(),
+
+            // Task management tools - Deprecated (use manage_task or query_tasks instead)
             CreateTaskTool(),
             UpdateTaskTool(null, null),
             BulkUpdateTasksTool(),

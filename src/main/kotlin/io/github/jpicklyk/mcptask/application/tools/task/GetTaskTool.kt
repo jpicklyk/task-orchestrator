@@ -135,7 +135,9 @@ class GetTaskTool : BaseToolDefinition() {
         required = listOf("success", "message")
     )
 
-    override val description: String = """Retrieves a task by ID with optional related entities.
+    override val description: String = """⚠️ DEPRECATED: Use manage_task with operation="get" instead.
+
+Retrieves a task by ID with optional related entities.
 
 Parameters:
 | Field | Type | Required | Default | Description |
