@@ -22,8 +22,8 @@ import java.util.*
 class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) : DependencyRepository {
 
     override fun create(dependency: Dependency): Dependency = transaction(databaseManager.getDatabase()) {
-        // Check for cyclic dependencies before creating
-        if (hasCyclicDependency(dependency.fromTaskId, dependency.toTaskId)) {
+        // Check for cyclic dependencies before creating (call internal method without transaction)
+        if (checkCyclicDependencyInternal(dependency.fromTaskId, dependency.toTaskId)) {
             throw ValidationException("Creating this dependency would result in a circular dependency")
         }
 
@@ -85,9 +85,18 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
     /**
      * Checks if adding a dependency from fromTaskId to toTaskId would create a cycle.
      * A cycle exists if there's already a path from toTaskId back to fromTaskId.
-     * Note: This method should be called within a transaction context.
+     *
+     * This method wraps the internal check in a transaction for external callers.
      */
-    override fun hasCyclicDependency(fromTaskId: UUID, toTaskId: UUID): Boolean {
+    override fun hasCyclicDependency(fromTaskId: UUID, toTaskId: UUID): Boolean = transaction(databaseManager.getDatabase()) {
+        checkCyclicDependencyInternal(fromTaskId, toTaskId)
+    }
+
+    /**
+     * Internal cyclic dependency check that must be called within an existing transaction.
+     * Used by create() which already has a transaction context.
+     */
+    private fun checkCyclicDependencyInternal(fromTaskId: UUID, toTaskId: UUID): Boolean {
         // If they're the same task, it's definitely a cycle
         if (fromTaskId == toTaskId) {
             return true
