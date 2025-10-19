@@ -61,7 +61,9 @@ class DeleteProjectTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = """Deletes a project by ID with cascade options.
+    override val description: String = """⚠️ DEPRECATED: Use manage_project with operation="delete" instead.
+
+Deletes a project by ID with cascade options.
 
 Parameters:
 | Field | Type | Required | Default | Description |

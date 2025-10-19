@@ -72,7 +72,9 @@ class UpdateFeatureTool(
         )
     )
 
-    override val description: String = """Updates feature properties. Only send fields you want to change.
+    override val description: String = """⚠️ DEPRECATED: Use manage_feature with operation="update" instead.
+
+Updates feature properties. Only send fields you want to change.
 
 Parameters:
 | Field | Type | Required | Description |

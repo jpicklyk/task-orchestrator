@@ -60,7 +60,9 @@ class DeleteFeatureTool(
         )
     )
 
-    override val description: String = """Deletes a feature by ID with cascade options.
+    override val description: String = """⚠️ DEPRECATED: Use manage_feature with operation="delete" instead.
+
+Deletes a feature by ID with cascade options.
 
 Parameters:
 | Field | Type | Required | Default | Description |

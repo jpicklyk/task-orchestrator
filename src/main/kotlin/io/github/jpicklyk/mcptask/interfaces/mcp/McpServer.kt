@@ -256,7 +256,10 @@ class McpServer(
             GetTaskDependenciesTool(),
             DeleteDependencyTool(),
 
-            // Feature management tools
+            // Feature management tools - New consolidated tool
+            ManageFeatureTool(null, null),
+
+            // Feature management tools - Deprecated (use manage_feature instead)
             CreateFeatureTool(),
             UpdateFeatureTool(),
             GetFeatureTool(),
@@ -264,7 +267,10 @@ class McpServer(
             SearchFeaturesTool(),
             FeatureToMarkdownTool(),
 
-            // Project management tools
+            // Project management tools - New consolidated tool
+            ManageProjectTool(null, null),
+
+            // Project management tools - Deprecated (use manage_project instead)
             CreateProjectTool(),
             GetProjectTool(),
             UpdateProjectTool(),

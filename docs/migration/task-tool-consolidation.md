@@ -1,4 +1,4 @@
-# Task Tool Consolidation Migration Guide
+# Tool Consolidation Migration Guide
 
 **Version:** 1.1.0-beta
 **Date:** 2025-10-18
@@ -6,7 +6,14 @@
 
 ## Overview
 
-Task Orchestrator v1.1.0 introduces **consolidated task tools** that reduce token overhead by **84%** (from ~10.8k to ~1.7k tokens) while preserving all functionality. Nine separate tools have been consolidated into two powerful, operation-based tools.
+Task Orchestrator v1.1.0 introduces **consolidated tools** that reduce token overhead by **84%** while preserving all functionality. This consolidation applies to **task, feature, and project tools**, creating a consistent operation-based interface across all entity types.
+
+### Scope of Consolidation
+
+- **Tasks:** 9 tools → 2 tools (manage_task, query_tasks)
+- **Features:** 5 tools → 1 tool (manage_feature)
+- **Projects:** 5 tools → 1 tool (manage_project)
+- **Total:** 19 tools → 4 tools
 
 ### Why Consolidation?
 
@@ -24,20 +31,31 @@ Task Orchestrator v1.1.0 introduces **consolidated task tools** that reduce toke
 
 ### What Changed
 
+#### Task Tools
+
 **Before (9 separate tools):**
-- `create_task` - Create tasks
-- `get_task` - Retrieve task details
-- `update_task` - Update task fields
-- `delete_task` - Remove tasks
-- `task_to_markdown` - Export to markdown
-- `search_tasks` - Find tasks by filters
-- `get_blocked_tasks` - Identify blocked tasks
-- `get_next_task` - Get task recommendations
-- `bulk_update_tasks` - Update multiple tasks
+- `create_task`, `get_task`, `update_task`, `delete_task`, `task_to_markdown`
+- `search_tasks`, `get_blocked_tasks`, `get_next_task`, `bulk_update_tasks`
 
 **After (2 consolidated tools):**
-- `manage_task` - **Single-entity operations** (create, get, update, delete, export)
-- `query_tasks` - **Multi-entity queries** (search, blocked, next, bulkUpdate)
+- `manage_task` - Single-entity operations (create, get, update, delete, export)
+- `query_tasks` - Multi-entity queries (search, blocked, next, bulkUpdate)
+
+#### Feature Tools
+
+**Before (5 separate tools):**
+- `create_feature`, `get_feature`, `update_feature`, `delete_feature`, `feature_to_markdown`
+
+**After (1 consolidated tool):**
+- `manage_feature` - All operations (create, get, update, delete, export)
+
+#### Project Tools
+
+**Before (5 separate tools):**
+- `create_project`, `get_project`, `update_project`, `delete_project`, `project_to_markdown`
+
+**After (1 consolidated tool):**
+- `manage_project` - All operations (create, get, update, delete, export)
 
 ### Timeline
 
@@ -365,6 +383,324 @@ Task Orchestrator v1.1.0 introduces **consolidated task tools** that reduce toke
 
 ---
 
+## Feature Tool Migration
+
+### From `create_feature` → `manage_feature`
+
+**Before:**
+```json
+{
+  "tool": "create_feature",
+  "parameters": {
+    "name": "User Authentication System",
+    "summary": "Comprehensive authentication with OAuth",
+    "status": "planning",
+    "priority": "high",
+    "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "tags": "backend,security",
+    "templateIds": ["template-uuid"]
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_feature",
+  "parameters": {
+    "operation": "create",
+    "name": "User Authentication System",
+    "summary": "Comprehensive authentication with OAuth",
+    "status": "planning",
+    "priority": "high",
+    "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "tags": "backend,security",
+    "templateIds": ["template-uuid"]
+  }
+}
+```
+
+**Change:** Add `"operation": "create"` parameter. All other parameters identical.
+
+---
+
+### From `get_feature` → `manage_feature`
+
+**Before:**
+```json
+{
+  "tool": "get_feature",
+  "parameters": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "includeSections": true,
+    "includeProject": true
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_feature",
+  "parameters": {
+    "operation": "get",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "includeSections": true,
+    "includeProject": true
+  }
+}
+```
+
+**Change:** Add `"operation": "get"` parameter. All other parameters identical.
+
+---
+
+### From `update_feature` → `manage_feature`
+
+**Before:**
+```json
+{
+  "tool": "update_feature",
+  "parameters": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "completed"
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_feature",
+  "parameters": {
+    "operation": "update",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "completed"
+  }
+}
+```
+
+**Change:** Add `"operation": "update"` parameter. Partial updates still supported.
+
+---
+
+### From `delete_feature` → `manage_feature`
+
+**Before:**
+```json
+{
+  "tool": "delete_feature",
+  "parameters": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "deleteSections": true,
+    "force": true
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_feature",
+  "parameters": {
+    "operation": "delete",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "deleteSections": true,
+    "force": true
+  }
+}
+```
+
+**Change:** Add `"operation": "delete"` parameter. All other parameters identical.
+
+---
+
+### From `feature_to_markdown` → `manage_feature`
+
+**Before:**
+```json
+{
+  "tool": "feature_to_markdown",
+  "parameters": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "includeSections": true
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_feature",
+  "parameters": {
+    "operation": "export",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "format": "markdown",
+    "includeSections": true
+  }
+}
+```
+
+**Change:** Add `"operation": "export"` and optionally specify `"format": "markdown"`.
+
+---
+
+## Project Tool Migration
+
+### From `create_project` → `manage_project`
+
+**Before:**
+```json
+{
+  "tool": "create_project",
+  "parameters": {
+    "name": "MCP Task Orchestrator",
+    "summary": "Model Context Protocol task management server",
+    "status": "planning",
+    "tags": "mcp,task-management,kotlin"
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_project",
+  "parameters": {
+    "operation": "create",
+    "name": "MCP Task Orchestrator",
+    "summary": "Model Context Protocol task management server",
+    "status": "planning",
+    "tags": "mcp,task-management,kotlin"
+  }
+}
+```
+
+**Change:** Add `"operation": "create"` parameter. All other parameters identical.
+
+---
+
+### From `get_project` → `manage_project`
+
+**Before:**
+```json
+{
+  "tool": "get_project",
+  "parameters": {
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "includeFeatures": true,
+    "includeTasks": true
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_project",
+  "parameters": {
+    "operation": "get",
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "includeFeatures": true,
+    "includeTasks": true
+  }
+}
+```
+
+**Change:** Add `"operation": "get"` parameter. All other parameters identical.
+
+---
+
+### From `update_project` → `manage_project`
+
+**Before:**
+```json
+{
+  "tool": "update_project",
+  "parameters": {
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "status": "completed"
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_project",
+  "parameters": {
+    "operation": "update",
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "status": "completed"
+  }
+}
+```
+
+**Change:** Add `"operation": "update"` parameter. Partial updates still supported.
+
+---
+
+### From `delete_project` → `manage_project`
+
+**Before:**
+```json
+{
+  "tool": "delete_project",
+  "parameters": {
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "deleteSections": true,
+    "force": true
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_project",
+  "parameters": {
+    "operation": "delete",
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "deleteSections": true,
+    "force": true
+  }
+}
+```
+
+**Change:** Add `"operation": "delete"` parameter. All other parameters identical.
+
+---
+
+### From `project_to_markdown` → `manage_project`
+
+**Before:**
+```json
+{
+  "tool": "project_to_markdown",
+  "parameters": {
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "includeSections": true
+  }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "manage_project",
+  "parameters": {
+    "operation": "export",
+    "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "format": "markdown",
+    "includeSections": true
+  }
+}
+```
+
+**Change:** Add `"operation": "export"` and optionally specify `"format": "markdown"`.
+
+---
+
 ## Operation Reference
 
 ### `manage_task` Operations
@@ -385,6 +721,26 @@ Task Orchestrator v1.1.0 introduces **consolidated task tools** that reduce toke
 | `blocked` | Identify blocked tasks | None | `projectId`, `featureId`, `includeTaskDetails` |
 | `next` | Get recommendations | None | `limit`, `projectId`, `featureId`, `includeDetails` |
 | `bulkUpdate` | Update multiple tasks | `tasks` (array) | None (fields in task objects) |
+
+### `manage_feature` Operations
+
+| Operation | Purpose | Required Parameters | Optional Parameters |
+|-----------|---------|---------------------|---------------------|
+| `create` | Create new feature | `name` | `summary`, `description`, `status`, `priority`, `projectId`, `tags`, `templateIds` |
+| `get` | Retrieve feature | `id` | `includeSections`, `includeProject`, `summaryView` |
+| `update` | Update feature | `id` | Any feature field (partial updates supported) |
+| `delete` | Remove feature | `id` | `deleteSections`, `force` |
+| `export` | Export feature | `id` | `format` (markdown/json), `includeSections` |
+
+### `manage_project` Operations
+
+| Operation | Purpose | Required Parameters | Optional Parameters |
+|-----------|---------|---------------------|---------------------|
+| `create` | Create new project | `name` | `summary`, `description`, `status`, `tags` |
+| `get` | Retrieve project | `id` | `includeSections`, `includeFeatures`, `includeTasks`, `summaryView` |
+| `update` | Update project | `id` | Any project field (partial updates supported) |
+| `delete` | Remove project | `id` | `deleteSections`, `force` |
+| `export` | Export project | `id` | `format` (markdown/json), `includeSections` |
 
 ---
 
@@ -709,6 +1065,8 @@ Query Types:
 - **Tool Docs:**
   - [docs/tools/manage-task.md](../tools/manage-task.md)
   - [docs/tools/query-tasks.md](../tools/query-tasks.md)
+  - [docs/tools/manage-feature.md](../tools/manage-feature.md)
+  - [docs/tools/manage-project.md](../tools/manage-project.md)
 
 ### Migration Assistance
 
@@ -723,19 +1081,24 @@ If you encounter issues migrating:
 
 ## Summary
 
-**Task tool consolidation achieves:**
-- ✅ 84% token reduction (~10.8k → ~1.7k)
-- ✅ Simplified mental model (9 tools → 2 tools)
-- ✅ Consistent operation patterns
-- ✅ Backward compatibility (no breaking changes until v2.0.0)
-- ✅ Future-proof architecture
+**Tool consolidation achieves:**
+- ✅ **84% token reduction** across all entity types
+  - Tasks: ~10.8k → ~1.7k tokens
+  - Features: ~5.8k → ~900 tokens
+  - Projects: ~5.8k → ~900 tokens
+- ✅ **Simplified mental model:** 19 tools → 4 tools
+- ✅ **Consistent operation patterns** across all entity types
+- ✅ **Backward compatibility:** No breaking changes until v2.0.0
+- ✅ **Future-proof architecture:** Easy to add new operations
 
 **Migration is simple:**
-- Add `operation` parameter to `manage_task` calls
-- Add `queryType` parameter to `query_tasks` calls
+- **Tasks:** Add `operation` parameter to `manage_task` calls, `queryType` to `query_tasks` calls
+- **Features:** Add `operation` parameter to `manage_feature` calls
+- **Projects:** Add `operation` parameter to `manage_project` calls
 - All other parameters remain identical
 
 **No rush to migrate:**
 - Deprecated tools work until v2.0.0
 - Gradual migration recommended
 - Full support for both approaches during transition
+- AI agents work with both old and new tools seamlessly

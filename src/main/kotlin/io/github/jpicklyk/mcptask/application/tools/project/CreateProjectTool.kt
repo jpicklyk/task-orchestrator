@@ -72,7 +72,9 @@ class CreateProjectTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Creates a project with metadata. Projects are top-level containers for organizing features and tasks.
+    override val description: String = """⚠️ DEPRECATED: Use manage_project with operation="create" instead.
+
+Creates a project with metadata. Projects are top-level containers for organizing features and tasks.
 
 Parameters:
 | Field | Type | Required | Default | Description |

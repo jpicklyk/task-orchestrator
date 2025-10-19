@@ -78,7 +78,9 @@ class UpdateProjectTool(
 
     override fun shouldUseLocking(): Boolean = true
 
-    override val description: String = """Updates project properties. Only send fields you want to change.
+    override val description: String = """⚠️ DEPRECATED: Use manage_project with operation="update" instead.
+
+Updates project properties. Only send fields you want to change.
 
 Parameters:
 | Field | Type | Required | Description |

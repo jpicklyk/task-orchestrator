@@ -113,7 +113,9 @@ class GetFeatureTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Retrieves a feature by ID with optional related entities.
+    override val description: String = """⚠️ DEPRECATED: Use manage_feature with operation="get" instead.
+
+Retrieves a feature by ID with optional related entities.
 
 Parameters:
 | Field | Type | Required | Default | Description |

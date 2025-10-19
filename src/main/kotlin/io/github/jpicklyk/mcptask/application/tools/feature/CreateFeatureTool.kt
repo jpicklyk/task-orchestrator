@@ -175,7 +175,9 @@ class CreateFeatureTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Creates a feature with metadata and optional template application. Features group related tasks representing coherent functionality.
+    override val description: String = """⚠️ DEPRECATED: Use manage_feature with operation="create" instead.
+
+Creates a feature with metadata and optional template application. Features group related tasks representing coherent functionality.
 
 Parameters:
 | Field | Type | Required | Default | Description |

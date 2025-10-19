@@ -68,7 +68,9 @@ class ProjectToMarkdownTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Transforms a project into markdown format with YAML frontmatter.
+    override val description: String = """⚠️ DEPRECATED: Use manage_project with operation="export" instead.
+
+Transforms a project into markdown format with YAML frontmatter.
 
         This tool retrieves a project and all its sections, then renders them as a markdown document
         with YAML frontmatter containing project metadata. The output is suitable for:

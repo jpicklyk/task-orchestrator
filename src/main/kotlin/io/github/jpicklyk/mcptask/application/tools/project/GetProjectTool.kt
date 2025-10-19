@@ -75,7 +75,9 @@ class GetProjectTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Retrieves a project by ID with optional related entities.
+    override val description: String = """⚠️ DEPRECATED: Use manage_project with operation="get" instead.
+
+Retrieves a project by ID with optional related entities.
 
 Parameters:
 | Field | Type | Required | Default | Description |

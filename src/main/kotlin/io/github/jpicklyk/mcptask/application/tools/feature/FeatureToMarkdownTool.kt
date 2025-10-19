@@ -68,7 +68,9 @@ class FeatureToMarkdownTool : BaseToolDefinition() {
         )
     )
 
-    override val description: String = """Transforms a feature into markdown format with YAML frontmatter.
+    override val description: String = """⚠️ DEPRECATED: Use manage_feature with operation="export" instead.
+
+Transforms a feature into markdown format with YAML frontmatter.
 
         This tool retrieves a feature and all its sections, then renders them as a markdown document
         with YAML frontmatter containing feature metadata. The output is suitable for:
