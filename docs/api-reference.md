@@ -3,955 +3,1476 @@ layout: default
 title: API Reference
 ---
 
-# MCP Tools API Reference
+# MCP Tools API Reference (v2.0)
 
-The MCP Task Orchestrator provides comprehensive MCP tools for AI-driven project management. This reference focuses on **when and why** AI uses each tool, not exhaustive parameter documentation (AI agents have access to complete MCP schemas).
+The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-driven project management, achieving **71% token reduction** through container-based consolidation.
+
+> **Migration from v1.x**: See [v2.0 Migration Guide](migration/v2.0-migration-guide.md) for complete migration instructions.
 
 ## Table of Contents
 
-- [How AI Uses Tools](#how-ai-uses-tools)
-- [Workflow-Based Tool Patterns](#workflow-based-tool-patterns)
-- [Tool Categories](#tool-categories)
-  - [Agent & Skill Management](#agent--skill-management-claude-code-only)
-- [Core Workflow Tools](#core-workflow-tools)
-- [Context Efficiency Features](#context-efficiency-features)
-- [Concurrent Access Protection](#concurrent-access-protection)
+- [What's New in v2.0](#whats-new-in-v20)
+- [Tool Overview](#tool-overview)
+- [Container Tools](#container-tools) - Projects, Features, Tasks
+  - [query_container](#query_container) 🔍
+  - [manage_container](#manage_container) ✏️
+- [Section Tools](#section-tools)
+  - [query_sections](#query_sections) 🔍
+  - [manage_sections](#manage_sections) ✏️
+- [Template Tools](#template-tools)
+  - [query_templates](#query_templates) 🔍
+  - [manage_template](#manage_template) ✏️
+  - [apply_template](#apply_template) ✏️
+- [Dependency Tools](#dependency-tools)
+  - [query_dependencies](#query_dependencies) 🔍
+  - [manage_dependency](#manage_dependency) ✏️
+- [Tag Tools](#tag-tools)
+  - [list_tags](#list_tags) 🔍
+  - [get_tag_usage](#get_tag_usage) 🔍
+  - [rename_tag](#rename_tag) ✏️
+- [Agent Tools](#agent-tools) (Claude Code Only)
+  - [setup_claude_agents](#setup_claude_agents) ✏️
+  - [get_agent_definition](#get_agent_definition) 🔍
+  - [recommend_agent](#recommend_agent) 🔍
+- [Permission Model](#permission-model)
+- [Best Practices](#best-practices)
+
+**Legend**: 🔍 READ-ONLY | ✏️ WRITE
 
 ---
 
-## How AI Uses Tools
+## What's New in v2.0
 
-### Autonomous Tool Discovery
+### Massive Consolidation
 
-AI agents don't have hardcoded knowledge of tools - they **discover tools dynamically** through MCP:
+**v1.x: 56 tools** → **v2.0: 16 tools** (71% reduction)
 
-1. **MCP Connection**: When Claude connects to Task Orchestrator, it receives the full tool catalog
-2. **Schema Access**: Each tool includes complete parameter schemas and descriptions
-3. **Pattern Recognition**: AI recognizes user intent and selects appropriate tools
-4. **Sequential Execution**: AI chains tools together for complex workflows
+| Category | v1.x Tools | v2.0 Tools | Reduction |
+|----------|------------|------------|-----------|
+| Container (Project/Feature/Task) | 40+ tools | 2 tools | 95% |
+| Sections | 11 tools | 2 tools | 82% |
+| Templates | 9 tools | 3 tools | 67% |
+| Dependencies | 3 tools | 2 tools | 33% |
+| Tags, Agents | 7 tools | 7 tools | 0% |
 
-### Tool Selection Intelligence
+### Key Improvements
 
-AI chooses tools based on:
+✅ **71% token reduction** - Massive context window savings
+✅ **Permission separation** - `query_*` (read) vs `manage_*` (write)
+✅ **Operation-based** - `operation` parameter routes to functionality
+✅ **Consistent patterns** - Same interface across all container types
+✅ **Future-proof** - Add operations without new tools
 
-- **User Intent**: Natural language understanding determines which tools are needed
-- **Workflow Context**: Current project state influences tool selection
-- **Template Availability**: Dynamic template discovery guides template application
-- **Git Detection**: File system analysis triggers git workflow tools
+### Breaking Changes
 
-> **Learn More**: See [AI Guidelines - How AI Uses Tools](ai-guidelines#overview) for complete autonomous pattern documentation.
+⚠️ **All v1.x container, section, template, and dependency tools removed**
+⚠️ **No backward compatibility** - immediate migration required
+⚠️ **New parameter model** - `operation` + `containerType`/`entityType`
+⚠️ **Database schema unchanged** - safe to rollback to v1.1
 
-### Natural Language to Tool Mapping
+---
 
-**User Says** → **AI Uses**
+## Tool Overview
+
+### Complete v2.0 Tool List
+
+| Tool | Permission | Operations | Purpose |
+|------|-----------|------------|---------|
+| **Container Tools** |
+| `query_container` | 🔍 READ | get, search, export, overview | Read operations for projects/features/tasks |
+| `manage_container` | ✏️ WRITE | create, update, delete, setStatus, bulkUpdate | Write operations for projects/features/tasks |
+| **Section Tools** |
+| `query_sections` | 🔍 READ | (single operation with filtering) | Read sections with selective loading |
+| `manage_sections` | ✏️ WRITE | add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete | All section write operations |
+| **Template Tools** |
+| `query_templates` | 🔍 READ | get, list | Read template definitions |
+| `manage_template` | ✏️ WRITE | create, update, delete, enable, disable, addSection | Template management |
+| `apply_template` | ✏️ WRITE | (dedicated tool) | Apply templates to entities |
+| **Dependency Tools** |
+| `query_dependencies` | 🔍 READ | (single operation with filtering) | Read task dependencies |
+| `manage_dependency` | ✏️ WRITE | create, delete | Dependency management |
+| **Tag Tools** |
+| `list_tags` | 🔍 READ | (single operation) | List all unique tags |
+| `get_tag_usage` | 🔍 READ | (single operation) | Find entities using tag |
+| `rename_tag` | ✏️ WRITE | (single operation) | Bulk rename tags |
+| **Agent Tools** |
+| `setup_claude_agents` | ✏️ WRITE | (single operation) | Initialize agent system |
+| `get_agent_definition` | 🔍 READ | (single operation) | Get agent metadata |
+| `recommend_agent` | 🔍 READ | (single operation) | Route task to skill/agent |
+
+---
+
+## Container Tools
+
+Container tools provide unified operations for **Projects**, **Features**, and **Tasks** through a single consistent interface.
+
+### Container Type Hierarchy
 
 ```
-"Show me my tasks" → get_overview or search_tasks
-"Create a task for implementing login" → list_templates + create_task
-"Mark this task as completed" → set_status
-"Update this task to in-progress" → set_status
-"Change feature status to planning" → set_status
-"What tags are we using?" → list_tags
-"Show me bug-related tasks" → list_tags + search_tasks
-"Where is tag X used?" → get_tag_usage
-"Rename tag X to Y" → get_tag_usage + rename_tag
-"Fix this tag typo everywhere" → get_tag_usage + rename_tag
-"What's blocked?" → get_blocked_tasks
-"Why is nothing moving forward?" → get_blocked_tasks
-"What should I work on next?" → get_next_task
-"Show me easy high-priority tasks" → get_next_task
-"What's blocking task X?" → get_task_dependencies
-"Apply testing template" → apply_template
-"Create a feature with templates" → list_templates + create_feature
+PROJECT (top-level)
+└── FEATURE (groups related tasks)
+    └── TASK (individual work items)
 ```
 
 ---
 
-## Workflow-Based Tool Patterns
-
-### PRD-Driven Development Pattern ⭐ Most Effective
-
-**When**: You have a Product Requirements Document (PRD) or comprehensive requirements
-
-**Tool Sequence**:
-1. AI reads entire PRD content
-2. `get_overview` - Understand current state
-3. `list_templates` - Discover all available templates
-4. `create_project` - Top-level container
-5. `create_feature` (multiple) - Major functional areas with appropriate templates
-6. `create_task` (multiple) - Specific implementation tasks with templates
-7. `create_dependency` (multiple) - Establish technical sequencing
-8. AI presents complete breakdown with recommended implementation order
-
-**AI Trigger**: "Analyze this PRD...", "Break down this product requirements document..."
-
-**Why Most Effective**:
-- Complete context enables intelligent breakdown
-- Optimal template selection based on PRD content
-- Proper technical dependency sequencing
-- Systematic coverage of all requirements
-- Best results from AI analysis
-
-> **Detailed Guide**: See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for complete instructions and examples.
-
----
-
-### Project Initialization Pattern
-
-**When**: Starting new projects without a comprehensive PRD
-
-**Tool Sequence**:
-1. `create_project` - Top-level container
-2. `bulk_create_sections` - Project documentation
-3. `create_feature` (multiple) - Major functional areas
-4. `create_task` (multiple) - Foundation tasks
-5. `create_dependency` - Sequencing relationships
-
-**AI Trigger**: "Create a new project for...", "Set up a project with..."
-
----
-
-### Implementation Planning Pattern
-
-**When**: Creating tasks for implementation work
-
-**Tool Sequence**:
-1. `get_overview` - Understand current state
-2. `list_templates` - Discover appropriate templates
-3. `create_task` - With templates applied
-4. `create_dependency` (if needed) - Link related tasks
-
-**AI Trigger**: "Create a task to implement...", "Add a task for..."
-
-**Auto-Applied**: Git workflow templates if .git detected
-
----
-
-### Progress Tracking Pattern
-
-**When**: Monitoring work status
-
-**Tool Sequence**:
-1. `get_overview` - Hierarchical project view
-2. `search_tasks` - Filtered task lists (by status, priority, tags)
-3. `get_task` or `get_feature` - Detailed individual items
-
-**AI Trigger**: "What should I work on?", "Show me pending tasks", "Project status?"
-
----
-
-### Task Completion Pattern
-
-**When**: Finishing work and marking complete
-
-**Tool Sequence**:
-1. `get_sections` - Review all task sections for completion validation
-2. `set_status` - Set status to completed (auto-detects entity type, warns if blocking others)
-3. `get_task_dependencies` (optional) - Check what's unblocked
-
-**AI Trigger**: "Mark task as complete", "I finished the login implementation"
-
-**Important**: AI validates template guidance completion before marking done
-
----
-
-### Bug Triage Pattern
-
-**When**: Investigating and documenting bugs
-
-**Tool Sequence**:
-1. `search_tasks` (tag="task-type-bug") - Review existing bugs
-2. `create_task` - With Bug Investigation Workflow template
-3. `update_task` - Update priority based on severity
-4. `create_dependency` (if needed) - Link to related tasks
-
-**AI Trigger**: "I found a bug where...", "X isn't working"
-
----
-
-### Feature Breakdown Pattern
-
-**When**: Decomposing complex features into tasks
-
-**Tool Sequence**:
-1. `get_feature` (includeSections=true) - Analyze feature requirements
-2. `create_task` (multiple) - Create focused subtasks
-3. `create_dependency` - Establish implementation order
-4. `update_feature` - Update status to in-development
-
-**AI Trigger**: "Break down this feature", "Create tasks for this feature"
-
----
-
-## Tool Categories
-
-### Task Management
-
-**Consolidated Tools** ⭐ **NEW - Recommended**:
-- `manage_task` - **Unified single-entity operations** (create, get, update, delete, export) - Replaces 5 tools, 84% token savings
-- `query_tasks` - **Unified multi-entity queries** (search, blocked, next, bulkUpdate) - Replaces 4 tools, massive efficiency gains
-
-**Legacy Tools** (Deprecated - use consolidated tools above):
-- `create_task` - Create tasks with templates → Use `manage_task` (operation: create)
-- `get_task` - Fetch task details → Use `manage_task` (operation: get)
-- `update_task` - Status, priority updates → Use `manage_task` (operation: update)
-- `delete_task` - Remove tasks → Use `manage_task` (operation: delete)
-- `task_to_markdown` - Export to markdown → Use `manage_task` (operation: export)
-- `search_tasks` - Filter and find tasks → Use `query_tasks` (queryType: search)
-- `get_blocked_tasks` - Identify blocked tasks → Use `query_tasks` (queryType: blocked)
-- `get_next_task` - Task recommendations → Use `query_tasks` (queryType: next)
-- `bulk_update_tasks` - Update multiple tasks → Use `query_tasks` (queryType: bulkUpdate)
-
-**Universal Tools** (Use with all task operations):
-- `set_status` - Simple, unified status updates for tasks, features, and projects ⭐ **Preferred for status-only changes**
-- `list_tags` - Discover all tags with usage counts ⭐ **Use before searching by tag**
-- `get_tag_usage` - Find all entities using a specific tag ⭐ **Use before renaming tags**
-- `rename_tag` - Bulk rename tags across all entities ⭐ **Use for tag standardization**
-- `get_overview` - Hierarchical project view
-
-**When AI Uses**: Most frequently - tasks are primary work units
-
-**Migration**: See [Task Tool Consolidation Guide](migration/task-tool-consolidation.md) for migration from deprecated tools
-
-**Key Features**:
-- **Consolidated tools**: 84% token reduction through operation-based routing
-- **Partial updates**: Send only changed fields (90-95% token savings)
-- **Progressive loading**: `includeSections`, `includeDependencies`, `includeFeature`
-- **Bulk operations**: Update multiple tasks in single call (95% token savings)
-- **Smart queries**: Blocked task analysis, priority-based recommendations
-
----
-
-### Feature Management
-
-**Core Workflow**:
-- `create_feature` - Group related tasks
-- `update_feature` - Feature status and metadata
-- `get_feature` - Feature details with task statistics
-- `search_features` - Find features by criteria
-- `delete_feature` - Remove with cascade or orphan options
-- `feature_to_markdown` - Transform feature to markdown format
-
-**When AI Uses**: Organizing 3+ related tasks, major functional areas
-
-**Key Feature**: Task aggregation and organizational hierarchy
-
----
-
-### Project Management
-
-**Core Workflow**:
-- `create_project` - Top-level organizational containers
-- `update_project` - Project metadata and status
-- `get_project` - Project details with features and tasks
-- `search_projects` - Find projects by criteria
-- `delete_project` - Remove with cascade options
-- `project_to_markdown` - Transform project to markdown format
-
-**When AI Uses**: Large initiatives, multi-feature work, organizational hierarchy
-
-**Key Feature**: Highest-level organization and comprehensive scope management
-
----
-
-### Dependency Management
-
-**Core Workflow**:
-- `create_dependency` - BLOCKS, IS_BLOCKED_BY, RELATES_TO relationships
-- `get_task_dependencies` - Analyze dependency chains
-- `delete_dependency` - Remove relationships
-
-**When AI Uses**: Implementation sequencing, blocking issue identification
-
-**Key Feature**: Workflow ordering and relationship modeling
-
-**Common Patterns**:
-- Database schema BLOCKS API implementation
-- Authentication setup BLOCKS feature development
-- Research task BLOCKS implementation decisions
-
----
-
-### Section Management
-
-**Core Workflow**:
-- `add_section` - Add detailed content blocks
-- `bulk_create_sections` - Efficient multi-section creation
-- `get_sections` - Retrieve sections with selective loading (supports `includeContent` and `sectionIds`)
-- `update_section` - Modify section content
-- `update_section_text` - Targeted text replacement
-- `update_section_metadata` - Title, format, ordinal changes
-- `bulk_update_sections` - Efficient multi-section updates
-- `reorder_sections` - Change section sequence
-- `delete_section` - Remove content blocks
-
-**When AI Uses**: Detailed documentation, template application results
-
-**Key Features**:
-- Structured content organization and context efficiency
-- **Selective loading** - Browse metadata without content (85-99% token savings)
-- **Two-step workflow** - Browse structure first, then fetch specific sections
-
-**Efficiency Patterns**:
-- Prefer `bulk_create_sections` over multiple `add_section` calls
-- Use `includeContent=false` to browse section structure before loading content
-- Use `sectionIds` to fetch only needed sections
-
----
-
-### Template Management
-
-**Core Workflow**:
-- `list_templates` - **Most Important**: Dynamic template discovery
-- `apply_template` - Add templates to existing entities
-- `get_template` - Template details with section structure
-- `create_template` - Custom template creation
-- `add_template_section` - Add sections to templates
-- `update_template_metadata` - Template properties
-- `enable_template` / `disable_template` - Availability control
-- `delete_template` - Remove custom templates
-
-**When AI Uses**: Before every task/feature creation for template discovery
-
-**Key Feature**: Dynamic, database-driven template system
-
-**Critical Pattern**: AI ALWAYS uses `list_templates` before creating tasks/features
-
-**Performance Optimization**: Template operations use in-memory caching for fast repeated access. No configuration needed - enabled by default.
-
-> **See**: [Templates Guide](templates) for complete template system documentation
-
----
-
-### Markdown Transformation
-
-**Core Workflow**:
-- `task_to_markdown` - Transform task to markdown with YAML frontmatter
-- `feature_to_markdown` - Transform feature to markdown with YAML frontmatter
-- `project_to_markdown` - Transform project to markdown with YAML frontmatter
-
-**When AI Uses**:
-- File export and documentation generation
-- Systems that can render markdown directly
-- Version control and diff-friendly storage
-- Human-readable archives
-
-**Key Feature**: Separate transformation tools for clear use case distinction
-
-**Important Pattern**:
-- Use `get_*` tools (get_task, get_feature, get_project) for JSON inspection
-- Use `*_to_markdown` tools for markdown export/rendering
-- Avoids content duplication in responses
-
-**Use Cases**:
-- "Export this task to markdown" → `task_to_markdown`
-- "Create a markdown document for this feature" → `feature_to_markdown`
-- "Generate project documentation" → `project_to_markdown`
-- For terminal inspection, use `get_*` tools instead
-
----
-
-### Agent & Skill Management (Claude Code Only)
-
-**Core Workflow**:
-- `setup_claude_agents` - Initialize agent configuration system
-- `recommend_agent` - Get routing recommendation (Skill vs Subagent)
-
-**When AI Uses**:
-- First-time setup of Claude Code agent orchestration
-- Routing tasks to appropriate execution method (Skills or Subagents)
-- Understanding agent/skill capabilities
-
-**Key Concepts**:
-
-**Three-Tier Architecture**:
-1. **Skills** (Tier 1) - Lightweight coordination, 2-5 tool calls, ~500-800 tokens
-2. **Subagents** (Tier 2) - Deep implementation work, complex reasoning, ~2000+ tokens
-3. **Hooks** (Tier 3) - Zero-token automation, bash scripts, side effects
-
-**Skills vs Subagents Decision**:
-- **Use Skills when**: Task routing, dependency analysis, feature coordination, status updates, creating summaries
-- **Use Subagents when**: Code implementation, complex documentation, architecture design, comprehensive testing
-
----
-
-#### setup_claude_agents
-
-**Purpose**: One-time setup creating the complete Claude Code agent orchestration system
-
-**What It Creates**:
-
-**1. Subagent Definitions** (`.claude/agents/`):
-- 10 specialized agent markdown files
-- Backend Engineer, Database Engineer, Frontend Developer, Test Engineer, Technical Writer
-- Feature Architect, Planning Specialist
-- Feature Manager, Task Manager, Bug Triage Specialist
-- Each with YAML frontmatter (name, model, tools) and markdown instructions
-
-**2. Skills** (`.claude/skills/task-manager/`):
-- **dependency-analysis**: Analyze task dependencies, find blocked tasks, identify bottlenecks
-- **feature-management**: Recommend next tasks, check feature progress, complete features
-- **hook-builder**: Create custom hooks using templates and examples
-- **skill-builder**: Create custom skills using templates and best practices
-- **task-management**: Route tasks to specialists, manage lifecycle, create summaries
-
-Each Skill includes:
-- `SKILL.md` - Workflow guide with step-by-step instructions
-- `examples.md` - Working examples with real scenarios
-- Supporting files (templates, routing guides, troubleshooting)
-
-**3. Hooks** (`.claude/hooks/task-manager/`):
-- **task-complete-commit.sh**: Auto-commit when task status = completed
-- **subagent-stop-logger.sh**: Log subagent completion events
-- **feature-complete-gate.sh**: Validate feature readiness before completion
-
-Hook structure:
-- `scripts/` - Executable bash scripts
-- `templates/` - Hook templates for customization
-- Examples and documentation
-
-**4. Configuration**:
-- `.taskorchestrator/agent-mapping.yaml` - Tag-based routing rules
-- Decision gates injected into `CLAUDE.md`
-
-**Parameters**: None required
-
-**Output**:
+### query_container
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Unified read operations for all container types (projects, features, tasks)
+
+**Operations**: `get`, `search`, `export`, `overview`
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operation` | enum | **Yes** | Operation: `get`, `search`, `export`, `overview` |
+| `containerType` | enum | **Yes** | Container type: `project`, `feature`, `task` |
+| `id` | UUID | Varies | Container ID (required for: `get`, `export`) |
+| `query` | string | No | Search text query (`search` only) |
+| `status` | string | No | Filter by status |
+| `priority` | enum | No | Filter by priority (`feature`/`task` only) |
+| `tags` | string | No | Comma-separated tags filter |
+| `projectId` | UUID | No | Filter by project (`feature`/`task`) |
+| `featureId` | UUID | No | Filter by feature (`task` only) |
+| `limit` | integer | No | Max results (default: 20) |
+| `includeSections` | boolean | No | Include sections (`get` only, default: false) |
+| `summaryLength` | integer | No | Summary truncation (`overview` only, 0-200) |
+
+#### Operation: get
+
+**Purpose**: Retrieve a single container by ID
+
+**Required Parameters**: `operation`, `containerType`, `id`
+
+**Example - Get Task**:
+```json
+{
+  "operation": "get",
+  "containerType": "task",
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "includeSections": true
+}
+```
+
+**Example - Get Feature**:
+```json
+{
+  "operation": "get",
+  "containerType": "feature",
+  "id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Response**:
 ```json
 {
   "success": true,
+  "message": "Task retrieved successfully",
   "data": {
-    "directoryCreated": true,
-    "agentFilesCreated": ["backend-engineer.md", "..."],
-    "skillsCopied": ["dependency-analysis", "feature-management", "..."],
-    "hooksCopied": true,
-    "totalAgents": 10,
-    "totalSkills": 5
+    "id": "640522b7-810e-49a2-865c-3725f5d39608",
+    "title": "Implement user authentication",
+    "summary": "Add JWT-based authentication to the API",
+    "status": "in-progress",
+    "priority": "high",
+    "complexity": 7,
+    "featureId": "550e8400-e29b-41d4-a716-446655440000",
+    "tags": ["backend", "security", "api"],
+    "createdAt": "2025-10-19T10:00:00Z",
+    "modifiedAt": "2025-10-19T12:00:00Z",
+    "sections": [...]
   }
 }
 ```
 
-**Usage Notes**:
-- Idempotent: Safe to run multiple times
-- Skips existing files (won't overwrite customizations)
-- Commit `.claude/` directory to version control for team sharing
-- Works only with Claude Code (other IDEs don't support agent orchestration)
-
-**When to Use**:
-- First time enabling Claude Code agent features
-- After cloning repository
-- Restoring default configurations
-- Adding Skills and Hooks to existing agent setup
-
-**After Setup**:
-- Use `recommend_agent(taskId)` for routing recommendations
-- Skills appear in Claude Code skill picker
-- Hooks activate automatically on events
-- Subagents available via Task tool
-
 ---
 
-#### recommend_agent
+#### Operation: search
 
-**Purpose**: Intelligent routing recommendation between Skills (coordination) and Subagents (implementation)
+**Purpose**: Find containers matching filters
 
-**Decision Logic**:
+**Required Parameters**: `operation`, `containerType`
 
-**Recommends Skills When**:
-- Task involves coordination (2-5 tool calls)
-- Tags: `task-routing`, `coordination`, `dependency-check`, `feature-progress`
-- Work type: Status updates, summaries, next task selection, blocked task analysis
-- Token efficiency critical (quick operations, ~500 tokens)
+**Example - Search Tasks by Status**:
+```json
+{
+  "operation": "search",
+  "containerType": "task",
+  "status": "pending",
+  "priority": "high",
+  "limit": 20
+}
+```
 
-**Recommends Subagents When**:
-- Task involves implementation (deep work)
-- Tags: `backend`, `frontend`, `database`, `testing`, `documentation`, `planning`
-- Work type: Code writing, architecture, comprehensive docs, test suites
-- Complex reasoning required (~2000+ tokens)
+**Example - Search Features by Project**:
+```json
+{
+  "operation": "search",
+  "containerType": "feature",
+  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+  "status": "in-development"
+}
+```
 
-**Parameters**:
-- `taskId` (required): UUID of task to analyze
+**Example - Search Tasks by Tags**:
+```json
+{
+  "operation": "search",
+  "containerType": "task",
+  "tags": "backend,api",
+  "featureId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
 
-**Response Fields**:
+**Response**:
 ```json
 {
   "success": true,
+  "message": "Found 5 tasks",
   "data": {
-    "recommended": true,
-    "recommendationType": "SKILL",  // or "SUBAGENT"
-    "agent": "Task Management Skill",  // or "Backend Engineer"
-    "reason": "Task requires lightweight coordination for routing",
-    "matchedTags": ["task-routing", "coordination"],
-    "sectionTags": ["requirements", "context"],
-    "taskId": "uuid",
-    "taskTitle": "Route task to specialist",
-    "nextAction": {
-      "instruction": "Use the Task Management Skill directly",
-      "tool": "Skill",  // or "Task" for subagents
-      "parameters": {
-        "skill": "Task Management Skill",
-        "prompt": "..."
+    "containers": [
+      {
+        "id": "...",
+        "title": "Implement OAuth login",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 7,
+        "tags": ["backend", "security"]
+      },
+      ...
+    ],
+    "totalCount": 5
+  }
+}
+```
+
+---
+
+#### Operation: export
+
+**Purpose**: Export container to markdown format
+
+**Required Parameters**: `operation`, `containerType`, `id`
+
+**Example - Export Task to Markdown**:
+```json
+{
+  "operation": "export",
+  "containerType": "task",
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "includeSections": true
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Task exported successfully",
+  "data": {
+    "markdown": "---\ntitle: Implement user authentication\nstatus: in-progress\npriority: high\n---\n\n# Implement user authentication\n\n..."
+  }
+}
+```
+
+---
+
+#### Operation: overview
+
+**Purpose**: Get comprehensive project overview
+
+**Required Parameters**: `operation`, `containerType`
+
+**Example - Project Overview**:
+```json
+{
+  "operation": "overview",
+  "containerType": "project",
+  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+  "summaryLength": 100
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Overview retrieved successfully",
+  "data": {
+    "projects": [...],
+    "features": [...],
+    "tasks": [...],
+    "statistics": {
+      "totalProjects": 1,
+      "totalFeatures": 3,
+      "totalTasks": 15,
+      "tasksByStatus": {
+        "pending": 5,
+        "in-progress": 3,
+        "completed": 7
       }
     }
   }
 }
 ```
 
-**Routing Examples**:
-
-**Skill Recommendations**:
-```
-Tags: [task-routing, coordination]
-→ Recommends: "Task Management Skill"
-→ Reason: Lightweight task routing workflow
-
-Tags: [dependency-check, blocked-tasks]
-→ Recommends: "Dependency Analysis Skill"
-→ Reason: Quick dependency chain analysis
-
-Tags: [feature-progress, next-task]
-→ Recommends: "Feature Management Skill"
-→ Reason: Feature coordination workflow
-```
-
-**Subagent Recommendations**:
-```
-Tags: [backend, api-implementation]
-→ Recommends: "Backend Engineer"
-→ Reason: Complex API implementation work
-
-Tags: [database, schema-design]
-→ Recommends: "Database Engineer"
-→ Reason: Database schema architecture
-
-Tags: [testing, integration-tests]
-→ Recommends: "Test Engineer"
-→ Reason: Comprehensive test suite creation
-```
-
-**No Recommendation**:
-```
-Tags: [general-task]
-→ Recommended: false
-→ Reason: "No specialized skill/agent matches these tags"
-→ Action: Work on task directly using general capabilities
-```
-
-**Configuration**:
-- Routing rules defined in `.taskorchestrator/agent-mapping.yaml`
-- Tag mappings determine skill/agent selection
-- Section tags guide focused information retrieval
-- Customizable per project
-
-**Integration with Skills**:
-- **Task Management Skill** uses `recommend_agent` to route tasks to specialists
-- Skills can call `recommend_agent` as part of coordination workflows
-- Subagents receive task context prepared by Skills
-- Skills handle pre/post subagent coordination
-
-**Usage Pattern**:
-```
-User: "Work on task T1"
-
-AI Workflow:
-1. recommend_agent(taskId="T1")
-2. Response: recommendationType="SKILL", agent="Task Management Skill"
-3. Activate Task Management Skill
-4. Skill calls recommend_agent again for specialist routing
-5. Skill launches Backend Engineer subagent
-6. Skill handles completion workflow
-```
-
-**Token Efficiency**:
-- Skill routing: ~500 tokens (coordination only)
-- Subagent routing: ~2000+ tokens (full implementation)
-- Total with Skills: ~2500 tokens
-- Without Skills (direct subagent): ~4000 tokens
-- Savings: ~40% token reduction
-
-**When to Use**:
-- Before starting any task work (check routing first)
-- When uncertain about skill vs subagent decision
-- For consistent routing across team
-- Optimizing token usage for coordination tasks
-
-**Prerequisites**:
-- Run `setup_claude_agents` first
-- `.taskorchestrator/agent-mapping.yaml` must exist
-- `.claude/agents/` and `.claude/skills/` directories populated
-
-**Related Tools**:
-- `setup_claude_agents` - Initial setup
-- `get_task` - Task details for context
-- `get_task_dependencies` - Dependency analysis for routing
-
 ---
 
-## Core Workflow Tools
+### manage_container
 
-### Most Frequently Used Tools
+**Permission**: ✏️ WRITE
 
-**Daily Operations** (AI uses constantly):
-1. `get_overview` - Start of every work session
-2. `list_templates` - Before every task/feature creation
-3. `create_task` - Primary work item creation
-4. `update_task` - Status tracking throughout work
-5. `search_tasks` - Finding specific work items
+**Purpose**: Unified write operations for all container types (projects, features, tasks)
 
-**Feature Organization** (AI uses for structure):
-6. `create_feature` - Grouping related tasks
-7. `get_feature` - Understanding feature scope
-8. `create_dependency` - Establishing relationships
+**Operations**: `create`, `update`, `delete`, `setStatus`, `bulkUpdate`
 
-**Template Application** (AI uses for documentation):
-9. `apply_template` - Adding structured documentation
-10. `get_sections` - Validating completion before marking done
+#### Parameters
 
-### Tool Chaining Examples
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operation` | enum | **Yes** | Operation: `create`, `update`, `delete`, `setStatus`, `bulkUpdate` |
+| `containerType` | enum | **Yes** | Container type: `project`, `feature`, `task` |
+| `id` | UUID | Varies | Container ID (required for: `update`, `delete`, `setStatus`) |
+| `name` / `title` | string | Varies | Name (project/feature) or title (task) - required for `create` |
+| `summary` | string | No | Brief summary (max 500 chars) |
+| `description` | string | No | Detailed description |
+| `status` | enum | No | Container status |
+| `priority` | enum | No | Priority: `low`, `medium`, `high` (`feature`/`task` only) |
+| `complexity` | integer | No | Complexity 1-10 (`task` only) |
+| `projectId` | UUID | No | Parent project ID (`feature`/`task`) |
+| `featureId` | UUID | No | Parent feature ID (`task` only) |
+| `templateIds` | array | No | Template UUIDs to apply (`create` only) |
+| `tags` | string | No | Comma-separated tags |
+| `deleteSections` | boolean | No | Delete sections with container (default: true) |
+| `force` | boolean | No | Force delete with dependencies (default: false) |
+| `containers` | array | No | Container objects for bulk update (`bulkUpdate` only) |
 
-**Example 1: Complete Feature Creation**
-```
-User: "Create a user authentication feature"
-
-AI Executes:
-1. get_overview (understand current state)
-2. list_templates --targetEntityType FEATURE (discover templates)
-3. create_feature (with Context, Requirements, Technical Approach templates)
-4. list_templates --targetEntityType TASK (find task templates)
-5. create_task (multiple tasks with Implementation + Git templates)
-6. create_dependency (establish implementation order)
-```
-
-**Example 2: Task Status Update with Validation**
-```
-User: "I finished implementing the login endpoint"
-
-AI Executes:
-1. search_tasks --query "login endpoint" (find the task)
-2. get_sections --entityType TASK --entityId [id] --includeContent false (browse section structure)
-3. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids] (fetch specific sections)
-4. set_status --id [id] --status completed (simple status-only update)
-5. get_task_dependencies --taskId [id] (check what's now unblocked)
-```
-
----
-
-## Context Efficiency Features
-
-### Progressive Loading
-
-Many tools support progressive detail loading to optimize context:
-
-**get_task**:
-- Basic: Just task metadata
-- +`includeSections`: Add detailed content
-- +`includeDependencies`: Add relationship info
-- +`includeFeature`: Add parent feature context
-- `summaryView`: Truncated for efficiency
-
-**get_feature**:
-- Basic: Feature metadata only
-- +`includeTasks`: Add associated tasks
-- +`includeSections`: Add documentation
-- +`includeTaskCounts`: Add statistics
-- +`includeTaskDependencies`: Full dependency analysis
-
-**get_sections** (NEW - Token Optimization):
-- Basic: All sections with full content (default)
-- +`includeContent=false`: Section metadata only (85-99% token savings)
-- +`sectionIds=[list]`: Specific sections only (selective loading)
-- **Two-step pattern**: Browse with includeContent=false, then fetch specific sections
-
-**Strategy**: AI starts basic, progressively loads as needed
-
-### Selective Section Loading ⭐ Token Optimization
-
-**Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata needed
-
-**Solution**: Two-step workflow with `get_sections`
-
-**Step 1: Browse Structure** (Low token cost)
-```json
-{
-  "entityType": "TASK",
-  "entityId": "task-uuid",
-  "includeContent": false
-}
-```
-Returns: id, title, usageDescription, contentFormat, ordinal, tags (no content field)
-
-**Step 2: Fetch Specific Content** (Only what's needed)
-```json
-{
-  "entityType": "TASK",
-  "entityId": "task-uuid",
-  "sectionIds": ["section-1-uuid", "section-3-uuid"]
-}
-```
-Returns: Only the specified sections with full content
-
-**Token Savings**: 85-99% reduction when browsing section structure
-
-**When AI Uses**:
-- Validating task completion (browse structure to see what exists)
-- Finding specific section (browse titles, then fetch content)
-- Understanding documentation organization (metadata reveals structure)
-
----
-
-### Bulk Operations
-
-**When to Use Bulk Tools**:
-
-✅ `bulk_update_tasks` - Updating 3+ tasks simultaneously (70-95% token savings vs individual calls)
-✅ `bulk_create_sections` - Creating 2+ sections (more efficient than multiple `add_section`)
-✅ `bulk_update_sections` - Updating multiple sections simultaneously
-✅ `bulk_delete_sections` - Removing multiple sections at once
-
-**Performance Benefit**: Single database transaction, reduced network overhead, massive token savings
-
-**Example Scenarios**:
-- Marking 10 tasks as completed after feature implementation
-- Updating priority on multiple related tasks
-- Batch status changes across feature tasks
-- Updating complexity ratings after task analysis
-
-**Token Savings Example**:
-```
-Individual calls: 10 × update_task = ~12,500 characters
-Bulk operation: 1 × bulk_update_tasks = ~650 characters
-Savings: 95% (11,850 characters saved!)
-```
-
----
-
-### Summary Views
-
-Tools with `summaryView` parameter:
-- `get_task`
-- `get_feature`
-- `get_project`
-
-**Use When**: Need overview without full content (token optimization)
-
----
-
-### Simple Status Updates with `set_status`
-
-**Purpose**: Unified, simple status updates across all entity types (tasks, features, projects)
-
-**Why Use `set_status` Instead of `update_task`/`update_feature`/`update_project`**:
-- ✅ **Simpler**: Only 2 parameters (id + status) vs many optional fields
-- ✅ **More efficient**: Saves tokens - no need to specify entity type
-- ✅ **Auto-detection**: Automatically identifies if ID is a task, feature, or project
-- ✅ **Smart warnings**: For tasks, warns when completing tasks that block others
-- ✅ **Universal**: Works for all entity types with one tool
-
-**When AI Uses**:
-- Any status-only update ("mark as completed", "set to in-progress")
-- Workflow transitions where only status changes
-- Quick status changes without metadata updates
-
-**Supported Status Values by Entity Type**:
+#### Status Values by Container Type
 
 **Tasks**: `pending`, `in-progress`, `completed`, `cancelled`, `deferred`
 **Features**: `planning`, `in-development`, `completed`, `archived`
 **Projects**: `planning`, `in-development`, `completed`, `archived`
 
-**Format Flexibility**: Accepts `in-progress`, `in_progress`, or `inprogress` (auto-normalized)
+---
 
-**Examples**:
+#### Operation: create
 
-**Update Task Status**:
+**Purpose**: Create new container
+
+**Required Parameters**: `operation`, `containerType`, `name`/`title`
+
+**Example - Create Task with Templates**:
 ```json
 {
-  "id": "640522b7-810e-49a2-865c-3725f5d39608",
-  "status": "completed"
+  "operation": "create",
+  "containerType": "task",
+  "title": "Implement user authentication",
+  "summary": "Add JWT-based authentication to the API",
+  "status": "pending",
+  "priority": "high",
+  "complexity": 7,
+  "featureId": "550e8400-e29b-41d4-a716-446655440000",
+  "tags": "backend,security,api",
+  "templateIds": ["661e8511-e29b-41d4-a716-446655440001"]
 }
 ```
-Response includes entity type and blocking task warning if applicable:
+
+**Example - Create Feature**:
+```json
+{
+  "operation": "create",
+  "containerType": "feature",
+  "name": "User Authentication System",
+  "summary": "Comprehensive authentication with OAuth",
+  "status": "planning",
+  "priority": "high",
+  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+  "tags": "security,backend"
+}
+```
+
+**Example - Create Project**:
+```json
+{
+  "operation": "create",
+  "containerType": "project",
+  "name": "E-Commerce Platform",
+  "summary": "Online shopping platform with payment integration",
+  "status": "planning",
+  "tags": "web,ecommerce,fullstack"
+}
+```
+
+**Response**:
 ```json
 {
   "success": true,
+  "message": "Task created successfully",
   "data": {
     "id": "640522b7-810e-49a2-865c-3725f5d39608",
-    "entityType": "TASK",
-    "status": "completed",
-    "modifiedAt": "2025-10-14T18:30:00Z",
-    "blockingTasksCount": 2,
-    "warning": "This task blocks 2 other task(s)"
+    "title": "Implement user authentication",
+    "status": "pending",
+    "priority": "high",
+    "complexity": 7,
+    "createdAt": "2025-10-19T10:00:00Z",
+    "templatesApplied": 1,
+    "sectionsCreated": 3
   }
 }
 ```
 
-**Update Feature Status**:
+---
+
+#### Operation: update
+
+**Purpose**: Update container fields (partial updates supported)
+
+**Required Parameters**: `operation`, `containerType`, `id`
+
+**Example - Update Task Status and Priority**:
 ```json
 {
-  "id": "6b787bca-2ca2-461c-90f4-25adf53e0aa0",
-  "status": "in-development"
+  "operation": "update",
+  "containerType": "task",
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "status": "in-progress",
+  "priority": "critical"
 }
 ```
 
-**Update Project Status**:
+**Example - Update Feature Summary**:
 ```json
 {
-  "id": "a4fae8cb-7640-4527-bd89-11effbb1d039",
-  "status": "completed"
+  "operation": "update",
+  "containerType": "feature",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "summary": "Updated comprehensive authentication with OAuth 2.0 and JWT"
 }
 ```
 
-**Use `update_task`/`update_feature`/`update_project` When**:
-- Updating multiple fields simultaneously (status + priority + complexity)
-- Changing tags or associations
-- Updating title or summary
-- For efficiency, updating 3+ entities use `bulk_update_tasks`
-
-**AI Pattern**:
+**Example - Update Tags Only**:
+```json
+{
+  "operation": "update",
+  "containerType": "task",
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "tags": "backend,security,api,authentication"
+}
 ```
-User: "Mark task X as done"
-AI: Uses set_status (simple, 2 params)
 
-User: "Update task X to high priority and mark as in-progress"
-AI: Uses update_task (multiple fields changing)
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Task updated successfully",
+  "data": {
+    "id": "640522b7-810e-49a2-865c-3725f5d39608",
+    "modifiedAt": "2025-10-19T12:30:00Z",
+    "fieldsUpdated": ["status", "priority"]
+  }
+}
 ```
 
 ---
 
-### Tag Discovery with `list_tags`
+#### Operation: delete
 
-**Purpose**: Discover all unique tags across all entities with usage counts and entity type breakdown
+**Purpose**: Remove container
 
-**Why Use `list_tags`**:
-- ✅ **Tag Discovery**: Find all available tags before searching
-- ✅ **Usage Analytics**: Understand tag popularity and patterns
-- ✅ **Tag Cleanup**: Identify rarely used or duplicate tags
-- ✅ **Standardization**: Detect tag variations (e.g., "bug" vs "bugs")
-- ✅ **Entity Breakdown**: See which entity types use each tag
+**Required Parameters**: `operation`, `containerType`, `id`
 
-**When AI Uses**:
-- Before searching by tag (discover available tags)
-- User asks "what tags are we using?"
-- Tag cleanup and standardization tasks
-- Understanding project categorization patterns
-
-**Features**:
-- Lists tags from all entity types (tasks, features, projects, templates)
-- Shows usage count per entity type
-- Supports filtering by specific entity types
-- Flexible sorting (by usage count or alphabetically)
-
-**Examples**:
-
-**Discover All Tags** (default - sorted by usage, most popular first):
-```json
-{}
-```
-
-**Find Task-Specific Tags**:
+**Example - Delete Task (with sections)**:
 ```json
 {
-  "entityTypes": ["TASK"],
+  "operation": "delete",
+  "containerType": "task",
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "deleteSections": true
+}
+```
+
+**Example - Delete Feature (force with dependencies)**:
+```json
+{
+  "operation": "delete",
+  "containerType": "feature",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "force": true
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Task deleted successfully",
+  "data": {
+    "id": "640522b7-810e-49a2-865c-3725f5d39608",
+    "sectionsDeleted": 3,
+    "dependenciesRemoved": 2
+  }
+}
+```
+
+---
+
+#### Operation: setStatus
+
+**Purpose**: Quick status-only update (optimized)
+
+**Required Parameters**: `operation`, `containerType`, `id`, `status`
+
+**Example - Set Task to Completed**:
+```json
+{
+  "operation": "setStatus",
+  "containerType": "task",
+  "id": "640522b7-810e-49a2-865c-3725f5d39608",
+  "status": "completed"
+}
+```
+
+**Example - Set Feature to In-Development**:
+```json
+{
+  "operation": "setStatus",
+  "containerType": "feature",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "in-development"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Task status updated successfully",
+  "data": {
+    "id": "640522b7-810e-49a2-865c-3725f5d39608",
+    "status": "completed",
+    "modifiedAt": "2025-10-19T14:00:00Z"
+  }
+}
+```
+
+---
+
+#### Operation: bulkUpdate
+
+**Purpose**: Update multiple containers in single transaction
+
+**Required Parameters**: `operation`, `containerType`, `containers`
+
+**Example - Bulk Status Update**:
+```json
+{
+  "operation": "bulkUpdate",
+  "containerType": "task",
+  "containers": [
+    {"id": "task-1-uuid", "status": "completed"},
+    {"id": "task-2-uuid", "status": "completed"},
+    {"id": "task-3-uuid", "status": "deferred", "priority": "low"}
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Updated 3 tasks successfully",
+  "data": {
+    "totalUpdated": 3,
+    "failed": 0,
+    "updates": [
+      {"id": "task-1-uuid", "success": true},
+      {"id": "task-2-uuid", "success": true},
+      {"id": "task-3-uuid", "success": true}
+    ]
+  }
+}
+```
+
+---
+
+## Section Tools
+
+Sections provide structured content within containers (projects, features, tasks).
+
+### query_sections
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Read sections with selective loading for token efficiency
+
+**No operation parameter** - single query operation with flexible filtering
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entityType` | enum | **Yes** | `PROJECT`, `FEATURE`, or `TASK` (uppercase) |
+| `entityId` | UUID | **Yes** | Parent entity identifier |
+| `includeContent` | boolean | No | Include content (default: true) |
+| `sectionIds` | array | No | Filter to specific section IDs |
+| `tags` | string | No | Comma-separated tags (returns sections with ANY tag) |
+
+#### Usage Patterns
+
+**Pattern 1: Get All Sections with Content** (default):
+```json
+{
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608"
+}
+```
+
+**Pattern 2: Browse Structure Only** (85-99% token savings):
+```json
+{
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "includeContent": false
+}
+```
+
+**Pattern 3: Selective Loading** (fetch specific sections):
+```json
+{
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "sectionIds": ["section-1-uuid", "section-3-uuid"]
+}
+```
+
+**Pattern 4: Filter by Tags**:
+```json
+{
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "tags": "requirements,implementation",
+  "includeContent": true
+}
+```
+
+#### Response (with includeContent=false)
+
+```json
+{
+  "success": true,
+  "message": "Retrieved 3 sections",
+  "data": {
+    "sections": [
+      {
+        "id": "section-1-uuid",
+        "title": "Implementation Notes",
+        "usageDescription": "Technical implementation details",
+        "contentFormat": "MARKDOWN",
+        "ordinal": 0,
+        "tags": ["implementation", "backend"],
+        "createdAt": "2025-10-19T10:00:00Z",
+        "modifiedAt": "2025-10-19T12:00:00Z"
+      },
+      ...
+    ],
+    "totalCount": 3
+  }
+}
+```
+
+#### Two-Step Workflow (Token Optimization)
+
+```
+Step 1: Browse structure (low tokens)
+→ query_sections(entityType="TASK", entityId="...", includeContent=false)
+→ Returns: metadata only (id, title, usageDescription, tags)
+→ Token cost: ~500 chars
+
+Step 2: Fetch specific content (only what's needed)
+→ query_sections(entityType="TASK", entityId="...", sectionIds=["needed-id"])
+→ Returns: only requested sections with full content
+→ Token cost: ~2,000 chars
+
+Savings: 85-99% vs loading all content upfront
+```
+
+---
+
+### manage_sections
+
+**Permission**: ✏️ WRITE
+
+**Purpose**: All section write operations
+
+**Operations**: `add`, `update`, `updateText`, `updateMetadata`, `delete`, `reorder`, `bulkCreate`, `bulkUpdate`, `bulkDelete`
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operation` | enum | **Yes** | Operation to perform |
+| `id` | UUID | Varies | Section ID (required for: `update`, `updateText`, `updateMetadata`, `delete`) |
+| `ids` | array | No | Section IDs (required for: `bulkDelete`) |
+| `entityType` | enum | Varies | `PROJECT`, `FEATURE`, `TASK` (required for: `add`, `reorder`, bulk operations) |
+| `entityId` | UUID | Varies | Parent entity ID (required for: `add`, `reorder`, bulk operations) |
+| `title` | string | No | Section title |
+| `usageDescription` | string | No | Usage description |
+| `content` | string | No | Section content |
+| `contentFormat` | enum | No | `PLAIN_TEXT`, `MARKDOWN`, `JSON`, `CODE` |
+| `ordinal` | integer | No | Display order (0-based) |
+| `tags` | string | No | Comma-separated tags |
+| `oldText` | string | No | Text to replace (`updateText` only) |
+| `newText` | string | No | Replacement text (`updateText` only) |
+| `sectionOrder` | string | No | Comma-separated section IDs (`reorder` only) |
+| `sections` | array | No | Section objects (`bulkCreate`, `bulkUpdate`) |
+
+---
+
+#### Operation: add
+
+**Purpose**: Add single section
+
+**Required Parameters**: `operation`, `entityType`, `entityId`, `title`
+
+**Example**:
+```json
+{
+  "operation": "add",
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "title": "Implementation Notes",
+  "usageDescription": "Technical implementation details",
+  "content": "Use JWT tokens for stateless authentication",
+  "contentFormat": "MARKDOWN",
+  "ordinal": 0,
+  "tags": "implementation,backend"
+}
+```
+
+---
+
+#### Operation: update
+
+**Purpose**: Update section (full update)
+
+**Required Parameters**: `operation`, `id`
+
+**Example**:
+```json
+{
+  "operation": "update",
+  "id": "section-uuid",
+  "title": "Updated Implementation Notes",
+  "content": "Use OAuth 2.0 with JWT tokens for stateless authentication",
+  "tags": "implementation,backend,security"
+}
+```
+
+---
+
+#### Operation: updateText
+
+**Purpose**: Replace specific text in section
+
+**Required Parameters**: `operation`, `id`, `oldText`, `newText`
+
+**Example**:
+```json
+{
+  "operation": "updateText",
+  "id": "section-uuid",
+  "oldText": "Use JWT tokens",
+  "newText": "Use OAuth 2.0 with JWT tokens"
+}
+```
+
+---
+
+#### Operation: updateMetadata
+
+**Purpose**: Update metadata only (no content changes)
+
+**Required Parameters**: `operation`, `id`
+
+**Example**:
+```json
+{
+  "operation": "updateMetadata",
+  "id": "section-uuid",
+  "title": "Updated Title",
+  "usageDescription": "Updated description",
+  "tags": "new,tags"
+}
+```
+
+---
+
+#### Operation: delete
+
+**Purpose**: Remove section
+
+**Required Parameters**: `operation`, `id`
+
+**Example**:
+```json
+{
+  "operation": "delete",
+  "id": "section-uuid"
+}
+```
+
+---
+
+#### Operation: reorder
+
+**Purpose**: Change section display order
+
+**Required Parameters**: `operation`, `entityType`, `entityId`, `sectionOrder`
+
+**Example**:
+```json
+{
+  "operation": "reorder",
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "sectionOrder": "section-3-uuid,section-1-uuid,section-2-uuid"
+}
+```
+
+---
+
+#### Operation: bulkCreate
+
+**Purpose**: Create multiple sections efficiently
+
+**Required Parameters**: `operation`, `entityType`, `entityId`, `sections`
+
+**Example**:
+```json
+{
+  "operation": "bulkCreate",
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "sections": [
+    {
+      "title": "Requirements",
+      "content": "User authentication requirements",
+      "ordinal": 0,
+      "tags": "requirements"
+    },
+    {
+      "title": "Implementation",
+      "content": "OAuth 2.0 implementation steps",
+      "ordinal": 1,
+      "tags": "implementation"
+    }
+  ]
+}
+```
+
+---
+
+#### Operation: bulkUpdate
+
+**Purpose**: Update multiple sections efficiently
+
+**Required Parameters**: `operation`, `sections` (each with `id` field)
+
+**Example**:
+```json
+{
+  "operation": "bulkUpdate",
+  "sections": [
+    {"id": "section-1-uuid", "title": "Updated Title 1"},
+    {"id": "section-2-uuid", "content": "Updated content 2"}
+  ]
+}
+```
+
+---
+
+#### Operation: bulkDelete
+
+**Purpose**: Delete multiple sections
+
+**Required Parameters**: `operation`, `ids`
+
+**Example**:
+```json
+{
+  "operation": "bulkDelete",
+  "ids": ["section-1-uuid", "section-2-uuid", "section-3-uuid"]
+}
+```
+
+---
+
+## Template Tools
+
+Templates provide structured guidance and documentation for containers.
+
+### query_templates
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Read template definitions
+
+**Operations**: `get`, `list`
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operation` | enum | **Yes** | `get` or `list` |
+| `id` | UUID | Varies | Template ID (required for `get`) |
+| `includeSections` | boolean | No | Include template sections (default: false) |
+| `targetEntityType` | enum | No | Filter: `PROJECT`, `FEATURE`, `TASK` |
+| `isBuiltIn` | boolean | No | Filter built-in templates |
+| `isEnabled` | boolean | No | Filter enabled templates |
+| `tags` | string | No | Comma-separated tags filter |
+
+---
+
+#### Operation: get
+
+**Purpose**: Retrieve single template by ID
+
+**Required Parameters**: `operation`, `id`
+
+**Example**:
+```json
+{
+  "operation": "get",
+  "id": "template-uuid",
+  "includeSections": true
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Template retrieved successfully",
+  "data": {
+    "id": "template-uuid",
+    "name": "Backend Development Template",
+    "description": "Template for backend implementation tasks",
+    "targetEntityType": "TASK",
+    "isBuiltIn": true,
+    "isEnabled": true,
+    "tags": ["backend", "api"],
+    "sections": [...]
+  }
+}
+```
+
+---
+
+#### Operation: list
+
+**Purpose**: List templates with filtering
+
+**Required Parameters**: `operation`
+
+**Example - List All Enabled Task Templates**:
+```json
+{
+  "operation": "list",
+  "targetEntityType": "TASK",
+  "isEnabled": true
+}
+```
+
+**Example - List All Templates**:
+```json
+{
+  "operation": "list"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Found 9 templates",
+  "data": {
+    "templates": [
+      {
+        "id": "template-1-uuid",
+        "name": "Backend Development Template",
+        "description": "Template for backend implementation tasks",
+        "targetEntityType": "TASK",
+        "isBuiltIn": true,
+        "isEnabled": true,
+        "tags": ["backend", "api"]
+      },
+      ...
+    ],
+    "totalCount": 9
+  }
+}
+```
+
+---
+
+### manage_template
+
+**Permission**: ✏️ WRITE
+
+**Purpose**: Template management operations
+
+**Operations**: `create`, `update`, `delete`, `enable`, `disable`, `addSection`
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operation` | enum | **Yes** | Operation to perform |
+| `id` | UUID | Varies | Template ID (required for: `update`, `delete`, `enable`, `disable`, `addSection`) |
+| `name` | string | Varies | Template name (required for `create`) |
+| `description` | string | Varies | Template description (required for `create`) |
+| `targetEntityType` | enum | Varies | `PROJECT`, `FEATURE`, `TASK` (required for `create`) |
+| `isBuiltIn` | boolean | No | Mark as built-in (default: false) |
+| `isProtected` | boolean | No | Protect from deletion (default: false) |
+| `isEnabled` | boolean | No | Enable template (default: true) |
+| `createdBy` | string | No | Creator identifier |
+| `tags` | string | No | Comma-separated tags |
+| `title` | string | Varies | Section title (required for `addSection`) |
+| `usageDescription` | string | Varies | Section usage (required for `addSection`) |
+| `contentSample` | string | No | Sample content for section |
+| `contentFormat` | enum | No | `PLAIN_TEXT`, `MARKDOWN`, `JSON`, `CODE` |
+| `ordinal` | integer | No | Display order |
+| `isRequired` | boolean | No | Required section (default: false) |
+| `force` | boolean | No | Force delete protected template |
+
+---
+
+#### Operation: create
+
+**Purpose**: Create custom template
+
+**Required Parameters**: `operation`, `name`, `description`, `targetEntityType`
+
+**Example**:
+```json
+{
+  "operation": "create",
+  "name": "API Development Template",
+  "description": "Template for API feature development",
+  "targetEntityType": "TASK",
+  "tags": "backend,api",
+  "isEnabled": true
+}
+```
+
+---
+
+#### Operation: update
+
+**Purpose**: Update template metadata
+
+**Required Parameters**: `operation`, `id`
+
+**Example**:
+```json
+{
+  "operation": "update",
+  "id": "template-uuid",
+  "name": "Updated API Development Template",
+  "description": "Updated description",
+  "tags": "backend,api,rest"
+}
+```
+
+---
+
+#### Operation: delete
+
+**Purpose**: Remove template
+
+**Required Parameters**: `operation`, `id`
+
+**Example**:
+```json
+{
+  "operation": "delete",
+  "id": "template-uuid",
+  "force": false
+}
+```
+
+---
+
+#### Operation: enable / disable
+
+**Purpose**: Toggle template availability
+
+**Required Parameters**: `operation`, `id`
+
+**Example - Enable**:
+```json
+{
+  "operation": "enable",
+  "id": "template-uuid"
+}
+```
+
+**Example - Disable**:
+```json
+{
+  "operation": "disable",
+  "id": "template-uuid"
+}
+```
+
+---
+
+#### Operation: addSection
+
+**Purpose**: Add section to template
+
+**Required Parameters**: `operation`, `id`, `title`, `usageDescription`, `ordinal`
+
+**Example**:
+```json
+{
+  "operation": "addSection",
+  "id": "template-uuid",
+  "title": "API Endpoints",
+  "usageDescription": "Document all API endpoints and their specifications",
+  "contentSample": "## Endpoints\n\n### GET /api/users\nDescription: ...",
+  "contentFormat": "MARKDOWN",
+  "ordinal": 0,
+  "tags": "api,documentation",
+  "isRequired": true
+}
+```
+
+---
+
+### apply_template
+
+**Permission**: ✏️ WRITE
+
+**Purpose**: Apply template to existing entity
+
+**Unchanged from v1.x** - Kept as dedicated tool due to complexity
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entityType` | enum | **Yes** | `PROJECT`, `FEATURE`, or `TASK` |
+| `entityId` | UUID | **Yes** | Target entity ID |
+| `templateId` | UUID | **Yes** | Template to apply |
+| `overwrite` | boolean | No | Overwrite existing sections (default: false) |
+
+#### Example
+
+```json
+{
+  "entityType": "TASK",
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "templateId": "template-uuid",
+  "overwrite": false
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Template applied successfully",
+  "data": {
+    "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+    "templateId": "template-uuid",
+    "sectionsCreated": 3,
+    "sectionsSkipped": 0
+  }
+}
+```
+
+---
+
+## Dependency Tools
+
+Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_TO).
+
+### query_dependencies
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Query task dependencies with filtering
+
+**No operation parameter** - single query operation with flexible filtering
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `taskId` | UUID | **Yes** | Task to query dependencies for |
+| `direction` | enum | No | `incoming`, `outgoing`, `all` (default: `all`) |
+| `type` | enum | No | `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO`, `all` |
+| `includeTaskInfo` | boolean | No | Include task details (default: false) |
+
+#### Dependency Types
+
+- `BLOCKS`: This task blocks another task
+- `IS_BLOCKED_BY`: This task is blocked by another task
+- `RELATES_TO`: General relationship (no blocking semantics)
+
+#### Example - Get All Dependencies
+
+```json
+{
+  "taskId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "direction": "all",
+  "includeTaskInfo": true
+}
+```
+
+#### Example - Get Only Incoming Blockers
+
+```json
+{
+  "taskId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "direction": "incoming",
+  "type": "BLOCKS"
+}
+```
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Found 3 dependencies",
+  "data": {
+    "dependencies": [
+      {
+        "id": "dependency-uuid",
+        "fromTaskId": "blocker-uuid",
+        "toTaskId": "640522b7-810e-49a2-865c-3725f5d39608",
+        "type": "BLOCKS",
+        "createdAt": "2025-10-19T10:00:00Z",
+        "fromTask": {
+          "id": "blocker-uuid",
+          "title": "Design authentication flow",
+          "status": "completed",
+          "priority": "high"
+        },
+        "toTask": {
+          "id": "640522b7-810e-49a2-865c-3725f5d39608",
+          "title": "Implement authentication",
+          "status": "pending",
+          "priority": "high"
+        }
+      }
+    ],
+    "totalCount": 3,
+    "incoming": 2,
+    "outgoing": 1
+  }
+}
+```
+
+---
+
+### manage_dependency
+
+**Permission**: ✏️ WRITE
+
+**Purpose**: Create and delete task dependencies
+
+**Operations**: `create`, `delete`
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operation` | enum | **Yes** | `create` or `delete` |
+| `id` | UUID | Varies | Dependency ID (for `delete`) |
+| `fromTaskId` | UUID | Varies | Source task ID (for `create` and alternative `delete`) |
+| `toTaskId` | UUID | Varies | Target task ID (for `create` and alternative `delete`) |
+| `type` | enum | No | `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` (default: `BLOCKS`) |
+| `deleteAll` | boolean | No | Delete all matching dependencies (default: false) |
+
+---
+
+#### Operation: create
+
+**Purpose**: Create dependency relationship
+
+**Required Parameters**: `operation`, `fromTaskId`, `toTaskId`
+
+**Example - Create BLOCKS Dependency**:
+```json
+{
+  "operation": "create",
+  "fromTaskId": "task-1-uuid",
+  "toTaskId": "task-2-uuid",
+  "type": "BLOCKS"
+}
+```
+
+**Example - Create RELATES_TO**:
+```json
+{
+  "operation": "create",
+  "fromTaskId": "task-1-uuid",
+  "toTaskId": "task-3-uuid",
+  "type": "RELATES_TO"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Dependency created successfully",
+  "data": {
+    "id": "dependency-uuid",
+    "fromTaskId": "task-1-uuid",
+    "toTaskId": "task-2-uuid",
+    "type": "BLOCKS",
+    "createdAt": "2025-10-19T10:00:00Z"
+  }
+}
+```
+
+---
+
+#### Operation: delete
+
+**Purpose**: Remove dependency
+
+**Required Parameters**: `operation`, (`id` OR `fromTaskId` + `toTaskId`)
+
+**Example - Delete by ID**:
+```json
+{
+  "operation": "delete",
+  "id": "dependency-uuid"
+}
+```
+
+**Example - Delete by Task IDs**:
+```json
+{
+  "operation": "delete",
+  "fromTaskId": "task-1-uuid",
+  "toTaskId": "task-2-uuid"
+}
+```
+
+**Example - Delete All Dependencies Between Tasks**:
+```json
+{
+  "operation": "delete",
+  "fromTaskId": "task-1-uuid",
+  "toTaskId": "task-2-uuid",
+  "deleteAll": true
+}
+```
+
+---
+
+## Tag Tools
+
+Tags provide categorization and organization across all entities.
+
+### list_tags
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: List all unique tags with usage counts
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entityTypes` | array | No | Filter: `PROJECT`, `FEATURE`, `TASK`, `TEMPLATE` |
+| `sortBy` | enum | No | `count` or `name` (default: `count`) |
+| `sortDirection` | enum | No | `asc` or `desc` (default: `desc`) |
+
+#### Example - All Tags by Usage
+
+```json
+{
   "sortBy": "count",
   "sortDirection": "desc"
 }
 ```
 
-**Alphabetical Tag List**:
+#### Example - Task Tags Alphabetically
+
 ```json
 {
+  "entityTypes": ["TASK"],
   "sortBy": "name",
   "sortDirection": "asc"
 }
 ```
 
-**Response Format**:
+#### Response
+
 ```json
 {
   "success": true,
+  "message": "Found 25 unique tags",
   "data": {
     "tags": [
       {
-        "tag": "bug",
-        "totalCount": 15,
+        "tag": "backend",
+        "totalCount": 45,
         "byEntityType": {
-          "TASK": 12,
-          "FEATURE": 3
+          "TASK": 32,
+          "FEATURE": 10,
+          "TEMPLATE": 3
         }
       },
       {
-        "tag": "feature",
-        "totalCount": 28,
+        "tag": "api",
+        "totalCount": 38,
         "byEntityType": {
-          "TASK": 18,
+          "TASK": 28,
           "FEATURE": 8,
           "TEMPLATE": 2
         }
       }
     ],
-    "totalTags": 2
+    "totalTags": 25
   }
 }
 ```
 
-**AI Usage Pattern**:
-```
-User: "Show me all tasks related to bugs"
-
-AI Workflow:
-1. list_tags (discover available tags)
-2. Identify relevant tags: "bug", "bugfix", "debugging"
-3. search_tasks --tag "bug" (or most appropriate tag)
-4. Present results to user
-```
-
-**Sorting Options**:
-- `sortBy: "count"` (default) - Most used tags first
-- `sortBy: "name"` - Alphabetical order
-- `sortDirection: "desc"` (default) - Descending
-- `sortDirection: "asc"` - Ascending
-
-**Entity Type Filtering**:
-- No filter (default): All entity types (PROJECT, FEATURE, TASK, TEMPLATE)
-- `entityTypes: ["TASK"]` - Only task tags
-- `entityTypes: ["TASK", "FEATURE"]` - Task and feature tags
-
 ---
 
-### Tag Usage Discovery with `get_tag_usage`
+### get_tag_usage
 
-**Purpose**: Find all entities (tasks, features, projects, templates) that use a specific tag for impact analysis and tag organization
+**Permission**: 🔍 READ-ONLY
 
-**Why Use `get_tag_usage`**:
-- ✅ **Impact Analysis**: Understand what will be affected before renaming/removing tags
-- ✅ **Tag Cleanup**: Find all entities using deprecated or old tags
-- ✅ **Related Work Discovery**: Locate all work related to a specific topic
-- ✅ **Tag Adoption**: See how widely a tag is being used
-- ✅ **Documentation**: List all entities for a specific category
+**Purpose**: Find all entities using a specific tag
 
-**When AI Uses**:
-- Before renaming tags (assess impact)
-- User asks "where is tag X used?"
-- Tag cleanup and consolidation tasks
-- Finding all work related to a specific area
-- Impact analysis for tag changes
+#### Parameters
 
-**Features**:
-- Searches across all entity types (tasks, features, projects, templates)
-- Returns lightweight entity summaries (id, title/name, status, priority)
-- Filter to specific entity types
-- Case-insensitive tag matching
-- Shows total count and breakdown by entity type
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tag` | string | **Yes** | Tag to search for (case-insensitive) |
+| `entityTypes` | string | No | Comma-separated types to filter |
 
-**Examples**:
+#### Example - Find All Entities with Tag
 
-**Find All Entities with Tag**:
 ```json
 {
   "tag": "authentication"
 }
 ```
 
-**Find Only Tasks with Tag**:
+#### Example - Find Only Tasks
+
 ```json
 {
   "tag": "api",
@@ -959,27 +1480,20 @@ AI Workflow:
 }
 ```
 
-**Find Features and Projects**:
-```json
-{
-  "tag": "security",
-  "entityTypes": "FEATURE,PROJECT"
-}
-```
+#### Response
 
-**Response Format**:
 ```json
 {
   "success": true,
-  "message": "Found 5 entities with tag 'authentication'",
+  "message": "Found 12 entities with tag 'authentication'",
   "data": {
     "tag": "authentication",
-    "totalCount": 5,
+    "totalCount": 12,
     "entities": {
       "TASK": [
         {
-          "id": "550e8400-...",
-          "title": "Implement OAuth Login",
+          "id": "task-uuid",
+          "title": "Implement OAuth login",
           "status": "in-progress",
           "priority": "high",
           "complexity": 7
@@ -987,7 +1501,7 @@ AI Workflow:
       ],
       "FEATURE": [
         {
-          "id": "661e8511-...",
+          "id": "feature-uuid",
           "name": "User Authentication",
           "status": "in-development",
           "priority": "high"
@@ -998,60 +1512,25 @@ AI Workflow:
 }
 ```
 
-**AI Usage Pattern**:
-```
-User: "I want to rename tag 'api' to 'rest-api'"
-
-AI Workflow:
-1. get_tag_usage --tag "api"
-2. Show impact: "This will affect X tasks, Y features, Z projects"
-3. Confirm with user
-4. rename_tag --oldTag "api" --newTag "rest-api"
-5. Confirm completion
-```
-
-**Entity Type Filtering**:
-- No filter (default): All entity types (TASK, FEATURE, PROJECT, TEMPLATE)
-- `entityTypes: "TASK"` - Only tasks
-- `entityTypes: "TASK,FEATURE"` - Tasks and features
-- Comma-separated list for multiple types
-
-**Case Sensitivity**:
-- Tag matching is case-insensitive
-- Finds "API", "api", "Api" when searching for "api"
-
 ---
 
-### Bulk Tag Renaming with `rename_tag`
+### rename_tag
 
-**Purpose**: Rename a tag across all entities (tasks, features, projects, templates) in a single bulk operation
+**Permission**: ✏️ WRITE
 
-**Why Use `rename_tag`**:
-- ✅ **Typo Correction**: Fix misspelled tags project-wide
-- ✅ **Standardization**: Enforce consistent tag naming conventions
-- ✅ **Tag Consolidation**: Merge duplicate or similar tags
-- ✅ **Convention Changes**: Update tag patterns across all work
-- ✅ **Bulk Updates**: Efficient updates across hundreds of entities
+**Purpose**: Bulk rename tag across all entities
 
-**When AI Uses**:
-- User requests tag rename or correction
-- Consolidating duplicate tags
-- Fixing typos discovered in tags
-- Standardizing tag naming conventions
-- Following up on tag usage analysis
+#### Parameters
 
-**Features**:
-- Bulk updates across all entity types
-- Dry run mode for previewing changes
-- Filter to specific entity types
-- Case-insensitive matching for oldTag
-- Handles duplicate prevention (if newTag already exists)
-- Detailed statistics on updates
-- Failed update tracking and reporting
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `oldTag` | string | **Yes** | Current tag name (case-insensitive) |
+| `newTag` | string | **Yes** | New tag name |
+| `entityTypes` | string | No | Comma-separated types to update |
+| `dryRun` | boolean | No | Preview changes without applying (default: false) |
 
-**Examples**:
+#### Example - Rename Tag
 
-**Simple Tag Rename**:
 ```json
 {
   "oldTag": "authentcation",
@@ -1059,7 +1538,8 @@ AI Workflow:
 }
 ```
 
-**Rename Only in Tasks**:
+#### Example - Rename in Tasks Only
+
 ```json
 {
   "oldTag": "api",
@@ -1068,7 +1548,8 @@ AI Workflow:
 }
 ```
 
-**Preview Changes (Dry Run)**:
+#### Example - Preview Changes
+
 ```json
 {
   "oldTag": "frontend",
@@ -1077,15 +1558,8 @@ AI Workflow:
 }
 ```
 
-**Case Standardization**:
-```json
-{
-  "oldTag": "API",
-  "newTag": "api"
-}
-```
+#### Response
 
-**Response Format**:
 ```json
 {
   "success": true,
@@ -1105,509 +1579,485 @@ AI Workflow:
 }
 ```
 
-**AI Usage Pattern - Typo Correction**:
-```
-User: "I misspelled 'authentication' as 'authentcation' everywhere"
-
-AI Workflow:
-1. get_tag_usage --tag "authentcation"
-2. Show impact: "Found in 12 tasks, 3 features, 1 project"
-3. rename_tag --oldTag "authentcation" --newTag "authentication"
-4. Confirm: "Renamed in 12 entities successfully"
-```
-
-**AI Usage Pattern - Tag Consolidation**:
-```
-User: "Merge 'rest-api' and 'api' tags into just 'api'"
-
-AI Workflow:
-1. get_tag_usage --tag "rest-api"
-2. get_tag_usage --tag "api"
-3. Explain overlap and confirm with user
-4. rename_tag --oldTag "rest-api" --newTag "api"
-5. Report consolidation: "Merged X entities, Y already had 'api' tag"
-```
-
-**AI Usage Pattern - Preview Before Rename**:
-```
-User: "What would happen if I rename 'frontend' to 'ui'?"
-
-AI Workflow:
-1. rename_tag --oldTag "frontend" --newTag "ui" --dryRun true
-2. Show: "Would affect X tasks, Y features, Z projects"
-3. Ask if user wants to proceed
-4. If yes: rename_tag --oldTag "frontend" --newTag "ui"
-```
-
-**Dry Run Mode**:
-- Set `dryRun: true` to preview changes without modifying data
-- Returns same statistics as actual run
-- Shows what would be changed
-- Safe for experimentation and impact analysis
-
-**Duplicate Handling**:
-- If entity already has newTag, oldTag is simply removed
-- Prevents duplicate tags in the same entity
-- Maintains tag uniqueness per entity
-- Preserves tag order (oldTag position replaced with newTag)
-
-**Entity Type Filtering**:
-- No filter (default): All entity types
-- `entityTypes: "TASK"` - Only update tasks
-- `entityTypes: "TASK,FEATURE"` - Tasks and features only
-- Comma-separated list for selective updates
-
-**Error Handling**:
-- Continues processing even if individual updates fail
-- Reports failed updates separately in `failedUpdates` count
-- Logs errors for debugging
-- Returns partial success if some updates succeeded
-
-**Validation**:
-- oldTag and newTag cannot be empty
-- oldTag and newTag cannot be identical (case-insensitive)
-- Entity type names must be valid
-- Invalid parameters return validation error before any changes
-
 ---
 
-### Workflow Management with `get_blocked_tasks`
+## Agent Tools
 
-**Purpose**: Identify tasks currently blocked by incomplete dependencies for workflow optimization and bottleneck analysis
+Agent tools support Claude Code agent orchestration (Skills and Subagents).
 
-**Why Use `get_blocked_tasks`**:
-- ✅ **Bottleneck Identification**: Find what's blocking progress
-- ✅ **Sprint Planning**: Identify tasks that can't start yet
-- ✅ **Priority Setting**: Focus on unblocking critical paths
-- ✅ **Team Coordination**: Know which tasks need other teams' work
-- ✅ **Daily Standup**: Quick view of blocked work
+> **Note**: Agent tools only work with Claude Code. Other MCP clients ignore these tools.
 
-**What Makes a Task "Blocked"**:
-1. Task status is `pending` or `in-progress` (active work)
-2. Task has incoming dependencies (other tasks block it)
-3. At least one blocking task is NOT `completed` or `cancelled`
+### setup_claude_agents
 
-**When AI Uses**:
-- User asks "what's blocked?" or "why is nothing moving?"
-- Sprint planning and work prioritization
-- Identifying workflow bottlenecks
-- Daily standup preparation
+**Permission**: ✏️ WRITE
 
-**Features**:
-- Automatic blocking detection across project
-- Shows blocker task details (ID, title, status, priority)
-- Filter by project/feature for focused analysis
-- Optional full task metadata via `includeTaskDetails`
-- Efficient queries (only checks active tasks)
+**Purpose**: Initialize Claude Code agent orchestration system
 
-**Examples**:
+**Creates**:
+- 10 subagent definitions (`.claude/agents/`)
+- 5 Skills (`.claude/skills/`)
+- 3 Hooks (`.claude/hooks/`)
+- Agent routing configuration (`.taskorchestrator/agent-mapping.yaml`)
 
-**Find All Blocked Tasks**:
+#### Parameters
+
+None required - fully automatic setup
+
+#### Example
+
 ```json
 {}
 ```
 
-**Blocked Tasks in Specific Project**:
-```json
-{
-  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039"
-}
-```
+#### Response
 
-**Blocked Tasks with Full Details**:
-```json
-{
-  "includeTaskDetails": true
-}
-```
-
-**Response Format**:
 ```json
 {
   "success": true,
+  "message": "Claude Code agent system initialized successfully",
   "data": {
-    "blockedTasks": [
-      {
-        "taskId": "task-uuid-1",
-        "title": "Implement user dashboard",
-        "status": "pending",
-        "priority": "high",
-        "complexity": 7,
-        "blockedBy": [
-          {
-            "taskId": "blocker-uuid-1",
-            "title": "Design dashboard mockups",
-            "status": "in-progress",
-            "priority": "high"
-          },
-          {
-            "taskId": "blocker-uuid-2",
-            "title": "Create API endpoints",
-            "status": "pending",
-            "priority": "medium"
-          }
-        ],
-        "blockerCount": 2
-      }
+    "directoryCreated": true,
+    "agentFilesCreated": [
+      "backend-engineer.md",
+      "frontend-developer.md",
+      "database-engineer.md",
+      "test-engineer.md",
+      "technical-writer.md",
+      "feature-architect.md",
+      "planning-specialist.md",
+      "bug-triage-specialist.md",
+      "feature-manager.md",
+      "task-manager.md"
     ],
-    "totalBlocked": 1
+    "skillsCopied": [
+      "dependency-analysis",
+      "feature-management",
+      "hook-builder",
+      "skill-builder",
+      "task-management"
+    ],
+    "hooksCopied": true,
+    "totalAgents": 10,
+    "totalSkills": 5,
+    "totalHooks": 3
   }
 }
 ```
 
-**AI Usage Pattern - Bottleneck Analysis**:
-```
-User: "Why is nothing moving forward?"
+#### Usage Notes
 
-AI Workflow:
-1. get_blocked_tasks (identify all blocked work)
-2. Analyze which blocker tasks appear most often
-3. Suggest prioritizing those blocker tasks
-4. Recommend specific actions to unblock work
-```
-
-**AI Usage Pattern - Sprint Planning**:
-```
-User: "What can we start next sprint?"
-
-AI Workflow:
-1. get_blocked_tasks (see what's blocked)
-2. search_tasks --status pending (see what's ready)
-3. Filter for tasks with no blockers
-4. Recommend unblocked, high-priority tasks
-```
-
-**Filtering Options**:
-- `projectId`: Only show blocked tasks in specific project
-- `featureId`: Only show blocked tasks in specific feature
-- `includeTaskDetails`: Include full task metadata (default: false for efficiency)
+- **Idempotent**: Safe to run multiple times
+- **Skips existing files**: Won't overwrite customizations
+- **Commit to version control**: Share with team via `.claude/` directory
+- **Claude Code only**: Other IDEs don't support agent orchestration
 
 ---
 
-### Work Prioritization with `get_next_task`
+### get_agent_definition
 
-**Purpose**: Recommend the next task to work on based on priority, complexity, and dependencies for effective work prioritization
+**Permission**: 🔍 READ-ONLY
 
-**Why Use `get_next_task`**:
-- ✅ **Smart Prioritization**: Automatically ranks by priority then complexity
-- ✅ **Quick Wins**: Lower complexity tasks recommended first within same priority
-- ✅ **Automatic Filtering**: Excludes blocked tasks without manual checking
-- ✅ **Daily Planning**: "What should I work on today?"
-- ✅ **Context Switching**: "I just finished X, what's next?"
+**Purpose**: Retrieve agent metadata
 
-**How It Works**:
-1. Gets all pending/in-progress tasks
-2. Filters out blocked tasks (incomplete dependencies)
-3. Sorts by priority (HIGH → MEDIUM → LOW)
-4. Within same priority, sorts by complexity (lower first for quick wins)
-5. Returns top N recommendations
+#### Parameters
 
-**When AI Uses**:
-- User asks "what should I work on?" or "what's next?"
-- Daily planning and task selection
-- Sprint planning and work allocation
-- Context switching after completing a task
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agentName` | string | **Yes** | Agent filename (without .md extension) |
 
-**Features**:
-- Smart filtering: excludes blocked tasks automatically
-- Priority-based ranking: high priority tasks first
-- Complexity-aware: balances impact with effort (quick wins)
-- Scope control: filter by project/feature
-- Configurable results: control number of recommendations (1-20)
+#### Example
 
-**Examples**:
-
-**Get Top Task Recommendation** (default):
-```json
-{}
-```
-
-**Get Top 5 Recommendations**:
 ```json
 {
-  "limit": 5
+  "agentName": "backend-engineer"
 }
 ```
 
-**Recommendations for Specific Project**:
-```json
-{
-  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
-  "limit": 3
-}
-```
+#### Response
 
-**Recommendations with Full Details**:
-```json
-{
-  "limit": 3,
-  "includeDetails": true
-}
-```
-
-**Response Format**:
 ```json
 {
   "success": true,
+  "message": "Agent definition retrieved successfully",
   "data": {
-    "recommendations": [
-      {
-        "taskId": "task-uuid-1",
-        "title": "Implement user login",
-        "status": "pending",
-        "priority": "high",
-        "complexity": 3
-      },
-      {
-        "taskId": "task-uuid-2",
-        "title": "Add API authentication",
-        "status": "pending",
-        "priority": "high",
-        "complexity": 7
-      },
-      {
-        "taskId": "task-uuid-3",
-        "title": "Update documentation",
-        "status": "pending",
-        "priority": "medium",
-        "complexity": 2
-      }
-    ],
-    "totalCandidates": 15
-  },
-  "message": "Found 3 recommendation(s) from 15 unblocked task(s)"
+    "name": "Backend Engineer",
+    "file": "backend-engineer.md",
+    "model": "sonnet",
+    "tools": ["Write", "Edit", "Read", "Bash"],
+    "description": "Specialist for backend implementation tasks",
+    "capabilities": [
+      "API development",
+      "Database integration",
+      "Authentication systems",
+      "Business logic implementation"
+    ]
+  }
 }
 ```
 
-**AI Usage Pattern - Daily Planning**:
+---
+
+### recommend_agent
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Get routing recommendation (Skill vs Subagent)
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `taskId` | UUID | **Yes** | Task to analyze for routing |
+
+#### Example
+
+```json
+{
+  "taskId": "640522b7-810e-49a2-865c-3725f5d39608"
+}
 ```
-User: "What should I work on today?"
+
+#### Response - Skill Recommendation
+
+```json
+{
+  "success": true,
+  "message": "Routing recommendation generated",
+  "data": {
+    "recommended": true,
+    "recommendationType": "SKILL",
+    "agent": "Task Management Skill",
+    "reason": "Task requires lightweight coordination for routing",
+    "matchedTags": ["task-routing", "coordination"],
+    "sectionTags": ["requirements", "context"],
+    "taskId": "640522b7-810e-49a2-865c-3725f5d39608",
+    "taskTitle": "Route task to specialist",
+    "nextAction": {
+      "instruction": "Use the Task Management Skill directly",
+      "tool": "Skill",
+      "parameters": {
+        "skill": "Task Management Skill",
+        "prompt": "Route this task to appropriate specialist"
+      }
+    }
+  }
+}
+```
+
+#### Response - Subagent Recommendation
+
+```json
+{
+  "success": true,
+  "message": "Routing recommendation generated",
+  "data": {
+    "recommended": true,
+    "recommendationType": "SUBAGENT",
+    "agent": "Backend Engineer",
+    "reason": "Task requires complex backend implementation work",
+    "matchedTags": ["backend", "api-implementation"],
+    "sectionTags": ["implementation", "technical-approach"],
+    "taskId": "640522b7-810e-49a2-865c-3725f5d39608",
+    "taskTitle": "Implement REST API endpoints",
+    "nextAction": {
+      "instruction": "Launch Backend Engineer subagent",
+      "tool": "Task",
+      "parameters": {
+        "agent": "backend-engineer",
+        "prompt": "Implement the REST API endpoints described in task"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Permission Model
+
+### Read vs Write Separation
+
+v2.0 introduces **clear permission separation** between read and write operations:
+
+| Tool Pattern | Permission | Locking | Use Case |
+|--------------|-----------|---------|----------|
+| `query_*` | 🔍 READ-ONLY | No | Safe, concurrent reads |
+| `manage_*` | ✏️ WRITE | Yes | Mutation with collision protection |
+
+### Read-Only Tools (query_*)
+
+- `query_container` - Read projects/features/tasks
+- `query_sections` - Read sections with filtering
+- `query_templates` - Read template definitions
+- `query_dependencies` - Read dependency relationships
+- `list_tags` - List all tags
+- `get_tag_usage` - Find tag usage
+- `get_agent_definition` - Read agent metadata
+- `recommend_agent` - Get routing recommendation
+
+**Characteristics**:
+- ✅ No locking required
+- ✅ Safe concurrent access
+- ✅ Cannot modify data
+- ✅ Fast execution
+
+### Write Tools (manage_*)
+
+- `manage_container` - Create/update/delete containers
+- `manage_sections` - Add/update/delete sections
+- `manage_template` - Create/update/delete templates
+- `manage_dependency` - Create/delete dependencies
+- `rename_tag` - Bulk rename tags
+- `apply_template` - Apply templates to entities
+- `setup_claude_agents` - Initialize agent system
+
+**Characteristics**:
+- ✅ Automatic locking
+- ✅ Collision prevention
+- ✅ Transaction support
+- ✅ Audit trail
+
+### Benefits
+
+1. **Security**: Clear read/write boundaries for access control
+2. **Concurrency**: Read tools don't block each other
+3. **Intent**: Tool name immediately signals permission requirement
+4. **Future-proof**: Easy to add permission layers
+
+---
+
+## Best Practices
+
+### AI Agent Patterns
+
+#### 1. Always Discover Templates First
+
+**Before creating any task or feature**:
+```json
+{
+  "operation": "list",
+  "targetEntityType": "TASK",
+  "isEnabled": true
+}
+```
+
+**Why**: Dynamic template discovery ensures AI applies appropriate guidance
+
+---
+
+#### 2. Use Two-Step Section Loading
+
+**Step 1: Browse structure** (low token cost):
+```json
+{
+  "entityType": "TASK",
+  "entityId": "...",
+  "includeContent": false
+}
+```
+
+**Step 2: Fetch specific content**:
+```json
+{
+  "entityType": "TASK",
+  "entityId": "...",
+  "sectionIds": ["needed-section-uuid"]
+}
+```
+
+**Savings**: 85-99% token reduction vs loading all content
+
+---
+
+#### 3. Prefer Bulk Operations
+
+**Instead of**:
+```
+3 × manage_sections(operation="delete", id="...")
+= ~3,600 characters
+```
+
+**Use**:
+```json
+{
+  "operation": "bulkDelete",
+  "ids": ["id1", "id2", "id3"]
+}
+= ~400 characters
+```
+
+**Savings**: 89% token reduction
+
+---
+
+#### 4. Use setStatus for Status-Only Changes
+
+**Instead of**:
+```json
+{
+  "operation": "update",
+  "containerType": "task",
+  "id": "...",
+  "status": "completed"
+}
+```
+
+**Use**:
+```json
+{
+  "operation": "setStatus",
+  "containerType": "task",
+  "id": "...",
+  "status": "completed"
+}
+```
+
+**Benefits**: Simpler, faster, clear intent
+
+---
+
+#### 5. Progressive Loading
+
+**Start minimal, load details as needed**:
+
+```
+1. query_container(operation="search", containerType="task", status="pending")
+   → Get task list
+
+2. query_container(operation="get", containerType="task", id="...", includeSections=false)
+   → Get task details (no sections)
+
+3. query_sections(entityType="TASK", entityId="...", includeContent=false)
+   → Get section structure
+
+4. query_sections(entityType="TASK", entityId="...", sectionIds=["needed"])
+   → Get specific section content
+```
+
+---
+
+### Development Team Patterns
+
+#### 1. Natural Language Works
+
+**Don't teach users tool syntax** - AI understands intent:
+
+```
+User: "Show me pending backend tasks"
+→ AI uses: query_container(operation="search", containerType="task",
+                           status="pending", tags="backend")
+
+User: "Mark task X as done"
+→ AI uses: manage_container(operation="setStatus", containerType="task",
+                            id="X", status="completed")
+```
+
+---
+
+#### 2. Trust Autonomous Workflows
+
+**AI chains tools automatically**:
+
+```
+User: "Create a feature for user authentication"
 
 AI Workflow:
-1. get_next_task --limit 5
-2. Present top recommendations
-3. Explain priority and complexity reasoning:
-   - "High priority, low complexity: quick win"
-   - "High priority, higher complexity: important but time-consuming"
-4. Let user choose based on available time
+1. query_templates(operation="list", targetEntityType="FEATURE")
+2. manage_container(operation="create", containerType="feature",
+                   name="User Authentication", templateIds=[...])
+3. query_templates(operation="list", targetEntityType="TASK")
+4. manage_container(operation="create", containerType="task",
+                   title="Implement OAuth", templateIds=[...])
+5. manage_dependency(operation="create", fromTaskId="...", toTaskId="...")
 ```
-
-**AI Usage Pattern - Context Switching**:
-```
-User: "I just finished task X, what's next?"
-
-AI Workflow:
-1. update_task --id X --status completed
-2. get_next_task --limit 3
-3. Recommend based on:
-   - Priority (high first)
-   - Complexity (easier first for momentum)
-4. Present options with context
-```
-
-**AI Usage Pattern - Quick Wins**:
-```
-User: "Show me easy tasks I can knock out quickly"
-
-AI Workflow:
-1. get_next_task --limit 10
-2. Filter results for complexity ≤ 3
-3. Present quick win opportunities
-4. Explain value: "These high-priority tasks are easy to complete"
-```
-
-**Sorting Logic**:
-
-Tasks are ranked by:
-1. **Priority** (primary): HIGH → MEDIUM → LOW
-2. **Complexity** (secondary): Lower complexity first (1 → 10)
-
-**Rationale**: High-priority, low-complexity tasks provide maximum impact with minimum effort (quick wins). Higher complexity high-priority tasks come next.
-
-**Example Sorting**:
-```
-Input tasks (mixed):
-- Task A: HIGH priority, complexity 8
-- Task B: MEDIUM priority, complexity 2
-- Task C: HIGH priority, complexity 3
-- Task D: LOW priority, complexity 1
-
-Output order:
-1. Task C (HIGH, complexity 3) - Quick win!
-2. Task A (HIGH, complexity 8) - Important but harder
-3. Task B (MEDIUM, complexity 2) - Medium priority quick win
-4. Task D (LOW, complexity 1) - Low priority
-```
-
-**Parameters**:
-- `projectId`: Filter to specific project
-- `featureId`: Filter to specific feature
-- `limit`: Number of recommendations (default: 1, max: 20)
-- `includeDetails`: Include summary, tags, featureId (default: false)
 
 ---
 
-## Skills and Hooks Integration
+#### 3. Create Custom Templates
 
-### Skills Invoking MCP Tools
+**AI discovers them automatically**:
 
-Skills are lightweight AI behaviors (300-600 tokens) that coordinate 2-5 MCP tool calls. They provide an efficiency layer between direct tool calls and subagents.
-
-**Available Skills** (5 included):
-
-| Skill | Purpose | Allowed MCP Tools | Token Savings |
-|-------|---------|-------------------|---------------|
-| **Feature Management** | Coordinate feature lifecycle | `get_feature`, `get_next_task`, `update_feature` | 77% vs subagent |
-| **Task Management** | Route tasks, update status | `get_task`, `recommend_agent`, `set_status`, `add_section` | 77% vs subagent |
-| **Dependency Analysis** | Analyze blockers, chains | `get_blocked_tasks`, `get_task_dependencies` | 75% vs subagent |
-| **Hook Builder** | Create automation hooks | Write (generates bash scripts) | N/A (interactive) |
-| **Skill Builder** | Create custom Skills | Write (generates SKILL.md files) | N/A (interactive) |
-
-**How Skills Work**:
-1. Claude Code scans `.claude/skills/` directory
-2. Reads YAML frontmatter from `SKILL.md` files
-3. When user request matches description, Claude automatically invokes Skill
-4. Skill executes predefined workflow using allowed MCP tools
-5. Returns result directly to user
-
-**Example: Feature Management Skill**
-
-User says: "What should I work on next?"
-
-```markdown
-Skill automatically executes:
-1. get_feature(includeTasks=true, includeTaskDependencies=true)
-2. get_next_task(featureId="...", limit=1)
-3. Returns: "Recommended Task: T4 - Implement login endpoint (high priority, unblocked)"
-
-Token Cost: ~300 tokens
-vs Subagent: ~1400 tokens (78% savings)
+1. Create custom template:
+```json
+{
+  "operation": "create",
+  "name": "Company-Specific API Template",
+  "description": "Our API development standards",
+  "targetEntityType": "TASK",
+  "tags": "api,company-standard"
+}
 ```
 
-**Skills Catalog**: See [`.claude/skills/README.md`](../.claude/skills/README.md) for complete documentation.
+2. Add sections via `manage_template(operation="addSection", ...)`
 
-**Complete Skills Documentation**: [Skills Guide](skills-guide.md)
-
----
-
-### Hooks Triggered by MCP Tools
-
-Hooks are bash scripts (0 tokens) that execute automatically when MCP tool events occur.
-
-**Available Hooks** (3 included):
-
-| Hook | Trigger Event | Tool Matcher | Purpose |
-|------|---------------|--------------|---------|
-| **task-complete-commit.sh** | PostToolUse | `set_status` (completed) | Auto-commit on completion |
-| **feature-complete-gate.sh** | PostToolUse | `update_feature` (completed) | Block if tests fail |
-| **subagent-stop-logger.sh** | SubagentStop | All subagents | Log metrics |
-
-**MCP Tools That Can Trigger Hooks**:
-- `set_status` - Auto-commit, notifications, metrics
-- `update_feature` - Quality gates, testing
-- `update_task` - External system sync
-- `create_task` - Template reminders
-
-**Hooks Catalog**: See [`.claude/hooks/README.md`](../.claude/hooks/README.md) for complete documentation.
-
-**Complete Hooks Documentation**: [Hooks Guide](hooks-guide.md)
+3. AI automatically discovers via `query_templates` and applies
 
 ---
 
-### Integration Pattern: Skills + Hooks + MCP Tools
+### entityType vs containerType
 
-**Complete Workflow Example**:
+**Key Difference**:
 
-```
-1. "What's next?" → Feature Management Skill (300 tokens)
-   ├─ get_feature, get_next_task
-   └─ "Task T4: Implement login endpoint"
+| Parameter | Case | Used In | Values |
+|-----------|------|---------|--------|
+| `containerType` | lowercase | Container tools | `project`, `feature`, `task` |
+| `entityType` | UPPERCASE | Section/template tools | `PROJECT`, `FEATURE`, `TASK` |
 
-2. "Work on that" → Task Management Skill (300 tokens)
-   ├─ get_task, recommend_agent
-   └─ Routes to Backend Engineer
+**Why Different**:
+- **Containers** = primary entities (projects, features, tasks)
+- **Entity** = parent owner of sections/templates
 
-3. Backend Engineer (2000 tokens)
-   ├─ get_task, add_section
-   └─ set_status(completed)
-      └─ Hook: task-complete-commit.sh (0 tokens)
-
-Total: 2600 tokens (vs 5000+ without Skills/Hooks = 48% savings)
-```
-
-**See Also**: [Hybrid Architecture Guide](hybrid-architecture.md)
+**Remember**:
+- Container tools → lowercase `containerType`
+- Section tools → UPPERCASE `entityType`
+- Template tools → UPPERCASE `targetEntityType` (for filtering)
 
 ---
 
-## Concurrent Access Protection
+### Token Optimization Summary
 
-### Built-In Collision Prevention
-
-The system automatically prevents conflicts when multiple AI agents work in parallel.
-
-**Protected Operations**:
-- `update_task` and `delete_task`
-- `update_feature` and `delete_feature`
-- `update_project` and `delete_project`
-
-**How It Works**:
-- Automatic locking on update/delete operations
-- 2-minute timeout prevents deadlocks
-- Clear error messages when conflicts detected
-- No configuration needed
-
-**Best Practice**: Distribute work across different entities for parallel workflows
+| Pattern | Token Savings | When to Use |
+|---------|---------------|-------------|
+| Two-step section loading | 85-99% | Browse structure before loading content |
+| Bulk operations | 70-95% | Updating 3+ items simultaneously |
+| `setStatus` vs `update` | 40-60% | Status-only changes |
+| Template discovery caching | Auto | Repeated template access |
+| Progressive container loading | 50-80% | Load details only when needed |
 
 ---
 
-## Tool Usage Best Practices
+## Migration from v1.x
 
-### For AI Agents
+**Complete migration guide**: [v2.0 Migration Guide](migration/v2.0-migration-guide.md)
 
-1. **Always start with `get_overview`** - Understand current state before creating work
-2. **Always use `list_templates`** - Discover templates before creating tasks/features
-3. **Use selective section loading** - Browse with `includeContent=false` before loading full content
-4. **Use `get_sections` before completion** - Validate template guidance followed
-5. **Prefer bulk operations** - More efficient for multiple sections
-6. **Progressive loading** - Start basic, load details as needed
+**Quick reference**:
 
-### For Development Teams
-
-1. **Trust autonomous patterns** - AI knows when to use tools
-2. **Natural language works** - No need to specify tool names
-3. **Templates are dynamic** - Create custom templates, AI will discover them
-4. **Let AI chain tools** - Complex operations use multiple tools automatically
-5. **Review patterns** - Understand how AI sequences tools for your workflows
-
----
-
-## Integration with Other Systems
-
-### MCP Tool Integration
-
-Task Orchestrator tools work seamlessly with:
-- **GitHub MCP**: PR creation, code review integration
-- **File System Tools**: Git detection, project analysis
-- **Web Search Tools**: Research task support
-
-### Workflow Prompt Integration
-
-Tools are automatically used by workflow prompts:
-- `create_feature_workflow` - Uses create_feature, create_task, create_dependency
-- `task_breakdown_workflow` - Uses create_task, create_dependency, update_task
-- `implementation_workflow` - Uses get_overview, search_tasks, apply_template for tasks, features, and bugs
-
-> **See**: [Workflow Prompts](workflow-prompts) for complete workflow automation details
+| v1.x Tool | v2.0 Tool | v2.0 Operation |
+|-----------|-----------|----------------|
+| `create_task` | `manage_container` | `create` (containerType=task) |
+| `get_task` | `query_container` | `get` (containerType=task) |
+| `search_tasks` | `query_container` | `search` (containerType=task) |
+| `update_task` | `manage_container` | `update` (containerType=task) |
+| `delete_task` | `manage_container` | `delete` (containerType=task) |
+| `get_sections` | `query_sections` | (no operation parameter) |
+| `add_section` | `manage_sections` | `add` |
+| `list_templates` | `query_templates` | `list` |
+| `create_dependency` | `manage_dependency` | `create` |
 
 ---
 
 ## Additional Resources
 
-- **[AI Guidelines](ai-guidelines)** - Complete AI usage patterns and autonomous workflows
-- **[Templates Guide](templates)** - Dynamic template discovery and application
-- **[Workflow Prompts](workflow-prompts)** - Workflow automation integration
-- **[Quick Start](quick-start)** - Getting started with Task Orchestrator
+- **[v2.0 Migration Guide](migration/v2.0-migration-guide.md)** - Complete migration instructions
+- **[AI Guidelines](ai-guidelines.md)** - AI usage patterns and workflows
+- **[Templates Guide](templates.md)** - Template system documentation
+- **[Workflow Prompts](workflow-prompts.md)** - Workflow automation
+- **[Quick Start](quick-start.md)** - Getting started guide
 
 ---
 
-**Questions About Tools?** Ask Claude directly - Claude understands the complete MCP schema and can explain any tool's parameters, usage, and integration patterns.
+**Questions?** AI agents discover tool schemas automatically through MCP. Ask Claude directly for parameter details, usage examples, or integration patterns.
+
+**Last Updated**: 2025-10-19
+**Version**: 2.0.0
+**Tool Count**: 16 tools (71% reduction from v1.x)

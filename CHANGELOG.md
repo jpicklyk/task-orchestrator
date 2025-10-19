@@ -5,6 +5,127 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-beta-01] - 2025-10-19
+
+### 🚨 BREAKING CHANGES
+
+**Container-Based Tool Consolidation**: Major architectural overhaul reducing 56 tools to 16 tools (71% reduction) with clean read/write permission separation.
+
+**Deprecated Tools (40+ removed from registration):**
+- Container tools: `create_task`, `get_task`, `update_task`, `delete_task`, `search_tasks`, `create_feature`, `get_feature`, `update_feature`, `delete_feature`, `search_features`, `create_project`, `get_project`, `update_project`, `delete_project`, `search_projects`, `get_overview`, `task_to_markdown`, `feature_to_markdown`, `project_to_markdown`
+- Section tools: `add_section`, `get_sections`, `update_section`, `update_section_text`, `update_section_metadata`, `delete_section`, `reorder_sections`, `bulk_create_sections`, `bulk_update_sections`, `bulk_delete_sections`
+- Template tools: `create_template`, `get_template`, `list_templates`, `update_template_metadata`, `delete_template`, `enable_template`, `disable_template`, `add_template_section`
+- Dependency tools: `create_dependency`, `get_task_dependencies`, `delete_dependency`
+- Task query tools: `get_blocked_tasks`, `get_next_task`, `bulk_update_tasks`, `get_feature_tasks`
+
+**Migration Required**: See [v2.0 Migration Guide](docs/migration/v2.0-migration-guide.md) for complete tool mapping and code examples.
+
+### Added
+
+- **🔍 query_container** - Unified read-only container queries
+  - 4 operations: `get`, `search`, `export`, `overview`
+  - 3 container types: `project`, `feature`, `task`
+  - Advanced filtering: status, priority, tags, projectId, featureId
+  - Replaces 19 v1.x tools with single consistent interface
+
+- **✏️ manage_container** - Unified write operations for containers
+  - 5 operations: `create`, `update`, `delete`, `setStatus`, `bulkUpdate`
+  - Supports all container types with entityType parameter
+  - Bulk update capabilities (3-100 containers in single operation)
+  - Replaces 19 v1.x tools with permission-separated interface
+
+- **🔍 query_sections** - Read-only section queries with advanced filtering
+  - Filter by entityType, entityId, sectionIds, tags
+  - Optional content inclusion (`includeContent=false` saves 85-99% tokens)
+  - Returns sections ordered by ordinal
+  - Replaces 11 v1.x section read operations
+
+- **✏️ manage_sections** - Unified section write operations
+  - 9 operations: `add`, `update`, `updateText`, `updateMetadata`, `delete`, `reorder`, `bulkCreate`, `bulkUpdate`, `bulkDelete`
+  - Transaction support for bulk operations
+  - Section ordering and reordering logic
+  - Supports all content formats: MARKDOWN, PLAIN_TEXT, JSON, CODE
+
+- **🔍 query_templates** - Template discovery and inspection
+  - 2 operations: `get`, `list`
+  - Filter by targetEntityType, isBuiltIn, isEnabled, tags
+  - Efficient template exploration for AI agents
+  - Replaces `get_template` and `list_templates`
+
+- **✏️ manage_template** - Template management operations
+  - 6 operations: `create`, `update`, `delete`, `enable`, `disable`, `addSection`
+  - Template protection logic for built-in templates
+  - Section management within templates
+  - Replaces 7 v1.x template modification tools
+
+- **🔍 query_dependencies** - Dependency queries with direction support
+  - Direction filtering: dependencies, dependents, both
+  - Returns dependency metadata including types (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
+  - Dependency graph querying for AI agents
+  - Replaces `get_task_dependencies`
+
+- **✏️ manage_dependency** - Dependency management with validation
+  - 2 operations: `create`, `delete`
+  - Circular dependency detection
+  - Dependency validation logic
+  - Ensures referential integrity
+
+### Changed
+
+- **Permission Model**: All tools now follow clear read/write separation
+  - `query_*` tools: READ-ONLY operations (no locking required)
+  - `manage_*` tools: WRITE operations (with locking support)
+  - Enables future permission-based access control
+
+- **Parameter Pattern**: Consistent operation-based interface
+  - All consolidated tools use `operation` parameter for action selection
+  - `containerType` parameter for entity type discrimination
+  - Reduces AI confusion and improves tool discovery
+
+- **Token Efficiency**: 71% reduction in MCP tool overhead
+  - v1.x: 56 tools consuming ~60k+ characters in MCP schema
+  - v2.0: 16 tools consuming ~17.4k characters
+  - Massive context window savings for every AI request
+
+- **Documentation**: Complete rewrite for v2.0
+  - New [v2.0 Migration Guide](docs/migration/v2.0-migration-guide.md) with 40+ tool mappings
+  - Rewritten [API Reference](docs/api-reference.md) (2,063 lines)
+  - Updated all core docs (README, CLAUDE.md, quick-start)
+  - Updated all agent and skill definitions for v2.0 syntax
+  - Created 9 new tool-specific docs with examples
+  - Added deprecation notices to 35+ old tool files
+
+### Unchanged (7 tools)
+
+These tools remain available without changes:
+- `list_tags`, `get_tag_usage`, `rename_tag` - Tag management
+- `setup_claude_agents`, `get_agent_definition`, `recommend_agent` - Agent automation
+- `apply_template` - Template application (kept separate due to workflow complexity)
+
+### Technical Details
+
+- **Architecture**: Clean separation of read (`query_*`) and write (`manage_*`) operations
+- **Backward Compatibility**: Repository layer unchanged, existing data fully compatible
+- **Database**: No schema migrations required
+- **Tests**: Comprehensive test coverage for all consolidated tools (90%+ coverage)
+- **Locking**: SimpleLockAwareToolDefinition base class for concurrency control
+
+### Migration Path
+
+1. Review [v2.0 Migration Guide](docs/migration/v2.0-migration-guide.md) for complete tool mappings
+2. Update tool calls to use new `query_container` and `manage_container` syntax
+3. Add `containerType` and `operation` parameters to all container operations
+4. Update template discovery: `list_templates` → `query_templates(operation="list")`
+5. Update section operations: use `query_sections` and `manage_sections`
+6. Test with v2.0-beta-01 before stable release
+
+### Known Issues
+
+- Docker deployment testing in progress
+- Real-world usage feedback needed before stable 2.0.0 release
+
+---
+
 ## [1.1.0-beta-01]
 
 ### Added
