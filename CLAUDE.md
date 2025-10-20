@@ -240,6 +240,76 @@ Task Orchestrator v2.0 introduces **unified container-based tools** that reduce 
 
 **IMPORTANT:** Always use `operation` and `containerType` parameters with v2 consolidated tools.
 
+### Scoped Overview Pattern (v2.0+)
+
+**Overview operations provide hierarchical views without section content**, optimizing for token efficiency in detail queries.
+
+**When to Use:**
+- User asks: "Show me details on [specific entity]"
+- User asks: "What's the status of [entity]?"
+- User asks: "What tasks are in [feature]?"
+- Need hierarchical view without section content
+
+**How to Use:**
+
+```javascript
+// For "Show me Feature X details"
+query_container(
+  operation="overview",
+  containerType="feature",
+  id="feature-uuid"
+)
+// Returns: feature metadata + tasks list + task counts (NO sections)
+// Token efficient: ~1,200 tokens vs ~18,500 with sections
+
+// For "What's in Project Y?"
+query_container(
+  operation="overview",
+  containerType="project",
+  id="project-uuid"
+)
+// Returns: project metadata + features list + task counts
+
+// For "List all features" (global overview)
+query_container(
+  operation="overview",
+  containerType="feature"
+)
+// Returns: array of all features with minimal fields (NO child entities)
+```
+
+**Critical Efficiency Rule:**
+- ❌ DON'T: Use `get` with `includeSections=true` for "show details" queries
+- ✅ DO: Use scoped `overview` for hierarchical view without sections
+- ✅ ONLY use `get` with sections when user specifically asks for documentation/section content
+
+**Token Savings:**
+- Feature with 10 sections + 20 tasks: 18.5k → 1.2k tokens (93% reduction)
+- Project with 3 features: 30k+ → 1.5k tokens (95% reduction)
+
+**Tool Selection Decision Tree:**
+
+**User Intent: "Show me details/status/overview of X"**
+1. Extract entity type (project, feature, task) and ID
+2. Use scoped overview:
+   ```
+   query_container(operation="overview", containerType="...", id="...")
+   ```
+3. DO NOT use `get` with `includeSections=true` unless user explicitly wants documentation
+
+**User Intent: "List all features/projects/tasks"**
+1. Use global overview:
+   ```
+   query_container(operation="overview", containerType="...")
+   ```
+2. No id parameter needed
+
+**User Intent: "Show me the full documentation for Feature X"**
+1. NOW use get with sections:
+   ```
+   query_container(operation="get", containerType="feature", id="...", includeSections=true)
+   ```
+
 ## Documentation
 
 **Developer Guides:** `docs/developer-guides/`
@@ -307,7 +377,10 @@ Skills auto-activate from natural language. See: [.claude/skills/README.md](.cla
 **Use for**: Code implementation, test writing, documentation, architecture design
 
 **Routing**: Use `recommend_agent(taskId)` to find appropriate specialist
-**Specialists**: Backend Engineer, Frontend Developer, Database Engineer, Test Engineer, Technical Writer, Planning Specialist, Feature Architect, Bug Triage Specialist
+**Specialists**:
+- Implementation: Backend Engineer (Sonnet), Frontend Developer (Sonnet), Database Engineer (Sonnet), Test Engineer (Sonnet), Technical Writer (Sonnet)
+- Architecture: Feature Architect (Opus), Planning Specialist (Sonnet)
+- Triage: Bug Triage Specialist (Sonnet)
 
 Templates work with both direct execution AND subagent execution.
 
@@ -340,7 +413,8 @@ See: [agent-orchestration.md](docs/agent-orchestration.md), [hybrid-architecture
 
 ### Critical Patterns
 - **Always** run `list_templates` before creating tasks/features
-- Feature Architect creates feature → Planning Specialist breaks into tasks → Specialists implement
+- Feature Architect (Opus) creates feature → Planning Specialist (Sonnet) breaks into tasks → Specialists implement
+- **Token optimization**: Feature Architect returns minimal handoff (feature ID only), Planning Specialist reads feature directly
 - Use `recommend_agent(taskId)` for automatic specialist routing based on task tags
 
 **Complete guide**: See [hybrid-architecture.md](docs/hybrid-architecture.md) for detailed decision matrices and examples.

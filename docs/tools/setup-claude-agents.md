@@ -72,7 +72,7 @@ Simply invoke: `setup_claude_agents()`
 | Agent | Model | Role |
 |-------|-------|------|
 | **Feature Architect** | Opus | Feature design from user requirements |
-| **Planning Specialist** | Opus | Task breakdown and decomposition |
+| **Planning Specialist** | Sonnet | Task breakdown and decomposition (cost optimized) |
 | **Bug Triage Specialist** | Sonnet | Bug investigation and prioritization |
 
 ## Usage Patterns

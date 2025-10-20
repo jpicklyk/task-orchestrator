@@ -1,7 +1,7 @@
 ---
 name: Task Manager
 description: "Routes individual tasks to specialists. START mode: reads task, recommends specialist, passes dependency context. END mode: verifies tests passed, creates task summary. Use for single-task execution with specialist coordination."
-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, mcp__task-orchestrator__set_status, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__query_dependencies
+tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, mcp__task-orchestrator__manage_container, mcp__task-orchestrator__recommend_agent, mcp__task-orchestrator__query_dependencies
 model: sonnet
 ---
 
@@ -40,7 +40,12 @@ You are an interface agent between the orchestrator and specialist agents.
 
 ### Step 1: Read the task
 ```
-get_task(id='[task-id]', includeSections=true)
+query_container(
+  operation="get",
+  containerType="task",
+  id="[task-id]",
+  includeSections=true
+)
 ```
 Execute this tool call first to get task details.
 
@@ -59,12 +64,21 @@ This tool reads agent-mapping.yaml and returns the correct specialist based on t
 
 ### Step 2.5: Check for dependencies (if task has dependencies)
 ```
-get_task_dependencies(taskId='[task-id]', direction='incoming', includeTaskInfo=true)
+query_dependencies(
+  taskId="[task-id]",
+  direction="incoming",
+  includeTaskInfo=true
+)
 ```
 
 If the task has incoming dependencies (tasks that block this one), read their Summary sections:
 ```
-get_sections(entityType='TASK', entityId='[dependency-task-id]', tags='summary')
+query_sections(
+  entityType="TASK",
+  entityId="[dependency-task-id]",
+  tags="summary",
+  includeContent=true
+)
 ```
 
 **Dependency Context Strategy:**
@@ -80,7 +94,12 @@ get_sections(entityType='TASK', entityId='[dependency-task-id]', tags='summary')
 
 ### Step 3: Set task in-progress
 ```
-set_status(id='[task-id]', status='in-progress')
+manage_container(
+  operation="setStatus",
+  containerType="task",
+  id="[task-id]",
+  status="in-progress"
+)
 ```
 Execute this tool call to update task status.
 
@@ -208,21 +227,24 @@ Read through the specialist's output (provided by orchestrator) and identify:
 
 **Create detailed Summary section**:
 ```
-add_section(
-  entityType: "TASK",
-  entityId: "[task-id]",
-  title: "Summary",
-  usageDescription: "Detailed summary of completed work for future reference",
-  content: "[extracted info in detailed format below]",
-  contentFormat: "MARKDOWN",
-  ordinal: 0,
-  tags: "summary,completion"
+manage_sections(
+  operation="add",
+  entityType="TASK",
+  entityId="[task-id]",
+  title="Summary",
+  usageDescription="Detailed summary of completed work for future reference",
+  content="[extracted info in detailed format below]",
+  contentFormat="MARKDOWN",
+  ordinal=0,
+  tags="summary,completion"
 )
 ```
 
 **Populate task summary field** (max 500 characters):
 ```
-update_task(
+manage_container(
+  operation="update",
+  containerType="task",
   id: "[task-id]",
   summary: "[Brief 2-3 sentence outcome describing what was accomplished - max 500 chars]"
 )
@@ -235,7 +257,12 @@ update_task(
 
 ### Step 3: Mark complete
 ```
-set_status(id='[task-id]', status='completed')
+manage_container(
+  operation="setStatus",
+  containerType="task",
+  id="[task-id]",
+  status="completed"
+)
 ```
 
 ### Step 4: Return brief summary (2-3 sentences)

@@ -223,10 +223,11 @@ Orchestrator stores brief (~200 tokens), discards full context
 ```
 
 **Example Subagents**:
-- **Backend Engineer** - Implement REST APIs, services, business logic (2000-3000 tokens)
-- **Database Engineer** - Create schemas, migrations, query optimization (1500-2500 tokens)
-- **Test Engineer** - Write comprehensive test suites (1800-2800 tokens)
-- **Planning Specialist** - Requirements analysis, architecture decisions (2000-3500 tokens)
+- **Backend Engineer** (Sonnet) - Implement REST APIs, services, business logic (2000-3000 tokens)
+- **Database Engineer** (Sonnet) - Create schemas, migrations, query optimization (1500-2500 tokens)
+- **Test Engineer** (Sonnet) - Write comprehensive test suites (1800-2800 tokens)
+- **Planning Specialist** (Sonnet) - Task breakdown, dependency mapping (1200-2000 tokens, 70% cost savings vs Opus)
+- **Feature Architect** (Opus) - Feature design, requirements formalization (800-1500 tokens)
 
 **Key Characteristics**:
 - ✅ Full reasoning capabilities

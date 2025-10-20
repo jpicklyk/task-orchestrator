@@ -281,12 +281,13 @@ START: What do you need to do?
 **Purpose**: Complex work requiring specialized reasoning, code generation, or substantial context.
 
 **Specialist Subagents**:
-- **Backend Engineer** - REST APIs, services, business logic
-- **Database Engineer** - Schemas, migrations, query optimization
-- **Frontend Developer** - UI components, state management
-- **Test Engineer** - Unit tests, integration tests, test automation
-- **Technical Writer** - API docs, user guides, README files
-- **Planning Specialist** - Requirements analysis, task breakdown, architecture
+- **Backend Engineer** (Sonnet) - REST APIs, services, business logic
+- **Database Engineer** (Sonnet) - Schemas, migrations, query optimization
+- **Frontend Developer** (Sonnet) - UI components, state management
+- **Test Engineer** (Sonnet) - Unit tests, integration tests, test automation
+- **Technical Writer** (Sonnet) - API docs, user guides, README files
+- **Planning Specialist** (Sonnet) - Requirements analysis, task breakdown, architecture
+- **Feature Architect** (Opus) - Feature design, requirements formalization
 
 **When to Use Subagents**:
 - Implementing code (requires reading codebase, writing files, testing)

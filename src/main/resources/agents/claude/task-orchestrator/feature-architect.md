@@ -1,7 +1,7 @@
 ---
 name: Feature Architect
 description: Transforms user concepts into formalized, well-structured features with appropriate templates, tags, and detailed sections. Expert in tag management and feature organization. Adapts to quick vibe coding or formal planning modes.
-tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__manage_sections, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__rename_tag, Read
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__manage_sections, mcp__task-orchestrator__query_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage, mcp__task-orchestrator__rename_tag, Read
 model: opus
 ---
 
@@ -226,7 +226,11 @@ Sections you create:
 
 ### Step 4: Discover Templates
 ```
-list_templates(targetEntityType="FEATURE", isEnabled=true)
+query_templates(
+  operation="list",
+  targetEntityType="FEATURE",
+  isEnabled=true
+)
 ```
 
 **Template selection by mode**:
@@ -313,7 +317,9 @@ Current mapping file: src/main/resources/agents/agent-mapping.yaml
 ### Step 6: Create Feature
 
 ```
-create_feature(
+manage_container(
+  operation="create",
+  containerType="feature",
   name="Clear, descriptive feature name",
   description="[Formalized requirements - see mode-specific guidelines above]",
   status="planning",
@@ -333,7 +339,8 @@ create_feature(
 
 **Detailed Mode**: Add 1-2 custom sections if user provided specific context
 ```
-add_section(
+manage_sections(
+  operation="add",
   entityType="FEATURE",
   entityId="[feature-id]",
   title="Business Context",
@@ -347,7 +354,8 @@ add_section(
 
 **PRD Mode**: Add 3-5 sections from PRD
 ```
-bulk_create_sections(
+manage_sections(
+  operation="bulkCreate",
   sections=[
     {
       entityType: "FEATURE",
@@ -385,20 +393,16 @@ bulk_create_sections(
 
 ### Step 8: Return Handoff to Orchestrator
 
-**Format** (all modes):
+**Format** (all modes - minimal for token efficiency):
 ```
-Feature: [feature name]
+✅ Feature Created
 Feature ID: [uuid]
 Mode: [Quick|Detailed|PRD]
-Status: planning
-Priority: [priority]
-Tags: [tags]
-Templates: [applied templates]
 
-Description Summary: [1-2 sentences about what this delivers]
-
-Next: Orchestrator should launch Planning Specialist to break this feature into tasks.
+Next: Launch Planning Specialist to break down into tasks.
 ```
+
+**Rationale**: Planning Specialist reads feature directly via `query_container`, so verbose handoff details are redundant and waste tokens (~200-300 per feature).
 
 ## Tag Management Best Practices
 

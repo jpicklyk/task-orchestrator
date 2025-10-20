@@ -516,6 +516,92 @@ You (orchestrator): See 7 summaries (2,800 tokens) - NOT 79k
 
 ---
 
+## Querying Container Details
+
+Task Orchestrator provides multiple ways to query container data, optimized for different use cases:
+
+### Show Details (Scoped Overview)
+
+Get a hierarchical view of a specific container without section content:
+
+```bash
+# Get feature with tasks
+query_container operation="overview" containerType="feature" id="<feature-uuid>"
+```
+
+**Returns:**
+- Feature metadata (name, status, priority, summary)
+- List of tasks (minimal: id, title, status, priority, complexity)
+- Task counts by status
+- NO section content (token efficient: ~1.2k tokens)
+
+**Use cases:**
+- "Show me what's in Feature X"
+- "What's the status of Project Y?"
+- "What tasks does Feature Z have?"
+
+### List All (Global Overview)
+
+Get an overview of all entities:
+
+```bash
+# List all features
+query_container operation="overview" containerType="feature"
+```
+
+**Returns:**
+- Array of all features
+- Minimal fields for each
+- NO child entities
+
+### Full Documentation (Get with Sections)
+
+Get complete entity with all section content:
+
+```bash
+# Get feature with full documentation
+query_container operation="get" containerType="feature" id="<uuid>" includeSections=true
+```
+
+**Returns:**
+- Complete feature metadata
+- All sections with full content
+- High token cost (~18k+ tokens)
+
+**Use this ONLY when:**
+- User explicitly asks for documentation
+- User needs to read section content
+- Editing sections
+
+### Comparison
+
+| Method | Token Cost | Use When |
+|--------|------------|----------|
+| Scoped overview | ~1.2k | "Show me Feature X" (hierarchical view) |
+| Global overview | ~500-2k | "List all features" |
+| Get with sections | ~18k+ | "Show me Feature X documentation" |
+
+**Recommendation:** Default to scoped overview for "show details" queries - you get more context for fewer tokens.
+
+### Example Workflow: Feature Status Check
+
+```bash
+# 1. List all features to find the one you want
+query_container operation="overview" containerType="feature"
+
+# 2. Get details on specific feature (scoped overview)
+query_container operation="overview" containerType="feature" id="<uuid>"
+# Returns: feature + task list + task counts (~1.2k tokens)
+
+# 3. If you need full documentation (rare):
+query_container operation="get" containerType="feature" id="<uuid>" includeSections=true
+# Returns: feature + all sections (~18k tokens)
+```
+
+**Token efficiency:** Steps 1-2 use ~1.7k tokens vs ~18k if you jumped to step 3.
+
+---
+
 ## Common Workflows
 
 ### Creating Your First Project

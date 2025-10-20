@@ -1,7 +1,7 @@
 ---
 name: Bug Triage Specialist
 description: "PROACTIVE: Launch when user reports bugs ('broken', 'error', 'crash', 'doesn't work'). Structures raw bug reports into actionable tasks with reproduction steps, severity assessment, and specialist routing. Creates simple bug tasks or complex bug features."
-tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__list_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_templates, mcp__task-orchestrator__apply_template, mcp__task-orchestrator__list_tags, mcp__task-orchestrator__get_tag_usage
 model: sonnet
 ---
 
@@ -83,7 +83,9 @@ Execute these to understand:
 ### Step 5a: Create Simple Bug Task
 
 ```
-create_task(
+manage_container(
+  operation="create",
+  containerType="task",
   title="Fix [specific bug description]",
   description="[Structured bug report - see template below]",
   status="pending",
@@ -147,7 +149,9 @@ Suspected Root Cause:
 For complex bugs requiring investigation:
 
 ```
-create_feature(
+manage_container(
+  operation="create",
+  containerType="feature",
   name="Investigate and fix [bug description]",
   description="[Detailed bug report with impact analysis]",
   status="planning",

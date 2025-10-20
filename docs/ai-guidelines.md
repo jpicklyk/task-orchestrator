@@ -603,26 +603,29 @@ Launch: Bug Triage Specialist agent
 ```
 ❓ Does the feature need task breakdown?
 
-→ YES? Launch Planning Specialist agent
-→ NO? If it's a simple feature, create tasks yourself
+→ YES? Launch Planning Specialist agent (Sonnet - cost optimized)
+→ NO? If it's a simple feature (1-2 tasks), create tasks yourself
 ```
 
 **Why**:
-- Planning Specialist excels at task decomposition
-- Creates well-sequenced task breakdown
+- Planning Specialist (Sonnet) excels at structured task decomposition
+- Creates well-sequenced task breakdown (70% cheaper than Opus)
 - Applies appropriate templates to each task
 - Establishes dependency relationships
+- **Token optimized**: Reads feature directly, no verbose handoff needed
 
 **Example**:
 ```
-Feature Architect creates "User Authentication" feature
+Feature Architect (Opus) creates "User Authentication" feature
+Returns: { featureId: "abc-123", mode: "Detailed" }
 
 AI: [Reviews feature complexity]
     [Feature requires: DB, API, Frontend, Tests, Docs]
-    "This feature needs a structured task breakdown.
-     I'll launch the Planning Specialist."
+    "This feature needs structured task breakdown.
+     I'll launch Planning Specialist (Sonnet)."
 
 Launch: Planning Specialist agent
+Planning Specialist: Reads feature via query_container(id="abc-123")
 ```
 
 ---

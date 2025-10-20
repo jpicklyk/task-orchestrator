@@ -28,9 +28,15 @@ You are an interface agent between the orchestrator and the Task Manager agent, 
 
 ### Step 1: Read the feature with full context
 ```
-get_feature(id='[feature-id]', includeTasks=true, includeTaskDependencies=true, includeTaskCounts=true)
+query_container(
+  operation="overview",
+  containerType="feature",
+  id="[feature-id]"
+)
 ```
 Execute this tool call to get complete feature details including all tasks and their dependencies.
+
+**Note**: Use `overview` operation for token-efficient hierarchical view (85-90% reduction vs full get with sections).
 
 ### Step 2: Analyze feature state
 
@@ -61,7 +67,12 @@ Execute this tool call to get recommended tasks that are:
 
 If feature is still in "planning" status and you're recommending the first task:
 ```
-update_feature(id='[feature-id]', status='in-development')
+manage_container(
+  operation="setStatus",
+  containerType="feature",
+  id="[feature-id]",
+  status="in-development"
+)
 ```
 
 ### Step 5: Return batch recommendations for orchestrator
@@ -156,7 +167,11 @@ Next: Review and resolve blocking dependencies before proceeding.
 ### Step 1: Read current feature state
 
 ```
-get_feature(id='[feature-id]', includeTasks=true, includeTaskDependencies=true, includeTaskCounts=true)
+query_container(
+  operation="overview",
+  containerType="feature",
+  id="[feature-id]"
+)
 ```
 
 From the response, analyze:
@@ -304,7 +319,7 @@ Next: Resolve blocking issues before proceeding. Possible circular dependency or
 **Key principle: CONTINUE mode is stateless**
 
 Always query fresh state from database:
-- Use `get_feature()` with task counts
+- Use `query_container(operation="overview", ...)` for task counts
 - Trust task status as source of truth:
   - `in-progress` = assigned to specialist, work happening
   - `completed` = finished
@@ -399,7 +414,12 @@ CONTINUE mode response:
 If task summaries are provided by orchestrator, use them directly.
 Otherwise, read the feature tasks to get summaries:
 ```
-get_feature(id='[feature-id]', includeTasks=true, includeSections=true)
+query_container(
+  operation="get",
+  containerType="feature",
+  id="[feature-id]",
+  includeSections=true
+)
 ```
 
 From the completed work, identify:
@@ -481,15 +501,16 @@ Missing test info (WARN - proceed with warning):
 
 **Create detailed Summary section**:
 ```
-add_section(
-  entityType='FEATURE',
-  entityId='[feature-id]',
-  title='Summary',
-  usageDescription='Summary of completed feature work including tasks, files, and technical decisions',
-  content='[markdown content in detailed format below]',
-  contentFormat='MARKDOWN',
+manage_sections(
+  operation="add",
+  entityType="FEATURE",
+  entityId="[feature-id]",
+  title="Summary",
+  usageDescription="Summary of completed feature work including tasks, files, and technical decisions",
+  content="[markdown content in detailed format below]",
+  contentFormat="MARKDOWN",
   ordinal=999,
-  tags='summary,completion'
+  tags="summary,completion"
 )
 ```
 
@@ -525,9 +546,11 @@ add_section(
 
 **Populate feature summary field** (max 500 characters):
 ```
-update_feature(
-  id='[feature-id]',
-  summary='[Brief 2-3 sentence outcome describing what was delivered - max 500 chars]'
+manage_container(
+  operation="update",
+  containerType="feature",
+  id="[feature-id]",
+  summary="[Brief 2-3 sentence outcome describing what was delivered - max 500 chars]"
 )
 ```
 
@@ -538,7 +561,12 @@ update_feature(
 
 ### Step 3: Mark feature complete
 ```
-update_feature(id='[feature-id]', status='completed')
+manage_container(
+  operation="setStatus",
+  containerType="feature",
+  id="[feature-id]",
+  status="completed"
+)
 ```
 
 ### Step 4: Return brief summary
