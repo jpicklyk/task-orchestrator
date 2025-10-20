@@ -86,9 +86,6 @@ blocked → pending (when dependencies complete)
 
 ```javascript
 function validate_status_transition(container_type, container_id, new_status) {
-  // Load configuration
-  config = load_config(".taskorchestrator/config.yaml")
-
   // Get current state
   container = query_container(
     operation="get",
@@ -96,10 +93,15 @@ function validate_status_transition(container_type, container_id, new_status) {
     id=container_id
   )
 
+  // Note: Configuration workflows are documented in CLAUDE.md
+  // MCP tools cannot load configuration files dynamically
+
   current_status = container.status
 
-  // Get allowed flow
-  flow = config.status_progression[container_type].default_flow
+  // Get allowed flow (documented, not loaded dynamically)
+  // For features: planning → in-development → testing → validating → completed
+  // For tasks: pending → in-progress → testing → completed
+  flow = get_default_flow(container_type)
 
   // Check if transition is valid
   current_index = flow.indexOf(current_status)
@@ -166,11 +168,9 @@ function check_prerequisites(container_type, status, container) {
         break
 
       case "validating":
-        // Tests must be triggered and passing
-        test_results = trigger_testing_hook(container.id)
-        if (!test_results.passed) {
-          failures.push("Tests failing: " + test_results.failures)
-        }
+        // Note: Testing hooks cannot be triggered via MCP tools
+        // Testing validation must be done externally
+        // Document testing requirements but don't attempt to trigger
         break
 
       case "pending-review":
@@ -231,11 +231,8 @@ function check_prerequisites(container_type, status, container) {
 
 ```javascript
 function auto_progress_status(container_type, container_id) {
-  // Check if auto-progression enabled
-  config = load_config()
-  if (!config.automation?.auto_progress_status) {
-    return {action: "skip", reason: "Auto-progression disabled"}
-  }
+  // Note: Auto-progression configuration is documented in CLAUDE.md
+  // Default behavior: recommend progression, don't auto-execute
 
   // Get container
   container = query_container(
@@ -291,8 +288,8 @@ function auto_progress_status(container_type, container_id) {
 
 ```javascript
 function determine_next_status(container_type, container) {
-  config = load_config()
-  flow = config.status_progression[container_type].default_flow
+  // Use documented status flows (not dynamically loaded)
+  flow = get_default_flow(container_type)
 
   current_index = flow.indexOf(container.status)
 
@@ -327,10 +324,8 @@ function determine_next_status(container_type, container) {
         return "validating"  // Requires manual test trigger
 
       case "validating":
-        // Check if review enabled
-        if (config.quality_gates?.review?.enabled) {
-          return "pending-review"
-        }
+        // Note: Review gates are configured in CLAUDE.md
+        // Default: skip review, move to completed
         return "completed"
 
       case "pending-review":
@@ -362,71 +357,44 @@ function determine_next_status(container_type, container) {
 
 ```javascript
 function enforce_quality_gates(container_type, container_id, target_status) {
-  config = load_config()
-  gates = config.quality_gates || {}
+  // Note: Quality gates cannot be enforced via MCP tools
+  // Testing, security, and review hooks are external systems
+  // This skill can only document requirements, not enforce them
 
   blocked_by = []
 
-  // Testing gate
+  // Document quality gate requirements
   if (target_status === "validating" || target_status === "completed") {
-    if (gates.testing?.enabled && gates.testing?.blocking) {
-      test_result = trigger_testing_hook(container_id)
-
-      if (!test_result.passed) {
-        blocked_by.push({
-          gate: "testing",
-          reason: "Tests failing",
-          failures: test_result.failures,
-          action: "Fix failing tests before proceeding"
-        })
-      }
-
-      // Check coverage
-      if (gates.testing.requirements?.coverage_threshold) {
-        threshold = gates.testing.requirements.coverage_threshold
-        if (test_result.coverage < threshold) {
-          blocked_by.push({
-            gate: "testing",
-            reason: "Insufficient test coverage",
-            current: test_result.coverage,
-            required: threshold,
-            action: "Add tests to meet coverage threshold"
-          })
-        }
-      }
-    }
+    // Note: Testing must be done externally
+    // Document: "Ensure all tests pass before progressing to validating"
   }
 
-  // Review gate
   if (target_status === "completed") {
-    if (gates.review?.enabled && gates.review?.blocking) {
-      container = query_container(
-        operation="get",
-        containerType=container_type,
+    // Check basic completion requirements via MCP tools
+    container = query_container(
+      operation="get",
+      containerType=container_type,
+      id=container_id
+    )
+
+    // Verify all tasks complete (for features)
+    if (container_type === "feature") {
+      overview = query_container(
+        operation="overview",
+        containerType="feature",
         id=container_id
       )
 
-      if (container.status !== "pending-review") {
+      pending = overview.taskCounts.byStatus.pending || 0
+      in_progress = overview.taskCounts.byStatus['in-progress'] || 0
+
+      if (pending > 0 || in_progress > 0) {
         blocked_by.push({
-          gate: "review",
-          reason: "Review required",
-          action: "Move to pending-review status and obtain approval"
+          gate: "task_completion",
+          reason: `${pending + in_progress} tasks still incomplete`,
+          action: "Complete all tasks before marking feature complete"
         })
       }
-    }
-  }
-
-  // Security gate
-  if (gates.security?.enabled && gates.security?.blocking) {
-    security_result = trigger_security_hook(container_id)
-
-    if (!security_result.passed) {
-      blocked_by.push({
-        gate: "security",
-        reason: "Security scan failed",
-        vulnerabilities: security_result.issues,
-        action: "Fix security issues before proceeding"
-      })
     }
   }
 

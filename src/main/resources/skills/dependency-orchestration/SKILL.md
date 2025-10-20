@@ -1,11 +1,11 @@
 ---
 skill: dependency-orchestration
-description: Advanced dependency graph analysis, critical path identification, bottleneck detection, and parallel opportunity discovery for complex task workflows.
+description: Advanced dependency analysis, critical path identification, bottleneck detection, and parallel opportunity discovery using MCP tool orchestration patterns.
 ---
 
 # Dependency Orchestration Skill
 
-Comprehensive dependency analysis and resolution strategies for optimizing task execution workflows.
+Comprehensive dependency analysis and resolution strategies for optimizing task execution workflows through systematic MCP tool usage.
 
 ## When to Use This Skill
 
@@ -18,12 +18,12 @@ Comprehensive dependency analysis and resolution strategies for optimizing task 
 - "Resolve circular dependencies"
 
 **This skill handles:**
-- Dependency graph construction
-- Critical path identification
-- Bottleneck detection and resolution
+- Systematic dependency analysis using query patterns
+- Critical path identification through recursive queries
+- Bottleneck detection by analyzing outgoing dependencies
 - Parallel opportunity discovery
 - Circular dependency detection
-- Resolution strategy generation
+- Resolution strategy recommendations
 
 ## Tools Available
 
@@ -33,636 +33,443 @@ Comprehensive dependency analysis and resolution strategies for optimizing task 
 
 ## Core Workflows
 
-### 1. Build Dependency Graph
+### 1. Analyze Feature Dependencies
 
-**Construct complete dependency graph for feature:**
+**Tool Orchestration Pattern:**
 
-```javascript
-function build_dependency_graph(feature_id) {
-  // Get all tasks
-  tasks = query_container(
-    operation="search",
-    containerType="task",
-    featureId=feature_id
-  )
+```
+Step 1: Get all tasks in feature
+query_container(operation="search", containerType="task", featureId="...")
 
-  // Build graph structure
-  graph = {}
-  for (task in tasks) {
-    // Get all dependencies
-    deps = query_dependencies(
-      taskId=task.id,
-      direction="all",
-      includeTaskInfo=true
-    )
+Step 2: For each task, get dependencies
+query_dependencies(taskId="...", direction="all", includeTaskInfo=true)
 
-    graph[task.id] = {
-      title: task.title,
-      status: task.status,
-      complexity: task.complexity,
-      depends_on: deps.incoming,  // Tasks this depends on
-      blocks: deps.outgoing,       // Tasks this blocks
-      level: null  // Will calculate
-    }
-  }
+Step 3: Build dependency understanding
+For each task, track:
+- Incoming dependencies (what blocks this task)
+- Outgoing dependencies (what this task blocks)
+- Dependency status (complete/incomplete)
 
-  // Calculate dependency levels
-  calculate_levels(graph)
-
-  return graph
-}
+Step 4: Identify patterns
+- Tasks with no incoming deps = can start immediately
+- Tasks with many outgoing deps = potential bottlenecks
+- Tasks blocked by incomplete deps = currently blocked
 ```
 
-**Graph representation:**
-```json
-{
-  "task-1": {
-    "title": "Create database schema",
-    "status": "completed",
-    "complexity": 5,
-    "depends_on": [],
-    "blocks": ["task-2"],
-    "level": 0
-  },
-  "task-2": {
-    "title": "Implement API",
-    "status": "in-progress",
-    "complexity": 7,
-    "depends_on": ["task-1"],
-    "blocks": ["task-4"],
-    "level": 1
-  },
-  "task-3": {
-    "title": "Create UI",
-    "status": "pending",
-    "complexity": 6,
-    "depends_on": [],
-    "blocks": ["task-4"],
-    "level": 0
-  },
-  "task-4": {
-    "title": "Integration tests",
-    "status": "pending",
-    "complexity": 5,
-    "depends_on": ["task-2", "task-3"],
-    "blocks": [],
-    "level": 2
-  }
-}
+**Example:**
+
+```
+User: "Analyze dependencies for authentication feature"
+
+Actions:
+1. query_container(operation="search", containerType="task", featureId="auth-feature-id")
+   Returns: 8 tasks
+
+2. For each of 8 tasks:
+   query_dependencies(taskId="...", direction="all", includeTaskInfo=true)
+
+3. Analysis results:
+   - 2 tasks have no incoming dependencies (can start now)
+   - 1 task blocks 4 other tasks (BOTTLENECK)
+   - 3 tasks are blocked by incomplete dependencies
+   - 2 tasks are independent (can run in parallel)
+
+4. Report:
+   "Feature has 8 tasks with 1 critical bottleneck.
+   Recommend completing 'Implement auth API' first (unblocks 4 tasks).
+   2 tasks can start immediately in parallel."
 ```
 
 ### 2. Critical Path Identification
 
-**Find the longest path through dependencies:**
+**Tool Orchestration Pattern:**
 
-```javascript
-function find_critical_path(graph) {
-  paths = []
+```
+Step 1: Get all tasks
+query_container(operation="search", containerType="task", featureId="...")
 
-  function traverse(node_id, path, weight) {
-    node = graph[node_id]
+Step 2: Build dependency chains recursively
+For each task with no outgoing dependencies (end tasks):
+  Work backwards using incoming dependencies
+  Track: task1 ← task2 ← task3 ← task4
 
-    // Leaf node - end of path
-    if (node.blocks.length === 0) {
-      paths.push({
-        path: path.concat([node_id]),
-        weight: weight + node.complexity,
-        tasks: path.concat([node_id]).map(id => graph[id].title)
-      })
-      return
-    }
+Step 3: Calculate path lengths
+Sum complexity values along each path
 
-    // Traverse each blocked task
-    for (next_id in node.blocks) {
-      traverse(
-        next_id,
-        path.concat([node_id]),
-        weight + node.complexity
-      )
-    }
-  }
+Step 4: Identify longest path
+Path with highest total complexity = critical path
 
-  // Start from root nodes (no dependencies)
-  roots = Object.keys(graph).filter(id =>
-    graph[id].depends_on.length === 0
-  )
-
-  for (root in roots) {
-    traverse(root, [], 0)
-  }
-
-  // Return longest path
-  critical = paths.reduce((max, p) =>
-    p.weight > max.weight ? p : max
-  )
-
-  return {
-    path: critical.path,
-    tasks: critical.tasks,
-    total_complexity: critical.weight,
-    length: critical.path.length,
-    percentage_of_total: (critical.weight / sum_all_complexity) * 100
-  }
-}
+Step 5: Report findings
+"Critical path: [tasks] with total complexity X"
 ```
 
-**Output format:**
-```json
-{
-  "critical_path": {
-    "path": ["task-1", "task-2", "task-4"],
-    "tasks": [
-      "Create database schema",
-      "Implement API",
-      "Integration tests"
-    ],
-    "total_complexity": 17,
-    "length": 3,
-    "percentage_of_total": 68,
-    "message": "This path represents 68% of total work and determines minimum completion time."
-  }
-}
+**Example:**
+
+```
+User: "Show critical path for feature X"
+
+Actions:
+1. query_container(operation="search", containerType="task", featureId="...")
+   Returns: Tasks T1, T2, T3, T4
+
+2. For each task: query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
+
+3. Trace paths:
+   Path A: T1 (complexity 5) → T2 (complexity 7) → T4 (complexity 5) = 17
+   Path B: T3 (complexity 6) → T4 (complexity 5) = 11
+
+4. Report:
+   "Critical path: T1 → T2 → T4 (total complexity: 17, 68% of work)
+   This path determines minimum feature completion time."
 ```
 
 ### 3. Bottleneck Detection
 
-**Identify tasks blocking multiple other tasks:**
+**Tool Orchestration Pattern:**
 
-```javascript
-function find_bottlenecks(graph) {
-  bottlenecks = []
+```
+Step 1: Get all incomplete tasks
+query_container(operation="search", containerType="task", featureId="...", status="pending,in-progress")
 
-  for (task_id in graph) {
-    task = graph[task_id]
+Step 2: For each task, count outgoing dependencies
+query_dependencies(taskId="...", direction="outgoing", includeTaskInfo=true)
+Count how many tasks are blocked by this task
 
-    // Count how many tasks are blocked
-    blocked_count = task.blocks.length
+Step 3: Identify high-impact tasks
+Tasks blocking 3+ other tasks = HIGH impact bottleneck
+Tasks blocking 2 other tasks = MEDIUM impact
 
-    // Only consider incomplete tasks
-    if (task.status !== "completed" && task.status !== "cancelled") {
-      // High impact: Blocks 3+ tasks
-      if (blocked_count >= 3) {
-        bottlenecks.push({
-          task_id: task_id,
-          title: task.title,
-          status: task.status,
-          complexity: task.complexity,
-          blocks_count: blocked_count,
-          blocked_tasks: task.blocks.map(id => graph[id].title),
-          impact: "high",
-          recommendation: "Prioritize completion immediately"
-        })
-      }
-      // Medium impact: Blocks 2 tasks
-      else if (blocked_count === 2) {
-        bottlenecks.push({
-          task_id: task_id,
-          title: task.title,
-          status: task.status,
-          complexity: task.complexity,
-          blocks_count: blocked_count,
-          blocked_tasks: task.blocks.map(id => graph[id].title),
-          impact: "medium",
-          recommendation: "Complete before starting blocked tasks"
-        })
-      }
-    }
-  }
+Step 4: Prioritize by impact and status
+- In-progress bottlenecks = highest priority (complete ASAP)
+- Pending bottlenecks = high priority (start soon)
+- Include task complexity in recommendations
 
-  // Sort by impact (blocks_count descending)
-  return bottlenecks.sort((a, b) => b.blocks_count - a.blocks_count)
-}
+Step 5: Report with actions
+"Bottleneck: [Task X] blocks [N] tasks. Complete this first."
 ```
 
-**Output format:**
-```json
-{
-  "bottlenecks": [
-    {
-      "task_id": "task-2",
-      "title": "Implement API",
-      "status": "in-progress",
-      "complexity": 7,
-      "blocks_count": 4,
-      "blocked_tasks": [
-        "Integration tests",
-        "Performance tests",
-        "API documentation",
-        "Frontend integration"
-      ],
-      "impact": "high",
-      "recommendation": "Prioritize completion immediately - blocking 4 tasks"
-    }
-  ]
-}
+**Example:**
+
+```
+User: "Find bottlenecks in feature Y"
+
+Actions:
+1. query_container(operation="search", containerType="task", featureId="...", status="pending,in-progress")
+   Returns: 6 active tasks
+
+2. For each task: query_dependencies(taskId="...", direction="outgoing", includeTaskInfo=true)
+   Results:
+   - Task A: blocks 4 tasks (HIGH IMPACT)
+   - Task B: blocks 2 tasks (MEDIUM IMPACT)
+   - Task C-F: block 0-1 tasks (LOW IMPACT)
+
+3. Report:
+   "HIGH IMPACT BOTTLENECK:
+   'Implement auth API' (in-progress, complexity 7) blocks 4 tasks.
+   Recommend: Prioritize completion immediately.
+
+   MEDIUM IMPACT:
+   'Setup database' (pending, complexity 5) blocks 2 tasks.
+   Recommend: Start after auth API."
 ```
 
 ### 4. Parallel Opportunity Discovery
 
-**Find groups of tasks that can run concurrently:**
+**Tool Orchestration Pattern:**
 
-```javascript
-function discover_parallel_opportunities(graph) {
-  opportunities = []
+```
+Step 1: Get all pending tasks
+query_container(operation="search", containerType="task", featureId="...", status="pending")
 
-  // Group tasks by dependency level
-  levels = {}
-  for (task_id in graph) {
-    level = graph[task_id].level
-    if (!levels[level]) levels[level] = []
-    levels[level].push(task_id)
-  }
+Step 2: For each task, check if unblocked
+query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
+If all incoming dependencies are complete → task is ready
 
-  // Analyze each level for parallel potential
-  for (level in levels) {
-    tasks = levels[level]
+Step 3: Group ready tasks by domain
+Using task tags, group by:
+- database tasks
+- backend tasks
+- frontend tasks
+- testing tasks
 
-    // Only levels with 2+ tasks can be parallel
-    if (tasks.length > 1) {
-      // Check if tasks have interdependencies
-      parallel_group = []
+Step 4: Calculate parallelism benefit
+Tasks in different domains = can run truly parallel
+Sum complexity: serial vs parallel time savings
 
-      for (task_id in tasks) {
-        // Check if this task blocks any other in same level
-        interdependent = tasks.some(other_id =>
-          other_id !== task_id &&
-          graph[task_id].blocks.includes(other_id)
-        )
-
-        if (!interdependent) {
-          parallel_group.push(task_id)
-        }
-      }
-
-      // If 2+ tasks can run parallel
-      if (parallel_group.length > 1) {
-        // Calculate time saved
-        total_complexity = parallel_group.reduce((sum, id) =>
-          sum + graph[id].complexity, 0
-        )
-        max_complexity = Math.max(...parallel_group.map(id =>
-          graph[id].complexity
-        ))
-        time_saved = total_complexity - max_complexity
-
-        opportunities.push({
-          level: level,
-          task_count: parallel_group.length,
-          task_ids: parallel_group,
-          task_titles: parallel_group.map(id => graph[id].title),
-          total_complexity: total_complexity,
-          parallel_time: max_complexity,
-          time_saved: time_saved,
-          efficiency_gain: (time_saved / total_complexity) * 100
-        })
-      }
-    }
-  }
-
-  return opportunities.sort((a, b) => b.time_saved - a.time_saved)
-}
+Step 5: Report opportunities
+"Can run in parallel: [tasks] - saves X% time"
 ```
 
-**Output format:**
-```json
-{
-  "opportunities": [
-    {
-      "level": 0,
-      "task_count": 2,
-      "task_ids": ["task-1", "task-3"],
-      "task_titles": [
-        "Create database schema",
-        "Create UI components"
-      ],
-      "total_complexity": 11,
-      "parallel_time": 6,
-      "time_saved": 5,
-      "efficiency_gain": 45,
-      "message": "Running these 2 tasks in parallel saves 45% time"
-    }
-  ]
-}
+**Example:**
+
+```
+User: "Find parallel opportunities in feature Z"
+
+Actions:
+1. query_container(operation="search", containerType="task", featureId="...", status="pending")
+   Returns: 5 pending tasks
+
+2. For each: query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
+   Results:
+   - T1 (Database): no incomplete dependencies (READY)
+   - T2 (Backend): blocked by T5
+   - T3 (Frontend): no incomplete dependencies (READY)
+   - T4 (Tests): blocked by T2, T3
+   - T5 (Backend): in-progress
+
+3. Identify parallel group: T1 and T3
+   - Different domains (database + frontend)
+   - No interdependencies
+   - Total complexity: 11
+   - Parallel time: max(5, 6) = 6
+   - Time saved: 5 units (45%)
+
+4. Report:
+   "Parallel opportunity: Run 'Database schema' and 'UI components' simultaneously.
+   Saves 45% time (11 → 6 complexity units)."
 ```
 
 ### 5. Circular Dependency Detection
 
-**Detect and report circular dependencies:**
+**Tool Orchestration Pattern:**
 
-```javascript
-function detect_circular_dependencies(graph) {
-  cycles = []
+```
+Step 1: Get all tasks
+query_container(operation="search", containerType="task", featureId="...")
 
-  function dfs(node_id, path, visited) {
-    // Cycle detected
-    if (path.includes(node_id)) {
-      cycle_start = path.indexOf(node_id)
-      cycle = path.slice(cycle_start).concat([node_id])
-      cycles.push(cycle)
-      return
-    }
+Step 2: For each task, trace dependency chain
+query_dependencies(taskId="...", direction="outgoing", includeTaskInfo=true)
+For each blocked task, recursively query its outgoing dependencies
 
-    // Already fully explored
-    if (visited.includes(node_id)) return
+Step 3: Track visited tasks
+If you encounter a task already in current chain → circular dependency found
 
-    visited.push(node_id)
-    path.push(node_id)
+Step 4: Identify the cycle
+Report: TaskA → TaskB → TaskC → TaskA
 
-    // Visit all tasks this blocks
-    for (next_id in graph[node_id].blocks) {
-      dfs(next_id, path.slice(), visited)
-    }
-  }
-
-  // Start DFS from each node
-  for (start_id in graph) {
-    dfs(start_id, [], [])
-  }
-
-  // Format results
-  return cycles.map(cycle => ({
-    cycle: cycle,
-    tasks: cycle.map(id => graph[id].title),
-    length: cycle.length,
-    resolution_options: generate_resolution_options(cycle, graph)
-  }))
-}
+Step 5: Suggest resolution
+Analyze which dependency is weakest/most recent
+Recommend removal to break cycle
 ```
 
-**Output format:**
-```json
-{
-  "circular_dependencies": [
-    {
-      "cycle": ["task-2", "task-5", "task-7", "task-2"],
-      "tasks": [
-        "Implement API",
-        "Add caching",
-        "Update API for cache",
-        "Implement API"
-      ],
-      "length": 3,
-      "resolution_options": [
-        "Remove dependency: task-7 → task-2 (Update API doesn't actually need Implement API)",
-        "Reorder: Move caching to separate feature",
-        "Split: Divide task-2 into API-v1 and API-v2"
-      ]
-    }
-  ]
-}
+**Example:**
+
+```
+User: "Check for circular dependencies in feature W"
+
+Actions:
+1. query_container(operation="search", containerType="task", featureId="...")
+   Returns: 6 tasks
+
+2. For T1: query_dependencies(taskId="T1", direction="outgoing")
+   T1 blocks T3
+
+3. For T3: query_dependencies(taskId="T3", direction="outgoing")
+   T3 blocks T5
+
+4. For T5: query_dependencies(taskId="T5", direction="outgoing")
+   T5 blocks T1 → CIRCULAR DEPENDENCY DETECTED!
+
+5. Report:
+   "⚠️ Circular dependency detected:
+   T1 → T3 → T5 → T1
+
+   Tasks involved:
+   - T1: Implement API
+   - T3: Add caching
+   - T5: Update API for cache
+
+   Resolution options:
+   1. Remove T5 → T1 (most recent dependency)
+   2. Reorder: Complete T1, then T5 won't need to depend on T1
+   3. Split T5 into two tasks to break cycle"
 ```
 
 ### 6. Generate Resolution Strategy
 
-**Create actionable resolution plan:**
+**Tool Orchestration Pattern:**
 
-```javascript
-function generate_resolution_strategy(bottlenecks, critical_path, opportunities) {
-  strategy = {
-    immediate: [],   // Do now
-    next: [],        // Do after immediate
-    parallel: [],    // Can do simultaneously
-    defer: []        // Can wait
-  }
+```
+Step 1: Identify blocked tasks
+Use patterns from Workflow 1 and 3
 
-  // Priority 1: Critical path bottlenecks
-  critical_bottlenecks = bottlenecks.filter(b =>
-    critical_path.path.includes(b.task_id)
-  )
-  strategy.immediate = critical_bottlenecks
+Step 2: Prioritize bottlenecks
+Use pattern from Workflow 3
 
-  // Priority 2: High-impact non-critical bottlenecks
-  high_impact = bottlenecks.filter(b =>
-    b.impact === "high" &&
-    !critical_path.path.includes(b.task_id)
-  )
-  strategy.next = high_impact
+Step 3: Find parallel opportunities
+Use pattern from Workflow 4
 
-  // Identify parallel opportunities
-  strategy.parallel = opportunities.filter(o =>
-    o.efficiency_gain > 30  // Only suggest if 30%+ gain
-  )
+Step 4: Create execution plan
+Priority 1: Bottlenecks on critical path
+Priority 2: High-impact bottlenecks off critical path
+Priority 3: Tasks with parallel opportunities
 
-  // Everything else can be deferred
-  all_prioritized = [
-    ...strategy.immediate.map(t => t.task_id),
-    ...strategy.next.map(t => t.task_id)
-  ]
-  strategy.defer = Object.keys(graph).filter(id =>
-    !all_prioritized.includes(id) &&
-    graph[id].status === "pending"
-  )
-
-  return strategy
-}
+Step 5: Report actionable strategy
+"Execute in this order: [sequence] for optimal completion time"
 ```
 
-## Examples
+**Example:**
 
-### Example 1: Analyze Feature Dependencies
-
-**User:** "Analyze dependencies for authentication feature"
-
-**Actions:**
-```javascript
-1. build_dependency_graph(feature_id)
-2. find_critical_path(graph)
-3. find_bottlenecks(graph)
-4. discover_parallel_opportunities(graph)
-
-5. Return comprehensive analysis:
-   "Feature: Authentication System
-   Total tasks: 8
-
-   Critical Path (68% of work):
-   1. Database schema → 2. API implementation → 3. Integration tests
-
-   Bottlenecks:
-   - API implementation (blocks 4 tasks) - HIGH PRIORITY
-
-   Parallel Opportunities:
-   - Level 0: Database schema + UI components (45% time saved)
-   - Level 2: Unit tests + Documentation (30% time saved)
-
-   Recommendation: Complete API implementation first, then launch
-   parallel execution for tests and documentation."
 ```
+User: "What's the best way to complete feature X?"
 
-### Example 2: Find Bottlenecks
+Actions:
+1. Analyze dependencies (Workflow 1)
+2. Find critical path (Workflow 2): T1 → T2 → T4
+3. Find bottlenecks (Workflow 3): T2 blocks 4 tasks
+4. Find parallel opportunities (Workflow 4): T1 and T3 can run parallel
 
-**User:** "What's blocking progress on feature X?"
+5. Strategy:
+   "Optimal execution strategy:
 
-**Actions:**
-```javascript
-1. build_dependency_graph(feature_id)
-2. find_bottlenecks(graph)
-3. filter by status = "pending" or "blocked"
+   Phase 1 (Parallel):
+   - Start T1 (Database) and T3 (Frontend) simultaneously
+   - These have no dependencies
 
-4. Return: "Feature X has 2 bottlenecks:
+   Phase 2 (Critical):
+   - Start T2 (Backend API) after T1 completes
+   - T2 is critical bottleneck blocking 4 tasks
 
-   HIGH IMPACT:
-   - Task: Implement authentication API
-     Status: In Progress
-     Blocks: 4 tasks (tests, UI, docs, integration)
-     Recommendation: Prioritize completion
+   Phase 3 (Parallel):
+   - After T2 completes, 4 tasks become available
+   - Launch T4, T5, T6, T7 in parallel
 
-   MEDIUM IMPACT:
-   - Task: Database migration
-     Status: Pending
-     Blocks: 2 tasks (API, reporting)
-     Recommendation: Start this next"
-```
-
-### Example 3: Resolve Circular Dependency
-
-**User:** "Fix circular dependencies in feature Y"
-
-**Actions:**
-```javascript
-1. build_dependency_graph(feature_id)
-2. detect_circular_dependencies(graph)
-
-3. Return: "Circular dependency detected:
-   Task A → Task B → Task C → Task A
-
-   Resolution options:
-   1. Remove dependency: C → A (likely unnecessary)
-   2. Split Task A into A1 and A2
-   3. Reorder: Complete A first, remove from C's dependencies
-
-   Recommended: Option 1 - Remove C → A dependency
-   Rationale: Task C (Add caching) doesn't truly depend on
-   Task A (Initial API implementation)"
-```
-
-### Example 4: Find Critical Path
-
-**User:** "Show critical path for feature Z"
-
-**Actions:**
-```javascript
-1. find_critical_path(graph)
-
-2. Return: "Critical Path (minimum completion time):
-
-   Path: T1 → T2 → T4 → T6
-   Tasks:
-   1. Create database schema (Complexity: 5)
-   2. Implement core API (Complexity: 8)
-   3. Add authentication (Complexity: 7)
-   4. Integration testing (Complexity: 6)
-
-   Total complexity: 26 (68% of all work)
-   Length: 4 tasks
-
-   This path determines minimum feature completion time.
-   Optimize by:
-   - Parallelizing non-critical tasks
-   - Prioritizing critical path tasks
-   - Allocating best resources to critical tasks"
-```
-
-### Example 5: Discover Parallel Opportunities
-
-**User:** "Find parallel opportunities in feature X"
-
-**Actions:**
-```javascript
-1. discover_parallel_opportunities(graph)
-
-2. Return: "Found 3 parallel opportunities:
-
-   Opportunity 1 (Level 0): 45% time savings
-   - Database schema (Complexity: 5)
-   - UI components (Complexity: 6)
-   → Run in parallel: 11 → 6 time units
-
-   Opportunity 2 (Level 2): 33% time savings
-   - Unit tests (Complexity: 4)
-   - API documentation (Complexity: 5)
-   - Frontend tests (Complexity: 3)
-   → Run in parallel: 12 → 5 time units
-
-   Opportunity 3 (Level 3): 20% time savings
-   - E2E tests (Complexity: 6)
-   - Performance tests (Complexity: 5)
-   → Run in parallel: 11 → 6 time units
-
-   Total potential time savings: 40%"
-```
-
-## Resolution Strategies
-
-### Strategy 1: Remove Unnecessary Dependencies
-**When:** Circular dependencies or over-constrained graph
-**Action:** Analyze actual dependencies, remove false positives
-
-### Strategy 2: Split Complex Tasks
-**When:** Task is bottleneck with high complexity
-**Action:** Break into smaller sub-tasks with clearer dependencies
-
-### Strategy 3: Reorder Tasks
-**When:** Dependencies prevent optimal parallel execution
-**Action:** Restructure task order to maximize parallelism
-
-### Strategy 4: Parallel Sub-batches
-**When:** Batch has mixed dependencies
-**Action:** Split batch into parallel-safe sub-batches
-
-## Integration with Other Skills
-
-**Works alongside:**
-- **Task Orchestration Skill** - Provides dependency data for batching
-- **Feature Orchestration Skill** - Analyzes feature-level dependencies
-
-**Informs:**
-- Parallel execution strategies
-- Bottleneck prioritization
-- Critical path optimization
-
-## Visualization Helpers
-
-**Generate ASCII graph:**
-```
-Database Schema (T1)
-    ├─→ Backend API (T2)
-    │       └─→ Integration Tests (T4)
-    │
-UI Components (T3)
-    └─→ Integration Tests (T4)
-```
-
-**Generate dependency matrix:**
-```
-       T1  T2  T3  T4
-T1     -   ✓   -   -
-T2     -   -   -   ✓
-T3     -   -   -   ✓
-T4     -   -   -   -
+   Expected benefit: 40% faster than sequential execution"
 ```
 
 ## Best Practices
 
-1. **Always check for circular dependencies** before execution
-2. **Prioritize critical path** tasks
-3. **Address bottlenecks** before they block progress
-4. **Leverage parallel opportunities** for 40%+ time savings
-5. **Visualize complex graphs** for user clarity
-6. **Provide actionable recommendations** not just analysis
-7. **Consider task complexity** in time estimates
+### 1. Always Query Dependencies with includeTaskInfo
+
+```
+✅ Good:
+query_dependencies(taskId="...", direction="all", includeTaskInfo=true)
+
+❌ Bad:
+query_dependencies(taskId="...")
+```
+
+**Reason:** You need task status to determine if dependencies are complete
+
+### 2. Use Direction Parameter Appropriately
+
+- `direction="incoming"` - Find what blocks this task (for unblocking analysis)
+- `direction="outgoing"` - Find what this task blocks (for bottleneck analysis)
+- `direction="all"` - Full picture (for comprehensive analysis)
+
+### 3. Filter by Status for Relevance
+
+```
+✅ For active bottlenecks:
+query_container(operation="search", containerType="task", status="pending,in-progress")
+
+❌ Including completed tasks:
+query_container(operation="search", containerType="task")
+```
+
+**Reason:** Completed tasks aren't bottlenecks
+
+### 4. Consider Task Complexity in Analysis
+
+- Critical path = sum of complexity values
+- Bottleneck priority = (tasks_blocked × priority) - complexity
+- Parallel benefit = sum_complexity - max_complexity
+
+### 5. Report Actionable Recommendations
+
+Don't just describe problems:
+- ❌ "Task X has 5 dependencies"
+- ✅ "Complete these 2 tasks to unblock Task X: [list]"
+
+## Response Templates
+
+### Dependency Analysis Summary
+```
+Dependency Analysis for "[Feature Name]":
+
+Total Tasks: [N]
+Tasks ready to start: [M] ([list])
+Tasks blocked: [K] ([list with blocking tasks])
+
+Bottlenecks:
+- [Task A] blocks [X] tasks
+- [Task B] blocks [Y] tasks
+
+Recommendations:
+1. Start [ready tasks] in parallel
+2. Prioritize [bottleneck] completion
+3. Monitor [blocked tasks] for automatic unblocking
+```
+
+### Critical Path Report
+```
+Critical Path Analysis:
+
+Path: [T1] → [T2] → [T3] → [T4]
+Total complexity: [N] ([X]% of all work)
+Estimated time: [N] units
+
+Parallel opportunities:
+- [Tasks] can run alongside critical path
+- Expected time savings: [X]%
+
+Recommendation: Focus resources on critical path tasks
+```
+
+### Bottleneck Alert
+```
+⚠️ Bottleneck Detected:
+
+Task: "[Task Name]"
+Status: [status]
+Complexity: [N]/10
+Blocks: [M] tasks
+
+Blocked tasks:
+- [Task 1]
+- [Task 2]
+...
+
+Action required: Prioritize completion of "[Task Name]" immediately
+Impact: Unblocking this will enable [M] tasks to proceed
+```
+
+## Integration with Other Skills
+
+**Works alongside:**
+- **Dependency Analysis Skill** - Provides foundational blocked task queries
+- **Task Orchestration Skill** - Uses this analysis for batching decisions
+- **Feature Orchestration Skill** - Informs feature progress assessment
+
+**Complements:**
+- Planning Specialist subagent - Informs initial task breakdown
+- Task completion workflows - Identifies cascade effects
 
 ## Token Efficiency
 
-- Graph construction: ~400 tokens
-- Critical path analysis: ~150 tokens
-- Bottleneck detection: ~200 tokens
-- Parallel opportunities: ~250 tokens
-- **Total: 300-500 tokens per analysis**
+This skill is more token-intensive than others due to recursive querying:
+
+- Simple dependency check: ~200 tokens
+- Full feature analysis: ~800-1200 tokens
+- Critical path analysis: ~400-600 tokens
+- Bottleneck detection: ~300-500 tokens
+
+**Optimization tips:**
+- Use `status` filters to reduce task counts
+- Query dependencies only for relevant tasks
+- Cache results during analysis session
+- Use `includeTaskInfo=true` once, reuse data
 
 ## Success Metrics
 
 - 100% circular dependency detection
-- Identify critical path in < 2 seconds
-- 95% accuracy in bottleneck identification
-- 40% time savings from parallel opportunities
-- Token usage 60% lower than manual analysis
+- Accurate critical path identification
+- Bottleneck recommendations reduce completion time by 20-40%
+- Parallel opportunity discovery achieves 30-50% time savings
+- Zero false positives in blocking analysis
+
+## See Also
+
+- **Dependency Analysis Skill**: Basic dependency checking patterns
+- **Task Orchestration Skill**: Applying dependency analysis to execution
+- **examples.md**: Detailed usage scenarios

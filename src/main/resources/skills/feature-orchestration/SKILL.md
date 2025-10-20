@@ -204,67 +204,76 @@ if (all tasks completed) {
 
 ### 5. Quality Gate Validation
 
-**Before marking feature complete:**
+**Before marking feature complete using MCP tools:**
 
-```javascript
-// Validation checklist
-validation = {
-  all_tasks_complete: check_all_tasks_status(),
-  tests_passing: trigger_testing_hook(),
-  documentation_complete: check_documentation_sections(),
-  no_blockers: check_blocked_tasks()
-}
+**Tool Orchestration Pattern:**
 
-// If any validation fails
-if (validation has failures) {
-  report_blockers(validation.failures)
-  suggest_remediation_actions()
-  return "Cannot complete - address issues first"
-}
+```
+Step 1: Check all tasks complete
+query_container(operation="overview", containerType="feature", id="...")
+Check taskCounts.byStatus - ensure no pending/in-progress tasks
 
-// All validations pass
-create_feature_summary()
-manage_container(
-  operation="setStatus",
-  containerType="feature",
-  id="...",
-  status="completed"
-)
+Step 2: Verify no blocked tasks
+Search for pending tasks and check dependencies
+query_container(operation="search", containerType="task", featureId="...", status="pending")
+For each: query_dependencies(taskId="...", direction="incoming")
+
+Step 3: Check documentation sections exist
+query_sections(entityType="FEATURE", entityId="...", includeContent=false)
+Verify required sections are present
+
+Step 4: Report validation results
+If all checks pass: "Feature ready for completion"
+If any fail: "Cannot complete - [specific issues]"
+
+Step 5: Mark complete if validated
+manage_container(operation="setStatus", containerType="feature", id="...", status="completed")
+
+Note: Testing hooks are external to MCP and cannot be triggered directly.
+Testing validation should be done outside this skill or documented as manual step.
 ```
 
 ### 6. Feature Completion
 
-**Create summary and mark complete:**
+**Create summary and mark complete using MCP tools:**
 
-```javascript
-// Generate feature summary
-summary = generate_summary({
-  tasks_completed: task_count,
-  key_changes: extract_from_task_summaries(),
-  files_changed: aggregate_files_from_tasks(),
-  testing_results: get_test_results()
-})
+**Tool Orchestration Pattern:**
 
-// Create summary section
+```
+Step 1: Gather feature information
+query_container(operation="overview", containerType="feature", id="...")
+Get task counts and feature metadata
+
+Step 2: Build summary content manually
+Review completed tasks and synthesize:
+- Total tasks completed
+- Key functionality delivered
+- Major changes made
+- Testing status
+
+Step 3: Create feature summary section
 manage_sections(
   operation="add",
   entityType="FEATURE",
   entityId="...",
   title="Feature Summary",
   usageDescription="What was accomplished",
-  content=summary,
+  content="[Manually composed summary based on task review]",
   contentFormat="MARKDOWN",
   ordinal=999,
   tags="summary,completion"
 )
 
-// Mark complete
+Step 4: Mark feature complete
 manage_container(
   operation="setStatus",
   containerType="feature",
   id="...",
   status="completed"
 )
+
+Note: Summary generation requires manual review of task sections.
+There is no automatic aggregation function in MCP tools.
 ```
 
 ## Status Progression Flow

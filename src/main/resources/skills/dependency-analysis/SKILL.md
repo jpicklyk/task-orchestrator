@@ -1,7 +1,7 @@
 ---
 name: Dependency Analysis
 description: Analyze task dependencies including finding blocked tasks, checking dependency chains, and identifying bottlenecks. Use when investigating why tasks are blocked or planning parallel work.
-allowed-tools: mcp__task-orchestrator__query_tasks, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__query_container
+allowed-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_dependencies
 ---
 
 # Dependency Analysis Skill
@@ -37,23 +37,23 @@ This Skill helps you analyze task dependencies within Task Orchestrator to:
 
 **Steps**:
 1. Get feature ID (from context or ask user)
-2. Call `query_tasks(queryType="blocked", featureId=<id>)`
-3. For each blocked task:
-   - Get task details with `query_container(operation="get", containerType="task", id=<task_id>)`
-   - Identify what it's waiting for (dependency titles)
-4. Present summary: "X tasks are blocked, waiting on Y dependencies"
+2. Search for all tasks in feature: `query_container(operation="search", containerType="task", featureId=<id>)`
+3. For each task, check dependencies: `query_dependencies(taskId=<id>, direction="incoming")`
+4. Filter tasks that have incomplete blocking dependencies
+5. Present summary: "X tasks are blocked, waiting on Y dependencies"
 
 **Example**:
 ```
 User: "What's blocking progress on the authentication feature?"
 
 You (using this Skill):
-1. query_tasks(queryType="blocked", featureId="auth-feature-id")
-2. Found 3 blocked tasks:
-   - "Implement login UI" (blocked by "Create auth API")
-   - "Add logout flow" (blocked by "Create auth API")
+1. query_container(operation="search", containerType="task", featureId="auth-feature-id", status="pending,in-progress")
+2. For each task: query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
+3. Found 3 blocked tasks:
+   - "Implement login UI" (blocked by "Create auth API" - status: in-progress)
+   - "Add logout flow" (blocked by "Create auth API" - status: in-progress)
    - "Add password reset" (blocked by "Create auth API", "Implement login UI")
-3. Response: "3 tasks are blocked. Priority: Complete 'Create auth API' first (unblocks 3 tasks)"
+4. Response: "3 tasks are blocked. Priority: Complete 'Create auth API' first (unblocks 3 tasks)"
 ```
 
 ### Workflow 2: Analyze Dependency Chains
@@ -114,13 +114,15 @@ You (using this Skill):
 **When to use**: Multiple blocked tasks, need to decide what to work on
 
 **Steps**:
-1. Get all blocked tasks
-2. For each blocking dependency:
+1. Search for all tasks: `query_container(operation="search", containerType="task", featureId=<id>)`
+2. For each task, get dependencies: `query_dependencies(taskId=<id>, direction="all", includeTaskInfo=true)`
+3. Identify tasks that are blocking others (outgoing dependencies with incomplete status)
+4. For each blocking task:
    - Count how many tasks it unblocks
-   - Check task priority and complexity
-3. Calculate resolution score:
+   - Get task priority and complexity from search results
+5. Calculate resolution score:
    - Higher score = unblocks more tasks + higher priority + lower complexity
-4. Recommend top 3 tasks to complete first
+6. Recommend top 3 tasks to complete first
 
 **Scoring formula**:
 ```
@@ -135,13 +137,14 @@ Complexity: use inverse (10 - complexity_rating)
 User: "We have 10 blocked tasks. What should we work on first?"
 
 You (using this Skill):
-1. query_tasks(queryType="blocked", featureId="feature-id")
-2. Analyze blocking dependencies:
+1. query_container(operation="search", containerType="task", featureId="feature-id", status="pending,in-progress")
+2. For each task: query_dependencies(taskId="...", direction="outgoing", includeTaskInfo=true)
+3. Analyze blocking dependencies:
    - "Create auth API": unblocks 5 tasks, priority=high, complexity=6
      Score = (5×10) + (4×5) - (6×2) = 50 + 20 - 12 = 58
    - "Setup database": unblocks 3 tasks, priority=critical, complexity=8
      Score = (3×10) + (5×5) - (8×2) = 30 + 25 - 16 = 39
-3. Response: "Work on 'Create auth API' first (score: 58, unblocks 5 tasks)"
+4. Response: "Work on 'Create auth API' first (score: 58, unblocks 5 tasks)"
 ```
 
 ## Advanced Patterns
@@ -193,20 +196,24 @@ All 3 tasks have no dependencies and can proceed simultaneously."
 
 ## Tool Usage Guidelines
 
-### query_tasks (blocked)
+### Finding Blocked Tasks
 
-**Purpose**: Find all tasks blocked by dependencies
+**Approach**: Search for tasks, then check each for blocking dependencies
 
-**Parameters**:
-- `queryType`: "blocked" (required)
-- `featureId` (optional): Limit to specific feature
-- `projectId` (optional): Limit to specific project
-
-**Returns**: List of tasks with status=pending and incomplete dependencies
+**Steps**:
+1. Search for tasks: `query_container(operation="search", containerType="task", featureId=<id>, status="pending,in-progress")`
+2. For each task: `query_dependencies(taskId=<id>, direction="incoming", includeTaskInfo=true)`
+3. Filter tasks where any incoming dependency has status != "completed" and status != "cancelled"
 
 **Usage**:
 ```javascript
-query_tasks(queryType="blocked", featureId="550e8400-e29b-41d4-a716-446655440000")
+// Step 1: Get all active tasks
+query_container(operation="search", containerType="task", featureId="550e8400-e29b-41d4-a716-446655440000", status="pending,in-progress")
+
+// Step 2: Check each task for blockers
+query_dependencies(taskId="task-id", direction="incoming", includeTaskInfo=true)
+
+// Step 3: Identify blocked tasks from dependency status
 ```
 
 ### query_dependencies
@@ -276,8 +283,9 @@ query_container(operation="search", containerType="task", status="in_progress")
 
 Always begin with feature-level analysis:
 ```
-Step 1: query_tasks(queryType="blocked", featureId=X) → See overall blocking situation
-Step 2: query_dependencies(taskId=Y) → Drill into specific blockages
+Step 1: query_container(operation="search", containerType="task", featureId=X) → Get all tasks
+Step 2: query_dependencies(taskId=Y, ...) for each task → Identify blocked tasks
+Step 3: Analyze patterns and prioritize resolution
 ```
 
 ### 2. Consider Task Metadata
@@ -317,11 +325,11 @@ Don't just report problems, suggest solutions:
 
 ## Common Mistakes to Avoid
 
-### Mistake 1: Not Checking Transitive Dependencies
+### Mistake 1: Not Checking Complete Dependency Chains
 
 **Problem**: Missing hidden dependencies in the chain
 
-**Solution**: Always use `includeTransitive=true` for complete analysis
+**Solution**: Recursively query dependencies using `direction="incoming"` to build complete dependency tree
 
 ### Mistake 2: Ignoring Task Status
 

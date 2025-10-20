@@ -37,59 +37,38 @@ Intelligent task execution management with parallel processing, dependency-aware
 
 ### 1. Dependency-Aware Batching
 
-**Create execution batches based on dependencies:**
+**Identify which tasks can run in parallel using MCP tools:**
 
-```javascript
-// Algorithm for batching
-function create_execution_batches(feature_id) {
-  // Get all tasks
-  tasks = query_container(
-    operation="search",
-    containerType="task",
-    featureId=feature_id,
-    status="pending"
-  )
+**Tool Orchestration Pattern:**
 
-  // Get dependencies for all tasks
-  dependencies = {}
-  for (task in tasks) {
-    deps = query_dependencies(
-      taskId=task.id,
-      direction="incoming",  // What blocks this task
-      type="BLOCKS"
-    )
-    dependencies[task.id] = deps
-  }
-
-  // Build batches
-  batches = []
-  completed = new Set()
-  remaining = new Set(tasks)
-
-  while (remaining.size > 0) {
-    batch = []
-
-    // Find tasks with all dependencies completed
-    for (task in remaining) {
-      task_deps = dependencies[task.id]
-      if (all dependencies in completed) {
-        batch.push(task)
-      }
-    }
-
-    if (batch.length === 0) {
-      // Circular dependency detected
-      return {error: "Circular dependencies", tasks: remaining}
-    }
-
-    batches.push(batch)
-    completed.add(...batch)
-    remaining.remove(...batch)
-  }
-
-  return batches
-}
 ```
+Step 1: Get all pending tasks
+query_container(operation="search", containerType="task", featureId="...", status="pending")
+
+Step 2: For each task, check blocking dependencies
+query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
+
+Step 3: Group tasks by dependency level
+- Batch 1: Tasks with NO incomplete blocking dependencies (can start immediately)
+- Batch 2: Tasks blocked only by Batch 1 tasks
+- Batch 3: Tasks blocked by Batch 1 or 2 tasks
+- Continue until all tasks assigned to batches
+
+Step 4: If a task is blocked but all its blockers are also blocked, circular dependency detected
+```
+
+**Example Analysis:**
+
+Given 4 tasks with dependencies:
+- T1 (Database Schema) - no dependencies
+- T2 (API Implementation) - depends on T1
+- T3 (UI Components) - no dependencies
+- T4 (Integration Tests) - depends on T2 and T3
+
+**Result:**
+- Batch 1: T1, T3 (parallel - no dependencies)
+- Batch 2: T2 (sequential - depends on T1)
+- Batch 3: T4 (sequential - depends on T2, T3)
 
 **Output format:**
 ```json
@@ -138,34 +117,24 @@ function create_execution_batches(feature_id) {
 
 ### 2. Parallel Specialist Launch
 
-**Launch multiple specialists concurrently:**
+**Launch multiple specialists concurrently using MCP tools:**
 
-```javascript
-// For each task in parallel batch
-function launch_parallel_batch(batch) {
-  launch_instructions = []
+**Tool Orchestration Pattern:**
 
-  for (task in batch.tasks) {
-    // Get specialist recommendation
-    recommendation = recommend_agent(taskId=task.id)
-
-    // Prepare launch context
-    launch_instructions.push({
-      specialist: recommendation.agent,
-      task_id: task.id,
-      task_title: task.title,
-      launch_mode: "parallel",
-      batch_id: batch.batch_number
-    })
-  }
-
-  return {
-    action: "launch_parallel",
-    batch: batch.batch_number,
-    launches: launch_instructions
-  }
-}
 ```
+For each task in parallel batch:
+
+Step 1: Get specialist recommendation
+recommend_agent(taskId="task-uuid")
+
+Step 2: Prepare launch instructions for orchestrator
+Return message: "Launch [Specialist Name] for task [Task Title] (ID: task-uuid)"
+
+Step 3: Orchestrator launches specialists in parallel
+(Uses Task tool with multiple concurrent invocations)
+```
+
+**Key Point:** The skill identifies WHICH specialists to launch and in what order. The actual subagent launching is done by the orchestrator, not by this skill.
 
 **Orchestrator instructions format:**
 ```markdown
@@ -184,171 +153,133 @@ Wait for both to complete before proceeding to Batch 2.
 
 ### 3. Progress Monitoring
 
-**Track parallel execution progress:**
+**Track parallel execution progress using MCP tools:**
 
-```javascript
-function monitor_parallel_execution(batch_id, feature_id) {
-  // Get tasks in this batch
-  batch_tasks = get_batch_tasks(batch_id, feature_id)
+**Tool Orchestration Pattern:**
 
-  // Check status of each
-  status_counts = {
-    completed: [],
-    in_progress: [],
-    failed: [],
-    blocked: []
-  }
+```
+Step 1: Get current batch tasks (from earlier analysis)
+Keep list of task IDs currently being worked on
 
-  for (task_id in batch_tasks) {
-    task = query_container(
-      operation="get",
-      containerType="task",
-      id=task_id
-    )
-    status_counts[task.status].push(task_id)
-  }
+Step 2: Check each task status
+query_container(operation="overview", containerType="task", id="task-uuid")
+(Repeat for each task in batch)
 
-  // Calculate progress
-  total = batch_tasks.length
-  completed = status_counts.completed.length
+Step 3: Analyze status distribution
+Count how many tasks are:
+- completed
+- in-progress
+- blocked
+- pending
 
-  return {
-    batch_id: batch_id,
-    progress: `${completed}/${total}`,
-    percent: (completed / total) * 100,
-    status_breakdown: status_counts,
-    ready_for_next_batch: status_counts.in_progress.length === 0
-  }
-}
+Step 4: Determine if batch is complete
+If all tasks in batch are "completed" or "cancelled", batch is done
+If any task is "blocked", identify blocker using query_dependencies
+
+Step 5: Report progress
+Return: "Batch X: Y/Z tasks complete (N%)"
 ```
 
 ### 4. Dependency Cascade
 
 **Automatically trigger next batch when current completes:**
 
-```javascript
-function handle_task_completion(task_id) {
-  // Update task status
-  manage_container(
-    operation="setStatus",
-    containerType="task",
-    id=task_id,
-    status="completed"
-  )
+**Tool Orchestration Pattern:**
 
-  // Check if batch complete
-  batch_info = get_task_batch_info(task_id)
-  batch_complete = check_batch_completion(batch_info.batch_number)
+```
+When a task completes:
 
-  if (batch_complete) {
-    // Get next batch
-    next_batch = get_next_batch(batch_info.batch_number + 1)
+Step 1: Task is already marked complete by specialist
+(Specialists mark their own tasks complete)
 
-    if (next_batch) {
-      return {
-        action: "trigger_next_batch",
-        batch: next_batch,
-        cascade: true,
-        message: `Batch ${batch_info.batch_number} complete. Ready to launch Batch ${next_batch.batch_number}.`
-      }
-    } else {
-      // All batches complete
-      return {
-        action: "feature_tasks_complete",
-        message: "All task batches completed. Feature ready for testing."
-      }
-    }
-  }
+Step 2: Check if this unblocks other tasks
+query_dependencies(taskId="completed-task-id", direction="outgoing", includeTaskInfo=true)
 
-  return {
-    action: "wait",
-    message: `Batch ${batch_info.batch_number} still in progress.`
-  }
-}
+Step 3: For each previously blocked task, check if now unblocked
+For each outgoing dependency:
+  query_dependencies(taskId="dependent-task-id", direction="incoming", includeTaskInfo=true)
+  If all incoming dependencies are complete, task is now ready
+
+Step 4: Report newly available tasks
+"Task [X] complete. This unblocks [N] tasks: [list]"
+
+Step 5: Recommend next batch
+Identify newly unblocked tasks and recommend launching specialists
 ```
 
 ### 5. Specialist Routing
 
-**Intelligent routing with fallback:**
+**Intelligent routing using MCP tools:**
 
-```javascript
-function route_task_to_specialist(task_id) {
-  // Primary: Use recommend_agent tool
-  recommendation = recommend_agent(taskId=task_id)
+**Tool Orchestration Pattern:**
 
-  if (recommendation.recommended) {
-    return {
-      specialist: recommendation.agent,
-      reason: recommendation.reason,
-      matched_tags: recommendation.matchedTags
-    }
-  }
+```
+Step 1: Get specialist recommendation for task
+recommend_agent(taskId="task-uuid")
 
-  // Fallback: Load from config
-  config = load_config(".taskorchestrator/config.yaml")
-  default_specialist = config.specialist_routing?.default_specialist || "Backend Engineer"
-
-  fallback_behavior = config.specialist_routing?.fallback_behavior || "use_default"
-
-  if (fallback_behavior === "ask_user") {
-    return {
-      action: "ask_user",
-      task_id: task_id,
-      message: "No specialist matched. Which specialist should handle this task?"
-    }
-  }
-
-  return {
-    specialist: default_specialist,
-    reason: "Default fallback",
-    matched_tags: []
-  }
+Returns:
+{
+  "recommended": true/false,
+  "agent": "Backend Engineer",
+  "reason": "Task tags match backend patterns",
+  "matchedTags": ["backend", "api"]
 }
+
+Step 2: If recommendation provided, use it
+Launch recommended specialist
+
+Step 3: If no recommendation, use fallback
+Default to general specialist or ask user for guidance
+
+Note: Configuration loading is NOT available via MCP tools.
+Configuration should be documented statically in skill files or CLAUDE.md.
 ```
 
 ### 6. Task Completion
 
-**Complete task with summary section:**
+**Complete task with summary section using MCP tools:**
 
-```javascript
-function complete_task(task_id, summary_content) {
-  // Create summary section if not exists
-  manage_sections(
-    operation="add",
-    entityType="TASK",
-    entityId=task_id,
-    title="Task Summary",
-    usageDescription="What was accomplished",
-    content=summary_content,
-    contentFormat="MARKDOWN",
-    ordinal=998,
-    tags="summary,completion"
-  )
+**Tool Orchestration Pattern:**
 
-  // Create Files Changed section
-  manage_sections(
-    operation="add",
-    entityType="TASK",
-    entityId=task_id,
-    title="Files Changed",
-    usageDescription="Files modified during implementation",
-    content=extract_files_changed(summary_content),
-    contentFormat="MARKDOWN",
-    ordinal=999,
-    tags="files-changed,completion"
-  )
+```
+Note: Specialists typically mark their own tasks complete.
+This pattern is for orchestrator-driven completion.
 
-  // Mark complete
-  manage_container(
-    operation="setStatus",
-    containerType="task",
-    id=task_id,
-    status="completed"
-  )
+Step 1: Create task summary section
+manage_sections(
+  operation="add",
+  entityType="TASK",
+  entityId="task-uuid",
+  title="Task Summary",
+  usageDescription="What was accomplished",
+  content="Summary content from specialist...",
+  contentFormat="MARKDOWN",
+  ordinal=998,
+  tags="summary,completion"
+)
 
-  // Check for cascade
-  return handle_task_completion(task_id)
-}
+Step 2: Create files changed section
+manage_sections(
+  operation="add",
+  entityType="TASK",
+  entityId="task-uuid",
+  title="Files Changed",
+  usageDescription="Files modified during implementation",
+  content="- src/main/...\n- src/test/...",
+  contentFormat="MARKDOWN",
+  ordinal=999,
+  tags="files-changed,completion"
+)
+
+Step 3: Mark task complete
+manage_container(
+  operation="setStatus",
+  containerType="task",
+  id="task-uuid",
+  status="completed"
+)
+
+Step 4: Check for cascade (see Workflow 4)
 ```
 
 ## Execution Strategies
@@ -388,24 +319,25 @@ Batch 1b: T4, T5 (wait for slot)
 ```
 Respect resource constraints while maximizing parallelism.
 
-## Configuration Integration
+## Configuration Guidance
 
-**Load settings from `.taskorchestrator/config.yaml`:**
+**Configuration patterns (documented, not dynamically loaded):**
 
-```yaml
-parallelism:
-  enabled: true
-  max_parallel_tasks: 5
-  auto_launch: true
-  monitor_interval: 30
+**Parallelism Strategy:**
+- Always use dependency-based batching for safety
+- Respect task dependencies to avoid blocking issues
+- Launch specialists concurrently when dependencies allow
 
-  batch_strategy: "dependency"  # or "resource", "complexity"
+**Specialist Routing:**
+- Always use `recommend_agent` tool as primary routing method
+- If no recommendation, default to Backend Engineer or ask user
+- Never guess or hardcode specialist assignments
 
-specialist_routing:
-  use_recommend_agent: true
-  default_specialist: "Backend Engineer"
-  fallback_behavior: "use_default"  # or "ask_user"
-```
+**Best Practices:**
+- Maximum 3-5 parallel tasks for manageable monitoring
+- Always check dependencies before launching
+- Monitor task status after launching specialists
+- Report progress regularly to user
 
 ## Examples
 
