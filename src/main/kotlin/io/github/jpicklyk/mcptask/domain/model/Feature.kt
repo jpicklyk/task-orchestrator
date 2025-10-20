@@ -81,12 +81,22 @@ data class Feature(
 
 /**
  * Enum representing the possible statuses of a feature.
+ *
+ * v2.0: Additional orchestration statuses added for config-driven workflows.
+ * When .taskorchestrator/config.yaml exists, validation uses config instead of these enum values.
  */
 enum class FeatureStatus {
+    // v1.0 original statuses
     PLANNING,
     IN_DEVELOPMENT,
     COMPLETED,
-    ARCHIVED;
+    ARCHIVED,
+
+    // v2.0 orchestration statuses
+    TESTING,         // Feature in testing phase, test suite running
+    VALIDATING,      // Tests passed, final validation before completion
+    PENDING_REVIEW,  // Awaiting human review approval
+    BLOCKED;         // Feature blocked by external dependencies or issues
 
     companion object {
         fun fromString(value: String): FeatureStatus = try {

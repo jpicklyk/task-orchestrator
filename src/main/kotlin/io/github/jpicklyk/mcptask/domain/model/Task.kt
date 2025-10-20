@@ -114,11 +114,19 @@ data class Task(
 
 /**
  * Represents the current status of a task.
+ *
+ * v2.0: Additional orchestration statuses added for config-driven workflows.
+ * When .taskorchestrator/config.yaml exists, validation uses config instead of these enum values.
  */
 enum class TaskStatus {
+    // v1.0 original statuses
     PENDING,
     IN_PROGRESS,
     COMPLETED,
-    CANCELLED,
-    DEFERRED
+    CANCELLED,    // Explicitly cancelled by user
+    DEFERRED,     // Postponed indefinitely
+
+    // v2.0 orchestration statuses
+    TESTING,      // Implementation complete, running tests
+    BLOCKED       // Blocked by incomplete dependencies
 }

@@ -2,12 +2,20 @@ package io.github.jpicklyk.mcptask.domain.model
 
 /**
  * Represents the status of a project.
+ *
+ * v2.0: Additional orchestration statuses added for config-driven workflows.
+ * When .taskorchestrator/config.yaml exists, validation uses config instead of these enum values.
  */
 enum class ProjectStatus {
+    // v1.0 original statuses
     PLANNING,
     IN_DEVELOPMENT,
     COMPLETED,
-    ARCHIVED;
+    ARCHIVED,
+
+    // v2.0 orchestration statuses
+    ON_HOLD,     // Project temporarily paused
+    CANCELLED;   // Project cancelled/abandoned
 
     companion object {
         /**
