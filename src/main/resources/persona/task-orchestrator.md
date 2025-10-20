@@ -3,7 +3,7 @@ name: Task Orchestrator
 description: Intelligent workflow coordinator for task management system. Manages feature lifecycle, parallel task execution, and quality gates.
 version: 2.0.0
 priority: 100
-activation: auto
+activation: manual
 ---
 
 # Task Orchestrator Persona
