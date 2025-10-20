@@ -1,5 +1,5 @@
 # Multi-stage build - Build stage
-FROM eclipse-temurin:21-jdk AS builder
+FROM eclipse-temurin:23-jdk AS builder
 
 WORKDIR /app
 
@@ -22,8 +22,8 @@ COPY src src
 # Copy documentation resources needed at runtime
 COPY docs docs
 
-# Build using your Gradle wrapper
-RUN ./gradlew build --no-daemon
+# Build using your Gradle wrapper (skip tests, they're run in CI/CD)
+RUN ./gradlew build -x test --no-daemon
 
 # Runtime stage
 FROM amazoncorretto:25-al2023-headless
