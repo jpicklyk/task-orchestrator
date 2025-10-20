@@ -12,7 +12,39 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed for version calculation
+
+    - name: Set up JDK 23
+      uses: actions/setup-java@v4
+      with:
+        java-version: '23'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+
+    - name: Make gradlew executable
+      run: chmod +x gradlew
+
+    - name: Run tests
+      run: ./gradlew test --no-daemon --tests '*' --tests '!DescriptionFieldMigrationTest'
+
+    - name: Publish Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: always()
+      with:
+        report_paths: '**/build/test-results/test/TEST-*.xml'
+        check_name: 'Test Results'
+
   build:
+    needs: test  # Wait for tests to pass before building Docker
     runs-on: ubuntu-latest
     permissions:
       contents: read
