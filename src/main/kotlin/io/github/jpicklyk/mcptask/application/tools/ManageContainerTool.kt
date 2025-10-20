@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.application.tools
 
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
+import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
@@ -23,6 +24,8 @@ class ManageContainerTool(
     lockingService: SimpleLockingService? = null,
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
+
+    private val statusValidator = StatusValidator()
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val name: String = "manage_container"
@@ -1113,13 +1116,33 @@ Docs: task-orchestrator://docs/tools/manage-container
     }
 
     private suspend fun setProjectStatus(context: ToolExecutionContext, id: UUID, statusStr: String): JsonElement {
-        val status = parseProjectStatus(statusStr)
+        // Get existing project
         val existingResult = context.projectRepository().getById(id)
         val existing = when (existingResult) {
             is Result.Success -> existingResult.data
             is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve project") { JsonNull }
         }
 
+        // Validate transition with StatusValidator
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        val transitionValidation = statusValidator.validateTransition(currentStatusStr, statusStr, "project")
+
+        if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+            return errorResponse(
+                message = transitionValidation.reason,
+                code = ErrorCodes.VALIDATION_ERROR,
+                additionalData = buildJsonObject {
+                    put("currentStatus", currentStatusStr)
+                    put("attemptedStatus", statusStr)
+                    if (transitionValidation.suggestions.isNotEmpty()) {
+                        put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
+                    }
+                }
+            )
+        }
+
+        // Parse and update
+        val status = parseProjectStatus(statusStr)
         val updated = existing.update(status = status)
 
         return handleRepositoryResult(
@@ -1135,13 +1158,33 @@ Docs: task-orchestrator://docs/tools/manage-container
     }
 
     private suspend fun setFeatureStatus(context: ToolExecutionContext, id: UUID, statusStr: String): JsonElement {
-        val status = parseFeatureStatus(statusStr)
+        // Get existing feature
         val existingResult = context.featureRepository().getById(id)
         val existing = when (existingResult) {
             is Result.Success -> existingResult.data
             is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve feature") { JsonNull }
         }
 
+        // Validate transition with StatusValidator
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        val transitionValidation = statusValidator.validateTransition(currentStatusStr, statusStr, "feature")
+
+        if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+            return errorResponse(
+                message = transitionValidation.reason,
+                code = ErrorCodes.VALIDATION_ERROR,
+                additionalData = buildJsonObject {
+                    put("currentStatus", currentStatusStr)
+                    put("attemptedStatus", statusStr)
+                    if (transitionValidation.suggestions.isNotEmpty()) {
+                        put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
+                    }
+                }
+            )
+        }
+
+        // Parse and update
+        val status = parseFeatureStatus(statusStr)
         val updated = existing.update(status = status)
 
         return handleRepositoryResult(
@@ -1157,13 +1200,33 @@ Docs: task-orchestrator://docs/tools/manage-container
     }
 
     private suspend fun setTaskStatus(context: ToolExecutionContext, id: UUID, statusStr: String): JsonElement {
-        val status = parseTaskStatus(statusStr)
+        // Get existing task
         val existingResult = context.taskRepository().getById(id)
         val existing = when (existingResult) {
             is Result.Success -> existingResult.data
             is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve task") { JsonNull }
         }
 
+        // Validate transition with StatusValidator
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        val transitionValidation = statusValidator.validateTransition(currentStatusStr, statusStr, "task")
+
+        if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+            return errorResponse(
+                message = transitionValidation.reason,
+                code = ErrorCodes.VALIDATION_ERROR,
+                additionalData = buildJsonObject {
+                    put("currentStatus", currentStatusStr)
+                    put("attemptedStatus", statusStr)
+                    if (transitionValidation.suggestions.isNotEmpty()) {
+                        put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
+                    }
+                }
+            )
+        }
+
+        // Parse and update
+        val status = parseTaskStatus(statusStr)
         val updated = existing.copy(status = status, modifiedAt = Instant.now())
 
         return handleRepositoryResult(
