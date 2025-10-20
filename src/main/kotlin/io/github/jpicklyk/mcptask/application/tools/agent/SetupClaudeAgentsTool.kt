@@ -26,7 +26,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
     override val description: String = """Initializes Claude Code agent configuration system including agents and skills.
 
         What This Creates:
-        - `.claude/agents/task-orchestrator/` - 10 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, feature-manager, frontend-developer, planning-specialist, task-manager, technical-writer, test-engineer)
+        - `.claude/agents/task-orchestrator/` - 8 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, frontend-developer, planning-specialist, technical-writer, test-engineer)
         - `.claude/skills/` - 5 Skills for lightweight coordination (2-5 tool calls)
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
         - Decision gates in CLAUDE.md (if not present)
@@ -44,7 +44,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         Subagents (Complex Implementation - 2000+ Tool Calls):
         - Backend Engineer, Database Engineer, Frontend Developer, Test Engineer, Technical Writer (sonnet model)
         - Feature Architect, Planning Specialist (opus model)
-        - Feature Manager, Task Manager, Bug Triage Specialist (sonnet model)
+        - Bug Triage Specialist (sonnet model)
 
         Routing Decision: Skills for coordination (quick), Subagents for implementation (deep work)
 

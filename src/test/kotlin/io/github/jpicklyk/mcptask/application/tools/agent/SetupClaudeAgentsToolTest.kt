@@ -8,21 +8,24 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
  * Test for SetupClaudeAgentsTool
  *
- * NOTE: This test creates files in .claude/agents/task-orchestrator/ in the project root.
- * The tool is designed to be idempotent, so running tests multiple times
- * will skip existing files rather than overwrite them.
+ * NOTE: This test uses a temporary directory to avoid modifying the actual .claude/ directory.
+ * Each test creates a fresh temporary directory that is cleaned up after the test completes.
  */
 class SetupClaudeAgentsToolTest {
 
     private lateinit var tool: BaseToolDefinition
     private lateinit var mockContext: ToolExecutionContext
+    private lateinit var tempDir: Path
+    private lateinit var originalUserDir: String
 
     @BeforeEach
     fun setup() {
@@ -31,6 +34,22 @@ class SetupClaudeAgentsToolTest {
         mockContext = ToolExecutionContext(mockRepositoryProvider)
 
         tool = SetupClaudeAgentsTool()
+
+        // Create temporary directory for testing
+        tempDir = Files.createTempDirectory("claude-agents-test")
+
+        // Save original user.dir and set to temp directory
+        originalUserDir = System.getProperty("user.dir")
+        System.setProperty("user.dir", tempDir.toString())
+    }
+
+    @AfterEach
+    fun tearDown() {
+        // Restore original user.dir
+        System.setProperty("user.dir", originalUserDir)
+
+        // Clean up temporary directory
+        tempDir.toFile().deleteRecursively()
     }
 
     // Validation Tests
@@ -61,6 +80,15 @@ class SetupClaudeAgentsToolTest {
         assertTrue(response is JsonObject, "Response should be a JsonObject")
 
         val responseObj = response as JsonObject
+
+        // Print error details if the response failed
+        if (responseObj["success"]?.jsonPrimitive?.boolean != true) {
+            println("Tool execution failed:")
+            println("Message: ${responseObj["message"]?.jsonPrimitive?.content}")
+            println("Error: ${responseObj["error"]}")
+            println("Full response: $responseObj")
+        }
+
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Success should be true")
         assertTrue(
             responseObj["message"]?.jsonPrimitive?.content?.contains("setup") ?: false,
@@ -98,7 +126,7 @@ class SetupClaudeAgentsToolTest {
         val data = responseObj["data"]?.jsonObject
 
         val totalAgents = data!!["totalAgents"]?.jsonPrimitive?.int
-        assertEquals(10, totalAgents, "Should report 10 total agent files")
+        assertEquals(8, totalAgents, "Should report 8 total agent files")
     }
 
     @Test
@@ -123,10 +151,8 @@ class SetupClaudeAgentsToolTest {
             "bug-triage-specialist.md",
             "database-engineer.md",
             "feature-architect.md",
-            "feature-manager.md",
             "frontend-developer.md",
             "planning-specialist.md",
-            "task-manager.md",
             "technical-writer.md",
             "test-engineer.md"
         )

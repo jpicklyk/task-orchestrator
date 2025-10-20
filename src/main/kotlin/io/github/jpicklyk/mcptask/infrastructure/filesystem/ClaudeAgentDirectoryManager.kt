@@ -57,10 +57,8 @@ class ClaudeAgentDirectoryManager(
             "bug-triage-specialist.md",
             "database-engineer.md",
             "feature-architect.md",
-            "feature-manager.md",
             "frontend-developer.md",
             "planning-specialist.md",
-            "task-manager.md",
             "technical-writer.md",
             "test-engineer.md"
         )
