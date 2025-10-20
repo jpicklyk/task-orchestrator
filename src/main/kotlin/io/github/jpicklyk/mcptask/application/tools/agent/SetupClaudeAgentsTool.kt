@@ -27,7 +27,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
         What This Creates:
         - `.claude/agents/task-orchestrator/` - 8 specialized subagent definitions
-        - `.claude/skills/` - 2 Skills for lightweight coordination workflows
+        - `.claude/skills/` - 6 Skills for lightweight coordination workflows
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
         - `.taskorchestrator/config.yaml` - Orchestration configuration (enables v2.0 features)
         - Decision gates in CLAUDE.md (if not present)
@@ -43,9 +43,13 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         Skills (Lightweight Coordination - Quick Workflows):
         Lightweight patterns for quick coordination tasks (2-5 tool calls):
         - dependency-analysis: Analyze task dependencies, identify blocked tasks, find bottlenecks
+        - dependency-orchestration: Manage dependency creation, updates, and validation
+        - feature-orchestration: Coordinate feature lifecycle and task breakdown
         - hook-builder: Interactive hook creation tool (project-specific hooks not auto-installed)
+        - status-progression: Guide status transitions with validation and workflow rules
+        - task-orchestration: Coordinate task lifecycle, recommendations, and completion
 
-        Each Skill includes: SKILL.md (workflow guide), examples.md (working examples), troubleshooting.
+        Each Skill includes: SKILL.md (workflow guide), examples.md (working examples).
 
         Configuration Files:
         - agent-mapping.yaml: Maps task tags to appropriate subagents

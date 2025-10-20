@@ -67,7 +67,11 @@ class ClaudeAgentDirectoryManager(
         // Skill directories to copy
         val SKILL_DIRECTORIES = listOf(
             "dependency-analysis",
-            "hook-builder"
+            "dependency-orchestration",
+            "feature-orchestration",
+            "hook-builder",
+            "status-progression",
+            "task-orchestration"
         )
 
         init {

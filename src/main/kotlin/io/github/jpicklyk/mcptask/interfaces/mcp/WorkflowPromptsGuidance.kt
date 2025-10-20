@@ -503,20 +503,31 @@ object WorkflowPromptsGuidance {
                             4. Write merged config back to `.claude/settings.local.json`
                             5. Verify file was written successfully
 
-                            **Option [2] or [3]: Install Sub-Agents**
+                            **Option [2] or [3]: Install Sub-Agents and Skills**
 
                             If user chooses sub-agents:
                             1. Run the `setup_claude_agents` tool
-                            2. This creates `.claude/agents/` directory with 8 agent definitions:
-                               - feature-manager.md
-                               - task-manager.md
+                            2. This creates `.claude/agents/` directory with 8 subagent definitions:
                                - backend-engineer.md
-                               - frontend-developer.md
+                               - bug-triage-specialist.md
                                - database-engineer.md
-                               - test-engineer.md
-                               - technical-writer.md
+                               - feature-architect.md
+                               - frontend-developer.md
                                - planning-specialist.md
-                            3. Verify agent files were created successfully
+                               - technical-writer.md
+                               - test-engineer.md
+                            3. This also creates `.claude/skills/` directory with 6 skill definitions:
+                               - dependency-analysis (analyze dependencies, identify blockers)
+                               - dependency-orchestration (manage dependency creation/updates)
+                               - feature-orchestration (coordinate feature lifecycle)
+                               - hook-builder (interactive hook creation tool)
+                               - status-progression (guide status transitions)
+                               - task-orchestration (coordinate task lifecycle)
+                            4. Verify agent and skill files were created successfully
+
+                            **Skills vs Subagents**:
+                            - Skills: Lightweight coordination (2-5 tool calls, 500-800 tokens)
+                            - Subagents: Complex implementation (2000+ tool calls, deep work)
 
                             **Option [4]: Skip Both**
 
@@ -544,10 +555,11 @@ object WorkflowPromptsGuidance {
                                💡 To disable: Edit or remove "hooks" section from .claude/settings.local.json
 
                             [If subagents installed:]
-                            🤖 Sub-Agent System Ready:
+                            🤖 Subagents & Skills Ready:
                                • Use recommend_agent(taskId) to find appropriate specialist
-                               • Launch Feature Manager for multi-task features
-                               • Agent definitions: .claude/agents/*.md
+                               • Skills auto-activate for coordination tasks
+                               • Subagent definitions: .claude/agents/*.md
+                               • Skill definitions: .claude/skills/*/SKILL.md
                                • See docs/agent-orchestration.md for complete guide
 
                             [If neither installed:]
@@ -558,7 +570,7 @@ object WorkflowPromptsGuidance {
                             Next steps:
                             1. Try: "Show me the project overview"
                             2. Create your first feature: "Create a feature for [description]"
-                            3. [If subagents] For complex features: "Launch Feature Manager for [feature-name]"
+                            3. [If subagents] For implementation: Use recommend_agent(taskId) to find specialist
 
                             🎯 You're ready to use Task Orchestrator!
                             ```
