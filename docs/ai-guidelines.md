@@ -50,54 +50,68 @@ The AI Guidelines system provides AI agents with comprehensive knowledge about h
 
 ## AI Agent Orchestration System
 
-The Task Orchestrator implements a **3-level agent coordination architecture** for scalable, context-efficient AI workflows. This system enables multiple specialized AI agents to work together on complex projects while maintaining token efficiency and context isolation.
+The Task Orchestrator implements a **hybrid architecture** combining Skills (lightweight coordination), Hooks (zero-token automation), and Subagents (deep implementation) for maximum efficiency.
 
 ### Quick Overview
 
 ```
 Orchestrator (Main AI)
   ↓
-Feature Manager (Feature-level coordination)
+Skills (Coordination: 300-600 tokens)
+  ├─ Task Management - Route tasks, update status, check dependencies
+  ├─ Feature Management - Coordinate features, recommend next task
+  └─ Dependency Analysis - Identify blockers, analyze dependencies
   ↓
-Task Manager (Task-level coordination + specialist routing)
-  ↓
-Specialists (Backend, Frontend, Database, Testing, Documentation, Planning)
+Specialists (Implementation: 1500-3000 tokens)
+  ├─ Backend Engineer - REST APIs, services, business logic
+  ├─ Frontend Developer - UI components, user experience
+  ├─ Database Engineer - Schemas, migrations, queries
+  ├─ Test Engineer - Test suites, quality assurance
+  ├─ Technical Writer - Documentation, user guides
+  ├─ Feature Architect (Opus) - Feature design, requirements
+  ├─ Planning Specialist - Task breakdown, dependency mapping
+  └─ Bug Triage Specialist - Bug investigation, root cause analysis
 ```
 
 ### Key Concepts
 
-- **Orchestrator-Driven Model**: Only the main orchestrator can launch sub-agents (no nested agent chains)
-- **Context Isolation**: Each sub-agent starts with clean context, preventing token accumulation
-- **Bookends Pattern**: START/END modes minimize token usage through selective reading
-- **Dependency Context**: Task Manager passes completed dependency summaries to specialists
-- **Summary Sections**: Token-efficient knowledge transfer (~300-500 tokens) between agents
-- **Automatic Routing**: Task tags automatically select the right specialist via `recommend_agent`
+- **Skills-First Coordination**: Use Skills for 2-5 tool workflows (77% token savings vs subagents)
+- **Direct Specialist Launch**: Orchestrator launches specialists directly (no manager intermediaries)
+- **Self-Service Dependencies**: Specialists read their own dependencies via `query_dependencies`
+- **Context Isolation**: Each subagent starts with clean context, preventing token accumulation
+- **Summary Sections**: Token-efficient knowledge transfer (~300-500 tokens) between tasks
+- **Automatic Routing**: `recommend_agent` identifies specialists based on task tags
 
 ### When to Use Agent Orchestration
 
-**Use agent orchestration when**:
-- Working on multi-task features requiring coordination
-- Tasks have dependencies and need sequential execution
-- Different work types need different specialists (backend, frontend, database)
-- Want to maintain token efficiency across large projects
+**Use Skills for coordination when**:
+- Completing tasks (read → add_section → set_status)
+- Routing tasks to specialists
+- Checking dependencies before work
+- Recommending next task in feature
+- Simple 2-5 tool workflows
+
+**Use Subagents for implementation when**:
+- Writing code (APIs, services, components)
+- Creating database schemas and migrations
+- Implementing complex business logic
+- Writing comprehensive test suites
+- Architecture and design decisions
 
 **Benefits**:
-- **97% token reduction** in orchestrator context (briefs only vs. full context)
+- **77% token reduction** for coordination (Skills vs subagent managers)
+- **97% orchestrator context reduction** (briefs only vs. full context)
 - **Automatic specialist selection** based on task tags
-- **Dependency awareness** - specialists receive context from previous tasks
-- **Parallel execution** - independent tasks can run simultaneously
+- **Self-service dependency reading** - specialists get what they need
 - **Scales indefinitely** - O(1) context growth instead of O(n)
 
 ### Complete Documentation
 
-See **[Agent Orchestration Documentation](agent-orchestration.md)** for:
-- Detailed architecture explanation
-- Feature Manager and Task Manager workflows
-- Specialist agent patterns
-- Complete workflow examples (single task, dependency chains, parallel work)
-- Agent-mapping configuration
-- Setup and customization guide
-- Token efficiency analysis
+See these guides for detailed information:
+- **[Hybrid Architecture](hybrid-architecture.md)** - Skills, Hooks, and Subagents decision guide
+- **[Skills Guide](skills-guide.md)** - Task Management, Feature Management, Dependency Analysis Skills
+- **[Agent Orchestration](agent-orchestration.md)** - Specialist patterns and workflows
+- **[Hooks Guide](hooks-guide.md)** - Zero-token automation patterns
 
 ---
 
@@ -402,76 +416,78 @@ Savings: 36% overall, 63% on coordination
 
 **IMPORTANT**: Sub-agent orchestration ONLY works in Claude Code (requires `.claude/agents/` directory). Other AI clients (Cursor, Windsurf, Claude Desktop) should use templates and workflow prompts directly.
 
-#### When to Use Feature Manager
+#### When to Launch Specialists
 
-**Use Feature Manager when**:
-- Feature has 4+ tasks with dependencies
-- Need specialist coordination across domains
-- Want 97% token reduction (summaries vs full context)
-- Complex features requiring multi-specialist work
-
-**How to Launch**:
-```
-User: "Start working on the authentication feature"
-
-AI: [Checks feature task count]
-    [Feature has 6 tasks with dependencies]
-    [Decides to launch Feature Manager]
-
-"This feature has 6 interconnected tasks. I'll launch the Feature Manager
-to coordinate work efficiently."
-
-Launch: Feature Manager agent in START mode
-```
-
-#### When to Use Task Manager
-
-**Use Task Manager when**:
-- Individual task needs specialist routing
+**Launch specialists directly when**:
+- Task requires code implementation
 - Task has specialist tags (backend, frontend, database, testing, docs)
-- Task has completed dependency context to pass
-- Part of feature manager coordination flow
+- Complex reasoning or architecture decisions needed
+- Multi-step workflows requiring expertise
 
 **How to Launch**:
 ```
-AI: [Feature Manager recommends next task → T1]
-    [Check recommend_agent(T1)]
-    [Specialist: Backend Engineer]
+User: "Implement the user login API task"
 
-Launch: Task Manager agent in START mode with task ID
-Task Manager: Routes to Backend Engineer with dependency context
+AI: [Checks task tags: backend, api, authentication]
+    [Calls recommend_agent(taskId) → "Backend Engineer"]
+    [Launches Backend Engineer directly]
+
+Launch: Backend Engineer subagent with task ID
+Specialist: Reads task, reads dependencies, implements, returns brief
 ```
 
-#### Dependency Context Passing Mechanism
+**Streamlined Pattern** (no managers):
+```
+Orchestrator → Specialist (direct)
+```
 
-**How Context Flows Between Tasks**:
+vs Old Pattern (deprecated):
+```
+Orchestrator → Task Manager → Specialist (extra hop)
+```
 
-1. **Task Manager END** (previous task completion):
-   - Specialist completes work
-   - Task Manager creates Summary section (300-500 tokens)
-   - Summary includes: Completed work, Files Changed, Next Steps, Notes
+**Token Savings**: 1500 tokens per task (no manager overhead)
 
-2. **Task Manager START** (next task):
-   - Reads completed dependency summaries
-   - Passes relevant summaries to specialist
-   - Specialist has focused context (not full task details)
+#### Self-Service Dependency Reading
+
+**How Specialists Get Dependency Context**:
+
+Specialists read their own dependencies directly - no intermediary needed.
+
+**Specialist Workflow**:
+1. Read task: `query_container(operation="get", containerType="task", id="...", includeSections=true)`
+2. Check dependencies: `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
+3. For each completed dependency:
+   - Read its "Summary" section (300-500 tokens)
+   - Read "Files Changed" section for context
+   - Understand what was built before
+4. Implement current task with dependency awareness
+5. Create Summary and Files Changed sections for next task
 
 **Example Flow**:
 ```
-T1 (Database Schema) completes:
-  → Task Manager END creates Summary: "Created users table with auth columns..."
+T2 (API Implementation) - Backend Engineer launches:
 
-T2 (API Implementation) starts:
-  → Task Manager START reads T1 Summary
-  → Passes to Backend Engineer: "Previous task created users table with..."
-  → Backend Engineer implements API with this context
+Step 1: Read task T2 (login API requirements)
+
+Step 2: Query dependencies
+  → query_dependencies(taskId=T2, direction="incoming")
+  → Returns: T1 (Database Schema) - completed
+
+Step 3: Read T1 Summary section
+  → "Created users table with id, email, password_hash columns..."
+
+Step 4: Implement login API using database schema from T1
+
+Step 5: Create Summary: "Implemented login endpoint in UserController.kt..."
 ```
 
 **Benefits**:
+- **Self-service**: Specialists get what they need directly
+- **No intermediary**: Eliminates manager token overhead (1500 tokens saved)
 - **97% token reduction**: 300-500 token summaries vs 15k+ full context
-- **Focused context**: Only relevant information passed
-- **Automatic**: Task Manager handles context passing
-- **Scalable**: Works for any number of dependencies
+- **Focused context**: Only relevant dependency information
+- **Automatic**: Built into specialist workflow pattern
 
 ---
 
@@ -486,7 +502,7 @@ T2 (API Implementation) starts:
 ❓ Did user say "create/start/build a feature for..."?
 ❓ Did user provide rich context (3+ paragraphs about a feature)?
 
-→ YES? Launch Feature Architect agent
+→ YES? Launch Feature Architect agent (Opus)
 → NO? Proceed with direct create_feature tool
 ```
 
@@ -508,66 +524,55 @@ AI: [Detects rich feature context]
 Launch: Feature Architect agent
 ```
 
-#### Before Starting Multi-Task Feature Work
+#### Before Working on a Task - Use Skills First
 
 **Decision Gate**:
 ```
-❓ Does feature have 4+ tasks with dependencies?
-❓ Need specialist coordination across domains?
+❓ Is this simple coordination (complete task, route task, check dependencies)?
 
-→ YES? Launch Feature Manager agent (START mode)
-→ NO? Work through tasks sequentially yourself
+→ YES? Use appropriate Skill (300-600 tokens)
+  - Task completion → Task Management Skill
+  - Task routing → Task Management Skill + recommend_agent
+  - Dependency check → Dependency Analysis Skill
+
+→ NO (needs implementation)? Launch specialist directly (1500-3000 tokens)
+  - Check recommend_agent(taskId) for specialist recommendation
+  - Launch specialist with task ID
 ```
 
-**Why**:
-- Feature Manager coordinates multi-task workflows
-- Manages dependency sequencing
-- Routes tasks to specialists
-- Maintains feature-level context
+**Why Skills First**:
+- 77% token savings vs launching subagent managers
+- Faster execution (no agent launch overhead)
+- Perfect for 2-5 tool workflows
+- Reserve subagents for actual implementation
 
-**Example**:
+**Example - Coordination**:
 ```
-User: "Start working on the authentication feature"
+User: "Route task T1 to the right specialist"
 
-AI: [Checks feature]
-    [Feature has 7 tasks: DB schema, API, Frontend, Tests, Docs]
-    [Tasks have dependencies]
-    "This feature requires coordinated work across specialists.
-     I'll launch the Feature Manager."
+AI: [Coordination task - use Skill]
+    "I'll use the Task Management Skill for routing."
 
-Launch: Feature Manager agent in START mode
-```
+Skill executes:
+  1. get_task(T1, includeSections=true)
+  2. recommend_agent(taskId=T1) → "Backend Engineer"
+  3. Returns: "Backend Engineer recommended for T1"
 
-#### Before Working on a Task
-
-**Decision Gate**:
-```
-❓ Is task part of a larger feature (has featureId)?
-❓ Does task have specialist tags (backend, frontend, database, testing, docs)?
-
-→ YES? Check recommend_agent(taskId) for specialist routing
-→ NO? Proceed with direct implementation
+Cost: 500 tokens (vs 1500 for Task Manager subagent)
 ```
 
-**Why**:
-- Specialists have focused expertise
-- Task Manager passes dependency context
-- More efficient than generalist implementation
-- Better quality from specialist attention
-
-**Example**:
+**Example - Implementation**:
 ```
 User: "Implement the database schema task"
 
-AI: [Checks task]
-    [Task has featureId: authentication-feature]
-    [Task has tags: database, schema, backend]
-    [Runs recommend_agent(taskId)]
-    [Result: Database Engineer specialist]
-    "This task requires database expertise. I'll route to the
-     Database Engineer specialist."
+AI: [Implementation task - launch specialist]
+    [Checks task tags: database, schema, backend]
+    [Calls recommend_agent(taskId)]
+    [Result: Database Engineer]
+    "This needs implementation. I'll launch Database Engineer."
 
-Launch: Task Manager agent in START mode with task ID
+Launch: Database Engineer specialist (direct, no manager)
+Cost: 2000 tokens (implementation work)
 ```
 
 #### When User Reports a Bug
@@ -612,20 +617,24 @@ Launch: Bug Triage Specialist agent
 - Creates well-sequenced task breakdown (70% cheaper than Opus)
 - Applies appropriate templates to each task
 - Establishes dependency relationships
-- **Token optimized**: Reads feature directly, no verbose handoff needed
+- **Self-service**: Reads feature directly, no context passing needed
 
 **Example**:
 ```
 Feature Architect (Opus) creates "User Authentication" feature
-Returns: { featureId: "abc-123", mode: "Detailed" }
+Returns: "Created feature abc-123. Launch Planning Specialist for task breakdown."
 
 AI: [Reviews feature complexity]
     [Feature requires: DB, API, Frontend, Tests, Docs]
     "This feature needs structured task breakdown.
      I'll launch Planning Specialist (Sonnet)."
 
-Launch: Planning Specialist agent
-Planning Specialist: Reads feature via query_container(id="abc-123")
+Launch: Planning Specialist agent with feature ID
+Planning Specialist:
+  1. Reads feature via query_container(id="abc-123")
+  2. Creates task breakdown with templates
+  3. Establishes dependencies
+  4. Returns brief summary
 ```
 
 ---
@@ -651,7 +660,7 @@ Planning Specialist: Reads feature via query_container(id="abc-123")
 3. **Consider complexity and context**:
    - Simple tasks (complexity 1-3) → May not need specialist
    - Complex tasks (complexity 7+) → Always recommend specialist
-   - Tasks with dependencies → Pass dependency context
+   - Tasks with dependencies → Specialist reads dependencies directly
 
 **Example**:
 ```
@@ -672,8 +681,14 @@ Reasoning:
 **Launch specialist when**:
 - Task clearly requires specialist expertise (complexity 7+)
 - Task has specialist tags
-- Task is part of coordinated feature work
+- Task requires code implementation or architecture decisions
 - `recommend_agent` suggests specialist
+
+**Use Skills when**:
+- Task completion/status updates (Task Management Skill)
+- Task routing decisions (Task Management Skill + recommend_agent)
+- Dependency checking (Dependency Analysis Skill)
+- Simple coordination workflows (2-5 tools)
 
 **Work yourself when**:
 - Simple task (complexity 1-3)
@@ -696,43 +711,58 @@ Task: "Implement OAuth2 token refresh flow"
 Tags: backend, api, security, authentication
 Complexity: 8
 
-AI Decision: Launch Backend Engineer specialist
-Reasoning: Complex backend work, security-critical, high complexity
+AI Decision: Launch Backend Engineer specialist (direct)
+Reasoning: Complex backend work, security-critical, needs implementation
 ```
 
-#### Passing Dependency Context from Summaries
+#### Self-Service Dependency Reading (Specialists)
 
-**When launching a specialist**, Task Manager:
+**When a specialist launches**, they read dependencies themselves:
 
-1. **Identifies completed dependencies**:
-   - Checks task's incoming dependencies
-   - Finds dependencies with status "completed"
+1. **Check for dependencies**:
+   - `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
+   - Identifies completed dependency tasks
 
-2. **Reads dependency summaries**:
-   - Fetches Summary sections (300-500 tokens each)
+2. **Read dependency summaries**:
+   - For each completed dependency, read "Summary" section (300-500 tokens)
+   - Read "Files Changed" section for implementation context
    - Extracts key information: what was completed, files changed, notes
 
-3. **Passes to specialist**:
-   - Brief focused context (not full task details)
-   - Specialist reads summaries to understand prior work
-   - Implements current task with dependency awareness
+3. **Implement with context**:
+   - Uses dependency context to inform implementation
+   - Builds on previous work correctly
+   - Creates own Summary and Files Changed for next task
 
 **Example**:
 ```
 Task: "Implement user authentication API"
 Dependency: "Design database schema for users" (completed)
 
-Task Manager reads dependency summary:
-  "Created users table with columns: id, email, password_hash,
-   created_at. Added indexes on email. Migration file: V5__users_table.sql"
+Backend Engineer (self-service):
 
-Task Manager passes to Backend Engineer:
-  "Previous task created users table with auth columns.
-   See migration V5__users_table.sql for schema details.
-   Implement API endpoints using this schema."
+Step 1: query_dependencies(taskId=current, direction="incoming")
+  → Returns: T1 (Database Schema) - completed
 
-Backend Engineer implements API with this context.
+Step 2: Read T1 Summary section
+  → "Created users table with columns: id, email, password_hash, created_at.
+     Added indexes on email. Migration file: V5__users_table.sql"
+
+Step 3: Read T1 Files Changed section
+  → "src/main/resources/db/migration/V5__users_table.sql"
+
+Step 4: Implement API using schema from T1
+  → Implements UserController.kt with login endpoint
+  → Uses database schema defined in migration
+
+Step 5: Create Summary and Files Changed
+  → For next task to read
 ```
+
+**Benefits**:
+- **No intermediary**: Specialist reads directly (eliminates 1500 token manager overhead)
+- **Self-service**: Specialist gets exactly what they need
+- **97% token reduction**: 300-500 token summaries vs 15k+ full context
+- **Focused context**: Only relevant dependency information
 
 ---
 
@@ -830,7 +860,7 @@ Acceptance Criteria:
 
 ---
 
-### Decision Guide: Templates vs Sub-Agents
+### Decision Guide: Templates vs Sub-Agents vs Skills
 
 **Use Templates + Workflow Prompts ONLY when**:
 - Simple tasks (1-3 tasks total)
@@ -838,11 +868,17 @@ Acceptance Criteria:
 - Not using Claude Code (using Cursor, Windsurf, Claude Desktop, etc.)
 - Learning the system (workflows teach best practices)
 
+**Add Skills when** (Claude Code only):
+- Coordination workflows (completing tasks, routing, dependency checks)
+- Repetitive operations (2-5 tool calls)
+- Want 77% token savings vs subagent coordination
+- Quick status updates and progress tracking
+
 **Add Sub-Agent Orchestration when**:
 - Complex features (4+ related tasks with dependencies)
 - Using Claude Code (only tool with sub-agent support)
-- Token efficiency critical (large context, many tasks)
-- Specialist coordination valuable (backend → database → frontend → test flow)
+- Need code implementation, architecture decisions
+- Specialist expertise valuable (backend, frontend, database, testing)
 
 **Example Comparison**:
 
@@ -855,18 +891,50 @@ You: Read testing-strategy section
 You: Write tests yourself
 ```
 
-**Complex (Templates + Sub-agents)**:
+**Coordination (Templates + Skills)**:
 ```
-You: create_feature with 4 tasks, apply templates to each
-You: Launch Feature Manager (START mode)
-Feature Manager: Recommends next task → T1 (Database schema)
-You: Launch Task Manager for T1
-Task Manager: Routes to Database Engineer specialist
-Database Engineer: Reads "Technical Approach" section, implements schema, creates Summary
-Task Manager: Reports completion (2 sentences) to you
-You: Launch Feature Manager again
-Feature Manager: Recommends next task → T2 (API implementation, reads T1 Summary)
-[continues with automatic dependency context passing]
+You: Create feature with 4 tasks, apply templates
+User: "What's next?"
+Feature Management Skill: Recommends T1 (300 tokens)
+User: "Work on T1"
+Task Management Skill: Routes to Database Engineer (500 tokens)
+You: Launch Database Engineer specialist
+Database Engineer: Implements, returns brief (2000 tokens)
+User: "Complete T1"
+Task Management Skill: Creates summary, marks complete (450 tokens)
+[Repeat for T2-T4 with automatic dependency reading]
+
+Total coordination: ~4,000 tokens (Skills)
+vs Old pattern: ~12,000 tokens (Feature/Task Manager subagents)
+Savings: 67%
+```
+
+**Complex Implementation (Templates + Skills + Specialists)**:
+```
+You: Create feature with 8 tasks, apply templates
+
+Specialist launches:
+Database Engineer:
+  - Reads task T1 "Technical Approach" section
+  - Checks dependencies (none)
+  - Implements schema
+  - Creates Summary and Files Changed sections
+  - Returns brief
+
+Backend Engineer:
+  - Reads task T2 "Technical Approach" section
+  - query_dependencies(T2) → finds T1 (completed)
+  - Reads T1 Summary (database schema info)
+  - Implements API using schema
+  - Creates Summary and Files Changed
+  - Returns brief
+
+Skills handle coordination:
+- Task completion (450 tokens each)
+- Next task recommendations (300 tokens)
+- Dependency checking (350 tokens)
+
+Result: Skills for coordination (77% savings), Specialists for implementation (self-service dependencies)
 ```
 
 ---

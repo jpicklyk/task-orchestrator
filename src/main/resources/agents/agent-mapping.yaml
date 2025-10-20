@@ -1,7 +1,10 @@
 # AI Agent Configuration for Task Orchestrator
 # This file maps task characteristics to specialized AI agents
 #
-# For detailed documentation, see: docs/agent-integration.md
+# Architecture: Direct specialist pattern - orchestrator routes tasks directly to specialists
+# using recommend_agent() tool. No intermediary Feature Manager or Task Manager agents.
+#
+# For detailed documentation, see: docs/agent-orchestration.md
 #
 # Recommended section tags:
 #   - requirements: What needs to be built
@@ -12,32 +15,50 @@
 #   - documentation: User-facing docs
 
 # Parallel Processing Configuration
-# Enables orchestrators to launch multiple Task Manager agents simultaneously
-# for independent tasks, dramatically reducing feature completion time.
+# Supports launching multiple specialist agents concurrently for independent tasks
+# when dependencies allow parallel execution.
 parallelProcessing:
   # Maximum number of tasks that can be processed in parallel
-  # Feature Manager will recommend up to this many unblocked tasks per batch
+  # Orchestrator can recommend up to this many unblocked tasks per batch
   maxParallelTasks: 5
 
-  # Agents that support parallel coordination workflows
+  # Agents that support parallel execution workflows
   capabilities:
-    # Feature Manager - Coordinates multi-task features with parallel execution
+    # Feature Architect - Designs features and creates initial task breakdown
     - agent: Feature Architect
-      supportsParallel: true
-      batchSize: 5
-      modes: [START, CONTINUE, END]
-      description: "Recommends batches of unblocked tasks for parallel execution"
+      supportsParallel: false
+      description: "Creates features with structured task breakdowns"
 
-    # Task Manager - Routes tasks to specialists (can be launched in parallel)
-    - agent: Task Manager
-      supportsParallel: true
-      concurrent: true
-      description: "Multiple instances can run concurrently for independent tasks"
-
-    # Planning Specialist - Creates task breakdowns with dependency metadata
+    # Planning Specialist - Creates detailed task breakdowns with dependency metadata
     - agent: Planning Specialist
       supportsParallel: false
       description: "Creates dependency-aware task breakdowns for parallel execution"
+
+    # Specialist Agents - All specialists can run concurrently for independent tasks
+    - agent: Backend Engineer
+      supportsParallel: true
+      concurrent: true
+      description: "Backend implementation - can run in parallel with other specialists"
+
+    - agent: Frontend Developer
+      supportsParallel: true
+      concurrent: true
+      description: "Frontend implementation - can run in parallel with other specialists"
+
+    - agent: Database Engineer
+      supportsParallel: true
+      concurrent: true
+      description: "Database work - can run in parallel with other specialists"
+
+    - agent: Test Engineer
+      supportsParallel: true
+      concurrent: true
+      description: "Testing work - can run in parallel with other specialists"
+
+    - agent: Technical Writer
+      supportsParallel: true
+      concurrent: true
+      description: "Documentation - can run in parallel with other specialists"
 
 # Map workflow activities to agents
 # Agent names must match Claude Code subagent_type format (Proper Case with spaces)

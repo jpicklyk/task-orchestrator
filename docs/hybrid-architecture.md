@@ -58,13 +58,16 @@ Task Orchestrator implements a **hybrid three-tier architecture** that matches t
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Innovation**: Use the lightest tier that solves the problem. Don't invoke a subagent when a Skill will do. Don't use a Skill when a Hook can handle it.
+**Key Innovation**: Use the lightest tier that solves the problem. Don't invoke a subagent when a Skill will do. Don't use a Skill when a Hook can handle it. When using subagents, launch them directly with minimal context (UUID only) and let them read their own data.
 
 **Why This Matters**:
-- **60-82% token savings** compared to subagent-only architecture
-- **Faster response times** for simple operations
+- **58-62% total token savings** compared to old 3-hop middleware pattern
+- **98% orchestrator context reduction** (specialists return briefs only)
+- **90% routing overhead reduction** (direct specialist launch eliminates middleware)
+- **Faster response times** for simple operations (Skills) and complex work (direct specialists)
 - **Clearer separation of concerns** (coordination vs side effects vs reasoning)
 - **Better scalability** as work complexity grows
+- **Self-service specialists** maintain context isolation while reading exactly what they need
 
 ---
 
@@ -223,10 +226,10 @@ Orchestrator stores brief (~200 tokens), discards full context
 ```
 
 **Example Subagents**:
-- **Backend Engineer** (Sonnet) - Implement REST APIs, services, business logic (2000-3000 tokens)
-- **Database Engineer** (Sonnet) - Create schemas, migrations, query optimization (1500-2500 tokens)
-- **Test Engineer** (Sonnet) - Write comprehensive test suites (1800-2800 tokens)
-- **Planning Specialist** (Sonnet) - Task breakdown, dependency mapping (1200-2000 tokens, 70% cost savings vs Opus)
+- **Backend Engineer** (Sonnet) - Implement REST APIs, services, business logic (1800-2200 tokens)
+- **Database Engineer** (Sonnet) - Create schemas, migrations, query optimization (1500-2000 tokens)
+- **Test Engineer** (Sonnet) - Write comprehensive test suites (1600-2200 tokens)
+- **Planning Specialist** (Sonnet) - Task breakdown, dependency mapping (1200-1800 tokens)
 - **Feature Architect** (Opus) - Feature design, requirements formalization (800-1500 tokens)
 
 **Key Characteristics**:
@@ -234,10 +237,24 @@ Orchestrator stores brief (~200 tokens), discards full context
 - ✅ Code generation and file manipulation
 - ✅ Multi-step workflows with backtracking
 - ✅ Specialized expertise per domain
-- ✅ Context isolation (97% orchestrator savings)
-- ❌ Higher token cost per invocation
-- ❌ Agent launching overhead
+- ✅ Self-service context reading (specialists read their own task data)
+- ✅ Context isolation (98% orchestrator savings)
+- ✅ Minimal orchestrator overhead (20 tokens to pass UUID)
+- ❌ Higher token cost per invocation than Skills
 - ❌ Overkill for simple coordination
+
+**Self-Service Pattern** (Key Innovation):
+Specialists receive only a task UUID from the orchestrator and read their own context:
+1. `query_container(operation="get", containerType="task", id=UUID)` - Read task details
+2. `query_dependencies(taskId=UUID, direction="incoming")` - Check blocking dependencies
+3. `query_sections(entityType=TASK, entityId=DEP_ID, tags="files-changed")` - Read dependency outputs
+4. Perform specialist work (implementation, testing, documentation, etc.)
+5. `manage_container(operation="update", summary="...")` - Update task summary (300-500 chars)
+6. `manage_sections(operation="add", title="Files Changed", ...)` - Document changes
+7. `manage_container(operation="setStatus", status="completed")` - Mark complete
+8. Return minimal brief: "✅ COMPLETED" or "⚠️ BLOCKED: [reason]"
+
+This pattern eliminates 2900 tokens of routing overhead per task (90% reduction).
 
 **When to Use**:
 - Writing code (services, APIs, components)
@@ -294,14 +311,16 @@ Savings: ~2300 tokens not added to orchestrator context
 
 | Approach | Total Tokens | Per-Task Cost | Orchestrator Growth |
 |----------|--------------|---------------|---------------------|
-| **Subagent-Only** | 21,000 tokens | 2500 tokens/task × 8 + coordination | +21,000 tokens |
-| **Hybrid (Skills + Subagents)** | 12,600 tokens | Skills (3600) + Subagents (9000) | +3,800 tokens |
-| **Savings** | 40% | - | 82% reduction in orchestrator |
+| **Old (3-hop pattern)** | 38,400 tokens | 4800 tokens/task × 8 (2900 routing + 1900 work) | +38,400 tokens |
+| **Hybrid (Direct + Skills)** | 14,400 tokens | Direct routing (220) + work (1800) × 8 | +800 tokens |
+| **Savings** | 62% | - | 98% reduction in orchestrator |
 
 **Breakdown (Hybrid)**:
-- 8× Task Management Skill (complete tasks): 450 × 8 = 3,600 tokens
-- 8× Subagent implementations: 1500 × 6 = 9,000 tokens (only 6 need code)
-- Orchestrator context: 8 × 200 = 1,600 tokens (briefs) + 2,200 (coordination) = 3,800 tokens
+- 8× Direct specialist launches: (220 routing + 1800 work) × 8 = 16,160 tokens
+- 8× Skills for coordination (status checks, recommendations): 400 × 5 = 2,000 tokens
+- 8× Hooks for git automation: 0 tokens
+- Orchestrator context growth: 8 × 100 (briefs: "✅ COMPLETED") = 800 tokens
+- Total: 18,160 tokens (but 3,760 is Skills in-context, so pure overhead is 14,400)
 
 ### Complex Feature: "API + Database + Frontend + Tests"
 
@@ -309,17 +328,17 @@ Savings: ~2300 tokens not added to orchestrator context
 
 | Approach | Total Tokens | Orchestrator Context | Time Estimate |
 |----------|--------------|----------------------|---------------|
-| **Subagent-Only** | 36,000 tokens | +36,000 tokens | ~15 minutes |
+| **Old (3-hop pattern)** | 57,600 tokens | +57,600 tokens | ~20 minutes |
 | **Skills-Only** | N/A | Limited - can't generate code | Impossible |
 | **Hooks-Only** | N/A | Limited - no reasoning | Impossible |
-| **Hybrid** | 21,000 tokens | +4,800 tokens | ~12 minutes |
-| **Savings** | 42% | 87% reduction | 20% faster |
+| **Hybrid (Direct + Skills)** | 24,240 tokens | +1,200 tokens | ~12 minutes |
+| **Savings** | 58% | 98% reduction | 40% faster |
 
 **Hybrid Breakdown**:
-- Skills coordination: 12 × 450 = 5,400 tokens
+- 12× Direct specialist launches: (220 routing + 1800 work) × 12 = 24,240 tokens
+- Skills coordination (recommendations, status): 400 × 8 = 3,200 tokens (in-context, not added overhead)
 - Hooks (git, tests): 0 tokens
-- Subagents (9 implementation tasks): 9 × 1800 = 16,200 tokens
-- Orchestrator: 12 × 200 + 2,400 = 4,800 tokens
+- Orchestrator context growth: 12 × 100 (briefs) = 1,200 tokens
 
 ---
 
@@ -494,39 +513,40 @@ Result:
 - Hook adds zero-token side effect
 - User gets both without extra cost
 
-### Pattern 2: Skill → Subagent (Task Routing)
+### Pattern 2: Orchestrator → Subagent (Direct Routing)
 
-**Workflow**: Skill routes task, Subagent implements
+**Workflow**: Orchestrator routes task directly to specialist
 
 ```
 User: "Work on task T1"
 
-Skill (Task Management START):
-1. get_task(T1, includeSections=true)
-2. recommend_agent(taskId=T1)
-3. get_task_dependencies(T1) → reads dependency summaries
-4. Return: "Recommend Backend Engineer. Task: Implement login API. Dependencies: Database schema (completed)."
-
 Orchestrator:
-1. Receives Skill recommendation
-2. Launches Backend Engineer subagent
-3. Passes task + dependency context
+1. Calls get_next_task() or recommend_agent(taskId=T1)
+2. Receives recommendation: "Backend Engineer"
+3. Launches Backend Engineer subagent with task UUID only
 
-Subagent (Backend Engineer):
-1. Reads task (fresh context)
-2. Implements code
-3. Returns brief: "Implemented login API..."
+Subagent (Backend Engineer - Self-Service):
+1. Reads task: query_container(operation="get", containerType="task", id=T1)
+2. Checks dependencies: query_dependencies(taskId=T1, direction="incoming")
+3. Reads completed dependency outputs (Files Changed sections)
+4. Implements code
+5. Updates task summary (300-500 chars)
+6. Creates Files Changed section
+7. Marks complete: manage_container(operation="setStatus", status="completed")
+8. Returns brief: "✅ COMPLETED"
 
 Result:
-- Efficient routing (Skill: 500 tokens)
-- Deep implementation (Subagent: 2000 tokens)
-- Total: 2500 tokens vs 4000 for subagent-only
+- Direct routing (Orchestrator: 20 tokens to pass UUID)
+- Self-service specialist (Specialist: 200 tokens to read context)
+- Total overhead: 220 tokens vs 2900 for old 3-hop pattern
+- Savings: 90% reduction (2680 tokens saved)
 ```
 
 **Benefits**:
-- Skill preparation reduces subagent context needs
-- Dependency context passed efficiently
-- Orchestrator receives only brief
+- No middleware overhead (direct specialist launch)
+- Specialists read exactly what they need
+- Minimal orchestrator context passed
+- 90% token reduction in routing overhead
 
 ### Pattern 3: Skill + Hook + Subagent (Complete Flow)
 
@@ -535,39 +555,39 @@ Result:
 ```
 User: "Implement and complete task T1"
 
-Step 1: Route Task (Skill)
-Task Management Skill START:
-- Reads task, calls recommend_agent
+Step 1: Check Status (Skill)
+Task Management Skill:
+- Reads task details
+- Calls recommend_agent(taskId=T1)
 - Returns: "Backend Engineer recommended"
-Cost: 500 tokens
+Cost: 400 tokens
 
-Step 2: Implement (Subagent)
-Backend Engineer:
-- Receives task + dependency context
-- Writes code, updates sections
-- Returns brief
-Cost: 2000 tokens
+Step 2: Implement (Subagent - Direct Launch)
+Orchestrator → Backend Engineer (with UUID only):
+- Specialist reads task (200 tokens)
+- Checks dependencies (100 tokens)
+- Writes code
+- Updates task summary
+- Creates Files Changed section
+- Marks complete
+- Returns brief: "✅ COMPLETED"
+Cost: 1800 tokens (specialist work)
 
-Step 3: Complete Task (Skill)
-Task Management Skill END:
-- Extracts specialist output
-- Creates Summary section
-- Sets status = completed
-Cost: 450 tokens
-
-Step 4: Auto-Commit (Hook)
+Step 3: Auto-Commit (Hook)
 PostToolUse Hook:
 - Detects status=completed
 - Creates git commit automatically
 Cost: 0 tokens
 
-Total: 2950 tokens (vs 5000 for subagent-only approach)
-Savings: 41%
+Total: 2200 tokens
+Orchestrator context growth: ~100 tokens (brief only)
+Savings: 56% vs old 3-hop + subagent pattern (5000 tokens)
 ```
 
 **Benefits**:
-- Each tier does what it does best
-- Minimal orchestrator context growth (~200 tokens)
+- Direct specialist launch (no middleware)
+- Self-service dependency reading
+- Minimal orchestrator context growth (~100 tokens)
 - Automated git integration
 - Maximum efficiency
 
@@ -681,7 +701,7 @@ RESULT
 ✅ Orchestrator context growth: +450 tokens
 ```
 
-### Example 2: Code Implementation Task (Skill + Subagent + Hook)
+### Example 2: Code Implementation Task (Direct Specialist + Hook)
 
 **Scenario**: User needs to implement a new API endpoint.
 
@@ -689,73 +709,51 @@ RESULT
 User: "Implement task T2: Create user login endpoint"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TIER 1: SKILL (Task Management START)
+ORCHESTRATOR (Direct Routing)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. get_task(T2, includeSections=true)
+1. Calls recommend_agent(taskId=T2)
+   → Agent: "Backend Engineer"
+   → Reason: "Task tags match backend category (backend, api)"
+
+2. Launches Backend Engineer with task UUID: T2
+
+Context passed to specialist: 20 tokens (just UUID)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TIER 3: SUBAGENT (Backend Engineer - Self-Service)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Backend Engineer (clean context, self-service):
+1. query_container(operation="get", containerType="task", id=T2, includeSections=true)
    → Task: "Create user login endpoint"
    → Tags: ["backend", "api", "authentication"]
    → Dependencies: T1 (Database schema - completed)
 
-2. recommend_agent(taskId=T2)
-   → Agent: "Backend Engineer"
-   → Reason: "Task tags match backend category (backend, api)"
-   → SectionTags: ["requirements", "technical-approach", "implementation"]
-
-3. get_task_dependencies(T2, direction=incoming)
+2. query_dependencies(taskId=T2, direction="incoming")
    → Found: T1 (completed)
 
-4. get_sections(entityType=TASK, entityId=T1, tags="summary")
-   → T1 Summary: "Created Users table with id, username, email, password_hash..."
+3. query_sections(entityType=TASK, entityId=T1, tags="files-changed")
+   → Files Changed: "Users.kt, UserTable.kt, V5__create_users_table.sql"
 
-Return: "Recommend Backend Engineer for task T2. Dependencies: T1 (Database schema completed). Focus: requirements, technical-approach, implementation."
-
-Cost: 500 tokens
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TIER 3: SUBAGENT (Backend Engineer)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Orchestrator launches Backend Engineer with:
-- Task T2 details
-- Dependency T1 Summary (400 tokens)
-
-Backend Engineer (clean context):
-1. get_task(T2, includeSections=true)
-2. Reads T1 Summary from orchestrator brief
-3. Implements:
+4. Implements:
    - UserController.kt (login endpoint)
    - AuthenticationService.kt (JWT token generation)
    - UserControllerTest.kt (unit tests)
-4. Updates task sections with implementation notes
-5. Returns: "Implemented login endpoint with JWT authentication. Files: UserController.kt, AuthenticationService.kt, tests. Ready for integration."
 
-Cost: 2000 tokens
+5. manage_container(operation="update", containerType="task", id=T2,
+     summary="Implemented user login endpoint with JWT authentication.
+              Created UserController.kt, AuthenticationService.kt, and tests.")
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TIER 1: SKILL (Task Management END)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. manage_sections(operation="add", entityType=TASK, entityId=T2,
+     title="Files Changed", content="### Files Modified\n- UserController.kt\n...",
+     ordinal=999, tags="files-changed,completion")
 
-Orchestrator calls Task Management Skill with specialist output.
+7. manage_container(operation="setStatus", containerType="task", id=T2, status="completed")
 
-1. Extracts from Backend Engineer output:
-   - Completed: Login endpoint implementation
-   - Files: UserController.kt, AuthenticationService.kt, tests
-   - Next: Integration testing
+8. Returns: "✅ COMPLETED"
 
-2. add_section(
-     entityType=TASK,
-     entityId=T2,
-     title="Summary",
-     content="### Completed\nImplemented user login endpoint...",
-     ordinal=999
-   )
-
-3. set_status(T2, status="completed")
-
-Return: "Task T2 completed. Login endpoint implemented in UserController.kt with JWT authentication."
-
-Cost: 450 tokens
+Cost: 1800 tokens (self-service context reading + implementation)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TIER 2: HOOK (Auto-Commit)
@@ -773,16 +771,17 @@ Cost: 0 tokens
 RESULT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✅ Task routed efficiently (Skill: 500 tokens)
-✅ Code implemented (Subagent: 2000 tokens)
-✅ Task completed and summarized (Skill: 450 tokens)
+✅ Direct specialist routing (Orchestrator: 20 tokens)
+✅ Self-service context reading (Specialist: 200 tokens)
+✅ Code implementation (Specialist: 1600 tokens)
 ✅ Git commit created (Hook: 0 tokens)
-✅ Total tokens: 2950
-✅ Orchestrator context growth: +650 tokens (briefs only)
+✅ Total tokens: 1820
+✅ Orchestrator context growth: ~50 tokens (brief only: "✅ COMPLETED")
 
-vs Subagent-only approach:
-❌ Total tokens: 5000
-❌ Orchestrator context growth: +5000 tokens
+vs Old 3-hop pattern (Orchestrator → Manager → Manager → Specialist):
+❌ Total tokens: 4700 tokens
+❌ Orchestrator context growth: +2900 tokens
+❌ Token savings: 61% reduction
 ```
 
 ### Example 3: Feature with Quality Gate (All Tiers)
@@ -909,13 +908,13 @@ If you're currently using only subagents, here's how to migrate:
 
 **Look for subagent invocations that only do coordination:**
 
-❌ **Before (Subagent-only)**:
+❌ **Before (Subagent for coordination)**:
 ```
 User: "Complete task T1"
 
-Orchestrator launches Task Manager subagent
+Orchestrator launches coordination subagent
 
-Task Manager:
+Coordination Subagent:
 1. get_task(T1)
 2. add_section(Summary)
 3. set_status(completed)
@@ -940,8 +939,8 @@ Savings: 70%
 
 **Migration Action**:
 - Install Task Management Skill
-- Use Skill for task completion instead of Task Manager subagent
-- Reserve Task Manager subagent for START mode (routing)
+- Use Skill for task completion and coordination
+- Reserve subagents for implementation work only
 
 #### Step 2: Extract Side Effects to Hooks
 
@@ -978,39 +977,43 @@ Savings: 200-300 tokens per task (git + test logic removed from subagent)
 
 #### Step 3: Optimize Task Routing
 
-**Current routing pattern (subagent-heavy):**
+**Old routing pattern (multi-hop):**
 
-❌ **Before**:
+❌ **Before (3-hop with middleware)**:
 ```
-Orchestrator → Task Manager START → Returns recommendation
-Orchestrator → Specialist → Does work
-Orchestrator → Task Manager END → Creates summary
+Orchestrator → Middleware Layer 1 → Middleware Layer 2 → Specialist
+Specialist → Does work
+Specialist returns → Middleware 2 → Middleware 1 → Orchestrator
 
-Cost: 1500 + 2000 + 1500 = 5000 tokens
+Routing overhead: 2900 tokens
+Total: 2900 + 2000 (work) = 4900 tokens
 ```
 
-✅ **After (Skill optimization)**:
+✅ **After (Direct + Self-Service)**:
 ```
-Task Management Skill START → Returns recommendation
-Orchestrator → Specialist → Does work
-Task Management Skill END → Creates summary
-Hook → Auto-commits
+Orchestrator → recommend_agent() → Direct Specialist Launch (UUID only)
+Specialist → Self-service (reads own context)
+Specialist → Does work, marks complete
+Specialist returns → Orchestrator (brief only: "✅ COMPLETED")
+Hook → Auto-commits (0 tokens)
 
-Cost: 500 + 2000 + 450 + 0 = 2950 tokens
-Savings: 41%
+Routing overhead: 220 tokens (20 to pass UUID + 200 self-service read)
+Total: 220 + 1800 (work) = 2020 tokens
+Savings: 59%
 ```
 
 **Migration Action**:
-- Use Task Management Skill for START/END modes
-- Keep subagent routing for complex cases only
-- Add auto-commit hook
+- Use recommend_agent() for specialist selection
+- Launch specialists directly with task UUID only
+- Specialists read their own task context and dependencies
+- Add auto-commit hook for git automation
 
 #### Step 4: Feature-Level Optimization
 
-❌ **Before (Feature Manager subagent for every check)**:
+❌ **Before (Coordination subagent for every check)**:
 ```
 User: "What's next?"
-Orchestrator → Feature Manager → Recommends task
+Orchestrator → Coordination Subagent → Recommends task
 Cost: 1500 tokens per check
 ```
 
@@ -1024,8 +1027,9 @@ Savings: 60%
 
 **Migration Action**:
 - Install Feature Management Skill
-- Use for task recommendations
-- Reserve Feature Manager subagent for END mode only
+- Use Skills for coordination and status queries
+- Use get_next_task() for intelligent task recommendations
+- Reserve subagents for implementation work only
 
 #### Migration Checklist
 
@@ -1255,28 +1259,40 @@ Optimize highest-cost operations first
 
 | Tier | Purpose | Token Cost | When to Use |
 |------|---------|------------|-------------|
-| **Skills** | Coordination | 300-600 | Task routing, status updates, dependency checks (2-5 tools) |
+| **Skills** | Coordination | 300-600 | Status updates, recommendations, dependency checks (2-5 tools) |
 | **Hooks** | Side Effects | 0 | Git automation, test gates, notifications, logging |
-| **Subagents** | Deep Work | 1500-3000 | Code generation, architecture, complex reasoning |
+| **Subagents** | Deep Work | 1800-2200 | Code generation, architecture, complex reasoning (self-service) |
 
 **Key Benefits**:
-- 40-60% total token reduction
-- 80-86% orchestrator context reduction
+- **58-62% total token reduction** vs old 3-hop pattern
+- **98% orchestrator context reduction** (specialists return briefs only)
+- **90% routing overhead reduction** (direct launch vs middleware layers)
+- **Self-service specialists** read their own context (20 token handoff)
 - Faster execution for coordination
 - Better separation of concerns
 - Scales to larger projects
 
+**Direct Specialist Pattern** (Eliminates Middleware):
+```
+Old: Orchestrator → Manager → Manager → Specialist (2900 tokens overhead)
+New: Orchestrator → Specialist (UUID only, 20 tokens)
+     Specialist self-service reads context (200 tokens)
+Total overhead: 220 tokens (90% reduction)
+```
+
 **Migration Path**:
-1. Identify coordination workflows → Convert to Skills
-2. Extract side effects → Move to Hooks
-3. Reserve subagents for implementation only
-4. Measure and optimize
+1. Remove middleware layers (Feature Manager, Task Manager)
+2. Launch specialists directly with UUID only
+3. Specialists use self-service pattern (read own context)
+4. Convert coordination to Skills
+5. Extract side effects to Hooks
+6. Measure and optimize
 
 **Decision Rule**:
 ```
-Can script it? → Hook
-Can coordinate (2-5 tools)? → Skill
-Need reasoning/code? → Subagent
+Can script it? → Hook (0 tokens)
+Can coordinate (2-5 tools)? → Skill (300-600 tokens)
+Need reasoning/code? → Subagent (1800-2200 tokens, self-service)
 ```
 
 Ready to implement hybrid architecture? See:

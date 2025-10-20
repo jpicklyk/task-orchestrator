@@ -566,13 +566,13 @@ Task tags: ["mobile", "ios", "ui"]
 
 ---
 
-## Feature Manager Agent (DEPRECATED - Use Feature Management Skill)
+## Feature Manager Agent (REMOVED - Use Feature Management Skill)
 
-> ⚠️ **DEPRECATED**: This subagent approach is superseded by the **Feature Management Skill** which achieves the same functionality with **60-82% token savings**. See [Skills Tier](#skills-tier-coordination) for details.
+> ⚠️ **REMOVED IN v1.1.0**: This subagent has been **completely removed**. Use the **Feature Management Skill** instead, which achieves the same functionality with **60-82% token savings**. See [Skills Tier](#skills-tier-coordination) for details.
 >
-> **Migration Path**: Instead of launching Feature Manager subagent, use Feature Management Skill which invokes the same tools but without subagent overhead.
+> **Migration**: Replace all Feature Manager subagent launches with Feature Management Skill invocations.
 >
-> **Kept for Reference**: This documentation remains for historical context and backwards compatibility.
+> **This section is kept for historical reference only and documents the old architecture.**
 
 ### Role and Responsibilities
 
@@ -772,13 +772,13 @@ Ready for integration with frontend.
 
 ---
 
-## Task Manager Agent (DEPRECATED - Use Task Management Skill)
+## Task Manager Agent (REMOVED - Use Task Management Skill)
 
-> ⚠️ **DEPRECATED**: This subagent approach is superseded by the **Task Management Skill** which achieves the same functionality with **60-77% token savings**. See [Skills Tier](#skills-tier-coordination) for details.
+> ⚠️ **REMOVED IN v1.1.0**: This subagent has been **completely removed**. Use the **Task Management Skill** instead, which achieves the same functionality with **60-77% token savings**. See [Skills Tier](#skills-tier-coordination) for details.
 >
-> **Migration Path**: Instead of launching Task Manager subagent, use Task Management Skill which invokes the same tools but without subagent overhead.
+> **Migration**: Replace all Task Manager subagent launches with Task Management Skill invocations or direct specialist calls.
 >
-> **Kept for Reference**: This documentation remains for historical context and backwards compatibility.
+> **This section is kept for historical reference only and documents the old architecture.**
 
 ### Task Manager Role
 
@@ -1077,18 +1077,34 @@ The system includes 6 specialized agents:
 - **Focus**: context, requirements, technical-approach
 - **Responsibilities**: Requirements analysis, architecture, design decisions
 
-### Specialist Workflow Pattern
+### Specialist Workflow Pattern (Direct Orchestration)
 
-All specialists follow the same workflow:
+**NEW IN v1.1.0**: Specialists now work **directly with orchestrator** without Task Manager middleware. This reduces token overhead by 40-50% per task.
 
-**Step 1: Read the Task**
+All specialists follow this **9-step workflow**:
+
+#### Step 1: Read the Task
 ```
 get_task(id='[task-id]', includeSections=true)
 ```
 
-Specialists receive the full task context including dependency summaries passed by orchestrator.
+Specialists receive task ID from orchestrator and read task details themselves.
 
-**Step 2: Do the Work**
+#### Step 2: Read Dependencies (Self-Service)
+
+**NEW**: Specialists now read their own dependencies instead of receiving them from Task Manager.
+
+```
+# Check for dependencies
+get_task_dependencies(taskId='[task-id]', direction='incoming', includeTaskInfo=true)
+
+# For each COMPLETED dependency, read its Summary section
+get_sections(entityType='TASK', entityId='[dep-id]', tags='summary')
+```
+
+**Why**: Eliminates Task Manager middleware, reduces token overhead, gives specialists direct access to dependency context.
+
+#### Step 3: Do the Work
 
 Perform specialized implementation:
 - Write code (Backend, Frontend, Database)
@@ -1104,7 +1120,7 @@ Use file tools:
 - `Grep` - Search codebase
 - `Glob` - Find files
 
-**Step 3: Update Task Sections**
+#### Step 4: Update Task Sections
 
 Update sections with results:
 ```
@@ -1122,23 +1138,130 @@ add_section(entityType='TASK',
             ordinal=10)
 ```
 
-**Step 4: Mark Complete**
+#### Step 5: Populate Summary Section
+
+**CRITICAL**: Create a Summary section with standardized format including **Files Changed** subsection:
+
+```
+add_section(
+  entityType='TASK',
+  entityId='[task-id]',
+  title='Summary',
+  usageDescription='Summary of completed task including files changed and next steps',
+  content='[markdown below]',
+  contentFormat='MARKDOWN',
+  ordinal=0,
+  tags='summary,completion'
+)
+```
+
+**Summary Content Format**:
+```markdown
+### Completed
+[What was accomplished in 2-3 sentences]
+
+### Files Changed
+- `path/to/file1.kt` - [what changed]
+- `path/to/file2.sql` - [what changed]
+- `path/to/test.kt` - [what changed]
+
+### Next Steps
+[What depends on this or comes next - 1-2 sentences]
+
+### Notes
+[Important technical decisions or considerations - 1-2 sentences]
+```
+
+**Why Files Changed Section Matters**:
+- Provides context for dependent tasks without re-reading full implementation
+- Enables specialists to understand what was built without file inspection
+- ~200-300 token summary vs 2-5k tokens of reading all changed files
+- Essential for dependency chain efficiency
+
+#### Step 6: Mark Task Complete
 ```
 set_status(id='[task-id]', status='completed')
 ```
 
-**Step 5: Return Brief Summary**
+**NEW**: Specialists now mark tasks complete themselves (previously Task Manager END did this).
 
-**Format**: 2-3 sentences
-**Content**: What was implemented, what's ready next
-**Important**: Do NOT include full code in response
+#### Step 7: Return Minimal Output
 
-**Example**:
+**NEW FORMAT**: Return only success indicator or blocker information.
+
+**Success Format** (2-3 sentences maximum):
 ```
-Implemented OAuth 2.0 authentication endpoints in UserController.kt.
-Added JWT token generation, refresh logic, and rate limiting middleware.
-All endpoints tested with 95% coverage. Ready for frontend integration.
+✅ Completed: [Task title]
+Files: [file1.kt, file2.kt, file3.kt]
+Ready: [What's unblocked or ready next]
 ```
+
+**Blocked Format** (if cannot complete):
+```
+⚠️ Blocked: [Reason]
+Issue: [Specific blocker]
+Requires: [What's needed to proceed]
+```
+
+**Examples**:
+
+✅ **Good Response**:
+```
+✅ Completed: Implement user login endpoint
+Files: UserController.kt, AuthenticationService.kt, UserControllerTest.kt
+Ready: Frontend can integrate with POST /auth/login endpoint
+```
+
+✅ **Good Blocked Response**:
+```
+⚠️ Blocked: Database schema not ready
+Issue: Users table doesn't exist yet (Task T1 not complete)
+Requires: Complete T1 (Create database schema) before implementing API
+```
+
+❌ **Bad Response** (too verbose):
+```
+Successfully implemented the user login endpoint! I created UserController.kt with the login method that accepts email and password. The endpoint returns a JWT token upon successful authentication. I also wrote comprehensive tests covering all edge cases including invalid credentials, missing fields, and successful login scenarios. The authentication service uses bcrypt for password hashing...
+[200 more lines]
+```
+
+**Why Minimal Output**:
+- Orchestrator only needs success confirmation + file list
+- Detailed work captured in task sections and Summary
+- Reduces orchestrator context growth by ~90%
+- Enables scaling to hundreds of tasks
+
+#### Step 8: Files Changed Context Passing
+
+The **Files Changed** section in the Summary enables efficient context passing in dependency chains:
+
+**Example Dependency Chain**:
+
+Task T1 (Database Schema):
+```markdown
+### Files Changed
+- `db/migration/V3__create_users_table.sql` - Users table with auth fields
+- `src/model/User.kt` - User domain model
+```
+
+Task T2 (depends on T1) reads T1's Summary:
+- Knows exactly which files were created
+- Understands schema structure without reading full SQL
+- Can reference User model without inspecting code
+- ~300 tokens vs ~2000 tokens reading all files
+
+#### Step 9: Self-Manage Lifecycle
+
+**NEW**: Specialists are responsible for their complete lifecycle:
+
+1. ✅ Read task and dependencies (self-service)
+2. ✅ Perform work
+3. ✅ Update sections with results
+4. ✅ Create Summary with Files Changed
+5. ✅ Mark task complete
+6. ✅ Return minimal output
+
+**No Task Manager involvement** - Specialists are autonomous.
 
 ### Section Tag Filtering
 
@@ -1173,54 +1296,54 @@ get_sections(entityType='TASK',
 
 ## Complete Workflow Examples
 
-### Single Task Workflow
+### Single Task Workflow (Direct Orchestration)
+
+**NEW IN v1.1.0**: Simplified workflow with direct specialist invocation.
 
 **Scenario**: Implement a single task with no dependencies
 
 **Workflow**:
 
 ```
-1. Orchestrator → Feature Manager START
-   - Feature Manager analyzes feature
-   - Recommends Task: "Implement login endpoint"
-   - Returns: "Next: Orchestrator should launch Task Manager START"
+1. Orchestrator uses get_next_task or recommend_agent
+   - Identifies task: "Implement login endpoint"
+   - Identifies specialist: "Backend Engineer"
+   - Token cost: ~300 tokens (could be a Skill)
 
-2. Orchestrator → Task Manager START
-   - Reads task
-   - Calls recommend_agent → "Backend Engineer"
-   - No dependencies
-   - Returns: "Specialist: Backend Engineer. Focus: requirements, technical-approach, implementation"
-
-3. Orchestrator → Backend Engineer
+2. Orchestrator → Backend Engineer (DIRECT)
    - Reads task with sections
+   - Reads dependencies (self-service, none in this case)
    - Implements login endpoint
    - Writes UserController.kt, authentication service, tests
-   - Marks complete
-   - Returns: "Implemented login endpoint. Created UserController with authentication logic and tests."
+   - Creates Summary section with Files Changed
+   - Marks task complete
+   - Returns: "✅ Completed: Implement login endpoint. Files: UserController.kt, AuthenticationService.kt, UserControllerTest.kt. Ready: Frontend integration."
 
-4. Orchestrator → Task Manager END (with Backend Engineer output)
-   - Extracts: files changed, what's ready
-   - Creates Summary section
-   - Marks complete
-   - Returns: "Completed login endpoint. UserController.kt and tests created. Ready for frontend integration."
-
-5. Orchestrator → Feature Manager START (next iteration)
-   - Recommends next task or signals feature complete
+3. Orchestrator continues with next task
+   - Stores brief (~200 tokens)
+   - Can query feature status with Feature Management Skill
 ```
 
 **Token Usage** (per task):
-- Feature Manager START: ~1.5k tokens
-- Task Manager START: ~2k tokens (includes task read)
-- Backend Engineer: ~3k tokens (includes task read, dependency summaries)
-- Task Manager END: ~500 tokens (extracts from specialist output)
-- **Total: ~7k tokens per task**
+- Routing (Skill or direct tool call): ~300 tokens
+- Backend Engineer: ~2.5k tokens (includes task read, dependency check, implementation, completion)
+- **Total: ~2.8k tokens per task**
 
 **Context Accumulation**:
 - Orchestrator context grows by: ~200 tokens (brief summary only)
-- Without sub-agents: Would grow by ~7k tokens (full task context)
-- **Savings: 97% reduction in orchestrator context growth**
+- **vs Old Approach**: 7k tokens (Feature Manager + Task Manager + Specialist)
+- **Savings: 60% total token reduction, 97% orchestrator context reduction**
 
-### Feature with Dependency Chain
+**Key Changes from Old Approach**:
+- ❌ No Feature Manager START (replaced by Skill or direct tool)
+- ❌ No Task Manager START (specialist reads task directly)
+- ❌ No Task Manager END (specialist creates summary and marks complete)
+- ✅ Specialist handles full lifecycle autonomously
+- ✅ 40-50% fewer tokens per task
+
+### Feature with Dependency Chain (Direct Orchestration)
+
+**NEW IN v1.1.0**: Streamlined workflow with specialists reading their own dependencies.
 
 **Scenario**: Feature with 3 tasks in sequence (T1 → T2 → T3)
 
@@ -1234,89 +1357,95 @@ get_sections(entityType='TASK',
 ```
 ITERATION 1: Task T1
 ───────────────────────
-1. Orchestrator → Feature Manager START
-   - Recommends T1 (database schema)
+1. Orchestrator identifies next task (Skill or direct tool)
+   - get_next_task(featureId='...') → T1
+   - Token cost: ~300 tokens
 
-2. Orchestrator → Task Manager START (T1)
-   - recommend_agent → "Database Engineer"
+2. Orchestrator → Database Engineer (DIRECT)
+   - Reads T1 task
    - No dependencies (first task)
-   - Returns brief
-
-3. Orchestrator → Database Engineer
-   - Creates migration, schema
-   - Returns brief
-
-4. Orchestrator → Task Manager END (T1)
-   - Creates Summary: "Created Users table with id, username, email, password_hash..."
+   - Creates migration: V3__create_users_table.sql
+   - Creates User.kt model
+   - Creates Summary section:
+     ### Files Changed
+     - `db/migration/V3__create_users_table.sql` - Users table with auth fields
+     - `src/model/User.kt` - User domain model
    - Marks T1 complete
+   - Returns: "✅ Completed: Create database schema. Files: V3__create_users_table.sql, User.kt. Ready: API implementation."
 
 ITERATION 2: Task T2 (Depends on T1)
 ───────────────────────
-5. Orchestrator → Feature Manager START
-   - Recommends T2 (API endpoints)
+3. Orchestrator identifies next task
+   - get_next_task(featureId='...') → T2
+   - Token cost: ~300 tokens
 
-6. Orchestrator → Task Manager START (T2)
-   - recommend_agent → "Backend Engineer"
-   - Reads T1 Summary: "Created Users table..."
-   - Returns brief WITH dependency context
-
-7. Orchestrator → Backend Engineer (with T1 context)
-   - Reads task + T1 Summary from orchestrator
-   - Implements API using T1 schema
-   - Returns brief
-
-8. Orchestrator → Task Manager END (T2)
-   - Creates Summary: "Implemented user CRUD endpoints using Users table from T1..."
+4. Orchestrator → Backend Engineer (DIRECT)
+   - Reads T2 task
+   - SELF-SERVICE: Checks dependencies via get_task_dependencies(T2)
+   - SELF-SERVICE: Reads T1 Summary section (300 tokens)
+     - Sees: Users table schema, User.kt model
+   - Implements UserController.kt using T1's User model
+   - Creates Summary section:
+     ### Files Changed
+     - `src/controller/UserController.kt` - CRUD endpoints for users
+     - `src/service/UserService.kt` - Business logic layer
+     - `src/test/UserControllerTest.kt` - Unit tests
    - Marks T2 complete
+   - Returns: "✅ Completed: Implement API endpoints. Files: UserController.kt, UserService.kt, tests. Ready: Integration testing."
 
 ITERATION 3: Task T3 (Depends on T2)
 ───────────────────────
-9. Orchestrator → Feature Manager START
-   - Recommends T3 (integration tests)
+5. Orchestrator identifies next task
+   - get_next_task(featureId='...') → T3
+   - Token cost: ~300 tokens
 
-10. Orchestrator → Task Manager START (T3)
-    - recommend_agent → "Test Engineer"
-    - Reads T2 Summary: "Implemented user CRUD endpoints..."
-    - Returns brief WITH dependency context
-
-11. Orchestrator → Test Engineer (with T2 context)
-    - Reads task + T2 Summary
-    - Creates integration tests for T2 endpoints
-    - Returns brief
-
-12. Orchestrator → Task Manager END (T3)
-    - Creates Summary: "Created integration tests for user CRUD endpoints..."
-    - Marks T3 complete
+6. Orchestrator → Test Engineer (DIRECT)
+   - Reads T3 task
+   - SELF-SERVICE: Checks dependencies via get_task_dependencies(T3)
+   - SELF-SERVICE: Reads T2 Summary section (300 tokens)
+     - Sees: UserController endpoints, UserService methods
+   - Creates integration tests for CRUD endpoints
+   - Creates Summary section:
+     ### Files Changed
+     - `src/test/integration/UserIntegrationTest.kt` - End-to-end API tests
+   - Marks T3 complete
+   - Returns: "✅ Completed: Add integration tests. Files: UserIntegrationTest.kt. Ready: Feature complete."
 
 FEATURE COMPLETION
 ───────────────────────
-13. Orchestrator → Feature Manager START
-    - All tasks complete
-    - Returns: "Next: Call Feature Manager END"
-
-14. Orchestrator → Feature Manager END
-    - Reads T1, T2, T3 Summaries
-    - Creates feature Summary
-    - Marks feature complete
-    - Returns brief
+7. Orchestrator checks feature status (Skill)
+   - Feature Management Skill: All tasks complete
+   - Creates feature summary
+   - Marks feature complete
+   - Token cost: ~700 tokens
 ```
 
 **Token Usage** (approximate for entire feature):
-- Task iterations (T1, T2, T3): ~7k tokens each = ~21k tokens
-- Feature Manager iterations: ~1.5k × 4 = ~6k tokens
-- Feature Manager END: ~3k tokens
-- **Total spent: ~30k tokens**
+- Task routing (3 iterations): 300 × 3 = ~900 tokens
+- Task T1 (Database Engineer): ~2.5k tokens
+- Task T2 (Backend Engineer): ~2.8k tokens (includes reading T1 summary)
+- Task T3 (Test Engineer): ~2.8k tokens (includes reading T2 summary)
+- Feature completion (Skill): ~700 tokens
+- **Total spent: ~9.7k tokens**
 
 **Orchestrator Context Growth**:
-- Without sub-agents: 3 tasks × ~7k = ~21k tokens accumulated in orchestrator
-- With sub-agents: 3 tasks × ~200 tokens = ~600 tokens accumulated in orchestrator
-- **Savings: 97% reduction** (~21k → ~600 tokens)
+- Orchestrator receives only briefs: 3 × ~200 = ~600 tokens
+- **vs Old Approach**: ~30k tokens total, ~600 tokens orchestrator
+- **Savings: 68% total token reduction** (~30k → ~9.7k)
+
+**Key Changes from Old Approach**:
+- ❌ No Feature Manager START iterations (replaced by single Skill call)
+- ❌ No Task Manager START/END for each task (specialists handle lifecycle)
+- ✅ Specialists read dependencies themselves (self-service)
+- ✅ Summary sections with Files Changed enable efficient context passing
+- ✅ Minimal orchestrator involvement (routing + brief storage)
 
 **Key Benefits**:
-- Each specialist gets relevant dependency context
-- No specialist needs to read all previous tasks
-- Context efficient through Summary sections
-- Sequential execution ensures proper order
+- Specialists autonomously manage their lifecycle
+- Self-service dependency reading (no middleware)
+- Files Changed section provides ~200-300 token context vs 2-5k reading files
+- 68% token reduction vs old approach
+- Orchestrator context still minimal (~600 tokens for 3 tasks)
 
 ### Parallel Work Opportunities
 
@@ -1415,6 +1544,43 @@ After Features 1 and 2 complete:
 
 ## Token Efficiency and Scaling
 
+### Architecture Evolution: Token Savings Summary
+
+**v1.0 (Feature Manager + Task Manager + Specialist)**:
+- Per task: ~7k tokens (1.5k FM + 2k TM START + 3k Specialist + 0.5k TM END)
+- Orchestrator growth: ~200 tokens per task (briefs only)
+- Feature with 8 tasks: ~56k tokens total
+
+**v1.1 (Direct Orchestration - NEW)**:
+- Per task: ~2.8k tokens (0.3k routing + 2.5k Specialist with self-service)
+- Orchestrator growth: ~200 tokens per task (briefs only)
+- Feature with 8 tasks: ~22.4k tokens total
+- **Savings: 60% token reduction** (~56k → ~22.4k)
+
+**What Changed**:
+- ❌ Removed Feature Manager START iterations (replaced by single Skill call per feature)
+- ❌ Removed Task Manager START (specialists read tasks directly)
+- ❌ Removed Task Manager END (specialists create summaries and mark complete)
+- ✅ Specialists handle full lifecycle (read task + dependencies, work, summarize, complete)
+- ✅ Self-service dependency reading (specialists read Summary sections directly)
+- ✅ Files Changed section in Summary enables efficient context passing (200-300 tokens vs 2-5k)
+
+**Token Efficiency Comparison**:
+
+| Operation | v1.0 (Old) | v1.1 (New) | Savings |
+|-----------|------------|------------|---------|
+| Feature coordination | 1500 tokens (FM START) | 300 tokens (Skill) | 80% |
+| Task routing | 2000 tokens (TM START) | Included in specialist | 100% |
+| Task completion | 500 tokens (TM END) | Included in specialist | 100% |
+| Specialist work | 3000 tokens | 2500 tokens (self-service deps) | 17% |
+| **Per Task Total** | **7000 tokens** | **2800 tokens** | **60%** |
+
+**Why This Scales Better**:
+- Feature Manager/Task Manager middleware eliminated
+- Specialists more autonomous (read own dependencies)
+- Orchestrator only does routing + brief storage
+- Summary sections with Files Changed enable token-efficient context passing
+
 ### Context Isolation
 
 **The Problem with Shared Context**:
@@ -1439,68 +1605,77 @@ Total Orchestrator Context: 35k tokens (grows linearly with each task)
 Context never cleared, always growing
 
 
-HYBRID MODEL (Task Orchestrator - Skills + Subagents + Hooks):
+HYBRID MODEL v1.1 (Direct Orchestration + Skills + Hooks):
 ─────────────────────────────────────────────────────────────────
 Orchestrator accumulates ONLY briefs:
-- Task 1 brief: "Completed schema. Created V3 migration..." = 200 tokens
-- Task 2 brief: "Implemented API. Created UserController..." = 200 tokens
-- Task 3 brief: "Added tests. Created UserControllerTest..." = 200 tokens
-- Task 4 brief: "Documented API. Updated api-docs.md..." = 200 tokens
-- Task 5 brief: "Deployed. Updated deployment scripts..." = 200 tokens
+- Task 1 brief: "✅ Completed schema. Files: V3 migration, User.kt..." = 200 tokens
+- Task 2 brief: "✅ Implemented API. Files: UserController, tests..." = 200 tokens
+- Task 3 brief: "✅ Added tests. Files: UserControllerTest..." = 200 tokens
+- Task 4 brief: "✅ Documented API. Files: api-docs.md..." = 200 tokens
+- Task 5 brief: "✅ Deployed. Files: deployment scripts..." = 200 tokens
 
 Total Orchestrator Context: 1k tokens (200 tokens per task, not 5-10k)
 
-Token Usage Per Task (Hybrid):
-Coordination (Skills):
-- Feature Management Skill (recommend next task): ~300 tokens
-- Task Management Skill (route to specialist): ~300 tokens
-- Task Management Skill (complete task): ~600 tokens
-Total Coordination: ~1200 tokens per task
+Token Usage Per Task (v1.1 Hybrid):
+Routing (Skills or direct):
+- get_next_task or Feature Management Skill: ~300 tokens per task
 
-Implementation (Specialist Subagent):
-- Backend/Frontend/Database Engineer: ~3k tokens → discarded after completion
+Implementation (Specialist Subagent with self-service):
+- Specialist reads task: ~500 tokens
+- Specialist reads dependencies (self-service): ~300 tokens
+- Specialist implements: ~1500 tokens
+- Specialist creates Summary with Files Changed: ~200 tokens
+- Specialist marks complete: ~100 tokens
+Total Specialist: ~2500 tokens → discarded after completion
 
 Automation (Hooks):
 - Git commit after completion: 0 tokens (bash script)
 - Test execution before completion: 0 tokens (bash script)
 
-Total Per Task: ~4.2k tokens spent (1.2k coordination + 3k specialist)
+Total Per Task: ~2800 tokens spent (300 routing + 2500 specialist)
 Orchestrator Accumulation: ~200 tokens brief only
 
 Contexts are isolated and discarded after each operation!
 
+v1.0 vs v1.1 Comparison:
+- v1.0: 4200 tokens/task (1200 coordination + 3000 specialist)
+- v1.1: 2800 tokens/task (300 routing + 2500 specialist)
+- Savings: 33% reduction through middleware elimination
+
 
 COMPARISON (Orchestrator Context Growth):
 ─────────────────────────────────────────────────────────────────
-             │ Traditional │ Old Subagent │ Hybrid Model │ Hybrid vs Old
-─────────────┼─────────────┼──────────────┼──────────────┼──────────────
-Task 1       │     5k      │    200       │     200      │   Same
-Task 1+2     │    13k      │    400       │     400      │   Same
-Task 1+2+3   │    20k      │    600       │     600      │   Same
-Task 1+2+3+4 │    29k      │    800       │     800      │   Same
-All 5 tasks  │    35k      │   1,000      │    1,000     │   Same
+             │ Traditional │ v1.0 Subagent │ v1.1 Direct │ v1.1 vs v1.0
+─────────────┼─────────────┼───────────────┼─────────────┼──────────────
+Task 1       │     5k      │    200        │     200     │   Same
+Task 1+2     │    13k      │    400        │     400     │   Same
+Task 1+2+3   │    20k      │    600        │     600     │   Same
+Task 1+2+3+4 │    29k      │    800        │     800     │   Same
+All 5 tasks  │    35k      │   1,000       │    1,000    │   Same
 
-Orchestrator Context Growth: Identical for both approaches (200 tokens per task)
-The hybrid architecture optimizes TOTAL TOKENS SPENT, not orchestrator context.
+Orchestrator Context Growth: Identical across v1.0 and v1.1 (200 tokens per task)
+v1.1 optimizes TOTAL TOKENS SPENT through middleware elimination.
 
 
 COMPARISON (Total Tokens Spent Per Task):
 ─────────────────────────────────────────────────────────────────
-Task Operation         │ Old Subagent │ Hybrid Model │ Savings
-───────────────────────┼──────────────┼──────────────┼─────────
-Feature coordination   │   ~1400      │    ~300      │  78%
-Task routing           │   ~1300      │    ~300      │  77%
-Task completion        │   ~1500      │    ~600      │  60%
-Specialist work        │   ~3000      │   ~3000      │   0%
-Git commit             │   Manual     │      0       │  100%
-Test execution         │   Manual     │      0       │  100%
-───────────────────────┼──────────────┼──────────────┼─────────
-Per Task Total         │   ~7200      │   ~4200      │  42%
+Task Operation         │ v1.0 Subagent │ v1.1 Direct │ Savings
+───────────────────────┼───────────────┼─────────────┼─────────
+Feature coordination   │   ~1400       │    ~300     │  78%
+Task routing           │   ~1300       │  (included) │ 100%
+Task completion        │   ~1500       │  (included) │ 100%
+Specialist work        │   ~3000       │   ~2500     │  17%
+Git commit (Hook)      │      0        │      0      │   0%
+Test execution (Hook)  │      0        │      0      │   0%
+───────────────────────┼───────────────┼─────────────┼─────────
+Per Task Total         │   ~7200       │   ~2800     │  61%
 
-**Key Insight**: Hybrid model reduces TOTAL TOKEN COST by 42% while maintaining
+**Key Insight**: v1.1 reduces TOTAL TOKEN COST by 61% vs v1.0 while maintaining
 same orchestrator context growth. Savings come from:
-- Skills replace coordination subagents (60-82% cheaper)
-- Hooks eliminate manual git/test operations (zero tokens)
+- Feature Manager START eliminated (Skill does routing: 78% cheaper)
+- Task Manager START eliminated (specialist reads task directly: 100% eliminated)
+- Task Manager END eliminated (specialist creates summary: 100% eliminated)
+- Self-service dependency reading (specialist reads summaries directly: 17% savings)
 ```
 
 **Why This Matters**:

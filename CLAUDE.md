@@ -376,11 +376,35 @@ Skills auto-activate from natural language. See: [.claude/skills/README.md](.cla
 **Setup**: Run `setup_claude_agents` once
 **Use for**: Code implementation, test writing, documentation, architecture design
 
-**Routing**: Use `recommend_agent(taskId)` to find appropriate specialist
-**Specialists**:
-- Implementation: Backend Engineer (Sonnet), Frontend Developer (Sonnet), Database Engineer (Sonnet), Test Engineer (Sonnet), Technical Writer (Sonnet)
-- Architecture: Feature Architect (Opus), Planning Specialist (Sonnet)
-- Triage: Bug Triage Specialist (Sonnet)
+**Specialist Lifecycle Pattern (Self-Service)**:
+1. Specialist reads task context directly via `query_container(operation="get", ...)`
+2. Specialist performs work (writes code, tests, documentation)
+3. Specialist updates task sections with results via `manage_sections(...)`
+4. Specialist returns brief summary (50-100 tokens) to orchestrator
+5. Orchestrator marks task complete (specialists do NOT self-complete)
+
+**Standardized Specialist Structure**:
+All specialist agents follow a consistent template structure:
+- **Workflow Section**: 4-step process (read task, do work, update sections, return summary)
+- **Critical Patterns**: Clear directive that specialists do NOT mark tasks complete
+- **Blocking Scenarios**: How to handle blockers and report them
+- **Domain Expertise**: Specialist-specific technical guidance
+- **Quality Standards**: Role-specific validation requirements (e.g., tests for engineers, clarity for writers)
+- **Output Format**: Brief summaries (50-100 tokens), detailed work in sections/files
+
+This standardization ensures:
+- Consistent behavior across all specialists
+- Clear separation of concerns (specialists implement, orchestrator coordinates)
+- Predictable token usage (minimal summaries, not full code/docs)
+- Proper blocker reporting when work cannot be completed
+
+**Routing**: Use `recommend_agent(taskId)` to find appropriate specialist based on task tags
+**Available Specialists**:
+- **Implementation**: Backend Engineer (Sonnet), Frontend Developer (Sonnet), Database Engineer (Sonnet), Test Engineer (Sonnet), Technical Writer (Sonnet)
+- **Architecture**: Feature Architect (Opus), Planning Specialist (Sonnet)
+- **Triage**: Bug Triage Specialist (Sonnet)
+
+**Token Efficiency**: Specialists return minimal summaries (50-100 tokens), detailed work goes in task sections and code files, not in responses.
 
 Templates work with both direct execution AND subagent execution.
 
@@ -405,16 +429,43 @@ See: [agent-orchestration.md](docs/agent-orchestration.md), [hybrid-architecture
 - "What's blocking?" → Dependency Analysis Skill
 
 ### When User Requests Implementation Work
-→ **Use Subagents** (complex reasoning + code):
-- "Create feature for X" / rich context (3+ paragraphs) → Feature Architect
-- "Implement X" / task with code → Use `recommend_agent(taskId)` for specialist routing
-- "Fix bug X" / "broken"/"error" → Bug Triage Specialist
-- "Break down X" → Planning Specialist
+→ **Use Subagents** (direct specialist routing):
+- "Create feature for X" / rich context (3+ paragraphs) → Feature Architect (Opus)
+- "Implement X" / task with code → `recommend_agent(taskId)` routes to specialist (Backend/Frontend/Database/Test/Technical Writer)
+- "Fix bug X" / "broken"/"error" → Bug Triage Specialist (Sonnet)
+- "Break down X" → Planning Specialist (Sonnet)
+
+### Specialist Routing with recommend_agent
+
+**Purpose**: Automatically route tasks to appropriate specialists based on task tags and requirements.
+
+**Usage**:
+```javascript
+recommend_agent(taskId="task-uuid")
+```
+
+**Returns**: Recommended specialist agent name based on task analysis:
+- Tags contain `backend`, `api`, `service` → Backend Engineer
+- Tags contain `frontend`, `ui`, `component` → Frontend Developer
+- Tags contain `database`, `migration`, `schema` → Database Engineer
+- Tags contain `test`, `testing` → Test Engineer
+- Tags contain `documentation`, `docs` → Technical Writer
+- Tags contain `bug`, `fix`, `error` → Bug Triage Specialist
+- Feature-level tasks or complex architecture → Feature Architect
+- Task breakdown or planning → Planning Specialist
+
+**Workflow Pattern**:
+1. User: "Implement task X"
+2. You: `recommend_agent(taskId)` → returns "Backend Engineer"
+3. You: Launch Backend Engineer subagent with task ID
+4. Backend Engineer: Reads task, implements code, updates sections, returns summary
+5. You: Mark task complete based on specialist's summary
 
 ### Critical Patterns
 - **Always** run `list_templates` before creating tasks/features
 - Feature Architect (Opus) creates feature → Planning Specialist (Sonnet) breaks into tasks → Specialists implement
-- **Token optimization**: Feature Architect returns minimal handoff (feature ID only), Planning Specialist reads feature directly
+- **Token optimization**: Specialists return minimal summaries (50-100 tokens), full work goes in sections/files
+- **Self-service**: Specialists read task context directly, no manager intermediary needed
 - Use `recommend_agent(taskId)` for automatic specialist routing based on task tags
 
 **Complete guide**: See [hybrid-architecture.md](docs/hybrid-architecture.md) for detailed decision matrices and examples.
@@ -438,10 +489,17 @@ See: [agent-orchestration.md](docs/agent-orchestration.md), [hybrid-architecture
 - "Complete task" / "Mark task done" → Task Management Skill (coordination)
 - "What's blocking?" / "Show dependencies" → Dependency Analysis Skill (coordination)
 - "Create feature for X" → Feature Architect subagent (complex design) + template discovery
-- "Implement X" → Specialist subagent (Backend/Frontend/Database/Test) + templates
+- "Implement X" → Use `recommend_agent(taskId)` to route to appropriate specialist + templates
 - "Fix bug X" → Bug Triage Specialist subagent + Bug Investigation template
 - "Break down X" → Planning Specialist subagent (task decomposition)
 - "Set up project" → Project setup workflow
+
+**Specialist Workflow** (Self-Service Pattern):
+1. Specialist reads task via `query_container(operation="get", containerType="task", id="...", includeSections=true)`
+2. Specialist performs implementation work (code, tests, documentation)
+3. Specialist updates task sections via `manage_sections(operation="add|updateText", ...)`
+4. Specialist returns brief summary (50-100 tokens) - NOT full implementation details
+5. Orchestrator marks task complete - specialists do NOT self-complete
 
 **Template Discovery** (ALWAYS required, regardless of using sub-agents):
 - Always: list_templates(targetEntityType, isEnabled=true)
