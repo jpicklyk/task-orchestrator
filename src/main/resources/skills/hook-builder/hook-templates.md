@@ -2,7 +2,7 @@
 
 Copy-paste templates for common hook patterns. Customize for your specific needs.
 
-## Template 1: Basic PostToolUse Hook
+## Template 1: Basic PostToolUse Hook (v2.0)
 
 **Purpose**: React to any MCP tool call
 
@@ -13,10 +13,20 @@ Copy-paste templates for common hook patterns. Customize for your specific needs
 # Read JSON input from stdin
 INPUT=$(cat)
 
-# Extract fields from tool input
-FIELD=$(echo "$INPUT" | jq -r '.tool_input.field_name')
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
 
 # Defensive check - only proceed if condition is met
+# Example: Only react to task status changes
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract specific fields
+FIELD=$(echo "$INPUT" | jq -r '.tool_input.field_name')
+
+# Additional defensive check
 if [ "$FIELD" != "expected_value" ]; then
   exit 0
 fi
@@ -35,7 +45,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__TOOL_NAME",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -48,7 +58,9 @@ exit 0
 }
 ```
 
-## Template 2: Blocking Quality Gate Hook
+**v2.0 Note**: Since `manage_container` handles all create/update/delete/setStatus operations, your hook script must filter by `operation` and `containerType` to react to specific actions.
+
+## Template 2: Blocking Quality Gate Hook (v2.0)
 
 **Purpose**: Prevent operations that don't meet criteria
 
@@ -59,11 +71,21 @@ exit 0
 # Read JSON input
 INPUT=$(cat)
 
-# Extract field to check
-FIELD=$(echo "$INPUT" | jq -r '.tool_input.field_name')
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
 
-# Only run quality gate when [condition]
-if [ "$FIELD" != "triggering_value" ]; then
+# Only run quality gate for specific operations
+# Example: Block feature completion unless tests pass
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "feature" ]; then
+  exit 0
+fi
+
+# Extract field to check
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
+
+# Only run quality gate when marking feature complete
+if [ "$STATUS" != "completed" ]; then
   exit 0
 fi
 
@@ -92,7 +114,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__TOOL_NAME",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -106,7 +128,7 @@ exit 0
 }
 ```
 
-## Template 3: Database Query Hook
+## Template 3: Database Query Hook (v2.0)
 
 **Purpose**: Get data from Task Orchestrator database
 
@@ -117,8 +139,17 @@ exit 0
 # Read JSON input
 INPUT=$(cat)
 
-# Extract ID to query
-ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Filter by operation/containerType as needed
+if [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract ID to query (from input for update/setStatus, from output for create)
+ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id // .tool_output.data.id')
 
 # Query database
 DB_PATH="$CLAUDE_PROJECT_DIR/data/tasks.db"
@@ -176,7 +207,7 @@ FROM Tasks
 WHERE featureId='FEATURE_ID' AND status != 'completed';
 ```
 
-## Template 4: Git Automation Hook
+## Template 4: Git Automation Hook (v2.0)
 
 **Purpose**: Automate git operations
 
@@ -186,6 +217,15 @@ WHERE featureId='FEATURE_ID' AND status != 'completed';
 
 # Read JSON input
 INPUT=$(cat)
+
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Filter by operation/containerType
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
 
 # Extract relevant data
 ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
@@ -261,7 +301,7 @@ fi
 LAST_COMMIT=$(git log -1 --pretty=%B)
 ```
 
-## Template 5: Logging/Metrics Hook
+## Template 5: Logging/Metrics Hook (v2.0)
 
 **Purpose**: Track events for analytics
 
@@ -272,9 +312,18 @@ LAST_COMMIT=$(git log -1 --pretty=%B)
 # Read JSON input
 INPUT=$(cat)
 
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Filter by operation/containerType as needed
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
 # Extract data to log
-FIELD1=$(echo "$INPUT" | jq -r '.path.to.field1')
-FIELD2=$(echo "$INPUT" | jq -r '.path.to.field2')
+FIELD1=$(echo "$INPUT" | jq -r '.tool_input.field1')
+FIELD2=$(echo "$INPUT" | jq -r '.tool_input.field2')
 
 # Generate timestamp
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -312,7 +361,7 @@ timestamp,event_type,entity_id,value1,value2
 [2025-10-18 14:30:00 UTC] Task Completed: "Task Title" (ID: uuid)
 ```
 
-## Template 6: External API Hook
+## Template 6: External API Hook (v2.0)
 
 **Purpose**: Send data to external service
 
@@ -323,8 +372,17 @@ timestamp,event_type,entity_id,value1,value2
 # Read JSON input
 INPUT=$(cat)
 
-# Extract data
-ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Filter by operation/containerType as needed
+if [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract data (from input for update/setStatus, from output for create)
+ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id // .tool_output.data.id')
 
 # Get additional data from database if needed
 DB_PATH="$CLAUDE_PROJECT_DIR/data/tasks.db"
@@ -386,7 +444,7 @@ curl -X POST "$JIRA_URL/rest/api/2/issue" \
   -d '{"fields": {"project": {"key": "PROJ"}, "summary": "Title"}}'
 ```
 
-## Template 7: Notification Hook
+## Template 7: Notification Hook (v2.0)
 
 **Purpose**: Send notifications to user or team
 
@@ -397,8 +455,17 @@ curl -X POST "$JIRA_URL/rest/api/2/issue" \
 # Read JSON input
 INPUT=$(cat)
 
-# Extract data for notification
-ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Filter by operation/containerType as needed
+if [ "$OPERATION" != "create" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract data for notification (from output for create operations)
+ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_output.data.id')
 
 # Get entity details
 DB_PATH="$CLAUDE_PROJECT_DIR/data/tasks.db"
@@ -476,7 +543,7 @@ echo "✓ Processed subagent completion"
 exit 0
 ```
 
-## Template 9: Conditional Multi-Action Hook
+## Template 9: Conditional Multi-Action Hook (v2.0)
 
 **Purpose**: Different actions based on conditions
 
@@ -486,6 +553,15 @@ exit 0
 
 # Read JSON input
 INPUT=$(cat)
+
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Filter by operation/containerType
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
 
 # Extract fields
 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
@@ -619,19 +695,19 @@ echo "✓ Hook completed successfully"
 exit 0
 ```
 
-## Configuration Combination Examples
+## Configuration Combination Examples (v2.0)
 
-**Multiple Hooks on Same Tool**:
+**Multiple Hooks on Consolidated Tool**:
 ```json
 {
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/commit.sh"},
-          {"type": "command", "command": ".claude/hooks/notify.sh"},
-          {"type": "command", "command": ".claude/hooks/metrics.sh"}
+          {"type": "command", "comment": "Auto-commit", "command": ".claude/hooks/commit.sh"},
+          {"type": "command", "comment": "Send notifications", "command": ".claude/hooks/notify.sh"},
+          {"type": "command", "comment": "Log metrics", "command": ".claude/hooks/metrics.sh"}
         ]
       }
     ]
@@ -639,27 +715,29 @@ exit 0
 }
 ```
 
+**Note**: In v2.0, the single `manage_container` matcher handles all operations (create, update, delete, setStatus) for all container types (task, feature, project). Each hook script filters by `operation` and `containerType` to react to specific actions.
+
 **Multiple Tools, Different Hooks**:
 ```json
 {
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/task-commit.sh"}
+          {"type": "command", "comment": "Task/feature operations", "command": ".claude/hooks/container-handler.sh"}
         ]
       },
       {
-        "matcher": "mcp__task-orchestrator__update_feature",
+        "matcher": "mcp__task-orchestrator__manage_sections",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/feature-gate.sh"}
+          {"type": "command", "comment": "Section operations", "command": ".claude/hooks/section-handler.sh"}
         ]
       },
       {
-        "matcher": "mcp__task-orchestrator__create_task",
+        "matcher": "mcp__task-orchestrator__get_next_task",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/task-notify.sh"}
+          {"type": "command", "command": ".claude/hooks/task-recommender.sh"}
         ]
       }
     ]

@@ -23,36 +23,38 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
     override val title: String = "Setup Claude Code Agent Configuration"
 
-    override val description: String = """Initializes Claude Code agent configuration system including agents and skills.
+    override val description: String = """Initializes agent configuration system with subagents, skills, and orchestration config.
 
         What This Creates:
-        - `.claude/agents/task-orchestrator/` - 8 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, frontend-developer, planning-specialist, technical-writer, test-engineer)
-        - `.claude/skills/` - 5 Skills for lightweight coordination (2-5 tool calls)
+        - `.claude/agents/task-orchestrator/` - 8 specialized subagent definitions
+        - `.claude/skills/` - 2 Skills for lightweight coordination workflows
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
         - `.taskorchestrator/config.yaml` - Orchestration configuration (enables v2.0 features)
         - Decision gates in CLAUDE.md (if not present)
 
-        Skills (Lightweight Coordination - 2-5 Tool Calls):
-        Skills are lightweight coordination patterns for quick, focused workflows (500-800 tokens):
+        Subagents (Complex Implementation - Deep Work):
+        Specialized agents for complex code implementation and documentation work:
+        - Backend Engineer, Frontend Developer, Database Engineer (sonnet model)
+        - Test Engineer, Technical Writer (sonnet model)
+        - Feature Architect (opus model) - Feature design and architecture
+        - Planning Specialist (sonnet model) - Task breakdown and planning
+        - Bug Triage Specialist (sonnet model) - Bug analysis and triage
+
+        Skills (Lightweight Coordination - Quick Workflows):
+        Lightweight patterns for quick coordination tasks (2-5 tool calls):
         - dependency-analysis: Analyze task dependencies, identify blocked tasks, find bottlenecks
-        - feature-management: Recommend next tasks, check feature progress, complete features
-        - hook-builder: Create custom hooks interactively (hooks are project-specific, not auto-installed)
-        - skill-builder: Create custom skills using templates and best practices
-        - task-management: Route tasks to specialists, manage task lifecycle, create summaries
+        - hook-builder: Interactive hook creation tool (project-specific hooks not auto-installed)
 
-        Each Skill includes: SKILL.md (workflow guide), examples.md (working examples), and supporting files.
+        Each Skill includes: SKILL.md (workflow guide), examples.md (working examples), troubleshooting.
 
-        Subagents (Complex Implementation - 2000+ Tool Calls):
-        - Backend Engineer, Database Engineer, Frontend Developer, Test Engineer, Technical Writer (sonnet model)
-        - Feature Architect, Planning Specialist (opus model)
-        - Bug Triage Specialist (sonnet model)
+        Configuration Files:
+        - agent-mapping.yaml: Maps task tags to appropriate subagents
+        - config.yaml: Status workflows, validation rules, quality gates, parallelism settings
 
-        Routing Decision: Skills for coordination (quick), Subagents for implementation (deep work)
-
-        Note on Hooks:
-        Hooks are NOT automatically installed because they are too project-specific (git commands, test runners, etc.).
-        Use the hook-builder skill to create custom hooks tailored to your project's needs.
-        Hook examples and documentation remain available in the resources for reference.
+        Note on Compatibility:
+        This MCP server works with any MCP client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.).
+        The .claude/ directory structure follows Claude Code conventions for optimal compatibility
+        but the MCP tools work independently of the client being used.
 
         Parameters: None required
 
@@ -63,18 +65,18 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         - Preserves directory structure for skills (includes supporting files)
 
         When to use:
-        - First time using Claude Code agent features
+        - First setup of agent system
         - Setting up new project or after cloning repository
-        - Restoring default agent configurations
-        - Adding skills to existing agent setup
+        - Restoring default configurations
+        - Enabling v2.0 features (config-driven status validation)
 
         After setup:
-        - Use recommend_agent(taskId) to get agent recommendations
-        - Use get_agent_definition(agentName) to read agent files
-        - Edit .claude/agents/task-orchestrator/*.md to customize behavior
+        - Use recommend_agent(taskId) to get subagent recommendations
+        - Use get_agent_definition(agentName) to read subagent files
+        - Edit .claude/agents/task-orchestrator/*.md to customize subagent behavior
         - Browse .claude/skills/ for skill documentation
         - Use hook-builder skill to create project-specific hooks
-        - Commit .claude/ directory to version control for team sharing
+        - Commit .claude/ and .taskorchestrator/ directories for team sharing
 
         Related tools: recommend_agent, get_agent_definition
 

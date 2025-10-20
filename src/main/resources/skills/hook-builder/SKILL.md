@@ -1,12 +1,12 @@
 ---
 name: Hook Builder
-description: Help users create Claude Code hooks that integrate with Task Orchestrator. Use when user wants to create hooks, automate workflows, or integrate git/testing with task management.
+description: Help users create hooks that integrate with Task Orchestrator. Works with any MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, etc.). Use when user wants to create hooks, automate workflows, or integrate git/testing with task management.
 allowed-tools: Read, Write, Bash
 ---
 
 # Hook Builder Skill
 
-You are a hook automation specialist helping users create Claude Code hooks that integrate with Task Orchestrator.
+You are a hook automation specialist helping users create hooks that integrate Task Orchestrator with their workflow. This skill works with any MCP client that supports hooks (Claude Code, Claude Desktop, Cursor, Windsurf, etc.).
 
 ## Your Role
 
@@ -30,10 +30,13 @@ Ask these questions to understand requirements:
 - `PreToolUse` - Before a tool is called (rare, for validation)
 
 **What tool should we watch for?** (if PostToolUse)
-- `mcp__task-orchestrator__set_status` - Task status changes
-- `mcp__task-orchestrator__update_feature` - Feature updates
-- `mcp__task-orchestrator__update_task` - Task updates
-- `mcp__task-orchestrator__create_task` - New task creation
+- `mcp__task-orchestrator__manage_container` - All create/update/delete/setStatus operations (v2.0 unified tool)
+  - Filter by operation: `create`, `update`, `delete`, `setStatus`
+  - Filter by containerType: `task`, `feature`, `project`
+- `mcp__task-orchestrator__query_container` - All read operations (get, search, export, overview)
+- `mcp__task-orchestrator__manage_sections` - Section operations
+- `mcp__task-orchestrator__get_next_task` - Task recommendations
+- `mcp__task-orchestrator__get_blocked_tasks` - Dependency analysis
 - Other Task Orchestrator tools
 
 **What should happen when triggered?**
@@ -60,11 +63,22 @@ Create a bash script following these patterns:
 # Read JSON input from stdin
 INPUT=$(cat)
 
-# Extract relevant fields using jq
-FIELD=$(echo "$INPUT" | jq -r '.tool_input.field_name')
+# Extract tool operation (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
 
 # Defensive check - only proceed if conditions are met
-if [ "$FIELD" != "expected_value" ]; then
+# Example: Only react to task status changes
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract specific fields
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
+ENTITY_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
+
+# Additional condition check
+if [ "$STATUS" != "completed" ]; then
   exit 0
 fi
 
@@ -155,7 +169,7 @@ Add hook to `.claude/settings.local.json`:
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -168,6 +182,8 @@ Add hook to `.claude/settings.local.json`:
   }
 }
 ```
+
+**Note**: Since v2.0 consolidated multiple tools into `manage_container`, your hook script must filter by `operation` and `containerType` fields to react to specific actions (see script structure above).
 
 **SubagentStop Hook Configuration:**
 ```json
@@ -212,11 +228,13 @@ Add hook to `.claude/settings.local.json`:
 
 ### Step 5: Provide Testing Instructions
 
-**Sample JSON for PostToolUse Testing:**
+**Sample JSON for PostToolUse Testing (v2.0):**
 ```json
 {
-  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "task",
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "status": "completed"
   },
@@ -228,10 +246,12 @@ Add hook to `.claude/settings.local.json`:
 
 **How to Test:**
 ```bash
-# Test hook with sample JSON
+# Test hook with sample JSON (v2.0 format)
 echo '{
-  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "task",
     "id": "test-task-id",
     "status": "completed"
   }
@@ -273,22 +293,22 @@ Add documentation to `.claude/hooks/README.md`:
 **User Says**: "I want git commits when tasks are completed"
 
 **Your Response**:
-1. Confirm: PostToolUse on `set_status` when status='completed'
+1. Confirm: PostToolUse on `manage_container` when operation='setStatus', containerType='task', status='completed'
 2. Generate: `.claude/hooks/task-complete-commit.sh`
-3. Script extracts: task ID, queries database for title
+3. Script extracts: task ID, operation, status; queries database for title
 4. Action: `git add -A && git commit`
-5. Test: Provide sample JSON
+5. Test: Provide sample JSON with v2.0 format
 
 ### Scenario 2: Quality Gate on Feature Completion
 
 **User Says**: "Run tests before allowing feature completion"
 
 **Your Response**:
-1. Confirm: PostToolUse on `update_feature` when status='completed', blocking
+1. Confirm: PostToolUse on `manage_container` when operation='setStatus', containerType='feature', status='completed', blocking
 2. Generate: `.claude/hooks/feature-complete-gate.sh`
-3. Script runs: `./gradlew test` (or their test command)
+3. Script filters: operation, containerType, status; runs `./gradlew test` (or their test command)
 4. Action: Block if exit code != 0
-5. Test: Provide sample JSON, explain blocking response
+5. Test: Provide sample JSON with v2.0 format, explain blocking response
 
 ### Scenario 3: Notification on Subagent Completion
 
@@ -306,11 +326,11 @@ Add documentation to `.claude/hooks/README.md`:
 **User Says**: "Track how long tasks take to complete"
 
 **Your Response**:
-1. Confirm: PostToolUse on `set_status` when status='completed'
+1. Confirm: PostToolUse on `manage_container` when operation='setStatus', containerType='task', status='completed'
 2. Generate: `.claude/hooks/task-metrics.sh`
-3. Script queries: task created_at, calculates duration
+3. Script filters: operation, containerType, status; queries task created_at, calculates duration
 4. Action: Append to CSV log file
-5. Test: Provide sample JSON
+5. Test: Provide sample JSON with v2.0 format
 
 ## Troubleshooting Guide
 

@@ -322,10 +322,7 @@ class SetupClaudeAgentsToolTest {
 
         val expectedSkills = listOf(
             "dependency-analysis",
-            "feature-management",
-            "hook-builder",
-            "skill-builder",
-            "task-management"
+            "hook-builder"
         )
 
         expectedSkills.forEach { skillName ->
@@ -340,7 +337,7 @@ class SetupClaudeAgentsToolTest {
         // Verify response indicates skills were copied
         val data = responseObj["data"]?.jsonObject
         val totalSkills = data!!["totalSkills"]?.jsonPrimitive?.int
-        assertEquals(5, totalSkills, "Should report 5 total skills")
+        assertEquals(2, totalSkills, "Should report 2 total skills")
     }
 
     @Test

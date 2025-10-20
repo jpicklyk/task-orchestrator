@@ -15,6 +15,15 @@ Complete working examples of hooks that integrate Task Orchestrator with your wo
 # Read JSON input from stdin
 INPUT=$(cat)
 
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for task status changes
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
 # Extract status and task ID
 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
@@ -59,7 +68,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -75,8 +84,10 @@ exit 0
 **Test Command**:
 ```bash
 echo '{
-  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "task",
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "status": "completed"
   }
@@ -101,6 +112,15 @@ echo '{
 
 # Read JSON input
 INPUT=$(cat)
+
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for feature status changes
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "feature" ]; then
+  exit 0
+fi
 
 # Extract feature status
 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
@@ -139,7 +159,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__update_feature",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -156,8 +176,10 @@ exit 0
 **Test Command**:
 ```bash
 echo '{
-  "tool_name": "mcp__task-orchestrator__update_feature",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "feature",
     "id": "7f2882b5-3334-4c60-940e-4c8464f93023",
     "status": "completed"
   }
@@ -261,7 +283,16 @@ echo '{
 # Read JSON input
 INPUT=$(cat)
 
-# Extract task details
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for task creation
+if [ "$OPERATION" != "create" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract task details from output
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_output.data.id')
 TASK_TITLE=$(echo "$INPUT" | jq -r '.tool_output.data.title')
 FEATURE_ID=$(echo "$INPUT" | jq -r '.tool_output.data.featureId')
@@ -304,7 +335,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__create_task",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -330,7 +361,16 @@ exit 0
 # Read JSON input
 INPUT=$(cat)
 
-# Extract task ID
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for task operations
+if [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
+
+# Extract task ID (from input for update, from output for create)
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.id // .tool_output.data.id')
 
 # Query task priority
@@ -368,16 +408,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__create_task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/high-priority-alert.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__task-orchestrator__update_task",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -389,6 +420,8 @@ exit 0
   }
 }
 ```
+
+**Note**: This single matcher now catches both create and update operations for tasks. The hook script filters by containerType to ensure it only processes task operations.
 
 ## Example 6: Dependency Blocker Detection
 
@@ -402,6 +435,15 @@ exit 0
 
 # Read JSON input
 INPUT=$(cat)
+
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for task creation
+if [ "$OPERATION" != "create" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
 
 # Get task ID from output
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_output.data.id')
@@ -437,7 +479,7 @@ exit 0
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__create_task",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -462,6 +504,15 @@ exit 0
 
 # Read JSON input
 INPUT=$(cat)
+
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for task status changes
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "task" ]; then
+  exit 0
+fi
 
 # Only track when task is completed
 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
@@ -525,7 +576,16 @@ exit 0
 # Read JSON input
 INPUT=$(cat)
 
-# Extract feature details
+# Extract operation and container type (v2.0 consolidated tools)
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+
+# Only proceed for feature operations
+if [ "$CONTAINER_TYPE" != "feature" ]; then
+  exit 0
+fi
+
+# Extract feature details (ID from output for create, from input for setStatus)
 FEATURE_ID=$(echo "$INPUT" | jq -r '.tool_output.data.id // .tool_input.id')
 FEATURE_STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // .tool_output.data.status')
 
@@ -577,12 +637,14 @@ exit 0
 
 ```bash
 #!/bin/bash
-# Test multiple hooks with sample data
+# Test multiple hooks with sample data (v2.0 format)
 
 echo "Testing task completion hook..."
 echo '{
-  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "task",
     "id": "test-task-id",
     "status": "completed"
   }
@@ -591,8 +653,10 @@ echo '{
 echo ""
 echo "Testing feature completion hook..."
 echo '{
-  "tool_name": "mcp__task-orchestrator__update_feature",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "feature",
     "id": "test-feature-id",
     "status": "completed"
   }
@@ -618,45 +682,42 @@ echo "✓ All hooks tested"
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
+            "comment": "Auto-commit on task completion",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-complete-commit.sh"
           },
           {
             "type": "command",
+            "comment": "Track task metrics",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-metrics-tracker.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__task-orchestrator__update_feature",
-        "hooks": [
+          },
           {
             "type": "command",
+            "comment": "Quality gate for feature completion",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/feature-complete-gate.sh",
             "timeout": 300
           },
           {
             "type": "command",
+            "comment": "Git branch management for features",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/feature-git-branch.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__task-orchestrator__create_task",
-        "hooks": [
+          },
           {
             "type": "command",
+            "comment": "Notify on task creation",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-create-notify.sh"
           },
           {
             "type": "command",
+            "comment": "Alert on high-priority tasks",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/high-priority-alert.sh"
           },
           {
             "type": "command",
+            "comment": "Dependency blocker detection",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/dependency-blocker-alert.sh"
           }
         ]
@@ -676,12 +737,18 @@ echo "✓ All hooks tested"
 }
 ```
 
+**v2.0 Consolidation Benefits:**
+- Single `manage_container` matcher handles all task/feature/project operations
+- Each hook script filters by `operation` and `containerType` to react to specific actions
+- Simpler configuration with fewer matcher blocks
+- All hooks run on every manage_container call, but exit early if conditions don't match
+
 This configuration enables:
-- Auto-commit on task completion
-- Metrics tracking for completed tasks
-- Quality gate for feature completion
-- Git branch management for features
-- Notifications for new tasks
-- Alerts for high-priority tasks
-- Dependency blocker detection
+- Auto-commit on task completion (operation=setStatus, containerType=task, status=completed)
+- Metrics tracking for completed tasks (operation=setStatus, containerType=task, status=completed)
+- Quality gate for feature completion (operation=setStatus, containerType=feature, status=completed)
+- Git branch management for features (containerType=feature, any operation)
+- Notifications for new tasks (operation=create, containerType=task)
+- Alerts for high-priority tasks (containerType=task, any operation)
+- Dependency blocker detection (operation=create, containerType=task)
 - Subagent completion logging
