@@ -1,0 +1,354 @@
+# Task Orchestrator Configuration
+# This file configures orchestration behavior, status progressions, and quality gates
+# Version: 2.0.0
+
+version: "2.0.0"
+
+# ============================================================================
+# STATUS PROGRESSION CONFIGURATION
+# ============================================================================
+# Define allowed status flows for features and tasks
+# Progression typically moves forward, but can move backward for rework
+#
+# NOTE: This config is activated when setup_claude_agents tool is run.
+# Without this config, system uses legacy enum-based validation.
+
+status_progression:
+  features:
+    # All valid feature statuses (v2.0)
+    allowed_statuses:
+      - planning
+      - in-development
+      - testing
+      - validating
+      - pending-review
+      - blocked
+      - completed
+      - archived
+
+    # Default flow for software development
+    default_flow:
+      - planning           # Initial state, defining requirements
+      - in-development     # Active implementation
+      - testing            # All tasks complete, running tests
+      - validating         # Tests passed, final validation
+      - completed          # Feature complete and validated
+
+    # Alternative flow with review gate
+    with_review_flow:
+      - planning
+      - in-development
+      - testing
+      - validating
+      - pending-review     # Awaiting human approval
+      - completed
+
+    # Statuses that can be entered from any state
+    emergency_transitions:
+      - blocked           # Feature blocked (can happen anytime)
+      - archived          # Feature archived (can happen anytime)
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses:
+      - completed
+      - archived
+
+  tasks:
+    # All valid task statuses (v2.0)
+    allowed_statuses:
+      - pending
+      - in-progress
+      - testing
+      - blocked
+      - completed
+      - cancelled         # Task explicitly cancelled
+      - deferred          # Task postponed indefinitely
+
+    # Default task flow
+    default_flow:
+      - pending            # Task created, waiting to start
+      - in-progress        # Actively being worked on
+      - testing            # Implementation complete, testing
+      - completed          # Task complete
+
+    # Alternative flow with blocking status
+    with_blocking:
+      - pending
+      - in-progress
+      - blocked            # Blocked by dependencies
+      - testing
+      - completed
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses:
+      - completed
+      - cancelled         # User cancelled the task
+      - deferred          # Task postponed, may resume later
+
+  projects:
+    # All valid project statuses (v2.0)
+    allowed_statuses:
+      - planning
+      - in-development
+      - completed
+      - archived
+      - on-hold
+      - cancelled
+
+    # Default project flow
+    default_flow:
+      - planning
+      - in-development
+      - completed
+      - archived
+
+    # Terminal statuses
+    terminal_statuses:
+      - completed
+      - archived
+      - cancelled
+
+# ============================================================================
+# STATUS VALIDATION RULES
+# ============================================================================
+
+status_validation:
+  # Enforce strict sequential flow (can't skip statuses)
+  enforce_sequential: true
+
+  # Allow backward transitions (e.g., testing → in-development for rework)
+  allow_backward: true
+
+  # Allow emergency transitions (blocked, archived, cancelled, deferred)
+  allow_emergency: true
+
+  # Validate prerequisites before status change (feature must have tasks, etc.)
+  validate_prerequisites: true
+
+# ============================================================================
+# PARALLEL EXECUTION SETTINGS
+# ============================================================================
+# Configure how tasks are executed in parallel based on dependencies
+
+parallelism:
+  enabled: true                    # Enable parallel task execution
+  max_parallel_tasks: 5            # Maximum concurrent tasks
+  auto_launch: true                # Auto-launch parallel batches (false = suggest only)
+  monitor_interval: 30             # Progress check interval (seconds)
+
+  # Batching strategy
+  batch_strategy: "dependency"     # Options: "dependency", "resource", "complexity"
+                                   # - dependency: Group by dependency level (recommended)
+                                   # - resource: Consider resource limits
+                                   # - complexity: Balance complexity across batches
+
+  # Resource limits (for "resource" strategy)
+  resource_limits:
+    max_memory_mb: 4096            # Maximum memory usage
+    max_cpu_percent: 80            # Maximum CPU utilization
+
+# ============================================================================
+# QUALITY GATE CONFIGURATION
+# ============================================================================
+# Define validation requirements before status changes
+
+quality_gates:
+  # Testing gate
+  testing:
+    enabled: true                  # Require tests before completion
+    blocking: true                 # Block completion if tests fail
+    hooks:
+      - "run-tests"               # Hook names to execute
+      - "check-coverage"
+
+    # Test requirements
+    requirements:
+      all_tests_pass: true         # All tests must pass
+      coverage_threshold: 80       # Minimum test coverage percentage
+      no_linting_errors: true      # No linting/style errors
+
+  # Code review gate
+  review:
+    enabled: false                 # Require human review
+    blocking: false                # Block completion without review
+    assignees: []                  # Specific reviewers (empty = any)
+
+  # Security scanning gate
+  security:
+    enabled: false                 # Require security scan
+    blocking: true                 # Block completion on vulnerabilities
+    hooks:
+      - "security-scan"
+
+    # Security requirements
+    requirements:
+      no_critical: true            # No critical vulnerabilities
+      no_high: true                # No high vulnerabilities
+      no_medium: false             # Allow medium vulnerabilities
+
+# ============================================================================
+# SPECIALIST ROUTING CONFIGURATION
+# ============================================================================
+# Configure how tasks are routed to specialist subagents
+
+specialist_routing:
+  # Primary routing method
+  use_recommend_agent: true        # Use recommend_agent tool for routing
+
+  # Fallback when no specialist matches
+  default_specialist: "Backend Engineer"    # Default specialist name
+
+  fallback_behavior: "use_default" # Options: "use_default", "ask_user"
+                                   # - use_default: Use default_specialist
+                                   # - ask_user: Prompt user to select specialist
+
+  # Custom mappings (supplements agent-mapping.yaml)
+  custom_mappings:
+    # Example custom specialist routing
+    # - tags: ["mobile", "ios", "android"]
+    #   specialist: "Mobile Developer"
+    # - tags: ["ml", "ai", "data-science"]
+    #   specialist: "ML Engineer"
+
+# ============================================================================
+# HOOK INTEGRATION
+# ============================================================================
+# Configure hook triggers for workflow automation
+
+hooks:
+  enabled: true                    # Enable hook system
+
+  triggers:
+    # Task completion hook
+    task_complete:
+      hooks: ["auto-commit"]       # Hooks to execute
+      run_async: true              # Run without blocking
+      timeout: 60                  # Timeout in seconds
+
+    # Feature testing hook
+    feature_testing:
+      hooks: ["run-ci-cd"]
+      run_async: false             # Wait for completion
+      timeout: 300                 # 5 minute timeout for CI/CD
+
+    # Status change hook
+    status_change:
+      hooks: ["notify-slack"]
+      run_async: true
+      timeout: 30
+
+    # Parallel batch complete hook
+    parallel_complete:
+      hooks: ["dependency-cascade"]
+      run_async: false
+      timeout: 60
+
+# ============================================================================
+# WORKFLOW AUTOMATION
+# ============================================================================
+# Configure automatic workflow behaviors
+
+automation:
+  # Feature and task creation
+  auto_create_tasks: true          # Auto-create tasks for simple features
+  auto_assign_specialists: true    # Auto-assign specialists based on tags
+  auto_progress_status: true       # Auto-progress status when conditions met
+  auto_complete_features: false    # Require manual confirmation for completion
+
+  # Template management
+  templates:
+    auto_discover: true            # Auto-discover available templates
+    auto_apply: true               # Auto-apply templates to new entities
+    required: []                   # Required template names
+    # Example:
+    # required:
+    #   - "Technical Approach"
+    #   - "Testing Strategy"
+
+# ============================================================================
+# MONITORING AND LOGGING
+# ============================================================================
+# Configure logging, metrics, and reporting
+
+monitoring:
+  # Logging level
+  log_level: "info"                # Options: "debug", "info", "warning", "error"
+
+  # Metrics tracking
+  metrics:
+    track_completion_time: true    # Track task/feature completion time
+    track_token_usage: true        # Track token consumption
+    track_parallel_efficiency: true # Track parallel execution savings
+
+  # Reporting
+  reporting:
+    daily_summary: true            # Generate daily progress summary
+    weekly_metrics: true           # Generate weekly metrics report
+    report_format: "markdown"      # Options: "markdown", "json", "text"
+
+# ============================================================================
+# FEATURE-SPECIFIC SETTINGS
+# ============================================================================
+
+# Complexity thresholds for routing decisions
+complexity:
+  simple_threshold: 4              # Complexity ≤ 4 = simple task
+  moderate_threshold: 7            # Complexity 5-7 = moderate task
+  complex_threshold: 10            # Complexity 8-10 = complex task
+
+# Feature creation thresholds
+feature_creation:
+  simple_max_tasks: 3              # Max tasks for "simple" feature
+  simple_max_description: 200      # Max chars for "simple" feature
+  complex_min_tasks: 5             # Min tasks for "complex" feature
+
+# Dependency management
+dependencies:
+  auto_detect_circular: true       # Auto-detect circular dependencies
+  warn_on_deep_chains: true        # Warn when dependency chains > 5 levels
+  max_dependency_depth: 10         # Maximum allowed dependency depth
+
+# ============================================================================
+# TEAM COLLABORATION
+# ============================================================================
+
+collaboration:
+  # Team notifications
+  notifications:
+    enabled: false                 # Enable team notifications
+    channels: []                   # Notification channels
+    # Example:
+    # channels:
+    #   - type: "slack"
+    #     webhook: "https://hooks.slack.com/..."
+    #   - type: "email"
+    #     recipients: ["team@example.com"]
+
+  # Assignment rules
+  assignment:
+    auto_assign: false             # Auto-assign tasks to team members
+    round_robin: false             # Use round-robin assignment
+    workload_balance: true         # Balance workload across team
+
+# ============================================================================
+# ADVANCED SETTINGS
+# ============================================================================
+
+advanced:
+  # Performance tuning
+  cache_duration: 300              # Cache duration in seconds
+  batch_size: 50                   # Batch size for bulk operations
+  retry_attempts: 3                # Retry attempts for failed operations
+  retry_delay: 5                   # Delay between retries (seconds)
+
+  # Token optimization
+  token_optimization:
+    use_overview: true             # Prefer overview operations
+    minimal_sections: true         # Query minimal sections
+    batch_queries: true            # Batch multiple queries
+
+  # Experimental features
+  experimental:
+    ai_complexity_estimation: false     # Use AI to estimate task complexity
+    predictive_scheduling: false        # Predict task completion times
+    auto_dependency_suggestion: false   # Suggest task dependencies

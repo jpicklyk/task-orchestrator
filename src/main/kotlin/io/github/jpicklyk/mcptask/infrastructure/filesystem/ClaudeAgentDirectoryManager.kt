@@ -48,6 +48,7 @@ class ClaudeAgentDirectoryManager(
         const val SKILLS_RESOURCE_PATH = "/skills"
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
+        const val CONFIG_FILE = "config.yaml"
         const val CLAUDE_MD_FILE = "CLAUDE.md"
         const val DECISION_GATES_MARKER = "## Decision Gates (Claude Code)"
 
@@ -277,6 +278,42 @@ class ClaudeAgentDirectoryManager(
         }
 
         logger.info("Copied agent mapping file: $AGENT_MAPPING_FILE")
+        return true
+    }
+
+    /**
+     * Copy the config.yaml file from embedded resources to .taskorchestrator/
+     * This file enables v2.0 config-driven status validation.
+     * Skips if file already exists (idempotent).
+     *
+     * Returns true if the file was copied, false if it already existed.
+     */
+    fun copyConfigFile(): Boolean {
+        val taskOrchestratorDir = getTaskOrchestratorDir()
+        val targetFile = taskOrchestratorDir.resolve(CONFIG_FILE)
+
+        // Skip if file already exists (idempotent)
+        if (Files.exists(targetFile)) {
+            logger.debug("Config file already exists, skipping: $CONFIG_FILE")
+            return false
+        }
+
+        // Ensure directory exists
+        if (!Files.exists(taskOrchestratorDir)) {
+            throw IllegalStateException(".taskorchestrator directory does not exist. Call createTaskOrchestratorDirectory() first.")
+        }
+
+        // Read from embedded resources
+        val resourcePath = "/orchestration/default-config.yaml"
+        val resourceStream = javaClass.getResourceAsStream(resourcePath)
+            ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
+
+        // Copy to target location
+        resourceStream.use { input ->
+            Files.copy(input, targetFile, StandardCopyOption.REPLACE_EXISTING)
+        }
+
+        logger.info("Copied config file: $CONFIG_FILE (v2.0 mode enabled)")
         return true
     }
 

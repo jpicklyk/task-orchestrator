@@ -29,6 +29,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
         - `.claude/agents/task-orchestrator/` - 8 specialized agent definitions (backend-engineer, bug-triage-specialist, database-engineer, feature-architect, frontend-developer, planning-specialist, technical-writer, test-engineer)
         - `.claude/skills/` - 5 Skills for lightweight coordination (2-5 tool calls)
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
+        - `.taskorchestrator/config.yaml` - Orchestration configuration (enables v2.0 features)
         - Decision gates in CLAUDE.md (if not present)
 
         Skills (Lightweight Coordination - 2-5 Tool Calls):
@@ -169,6 +170,24 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                                         "type" to JsonPrimitive("integer"),
                                         "description" to JsonPrimitive("Total number of skills")
                                     )
+                                ),
+                                "configCreated" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether config.yaml was newly created")
+                                    )
+                                ),
+                                "configPath" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Path to the config.yaml file")
+                                    )
+                                ),
+                                "v2ModeEnabled" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether v2.0 config-driven mode is enabled")
+                                    )
                                 )
                             )
                         )
@@ -205,15 +224,19 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
             logger.info("Copying agent-mapping.yaml configuration file...")
             val agentMappingCopied = agentDirectoryManager.copyAgentMappingFile()
 
-            // Step 5: Inject decision gates into CLAUDE.md
+            // Step 5: Copy config.yaml file (enables v2.0 mode)
+            logger.info("Copying config.yaml configuration file...")
+            val configCopied = agentDirectoryManager.copyConfigFile()
+
+            // Step 6: Inject decision gates into CLAUDE.md
             logger.info("Injecting decision gates into CLAUDE.md...")
             val decisionGatesInjected = agentDirectoryManager.injectDecisionGatesIntoClaude()
 
-            // Step 6: Create skills directory
+            // Step 7: Create skills directory
             logger.info("Creating .claude/skills/ directory structure...")
             val skillsDirectoryCreated = agentDirectoryManager.createSkillsDirectory()
 
-            // Step 7: Copy skill templates
+            // Step 8: Copy skill templates
             logger.info("Copying skill templates...")
             val copiedSkills = agentDirectoryManager.copySkillTemplates()
 
@@ -251,6 +274,11 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                 } else {
                     append("Agent-mapping.yaml already exists. ")
                 }
+                if (configCopied) {
+                    append("Created config.yaml (v2.0 mode enabled). ")
+                } else {
+                    append("Config.yaml already exists. ")
+                }
                 if (decisionGatesInjected) {
                     append("Injected decision gates into CLAUDE.md.")
                 } else {
@@ -270,6 +298,11 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                     put("agentMappingPath", agentDirectoryManager.getTaskOrchestratorDir().resolve(
                         ClaudeAgentDirectoryManager.AGENT_MAPPING_FILE
                     ).toString())
+                    put("configCreated", configCopied)
+                    put("configPath", agentDirectoryManager.getTaskOrchestratorDir().resolve(
+                        ClaudeAgentDirectoryManager.CONFIG_FILE
+                    ).toString())
+                    put("v2ModeEnabled", configCopied)
                     put("decisionGatesInjected", decisionGatesInjected)
                     put("skillsDirectoryCreated", skillsDirectoryCreated)
                     put("skillsCopied", JsonArray(copiedSkills.map { JsonPrimitive(it) }))

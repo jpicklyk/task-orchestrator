@@ -372,4 +372,66 @@ class SetupClaudeAgentsToolTest {
             assertFalse(Files.exists(templatesDir), "templates/ subdirectory should NOT be created by setup tool")
         }
     }
+
+    @Test
+    fun `execute should create config yaml file`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        // Verify .taskorchestrator/config.yaml exists
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val taskOrchestratorDir = workingDir.resolve(".taskorchestrator")
+        val configFile = taskOrchestratorDir.resolve("config.yaml")
+
+        assertTrue(Files.exists(taskOrchestratorDir), ".taskorchestrator directory should exist after execution")
+        assertTrue(Files.exists(configFile), "config.yaml should exist after execution")
+        assertTrue(Files.size(configFile) > 0, "config.yaml should not be empty")
+
+        // Verify config.yaml contains expected content
+        val configContent = Files.readString(configFile)
+        assertTrue(configContent.contains("version: \"2.0.0\""), "Config should have version 2.0.0")
+        assertTrue(configContent.contains("status_progression:"), "Config should have status_progression section")
+        assertTrue(configContent.contains("allowed_statuses:"), "Config should have allowed_statuses")
+        assertTrue(configContent.contains("cancelled"), "Config should include cancelled status")
+        assertTrue(configContent.contains("deferred"), "Config should include deferred status")
+
+        // Verify response includes config creation info
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data!!["configCreated"], "Should have configCreated field")
+        assertNotNull(data["configPath"], "Should have configPath field")
+        assertNotNull(data["v2ModeEnabled"], "Should have v2ModeEnabled field")
+        assertTrue(data["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be true on first run")
+        assertTrue(data["v2ModeEnabled"]?.jsonPrimitive?.boolean == true, "v2ModeEnabled should be true when config created")
+    }
+
+    @Test
+    fun `execute should skip config yaml if already exists`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        // First execution - creates config
+        val firstResponse = tool.execute(params, mockContext)
+        val firstResponseObj = firstResponse as JsonObject
+        assertTrue(firstResponseObj["success"]?.jsonPrimitive?.boolean == true, "First execution should succeed")
+
+        val firstData = firstResponseObj["data"]?.jsonObject
+        assertTrue(firstData!!["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be true on first run")
+
+        // Second execution - skips config
+        val secondResponse = tool.execute(params, mockContext)
+        val secondResponseObj = secondResponse as JsonObject
+        assertTrue(secondResponseObj["success"]?.jsonPrimitive?.boolean == true, "Second execution should succeed")
+
+        val secondData = secondResponseObj["data"]?.jsonObject
+        assertFalse(secondData!!["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be false on second run (already exists)")
+
+        // Message should indicate config already exists
+        val secondMessage = secondResponseObj["message"]?.jsonPrimitive?.content
+        assertTrue(
+            secondMessage?.contains("Config.yaml already exists") == true,
+            "Second execution message should indicate config already exists"
+        )
+    }
 }
