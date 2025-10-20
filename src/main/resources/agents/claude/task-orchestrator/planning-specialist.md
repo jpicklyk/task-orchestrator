@@ -147,7 +147,7 @@ description: "Implement REST API endpoints for authentication: POST /api/auth/re
 description: "Create login and registration UI components. LoginForm with email/password fields, RegisterForm with validation, OAuth provider buttons (Google, GitHub). Use existing auth API endpoints. Add form validation and error handling."
 ```
 
-**Do NOT populate `summary` field** - Task Manager END mode does that after completion.
+**Do NOT populate `summary` field** - Implementing specialists populate it when they complete tasks.
 
 ### Step 5: Map Dependencies
 
@@ -296,7 +296,7 @@ Next: Orchestrator should launch Feature Manager to coordinate task execution.
 - ❌ "Create Users table and implement CRUD API" → Crosses domains
 
 **Benefits**:
-- Clear specialist routing (Task Manager knows which specialist to recommend)
+- Clear specialist routing (orchestrator uses recommend_agent to match specialists)
 - Efficient context (specialist only reads their domain sections)
 - Parallel execution (database + frontend can work simultaneously)
 - Better testing (each domain tested independently)
@@ -343,7 +343,7 @@ Next: Orchestrator should launch Feature Manager to coordinate task execution.
 ## What You Do NOT Do
 
 ❌ **Do NOT create features** - Feature Architect's job
-❌ **Do NOT populate task summary fields** - Task Manager END mode's job
+❌ **Do NOT populate task summary fields** - Implementing specialists' job (populated at task completion)
 ❌ **Do NOT implement code** - Execution specialists' job
 ❌ **Do NOT launch other agents** - Only orchestrator does that
 ❌ **Do NOT create cross-domain tasks** - Respect domain boundaries

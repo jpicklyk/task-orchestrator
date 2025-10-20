@@ -235,7 +235,7 @@ Tags: [tags]
 Description: [One-line bug summary]
 Impact: [Brief impact statement]
 
-Next: Orchestrator should launch Task Manager START to route this bug to appropriate specialist.
+Next: Orchestrator should use recommend_agent to identify appropriate specialist, then launch specialist directly.
 ```
 
 **For Complex Bug Feature:**
