@@ -19,22 +19,46 @@ model: [sonnet|opus]
 ## Workflow (Follow this order)
 
 1. **Read the task**: `query_container(operation="get", containerType="task", id='...', includeSections=true)`
-2. **Do your work**: [Specific work this agent performs]
-3. **Update task sections** with your results:
+2. **Read dependencies** (if task has dependencies - self-service):
+   - `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
+   - For each completed dependency, read its "Files Changed" section for context
+   - Get context on what was built before you
+3. **Do your work**: [Specific work this agent performs]
+4. **Update task sections** with your results:
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text in existing sections
    - `manage_sections(operation="add", ...)` - Add sections for [specific content types]
-4. **[Agent-specific validation step if applicable]**: [e.g., "Run tests", "Build project", "Validate markup"]
-5. **Return brief summary to orchestrator** (2-3 sentences):
-   - What you [implemented/documented/designed]
-   - [Validation results if applicable]
-   - What's ready next
-   - **CRITICAL: Do NOT mark task complete yourself - Task Manager will do that**
-   - **Do NOT include [full code/documentation/etc.] in your response**
+5. **[Agent-specific validation step if applicable]**: [e.g., "Run tests", "Build project", "Validate markup"]
+6. **Populate task summary field** (300-500 chars):
+   - `manage_container(operation="update", containerType="task", id="...", summary="...")`
+   - Brief 2-3 sentence summary of what was done, test results, what's ready
+7. **Create "Files Changed" section**:
+   - `manage_sections(operation="add", entityType="TASK", entityId="...", title="Files Changed", content="...", ordinal=999, tags="files-changed,completion")`
+   - Markdown list of files modified/created with brief descriptions
+   - Helps downstream tasks and git hooks parse changes
+8. **Mark task complete**:
+   - `manage_container(operation="setStatus", containerType="task", id="...", status="completed")`
+   - ONLY after all validation passes and work is complete
+9. **Return minimal output to orchestrator**:
+   - Format: "✅ [Task title] completed. [Optional 1 sentence of critical context]"
+   - Or if blocked: "⚠️ BLOCKED\n\nReason: [one sentence]\nRequires: [action needed]"
 
-## CRITICAL: You Do NOT Mark Tasks Complete
+## Task Lifecycle Management
 
-**Task Manager's job**: Only Task Manager (your caller) marks tasks complete via `manage_container(operation="setStatus", ...)`.
-**Your job**: [Core responsibilities], update sections, return results.
+**CRITICAL**: You are responsible for the complete task lifecycle. Task Manager has been removed.
+
+**Your responsibilities:**
+- Read task and dependencies (self-service)
+- Perform the work
+- Update task sections with detailed results
+- Populate task summary field with brief outcome
+- Create "Files Changed" section for downstream tasks
+- Mark task complete when validation passes
+- Return minimal status to orchestrator
+
+**Why this matters:**
+- Direct specialist pattern eliminates 3-agent hops (1800-2700 tokens saved)
+- You have full context and can make completion decisions
+- Downstream specialists read your "Files Changed" section for context
 
 ## [Agent-Specific Critical Section if needed]
 
@@ -54,10 +78,11 @@ model: [sonnet|opus]
 - ✅ [Success criteria 3]
 
 ### Step 3: If [Validation] Fails
-❌ **DO NOT mark task complete**
-❌ **DO NOT report to orchestrator as done**
+❌ **DO NOT mark task complete until validation passes**
+❌ **DO NOT return success status to orchestrator**
 ✅ **Fix [issues]**
 ✅ **Re-run until [validation passes]**
+✅ **THEN mark complete and return success**
 
 ### Step 4: Report [Validation] Results
 Include in your completion summary:
@@ -252,43 +277,63 @@ model: sonnet|opus
 
 **Standard Steps** (adapt to agent):
 1. **Read the task**: Always starts with reading the task and its sections
-2. **Do your work**: Core work specific to the agent's domain
-3. **Update task sections**: Document results in task sections
-4. **[Optional validation step]**: Agent-specific validation (tests, builds, etc.)
-5. **Return brief summary**: Minimal handoff to orchestrator
+2. **Read dependencies**: Self-service dependency context reading
+3. **Do your work**: Core work specific to the agent's domain
+4. **Update task sections**: Document results in task sections
+5. **[Optional validation step]**: Agent-specific validation (tests, builds, etc.)
+6. **Populate task summary**: Brief 300-500 char outcome
+7. **Create "Files Changed" section**: For downstream tasks and git hooks
+8. **Mark task complete**: After validation passes
+9. **Return minimal status**: Brief success/blocked message to orchestrator
 
 **Critical elements to include:**
-- **Self-service context reading**: Agent reads its own dependencies/context via `query_container` (not from orchestrator)
-- **Section updates**: Agent documents results in task sections
-- **Minimal response**: Explicitly state "Do NOT include full [code/docs] in response"
-- **No self-completion**: Explicitly state "Do NOT mark task complete yourself"
+- **Self-service context reading**: Agent reads its own dependencies via `query_dependencies` and `query_sections`
+- **Section updates**: Agent documents detailed results in task sections
+- **Task summary field**: Agent populates database summary field (not a section)
+- **Files Changed section**: Ordinal 999, tags "files-changed,completion"
+- **Task completion**: Agent marks task complete after validation
+- **Minimal response**: Return brief status, not full results
 
 **Example workflow structure:**
 ```markdown
 1. **Read the task**: `query_container(operation="get", containerType="task", id='...', includeSections=true)`
-2. **Do your work**: [Agent-specific activities]
-3. **Update task sections** with your results:
+2. **Read dependencies** (if task has dependencies):
+   - `query_dependencies(taskId="...", direction="incoming")`
+   - Read "Files Changed" sections from completed dependencies
+3. **Do your work**: [Agent-specific activities]
+4. **Update task sections** with your results:
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text
    - `manage_sections(operation="add", ...)` - Add new sections
-4. **Run tests and validate** (REQUIRED - see below)
-5. **Return brief summary to orchestrator** (2-3 sentences):
-   - What you implemented/documented/designed
-   - Test results (if applicable)
-   - What's ready next
-   - **CRITICAL: Do NOT mark task complete yourself**
-   - **Do NOT include full code/documentation in your response**
+5. **Run tests and validate** (if applicable)
+6. **Populate task summary field**: `manage_container(operation="update", summary="...")`
+7. **Create "Files Changed" section**: `manage_sections(operation="add", title="Files Changed", ordinal=999, tags="files-changed,completion")`
+8. **Mark task complete**: `manage_container(operation="setStatus", status="completed")`
+9. **Return minimal output**: "✅ [Task] completed. [Optional context]"
 ```
 
-### 4. Output Format Section (Required)
+### 4. Task Lifecycle Management Section (Required)
 
-**Title**: `## CRITICAL: You Do NOT Mark Tasks Complete`
+**Title**: `## Task Lifecycle Management`
 
-**Purpose**: Explicitly prevent agents from marking tasks complete (Task Manager's job).
+**Purpose**: Explicitly state that specialists ARE responsible for the complete task lifecycle (Task Manager removed).
 
-**Standard text** (adapt nouns):
+**Standard text** (adapt to agent domain):
 ```markdown
-**Task Manager's job**: Only Task Manager (your caller) marks tasks complete via `manage_container(operation="setStatus", ...)`.
-**Your job**: [Core work], update sections, return results.
+**CRITICAL**: You are responsible for the complete task lifecycle. Task Manager has been removed.
+
+**Your responsibilities:**
+- Read task and dependencies (self-service)
+- Perform the work
+- Update task sections with detailed results
+- Populate task summary field with brief outcome (300-500 chars)
+- Create "Files Changed" section for downstream tasks
+- Mark task complete when validation passes
+- Return minimal status to orchestrator
+
+**Why this matters:**
+- Direct specialist pattern eliminates 3-agent hops (1800-2700 tokens saved)
+- You have full context and can make completion decisions
+- Downstream specialists read your "Files Changed" section for context
 ```
 
 ### 5. Agent-Specific Validation Section (Conditional)
@@ -586,20 +631,22 @@ Your detailed [work output type] goes **in the task sections** and **in project 
 
 1. Read current specialist file
 2. Extract domain-specific content (technical guidance, blocker examples, tools)
-3. Apply this template structure
+3. Apply this template structure (9-step workflow with dependency reading, summary population, Files Changed, task completion)
 4. Reinsert domain-specific content in appropriate sections
-5. Ensure all required sections are present
-6. Verify workflow matches standard pattern
-7. Confirm "Do NOT mark complete" messaging is clear
+5. Remove OLD "Do NOT mark complete" sections
+6. Add NEW "Task Lifecycle Management" section (specialists DO complete tasks)
+7. Verify workflow includes: dependency reading, summary field, Files Changed section, task completion
+8. Verify frontmatter includes: manage_container, query_dependencies tools
 
 ## Quality Checklist
 
 Before finalizing a specialist file, verify:
 
 - [ ] Frontmatter complete (name, description, tools, model)
+- [ ] Frontmatter includes: manage_container, query_container, query_dependencies, query_sections, manage_sections
 - [ ] Opening paragraph clearly states agent's focus
-- [ ] Workflow section present with numbered steps
-- [ ] "Do NOT mark tasks complete" section present
+- [ ] Workflow section present with 9-step pattern (read task → dependencies → work → sections → validation → summary → files changed → complete → minimal output)
+- [ ] "Task Lifecycle Management" section present (specialists DO mark tasks complete)
 - [ ] Validation section present (if implementation specialist)
 - [ ] "If You Cannot Complete" section with 3-4 examples
 - [ ] Key Responsibilities section (5-7 items)
@@ -608,8 +655,10 @@ Before finalizing a specialist file, verify:
 - [ ] All tools listed in frontmatter
 - [ ] All `[placeholders]` replaced with actual content
 - [ ] Examples are concrete and domain-specific
-- [ ] Minimal response philosophy emphasized
-- [ ] Self-service context reading pattern used
+- [ ] Minimal response philosophy emphasized (✅ brief status, not full results)
+- [ ] Self-service dependency reading pattern used
+- [ ] Task summary field population instructions included
+- [ ] "Files Changed" section creation instructions included (ordinal 999, tags "files-changed,completion")
 
 ## Token Optimization
 
