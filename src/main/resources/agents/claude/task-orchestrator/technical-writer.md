@@ -1,7 +1,7 @@
 ---
 name: Technical Writer
 description: Specialized in creating comprehensive technical documentation, API references, user guides, and maintaining documentation quality and consistency
-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Grep, Glob
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Grep, Glob
 model: sonnet
 ---
 

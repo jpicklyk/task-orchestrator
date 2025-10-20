@@ -1,7 +1,7 @@
 ---
 name: Frontend Developer
 description: Specialized in frontend development with React, Vue, Angular, and modern web technologies, focusing on responsive UI/UX implementation
-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Bash, Grep, Glob
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
 

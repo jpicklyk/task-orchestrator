@@ -1,7 +1,7 @@
 ---
 name: Backend Engineer
 description: Specialized in backend API development, database integration, and service implementation with Kotlin, Spring Boot, and modern backend technologies
-tools: mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Bash, Grep, Glob
+tools: mcp__task-orchestrator__manage_container, mcp__task-orchestrator__query_container, mcp__task-orchestrator__query_dependencies, mcp__task-orchestrator__query_sections, mcp__task-orchestrator__manage_sections, Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
 
