@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.agent
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.ClaudeAgentDirectoryManager
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupManager
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.Tool
 import kotlinx.serialization.json.*
@@ -196,6 +196,24 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                                         "type" to JsonPrimitive("boolean"),
                                         "description" to JsonPrimitive("Whether v2.0 config-driven mode is enabled")
                                     )
+                                ),
+                                "personaDirectoryCreated" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether persona directory was newly created")
+                                    )
+                                ),
+                                "personaCopied" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether persona file was newly copied")
+                                    )
+                                ),
+                                "personaPath" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("string"),
+                                        "description" to JsonPrimitive("Path to the persona file")
+                                    )
                                 )
                             )
                         )
@@ -214,50 +232,58 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
         logger.info("Executing setup_claude_orchestration tool")
 
         return try {
-            val agentDirectoryManager = ClaudeAgentDirectoryManager()
+            val orchestrationSetupManager = OrchestrationSetupManager()
 
             // Step 1: Create directory structure
             logger.info("Creating .claude/agents/ directory structure...")
-            val directoryCreated = agentDirectoryManager.createDirectoryStructure()
+            val directoryCreated = orchestrationSetupManager.createDirectoryStructure()
 
             // Step 2: Copy Claude-specific agent template files
             logger.info("Copying Claude Code agent template files...")
-            val copiedAgentFiles = agentDirectoryManager.copyDefaultAgentTemplates()
+            val copiedAgentFiles = orchestrationSetupManager.copyDefaultAgentTemplates()
 
             // Step 3: Create .taskorchestrator directory
             logger.info("Creating .taskorchestrator/ directory structure...")
-            val taskOrchestratorDirCreated = agentDirectoryManager.createTaskOrchestratorDirectory()
+            val taskOrchestratorDirCreated = orchestrationSetupManager.createTaskOrchestratorDirectory()
 
             // Step 4: Copy agent-mapping.yaml file
             logger.info("Copying agent-mapping.yaml configuration file...")
-            val agentMappingCopied = agentDirectoryManager.copyAgentMappingFile()
+            val agentMappingCopied = orchestrationSetupManager.copyAgentMappingFile()
 
             // Step 5: Copy config.yaml file (enables v2.0 mode)
             logger.info("Copying config.yaml configuration file...")
-            val configCopied = agentDirectoryManager.copyConfigFile()
+            val configCopied = orchestrationSetupManager.copyConfigFile()
 
             // Step 6: Inject decision gates into CLAUDE.md
             logger.info("Injecting decision gates into CLAUDE.md...")
-            val decisionGatesInjected = agentDirectoryManager.injectDecisionGatesIntoClaude()
+            val decisionGatesInjected = orchestrationSetupManager.injectDecisionGatesIntoClaude()
 
             // Step 7: Create skills directory
             logger.info("Creating .claude/skills/ directory structure...")
-            val skillsDirectoryCreated = agentDirectoryManager.createSkillsDirectory()
+            val skillsDirectoryCreated = orchestrationSetupManager.createSkillsDirectory()
 
             // Step 8: Copy skill templates
             logger.info("Copying skill templates...")
-            val copiedSkills = agentDirectoryManager.copySkillTemplates()
+            val copiedSkills = orchestrationSetupManager.copySkillTemplates()
+
+            // Step 9: Create persona directory
+            logger.info("Creating .claude/persona/ directory structure...")
+            val personaDirectoryCreated = orchestrationSetupManager.createPersonaDirectory()
+
+            // Step 10: Copy persona file
+            logger.info("Copying persona file...")
+            val personaCopied = orchestrationSetupManager.copyPersonaFile()
 
             // Calculate skipped files
-            val allAgentFiles = ClaudeAgentDirectoryManager.DEFAULT_AGENT_FILES
+            val allAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
             val skippedAgentFiles = allAgentFiles.filter { it !in copiedAgentFiles }
-            val allSkills = ClaudeAgentDirectoryManager.SKILL_DIRECTORIES
+            val allSkills = OrchestrationSetupManager.SKILL_DIRECTORIES
             val skippedSkills = allSkills.filter { it !in copiedSkills }
 
             // Build response message
             val message = buildString {
                 append("Claude Code orchestration system setup ")
-                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated) {
+                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated || personaDirectoryCreated) {
                     append("completed successfully. ")
                 } else {
                     append("verified. ")
@@ -275,6 +301,12 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                 }
                 if (skippedSkills.isNotEmpty()) {
                     append("Skipped ${skippedSkills.size} existing skill(s). ")
+                }
+
+                if (personaCopied) {
+                    append("Created persona file. ")
+                } else {
+                    append("Persona file already exists. ")
                 }
 
                 if (agentMappingCopied) {
@@ -299,24 +331,29 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     put("directoryCreated", directoryCreated)
                     put("agentFilesCreated", JsonArray(copiedAgentFiles.map { JsonPrimitive(it) }))
                     put("agentFilesSkipped", JsonArray(skippedAgentFiles.map { JsonPrimitive(it) }))
-                    put("directory", agentDirectoryManager.getClaudeDir().toString())
+                    put("directory", orchestrationSetupManager.getClaudeDir().toString())
                     put("totalAgents", allAgentFiles.size)
                     put("taskOrchestratorDirCreated", taskOrchestratorDirCreated)
                     put("agentMappingCreated", agentMappingCopied)
-                    put("agentMappingPath", agentDirectoryManager.getTaskOrchestratorDir().resolve(
-                        ClaudeAgentDirectoryManager.AGENT_MAPPING_FILE
+                    put("agentMappingPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
+                        OrchestrationSetupManager.AGENT_MAPPING_FILE
                     ).toString())
                     put("configCreated", configCopied)
-                    put("configPath", agentDirectoryManager.getTaskOrchestratorDir().resolve(
-                        ClaudeAgentDirectoryManager.CONFIG_FILE
+                    put("configPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
+                        OrchestrationSetupManager.CONFIG_FILE
                     ).toString())
                     put("v2ModeEnabled", configCopied)
                     put("decisionGatesInjected", decisionGatesInjected)
                     put("skillsDirectoryCreated", skillsDirectoryCreated)
                     put("skillsCopied", JsonArray(copiedSkills.map { JsonPrimitive(it) }))
                     put("skillsSkipped", JsonArray(skippedSkills.map { JsonPrimitive(it) }))
-                    put("skillsDirectory", agentDirectoryManager.getSkillsDir().toString())
+                    put("skillsDirectory", orchestrationSetupManager.getSkillsDir().toString())
                     put("totalSkills", allSkills.size)
+                    put("personaDirectoryCreated", personaDirectoryCreated)
+                    put("personaCopied", personaCopied)
+                    put("personaPath", orchestrationSetupManager.getPersonaDir().resolve(
+                        OrchestrationSetupManager.PERSONA_FILE
+                    ).toString())
                 },
                 message = message
             )

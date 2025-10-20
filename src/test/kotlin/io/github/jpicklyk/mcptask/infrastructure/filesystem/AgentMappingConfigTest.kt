@@ -146,7 +146,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `all agent definition files should exist`() {
-        val expectedAgentFiles = ClaudeAgentDirectoryManager.DEFAULT_AGENT_FILES
+        val expectedAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
 
         expectedAgentFiles.forEach { fileName ->
             val resourceStream = javaClass.getResourceAsStream("/agents/claude/task-orchestrator/$fileName")

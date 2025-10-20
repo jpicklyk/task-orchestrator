@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.ClaudeAgentDirectoryManager
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupManager
 import io.modelcontextprotocol.kotlin.sdk.ReadResourceResult
 import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -27,7 +27,7 @@ object SkillsAndHooksResources {
      */
     fun configure(
         server: Server,
-        directoryManager: ClaudeAgentDirectoryManager
+        directoryManager: OrchestrationSetupManager
     ) {
         addListSkillsResource(server, directoryManager)
         addSkillDefinitionResource(server, directoryManager)
@@ -39,7 +39,7 @@ object SkillsAndHooksResources {
      */
     private fun addListSkillsResource(
         server: Server,
-        directoryManager: ClaudeAgentDirectoryManager
+        directoryManager: OrchestrationSetupManager
     ) {
         server.addResource(
             uri = "task-orchestrator://skills/list",
@@ -127,7 +127,7 @@ object SkillsAndHooksResources {
      */
     private fun addSkillDefinitionResource(
         server: Server,
-        directoryManager: ClaudeAgentDirectoryManager
+        directoryManager: OrchestrationSetupManager
     ) {
         server.addResource(
             uri = "task-orchestrator://skills/definition",

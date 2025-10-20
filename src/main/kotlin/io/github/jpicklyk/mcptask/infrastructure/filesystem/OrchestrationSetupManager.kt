@@ -7,22 +7,27 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
 /**
- * Manages the .claude/ directory structure for Claude Code agent definitions and skills.
+ * Manages orchestration setup for Task Orchestrator, including both Claude Code specific
+ * files and universal orchestration configuration.
  *
- * Claude Code expects:
+ * ## Claude Code Specific (Subagents & Skills)
  * - Agent definitions in .claude/agents/task-orchestrator/ with YAML frontmatter and markdown content
  * - Skills in .claude/skills/ (root level, not in subdirectory) for lightweight coordination
- *
- * Agent format:
- * - YAML frontmatter with name, description, tools, model
- * - Markdown content with agent instructions
+ * - Agent format: YAML frontmatter with name, description, tools, model
  * - Model field: "sonnet" or "opus" (not full model names)
  *
- * Responsibilities:
- * - Create and manage .claude/agents/task-orchestrator/, .claude/skills/ directories
- * - Copy Claude-specific agent template files from embedded resources
- * - Copy skill templates with all supporting files (SKILL.md, examples, guides)
- * - Read/write agent definition files
+ * ## Universal (Any AI Client)
+ * - Persona in .claude/persona/ - orchestrator behavior and decision-making patterns
+ * - Configuration in .taskorchestrator/config.yaml - status progression, quality gates
+ * - Agent mapping in .taskorchestrator/agent-mapping.yaml - tag-based routing
+ * - Decision gates injected into CLAUDE.md
+ *
+ * ## Responsibilities
+ * - Create and manage .claude/ directory structure (agents, skills, persona)
+ * - Create and manage .taskorchestrator/ directory with config files
+ * - Copy Claude-specific agent and skill templates from embedded resources
+ * - Copy universal persona and config files from embedded resources
+ * - Read/write orchestration files
  * - Handle Docker volume mounts
  * - Portable across Windows/Linux/macOS
  *
@@ -32,27 +37,35 @@ import java.nio.file.StandardCopyOption
  * - Defaults to current working directory (user.dir)
  * - In Docker, mount project directory: -v /host/project:/project -e AGENT_CONFIG_DIR=/project
  */
-class ClaudeAgentDirectoryManager(
+class OrchestrationSetupManager(
     private val projectRoot: Path = Paths.get(
         System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
     )
 ) {
-    private val logger = LoggerFactory.getLogger(ClaudeAgentDirectoryManager::class.java)
+    private val logger = LoggerFactory.getLogger(OrchestrationSetupManager::class.java)
 
     companion object {
+        // Directory structure
         const val CLAUDE_DIR = ".claude"
         const val AGENTS_DIR = "agents"
         const val SKILLS_DIR = "skills"
+        const val PERSONA_DIR = "persona"
         const val TASK_ORCHESTRATOR_SUBDIR = "task-orchestrator"
+        const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
+
+        // Resource paths
         const val RESOURCE_PATH_PREFIX = "/agents/claude/task-orchestrator"
         const val SKILLS_RESOURCE_PATH = "/skills"
-        const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
+        const val PERSONA_RESOURCE_PATH = "/persona"
+
+        // Configuration files
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
         const val CONFIG_FILE = "config.yaml"
+        const val PERSONA_FILE = "task-orchestrator.md"
         const val CLAUDE_MD_FILE = "CLAUDE.md"
         const val DECISION_GATES_MARKER = "## Decision Gates (Claude Code)"
 
-        // Default Claude Code agent template files
+        // Default Claude Code agent template files (Claude Code specific)
         val DEFAULT_AGENT_FILES = listOf(
             "backend-engineer.md",
             "bug-triage-specialist.md",
@@ -64,7 +77,7 @@ class ClaudeAgentDirectoryManager(
             "test-engineer.md"
         )
 
-        // Skill directories to copy
+        // Skill directories to copy (Claude Code specific)
         val SKILL_DIRECTORIES = listOf(
             "dependency-analysis",
             "dependency-orchestration",
@@ -77,7 +90,7 @@ class ClaudeAgentDirectoryManager(
         init {
             val configDir = System.getenv("AGENT_CONFIG_DIR")
             if (configDir != null) {
-                LoggerFactory.getLogger(ClaudeAgentDirectoryManager::class.java)
+                LoggerFactory.getLogger(OrchestrationSetupManager::class.java)
                     .info("Using AGENT_CONFIG_DIR: $configDir")
             }
         }
@@ -401,6 +414,13 @@ class ClaudeAgentDirectoryManager(
     }
 
     /**
+     * Get the persona directory path (.claude/persona/)
+     */
+    fun getPersonaDir(): Path {
+        return getClaudeDir().resolve(PERSONA_DIR)
+    }
+
+    /**
      * Get the hooks directory path (.claude/hooks/task-orchestrator/)
      * Note: Hooks are no longer automatically created, but this path is used for discovery of user-created hooks
      */
@@ -464,6 +484,57 @@ class ClaudeAgentDirectoryManager(
         }
 
         return copiedSkills
+    }
+
+    /**
+     * Create the .claude/persona/ directory structure.
+     * Returns true if created, false if already exists.
+     */
+    fun createPersonaDirectory(): Boolean {
+        val personaDir = getPersonaDir()
+
+        if (!Files.exists(personaDir)) {
+            Files.createDirectories(personaDir)
+            logger.info("Created directory: $personaDir")
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Copy persona file from embedded resources to .claude/persona/
+     * Skips if file already exists (idempotent).
+     *
+     * Returns true if the file was copied, false if it already existed.
+     */
+    fun copyPersonaFile(): Boolean {
+        val personaDir = getPersonaDir()
+        val targetFile = personaDir.resolve(PERSONA_FILE)
+
+        // Skip if file already exists (idempotent)
+        if (Files.exists(targetFile)) {
+            logger.debug("Persona file already exists, skipping: $PERSONA_FILE")
+            return false
+        }
+
+        // Ensure directory exists
+        if (!Files.exists(personaDir)) {
+            throw IllegalStateException("Persona directory does not exist. Call createPersonaDirectory() first.")
+        }
+
+        // Read from embedded resources
+        val resourcePath = "$PERSONA_RESOURCE_PATH/$PERSONA_FILE"
+        val resourceStream = javaClass.getResourceAsStream(resourcePath)
+            ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
+
+        // Copy to target location
+        resourceStream.use { input ->
+            Files.copy(input, targetFile, StandardCopyOption.REPLACE_EXISTING)
+        }
+
+        logger.info("Copied persona file: $PERSONA_FILE")
+        return true
     }
 
     /**

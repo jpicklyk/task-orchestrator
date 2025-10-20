@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
 import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationService
 import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationServiceImpl
 import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.ClaudeAgentDirectoryManager
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupManager
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
@@ -53,7 +53,7 @@ class McpServer(
     private val toolAdapter = McpToolAdapter()
     private lateinit var templateInitializer: TemplateInitializer
     private lateinit var agentDirectoryManager: AgentDirectoryManager
-    private lateinit var claudeAgentDirectoryManager: ClaudeAgentDirectoryManager
+    private lateinit var orchestrationSetupManager: OrchestrationSetupManager
     private lateinit var agentRecommendationService: AgentRecommendationService
     
     /**
@@ -80,7 +80,7 @@ class McpServer(
 
         // Initialize agent directory manager and recommendation service
         agentDirectoryManager = AgentDirectoryManager()
-        claudeAgentDirectoryManager = ClaudeAgentDirectoryManager()
+        orchestrationSetupManager = OrchestrationSetupManager()
         agentRecommendationService = AgentRecommendationServiceImpl(agentDirectoryManager)
 
         // Configure the server
@@ -165,7 +165,7 @@ class McpServer(
         // Configure Skills and Hooks resources
         SkillsAndHooksResources.configure(
             server,
-            claudeAgentDirectoryManager
+            orchestrationSetupManager
         )
 
         // Configure tool documentation resources
