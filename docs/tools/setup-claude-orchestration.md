@@ -1,10 +1,10 @@
-# setup_claude_agents Tool - Detailed Documentation
+# setup_claude_orchestration Tool - Detailed Documentation
 
 ## Overview
 
-Initializes the Claude Code agent orchestration system by creating directory structures, installing agent definitions, and configuring agent mappings. This is the first step to enable the 3-level agent coordination architecture for scalable AI workflows.
+Initializes the Claude Code orchestration system by creating directory structures, installing agent definitions, skills, and configuration files. This is the first step to enable the agent coordination architecture with skills for scalable AI workflows.
 
-**Resource**: `task-orchestrator://docs/tools/setup-claude-agents`
+**Resource**: `task-orchestrator://docs/tools/setup-claude-orchestration`
 
 ## Key Concepts
 
@@ -46,7 +46,7 @@ The tool is **safe to run multiple times**:
 
 **None** - This tool requires no parameters.
 
-Simply invoke: `setup_claude_agents()`
+Simply invoke: `setup_claude_orchestration()`
 
 ## Installed Agents
 
@@ -215,7 +215,7 @@ Check if agents are already installed.
 
 ## Directory Structure
 
-After running `setup_claude_agents`, your project will have:
+After running `setup_claude_orchestration`, your project will have:
 
 ```
 project-root/
@@ -315,7 +315,7 @@ Edit agent files in `.claude/agents/` to:
 
 ### Recommended Workflow
 
-1. **Setup** → `setup_claude_agents()`
+1. **Setup** → `setup_claude_orchestration()`
 2. **Create Task** → `create_task(...)` with appropriate tags
 3. **Get Recommendation** → `recommend_agent(taskId)`
 4. **Read Agent** → `get_agent_definition(agentName)` (optional, for review)
@@ -440,7 +440,7 @@ devops-engineer:  # New agent
 User: "Setup Task Orchestrator with agent support"
 
 You:
-1. setup_claude_agents()
+1. setup_claude_orchestration()
 2. Verify agent files created
 3. Explain agent system to user
 4. Suggest creating first feature/task
@@ -465,7 +465,7 @@ User: "Update agent definitions to latest version"
 
 You:
 1. Backup existing agent files (if customized)
-2. Run setup_claude_agents()
+2. Run setup_claude_orchestration()
 3. Review agentFilesSkipped in response
 4. Manually merge customizations if needed
 ```

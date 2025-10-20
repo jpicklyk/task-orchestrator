@@ -358,7 +358,7 @@ See: [workflow-prompts.md](docs/workflow-prompts.md), [templates.md](docs/templa
 ### 2. Skills (Claude Code Only - Lightweight Coordination)
 
 **What**: Auto-activating lightweight coordination (2-5 tool calls, 60-82% token savings vs subagents)
-**Setup**: Run `setup_claude_agents` once
+**Setup**: Run `setup_claude_orchestration` once
 **Use for**: Status checks, progress tracking, completing tasks/features
 
 **Skills Available**:
@@ -373,7 +373,7 @@ Skills auto-activate from natural language. See: [.claude/skills/README.md](.cla
 ### 3. Subagents (Claude Code Only - Complex Implementation)
 
 **What**: Specialist agents for complex work requiring reasoning and code implementation
-**Setup**: Run `setup_claude_agents` once
+**Setup**: Run `setup_claude_orchestration` once
 **Use for**: Code implementation, test writing, documentation, architecture design
 
 **Specialist Lifecycle Pattern (Self-Service)**:

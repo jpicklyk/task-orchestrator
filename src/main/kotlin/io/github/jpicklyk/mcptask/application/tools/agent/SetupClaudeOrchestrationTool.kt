@@ -9,19 +9,21 @@ import io.modelcontextprotocol.kotlin.sdk.Tool
 import kotlinx.serialization.json.*
 
 /**
- * MCP tool for initializing Claude Code agent configuration.
+ * MCP tool for initializing Claude Code orchestration system.
  *
- * Creates .claude/agents/ directory structure, copies Claude-specific agent
- * template files from embedded resources, and sets up agent configuration.
+ * Creates .claude/ directory structure including:
+ * - agents/task-orchestrator/ - 8 specialized subagent definitions
+ * - skills/ - 6 lightweight coordination skills
+ * - .taskorchestrator/ configuration files
  *
  * This tool is idempotent - safe to run multiple times, will skip existing files.
  */
-class SetupClaudeAgentsTool : BaseToolDefinition() {
+class SetupClaudeOrchestrationTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.SYSTEM
 
-    override val name: String = "setup_claude_agents"
+    override val name: String = "setup_claude_orchestration"
 
-    override val title: String = "Setup Claude Code Agent Configuration"
+    override val title: String = "Setup Claude Code Orchestration System"
 
     override val description: String = """Initializes agent configuration system with subagents, skills, and orchestration config.
 
@@ -84,7 +86,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
         Related tools: recommend_agent, get_agent_definition
 
-        For detailed examples and patterns: task-orchestrator://docs/tools/setup-claude-agents
+        For detailed examples and patterns: task-orchestrator://docs/tools/setup-claude-orchestration
         """
 
     override val parameterSchema: Tool.Input = Tool.Input(
@@ -209,7 +211,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
     }
 
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        logger.info("Executing setup_claude_agents tool")
+        logger.info("Executing setup_claude_orchestration tool")
 
         return try {
             val agentDirectoryManager = ClaudeAgentDirectoryManager()
@@ -254,7 +256,7 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
 
             // Build response message
             val message = buildString {
-                append("Claude Code agent system setup ")
+                append("Claude Code orchestration system setup ")
                 if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated) {
                     append("completed successfully. ")
                 } else {
@@ -319,11 +321,11 @@ class SetupClaudeAgentsTool : BaseToolDefinition() {
                 message = message
             )
         } catch (e: Exception) {
-            logger.error("Error setting up Claude agents", e)
+            logger.error("Error setting up Claude orchestration", e)
             errorResponse(
-                message = "Failed to setup Claude Code agent system",
+                message = "Failed to setup Claude Code orchestration system",
                 code = ErrorCodes.INTERNAL_ERROR,
-                details = e.message ?: "Unknown error occurred during agent setup"
+                details = e.message ?: "Unknown error occurred during orchestration setup"
             )
         }
     }

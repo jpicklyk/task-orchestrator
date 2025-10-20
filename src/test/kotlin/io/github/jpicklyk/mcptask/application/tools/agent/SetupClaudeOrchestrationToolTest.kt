@@ -15,12 +15,12 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
- * Test for SetupClaudeAgentsTool
+ * Test for SetupClaudeOrchestrationTool
  *
  * NOTE: This test uses a temporary directory to avoid modifying the actual .claude/ directory.
  * Each test creates a fresh temporary directory that is cleaned up after the test completes.
  */
-class SetupClaudeAgentsToolTest {
+class SetupClaudeOrchestrationToolTest {
 
     private lateinit var tool: BaseToolDefinition
     private lateinit var mockContext: ToolExecutionContext
@@ -33,10 +33,10 @@ class SetupClaudeAgentsToolTest {
         val mockRepositoryProvider = mockk<RepositoryProvider>()
         mockContext = ToolExecutionContext(mockRepositoryProvider)
 
-        tool = SetupClaudeAgentsTool()
+        tool = SetupClaudeOrchestrationTool()
 
         // Create temporary directory for testing
-        tempDir = Files.createTempDirectory("claude-agents-test")
+        tempDir = Files.createTempDirectory("claude-orchestration-test")
 
         // Save original user.dir and set to temp directory
         originalUserDir = System.getProperty("user.dir")
@@ -260,8 +260,8 @@ class SetupClaudeAgentsToolTest {
 
     @Test
     fun `tool should have correct metadata`() {
-        assertEquals("setup_claude_agents", tool.name, "Tool name should be setup_claude_agents")
-        assertEquals("Setup Claude Code Agent Configuration", tool.title, "Tool should have proper title")
+        assertEquals("setup_claude_orchestration", tool.name, "Tool name should be setup_claude_orchestration")
+        assertEquals("Setup Claude Code Orchestration System", tool.title, "Tool should have proper title")
         assertTrue(tool.description.contains("Claude Code"), "Description should mention Claude Code")
         assertTrue(tool.description.contains(".claude/agents/task-orchestrator/"), "Description should mention .claude/agents/task-orchestrator/")
     }

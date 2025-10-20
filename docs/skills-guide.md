@@ -2044,7 +2044,7 @@ description: Coordinate feature workflows including recommending next tasks, che
 3. Check subagent has access to needed context
 
 **Solutions**:
-- Run `setup_claude_agents` to create agent definitions
+- Run `setup_claude_orchestration` to create agent definitions
 - Update Skill to include launch instruction format
 - Ensure task/feature has necessary sections for subagent
 

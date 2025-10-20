@@ -829,7 +829,7 @@ You are a backend specialist focused on REST APIs, services, and business logic.
 [Agent-specific guidance and workflow...]
 ```
 
-**Creation**: The `setup_claude_agents` MCP tool creates these files automatically. This tool is implemented in the Application Layer (`application/tools/agent/`) and writes agent definitions to the user's workspace.
+**Creation**: The `setup_claude_orchestration` MCP tool creates these files automatically. This tool is implemented in the Application Layer (`application/tools/agent/`) and writes agent definitions to the user's workspace.
 
 **Discovery**: Claude Code automatically discovers agents in `.claude/agents/` directory - no server-side configuration needed.
 
@@ -961,7 +961,7 @@ Scaling: 100+ tasks possible within context limits
 
 ### Setup and Configuration
 
-**Setup Tool**: `setup_claude_agents`
+**Setup Tool**: `setup_claude_orchestration`
 - **Type**: MCP tool (Application Layer)
 - **Function**: Writes agent definition files to `.claude/agents/`
 - **Agent Definitions Source**: Embedded in JAR (`src/main/resources/agents/claude/*.md`)

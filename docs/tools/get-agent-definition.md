@@ -45,7 +45,7 @@ tools:
 **Don't read agent definition when**:
 - Just need agent recommendation (use `recommend_agent`)
 - Want to launch agent immediately (recommendation provides path)
-- Checking if agents are installed (use `setup_claude_agents`)
+- Checking if agents are installed (use `setup_claude_orchestration`)
 
 ## Parameter Reference
 
@@ -194,7 +194,7 @@ Check if agents are properly installed.
 ```
 
 **Success** → Agents installed correctly
-**Error (RESOURCE_NOT_FOUND)** → Run `setup_claude_agents`
+**Error (RESOURCE_NOT_FOUND)** → Run `setup_claude_orchestration`
 
 ## Response Structure
 
@@ -300,8 +300,8 @@ const result = await get_agent_definition({ agentName: "backend-engineer" });
 if (result.success) {
   console.log("Agent installed successfully");
 } else {
-  // Run setup_claude_agents()
-  await setup_claude_agents();
+  // Run setup_claude_orchestration()
+  await setup_claude_orchestration();
 }
 ```
 
@@ -374,19 +374,19 @@ tools:
   "message": "Agent definition file not found: backend-engineer.md",
   "error": {
     "code": "RESOURCE_NOT_FOUND",
-    "details": "Run setup_claude_agents tool to initialize agent configurations, or check that the agent name is correct."
+    "details": "Run setup_claude_orchestration tool to initialize agent configurations, or check that the agent name is correct."
   }
 }
 ```
 
 **Common Causes**:
-- Agent not installed (need to run `setup_claude_agents`)
+- Agent not installed (need to run `setup_claude_orchestration`)
 - Typo in agent name
 - Agent file deleted
 - Wrong directory
 
 **Solutions**:
-1. Run `setup_claude_agents()` to install agents
+1. Run `setup_claude_orchestration()` to install agents
 2. Verify agent name spelling
 3. Check `.claude/agents/` directory exists
 4. List available agents using MCP resource
@@ -548,7 +548,7 @@ tools:
 
 ## Related Tools
 
-- **setup_claude_agents**: Install agent definition files (must run first)
+- **setup_claude_orchestration**: Install agent definition files (must run first)
 - **recommend_agent**: Get agent recommendation for a task
 - **create_task**: Create tasks that trigger agent recommendations
 - **get_sections**: Read task sections that agents will work with
@@ -590,6 +590,6 @@ tools:
 
 **A**: No, the tool automatically adds it if omitted. Both "backend-engineer" and "backend-engineer.md" work.
 
-### Q: What if I customize an agent and then run setup_claude_agents again?
+### Q: What if I customize an agent and then run setup_claude_orchestration again?
 
 **A**: Your customizations are safe. The setup tool skips existing files.

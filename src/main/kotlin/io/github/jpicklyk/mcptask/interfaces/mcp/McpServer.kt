@@ -260,8 +260,8 @@ class McpServer(
             GetNextTaskTool(),
             GetBlockedTasksTool(),
 
-            // Agent management - AI workflow automation
-            SetupClaudeAgentsTool(),
+            // Orchestration - AI workflow automation and coordination
+            SetupClaudeOrchestrationTool(),
             GetAgentDefinitionTool(),
             RecommendAgentTool()
         )

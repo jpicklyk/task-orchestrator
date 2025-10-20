@@ -31,7 +31,7 @@ The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-dri
   - [get_tag_usage](#get_tag_usage) 🔍
   - [rename_tag](#rename_tag) ✏️
 - [Agent Tools](#agent-tools) (Claude Code Only)
-  - [setup_claude_agents](#setup_claude_agents) ✏️
+  - [setup_claude_orchestration](#setup_claude_orchestration) ✏️
   - [get_agent_definition](#get_agent_definition) 🔍
   - [recommend_agent](#recommend_agent) 🔍
 - [Permission Model](#permission-model)
@@ -96,7 +96,7 @@ The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-dri
 | `get_tag_usage` | 🔍 READ | (single operation) | Find entities using tag |
 | `rename_tag` | ✏️ WRITE | (single operation) | Bulk rename tags |
 | **Agent Tools** |
-| `setup_claude_agents` | ✏️ WRITE | (single operation) | Initialize agent system |
+| `setup_claude_orchestration` | ✏️ WRITE | (single operation) | Initialize agent system |
 | `get_agent_definition` | 🔍 READ | (single operation) | Get agent metadata |
 | `recommend_agent` | 🔍 READ | (single operation) | Route task to skill/agent |
 
@@ -1856,11 +1856,11 @@ Agent tools support Claude Code agent orchestration (Skills and Subagents).
 
 > **Note**: Agent tools only work with Claude Code. Other MCP clients ignore these tools.
 
-### setup_claude_agents
+### setup_claude_orchestration
 
 **Permission**: ✏️ WRITE
 
-**Purpose**: Initialize Claude Code agent orchestration system
+**Purpose**: Initialize Claude Code orchestration system
 
 **Creates**:
 - 10 subagent definitions (`.claude/agents/`)
@@ -2078,7 +2078,7 @@ v2.0 introduces **clear permission separation** between read and write operation
 - `manage_dependency` - Create/delete dependencies
 - `rename_tag` - Bulk rename tags
 - `apply_template` - Apply templates to entities
-- `setup_claude_agents` - Initialize agent system
+- `setup_claude_orchestration` - Initialize orchestration system
 
 **Characteristics**:
 - ✅ Automatic locking

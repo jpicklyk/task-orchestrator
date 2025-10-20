@@ -1827,7 +1827,7 @@ You are a backend specialist focused on REST APIs, services, and business logic.
 
 ⚠️ **REQUIRED FIRST STEP**: You must run the setup tool before using the agent orchestration system.
 
-**Tool**: `setup_claude_agents`
+**Tool**: `setup_claude_orchestration`
 
 **Purpose**: Creates `.claude/agents/` directory with all agent definitions required for Claude Code sub-agent support.
 
@@ -1843,7 +1843,7 @@ You are a backend specialist focused on REST APIs, services, and business logic.
 User: "Setup Claude Code agents"
 
 AI Response:
-1. Calls setup_claude_agents() tool
+1. Calls setup_claude_orchestration() tool
 2. Tool creates .claude/agents/ directory
 3. Tool writes 10 agent definition files:
    - feature-manager.md
@@ -1862,14 +1862,14 @@ AI Response:
 **Example Tool Call**:
 ```json
 {
-  "tool": "setup_claude_agents",
+  "tool": "setup_claude_orchestration",
   "parameters": {}
 }
 ```
 
 **Alternative user commands**:
 ```
-User: "Run setup_claude_agents"
+User: "Run setup_claude_orchestration"
 User: "Install Claude agents"
 User: "Setup sub-agents for Claude Code"
 ```
@@ -2270,7 +2270,7 @@ tagPriority:
 
 ### Migration Steps
 
-#### Step 1: Update setup_claude_agents
+#### Step 1: Update setup_claude_orchestration
 
 Run the enhanced setup tool to create Skills and Hooks:
 
@@ -2440,7 +2440,7 @@ User: "Why is task T5 blocked?"
 ### Gradual Migration Strategy
 
 **Week 1: Setup**
-- Run `setup_claude_agents` to create Skills and Hooks
+- Run `setup_claude_orchestration` to create Skills and Hooks
 - Review created files in `.claude/skills/` and `.claude/hooks/`
 - Read Skills documentation to understand capabilities
 
@@ -2468,7 +2468,7 @@ A: No, they continue to work. Migrate at your own pace.
 A: Yes, Skills use the same MCP tools as subagents. No data migration needed.
 
 **Q: What if Skills don't activate?**
-A: Check that you ran `setup_claude_agents` and Skills exist in `.claude/skills/`. Skills activate based on description keywords.
+A: Check that you ran `setup_claude_orchestration` and Skills exist in `.claude/skills/`. Skills activate based on description keywords.
 
 **Q: Can I customize Skills?**
 A: Yes, edit SKILL.md files in `.claude/skills/*/SKILL.md`. Changes take effect immediately.
@@ -2542,7 +2542,7 @@ A: Continue using them. Skills are optional optimization, not mandatory.
 **Symptoms**: "Agent definition not found" error
 
 **Solution**:
-- Run setup_claude_agents tool
+- Run setup_claude_orchestration tool
 - Verify .claude/agents/ directory exists
 - Check agent name matches exactly (case-sensitive)
 - Confirm agent-mapping.yaml uses correct agent names
@@ -2578,4 +2578,4 @@ A: Continue using them. Skills are optional optimization, not mandatory.
 
 ---
 
-**Ready to coordinate multi-agent workflows?** Run `setup_claude_agents` and start orchestrating!
+**Ready to coordinate multi-agent workflows?** Run `setup_claude_orchestration` and start orchestrating!

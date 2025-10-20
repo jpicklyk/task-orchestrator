@@ -332,7 +332,7 @@ Add sub-agent orchestration when:
 Ask your AI (Claude Code):
 
 ```
-Run setup_claude_agents to enable sub-agent orchestration
+Run setup_claude_orchestration to enable sub-agent orchestration
 ```
 
 This creates `.claude/agents/` directory with 10 specialist agent definitions:
@@ -792,7 +792,7 @@ Modern checkout with payment processing, inventory validation, order confirmatio
 - Check JSON syntax: [jsonlint.com](https://jsonlint.com/)
 
 **Sub-agents not working? (Claude Code only)**
-- Run `setup_claude_agents` tool
+- Run `setup_claude_orchestration` tool
 - Verify `.claude/agents/` directory exists
 - Check agent files with `ls .claude/agents/`
 

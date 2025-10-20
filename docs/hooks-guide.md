@@ -912,7 +912,7 @@ The Hook Builder will:
 4. Provide sample JSON inputs for testing
 5. Offer troubleshooting guidance
 
-**Available in**: `.claude/agents/hook-builder.md` (if you've run `setup_claude_agents`)
+**Available in**: `.claude/agents/hook-builder.md` (if you've run `setup_claude_orchestration`)
 
 **Skill files**:
 - `SKILL.md` - Skill definition and workflow

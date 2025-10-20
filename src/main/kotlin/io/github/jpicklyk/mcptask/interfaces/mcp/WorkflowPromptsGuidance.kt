@@ -319,7 +319,7 @@ object WorkflowPromptsGuidance {
                             **System 2: Sub-Agent Orchestration (Claude Code Only)**:
                             - 3-level agent coordination for complex multi-task features
                             - Works ONLY with Claude Code (requires `.claude/agents/` directory)
-                            - Setup required: Run `setup_claude_agents` tool first
+                            - Setup required: Run `setup_claude_orchestration` tool first
                             - 97% token reduction through specialist routing
                             - Use for: Complex features (4+ tasks), specialist coordination, token efficiency
 
@@ -506,7 +506,7 @@ object WorkflowPromptsGuidance {
                             **Option [2] or [3]: Install Sub-Agents and Skills**
 
                             If user chooses sub-agents:
-                            1. Run the `setup_claude_agents` tool
+                            1. Run the `setup_claude_orchestration` tool
                             2. This creates `.claude/agents/` directory with 8 subagent definitions:
                                - backend-engineer.md
                                - bug-triage-specialist.md
