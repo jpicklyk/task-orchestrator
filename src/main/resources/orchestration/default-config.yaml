@@ -422,7 +422,7 @@ specialist_routing:
   # Fallback when no specialist matches (⚠️ DEFINED IN agent-mapping.yaml instead)
   default_specialist: "Backend Engineer"    # Default specialist name
 
-  fallback_behavior: "use_default" # Options: "use_default", "ask_user"
+  fallback_behavior: "ask_user # Options: "use_default", "ask_user"
                                    # - use_default: Use default_specialist
                                    # - ask_user: Prompt user to select specialist
 
