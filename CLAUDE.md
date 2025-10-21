@@ -434,7 +434,7 @@ Skills auto-activate from natural language. See: [.claude/skills/README.md](.cla
 1. Specialist reads task context directly via `query_container(operation="get", ...)`
 2. Specialist performs work (writes code, tests, documentation)
 3. Specialist updates task sections with results via `manage_sections(...)`
-4. Specialist marks task complete via `manage_container(operation="setStatus", status="completed", ...)`
+4. Specialist uses Status Progression Skill to mark task complete (validates prerequisites)
 5. Specialist returns brief summary (50-100 tokens) to orchestrator
 
 **Standardized Specialist Structure**:
@@ -512,7 +512,7 @@ recommend_agent(taskId="task-uuid")
 1. User: "Implement task X"
 2. You: `recommend_agent(taskId)` → returns "Backend Engineer"
 3. You: Launch Backend Engineer subagent with task ID
-4. Backend Engineer: Reads task, implements code, updates sections, marks complete, returns summary
+4. Backend Engineer: Reads task, implements code, updates sections, uses Status Progression Skill to mark complete, returns summary
 5. You: Verify completion and inform user
 
 ### Critical Patterns
@@ -552,7 +552,7 @@ recommend_agent(taskId="task-uuid")
 1. Specialist reads task via `query_container(operation="get", containerType="task", id="...", includeSections=true)`
 2. Specialist performs implementation work (code, tests, documentation)
 3. Specialist updates task sections via `manage_sections(operation="add|updateText", ...)`
-4. Specialist marks task complete via `manage_container(operation="setStatus", status="completed", ...)`
+4. Specialist uses Status Progression Skill to mark task complete (validates prerequisites)
 5. Specialist returns brief summary (50-100 tokens) - NOT full implementation details
 
 **Template Discovery** (ALWAYS required, regardless of using sub-agents):

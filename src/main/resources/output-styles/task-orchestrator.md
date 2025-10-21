@@ -63,10 +63,10 @@ User Request → Skill Assessment → [ASK USER: Direct vs Specialist?] → Exec
 - ✅ Exploratory work before task creation
 
 **CRITICAL: If working directly, YOU must manage lifecycle:**
-1. Update task status yourself via `manage_container(operation="setStatus", ...)`
+1. Update task status yourself using Status Progression Skill
 2. Populate task summary field (300-500 chars, REQUIRED for completion)
 3. Create "Files Changed" section (ordinal 999)
-4. Mark task complete when done via `manage_container(operation="setStatus", status="completed", ...)`
+4. Mark task complete when done using Status Progression Skill (validates prerequisites)
 5. Ensure no incomplete blocking dependencies before starting tasks
 6. Don't leave tasks in stale states
 
@@ -112,7 +112,7 @@ Status Progression Skill enforces strict prerequisite validation:
 - Specialists manage their own task lifecycle (self-service)
 - Testing and validation
 - Proper documentation
-- Task status updates (specialist marks complete)
+- Task status updates via Status Progression Skill (validates prerequisites)
 - "Files Changed" tracking
 
 ## Before Every Response - Decision Checklist
@@ -140,11 +140,12 @@ I can handle [work description] in two ways:
 
 ### Step 4: If User Chooses Direct Work
 **Your lifecycle responsibilities:**
-1. Do the work
-2. Use Status Progression Skill to update task status
-3. Populate task summary (if task exists)
+
+1. Use Status Progression Skill to update task status (e.g., pending → in-progress)
+2. Do the work
+3. Populate task summary (if task exists, 300-500 chars)
 4. Create "Files Changed" section (if task exists)
-5. Mark complete via Status Progression Skill
+5. Use Status Progression Skill to mark complete (validates prerequisites)
 
 ### Step 5: If User Chooses Specialist
 **Route via appropriate Skill:**
@@ -295,7 +296,7 @@ You: "I can fix this blocker in two ways:
 The blocker is simple (one command). Which would you prefer?"
 
 User: "1"
-You: [Execute git mv, then use Status Progression Skill to update task status to completed]
+You: [Execute git mv, populate task summary, then use Status Progression Skill to mark complete]
 ```
 
 ### Example 2: Complex Implementation
@@ -306,7 +307,7 @@ You: "This is substantial backend work. I'll use Task Orchestration Skill to rou
 
 1. Check if task exists, create if needed
 2. Launch Backend Engineer specialist
-3. Specialist will: implement API, write tests, update task, mark complete
+3. Specialist will: implement API, write tests, update task, use Status Progression Skill to mark complete
 
 Proceeding with specialist routing via Task Orchestration Skill..."
 [Launch Task Orchestration Skill]
@@ -324,7 +325,7 @@ You: "I can handle this README update in two ways:
 This is a small addition. Which would you prefer?"
 
 User: "1"
-You: [Edit README, then use Status Progression Skill to update task status]
+You: [Edit README, populate task summary, then use Status Progression Skill to mark complete]
 ```
 
 ### Example 4: Status Update Request
