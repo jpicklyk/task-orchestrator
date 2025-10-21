@@ -386,6 +386,438 @@ class AgentRecommendationServiceImplTest {
     }
 
     @Nested
+    inner class FallbackBehavior {
+
+        @Test
+        fun `should use default specialist when no tags match and fallback is use_default`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag", "no-match")
+            )
+            val yamlWithFallback = """
+                tagMappings:
+                  - task_tags: [backend, api, service]
+                    agent: Backend Engineer
+                    section_tags: [requirements, technical-approach, implementation]
+
+                  - task_tags: [frontend, ui, react]
+                    agent: Frontend Developer
+                    section_tags: [requirements, design]
+
+                tagPriority:
+                  - backend
+                  - frontend
+
+                default_specialist: Backend Engineer
+                fallback_behavior: use_default
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithFallback
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation, "Should return default specialist recommendation")
+            assertEquals("Backend Engineer", recommendation.agentName)
+            assertEquals("No matching tags found. Using default specialist from configuration.", recommendation.reason)
+            assertTrue(recommendation.matchedTags.isEmpty(), "Should have no matched tags")
+            assertEquals(3, recommendation.sectionTags.size, "Should include section tags from default specialist")
+            assertTrue(recommendation.sectionTags.contains("requirements"))
+            assertTrue(recommendation.sectionTags.contains("technical-approach"))
+            assertTrue(recommendation.sectionTags.contains("implementation"))
+        }
+
+        @Test
+        fun `should return null when fallback_behavior is skip`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithSkip = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                default_specialist: Backend Engineer
+                fallback_behavior: skip
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithSkip
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNull(recommendation, "Should return null when fallback_behavior is skip")
+        }
+
+        @Test
+        fun `should return null when default_specialist is null`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithNullDefault = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                default_specialist: null
+                fallback_behavior: use_default
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithNullDefault
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNull(recommendation, "Should return null when default_specialist is null")
+        }
+
+        @Test
+        fun `should return null when default_specialist is missing`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithoutDefault = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                fallback_behavior: use_default
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithoutDefault
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNull(recommendation, "Should return null when default_specialist is not specified")
+        }
+
+        @Test
+        fun `should handle default specialist not in tagMappings`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithUnmappedDefault = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                default_specialist: Test Engineer
+                fallback_behavior: use_default
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithUnmappedDefault
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation, "Should still return recommendation")
+            assertEquals("Test Engineer", recommendation.agentName)
+            assertTrue(recommendation.sectionTags.isEmpty(), "Should have empty section tags when specialist not in mappings")
+            assertEquals("No matching tags found. Using default specialist from configuration.", recommendation.reason)
+        }
+
+        @Test
+        fun `should default to skip when fallback_behavior is missing`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithoutFallbackBehavior = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                default_specialist: Backend Engineer
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithoutFallbackBehavior
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNull(recommendation, "Should default to skip behavior when fallback_behavior is missing")
+        }
+
+        @Test
+        fun `should handle invalid fallback_behavior value`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithInvalidFallback = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                default_specialist: Backend Engineer
+                fallback_behavior: invalid_value
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithInvalidFallback
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNull(recommendation, "Should treat invalid fallback_behavior as skip")
+        }
+
+        @Test
+        fun `should not use fallback when tags match`() {
+            // Arrange
+            val task = Task(
+                title = "Backend task",
+                summary = "API work",
+                tags = listOf("backend", "api")
+            )
+            val yamlWithFallback = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                  - task_tags: [frontend]
+                    agent: Frontend Developer
+                    section_tags: [design]
+
+                default_specialist: Frontend Developer
+                fallback_behavior: use_default
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithFallback
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation, "Should find matching agent")
+            assertEquals("Backend Engineer", recommendation.agentName, "Should use matched agent, not default")
+            assertTrue(recommendation.matchedTags.isNotEmpty(), "Should have matched tags")
+            assertTrue(recommendation.reason.contains("match"), "Reason should indicate tag matching")
+        }
+
+        @Test
+        fun `should handle empty string default_specialist`() {
+            // Arrange
+            val task = Task(
+                title = "Generic task",
+                summary = "Some work",
+                tags = listOf("unknown-tag")
+            )
+            val yamlWithEmptyDefault = """
+                tagMappings:
+                  - task_tags: [backend, api]
+                    agent: Backend Engineer
+                    section_tags: [requirements]
+
+                default_specialist: ""
+                fallback_behavior: use_default
+            """.trimIndent()
+            every { agentDirectoryManager.readAgentMappingFile() } returns yamlWithEmptyDefault
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNull(recommendation, "Should return null when default_specialist is empty string")
+        }
+    }
+
+    @Nested
+    inner class ActualConfigFileIntegration {
+
+        @Test
+        fun `should successfully load and parse actual agent-mapping yaml file`() {
+            // Arrange - Use real AgentDirectoryManager (no mocking)
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Act - Try to list agents (this loads the config)
+            val agents = realService.listAvailableAgents()
+
+            // Assert
+            assertTrue(agents.isNotEmpty(), "Should load agents from real config file")
+            assertTrue(agents.contains("Backend Engineer"), "Should contain Backend Engineer")
+            assertTrue(agents.contains("Frontend Developer"), "Should contain Frontend Developer")
+            assertTrue(agents.contains("Database Engineer"), "Should contain Database Engineer")
+            assertTrue(agents.contains("Test Engineer"), "Should contain Test Engineer")
+            assertTrue(agents.contains("Technical Writer"), "Should contain Technical Writer")
+        }
+
+        @Test
+        fun `should load default_specialist from actual config file`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Create a task with no matching tags
+            val task = Task(
+                title = "Generic task with no matching tags",
+                summary = "This task has tags that don't match any mappings",
+                tags = listOf("unknown-tag-xyz", "no-match-abc")
+            )
+
+            // Act
+            val recommendation = realService.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation, "Should return recommendation using default_specialist from config")
+            assertEquals("general-purpose", recommendation.agentName,
+                "default_specialist should be 'general-purpose' as configured in agent-mapping.yaml")
+            assertEquals("No matching tags found. Using default specialist from configuration.",
+                recommendation.reason)
+        }
+
+        @Test
+        fun `should load fallback_behavior from actual config file`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Create a task with no matching tags
+            val task = Task(
+                title = "Generic task",
+                summary = "Task with no matches",
+                tags = listOf("unmatched-tag")
+            )
+
+            // Act
+            val recommendation = realService.recommendAgent(task)
+
+            // Assert - Config should have fallback_behavior: use_default
+            assertNotNull(recommendation,
+                "Should return recommendation because fallback_behavior is 'use_default' in config")
+        }
+
+        @Test
+        fun `should load tag mappings from actual config file`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Test backend tag mapping
+            val backendTask = Task(
+                title = "Backend task",
+                summary = "API work",
+                tags = listOf("backend", "api")
+            )
+
+            // Act
+            val backendRecommendation = realService.recommendAgent(backendTask)
+
+            // Assert
+            assertNotNull(backendRecommendation, "Should match backend tags from config")
+            assertEquals("Backend Engineer", backendRecommendation.agentName)
+            assertTrue(backendRecommendation.sectionTags.contains("requirements"),
+                "Should include section tags from config")
+            assertTrue(backendRecommendation.sectionTags.contains("technical-approach"),
+                "Should include section tags from config")
+        }
+
+        @Test
+        fun `should load tag priority from actual config file`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Create task with both database and backend tags
+            // According to tagPriority in config, database should take precedence
+            val task = Task(
+                title = "Database migration with backend changes",
+                summary = "Schema and API updates",
+                tags = listOf("backend", "database", "migration")
+            )
+
+            // Act
+            val recommendation = realService.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation, "Should match tags from config")
+            assertEquals("Database Engineer", recommendation.agentName,
+                "Should prioritize database over backend based on tagPriority in config")
+            assertTrue(recommendation.reason.contains("priority category: database"),
+                "Reason should indicate priority-based selection")
+        }
+
+        @Test
+        fun `actual config file should have valid structure`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Create test tasks for various scenarios
+            val tasks = listOf(
+                Task(title = "Frontend task", summary = "UI work", tags = listOf("frontend")),
+                Task(title = "Database task", summary = "Schema work", tags = listOf("database")),
+                Task(title = "Testing task", summary = "QA work", tags = listOf("testing")),
+                Task(title = "Documentation task", summary = "Docs work", tags = listOf("documentation")),
+                Task(title = "Bug fix", summary = "Fix issue", tags = listOf("bug"))
+            )
+
+            // Act & Assert - All should get recommendations
+            tasks.forEach { task ->
+                val recommendation = realService.recommendAgent(task)
+                assertNotNull(recommendation,
+                    "Config should have mapping for ${task.tags.first()} tag")
+                assertNotNull(recommendation.agentName,
+                    "Agent name should not be null for ${task.tags.first()}")
+                assertTrue(recommendation.agentName.isNotBlank(),
+                    "Agent name should not be blank for ${task.tags.first()}")
+            }
+        }
+
+        @Test
+        fun `actual config should have section tags for all mapped agents`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Get all agents from config
+            val agents = realService.listAvailableAgents()
+
+            // Act & Assert - Check section tags for main specialist agents
+            val mainAgents = listOf(
+                "Backend Engineer",
+                "Frontend Developer",
+                "Database Engineer",
+                "Test Engineer",
+                "Technical Writer"
+            )
+
+            mainAgents.forEach { agentName ->
+                val sectionTags = realService.getSectionTagsForAgent(agentName)
+                assertTrue(sectionTags.isNotEmpty(),
+                    "$agentName should have section tags defined in config")
+                assertTrue(sectionTags.contains("requirements"),
+                    "$agentName should include 'requirements' in section tags")
+            }
+        }
+    }
+
+    @Nested
     inner class EdgeCases {
 
         @Test

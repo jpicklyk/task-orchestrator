@@ -179,7 +179,7 @@ entityTypes:
 # Default specialist when recommend_agent() finds no matching tags
 
 # Default specialist for unmatched tasks
-default_specialist: "Backend Engineer"
+default_specialist: "general-purpose"
 
 # Fallback behavior when no specialist matched
 fallback_behavior: "use_default"  # Options: use_default, ask_user, skip

@@ -23,7 +23,9 @@ class AgentRecommendationServiceImpl(
         val workflowPhases: Map<String, String> = emptyMap(),
         val tagMappings: List<TagMapping> = emptyList(),
         val tagPriority: List<String> = emptyList(),
-        val entityTypes: Map<String, EntityMapping> = emptyMap()
+        val entityTypes: Map<String, EntityMapping> = emptyMap(),
+        val defaultSpecialist: String? = null,
+        val fallbackBehavior: String = "skip"
     )
 
     private data class TagMapping(
@@ -89,6 +91,23 @@ class AgentRecommendationServiceImpl(
         }
 
         logger.debug("No agent recommendation for task ${task.id} - no tag matches found")
+
+        // Check fallback behavior when no tags match
+        if (config.fallbackBehavior == "use_default" && !config.defaultSpecialist.isNullOrBlank()) {
+            logger.info("Using default specialist '${config.defaultSpecialist}' for task ${task.id} (fallback)")
+
+            // Find section tags for the default specialist
+            val defaultMapping = config.tagMappings.find { it.agent == config.defaultSpecialist }
+            val sectionTags = defaultMapping?.section_tags ?: emptyList()
+
+            return AgentRecommendation(
+                agentName = config.defaultSpecialist,
+                reason = "No matching tags found. Using default specialist from configuration.",
+                matchedTags = emptyList(),
+                sectionTags = sectionTags
+            )
+        }
+
         return null
     }
 
@@ -147,7 +166,9 @@ class AgentRecommendationServiceImpl(
                 workflowPhases = parseWorkflowPhases(rawData),
                 tagMappings = parseTagMappings(rawData),
                 tagPriority = parseTagPriority(rawData),
-                entityTypes = parseEntityTypes(rawData)
+                entityTypes = parseEntityTypes(rawData),
+                defaultSpecialist = rawData["default_specialist"] as? String,
+                fallbackBehavior = (rawData["fallback_behavior"] as? String) ?: "skip"
             )
         } catch (e: FileNotFoundException) {
             logger.warn("Agent mapping file not found: ${e.message}")
