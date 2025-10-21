@@ -264,25 +264,15 @@ When `validate_prerequisites: false`, status transitions proceed without checkin
 overview = query_container(operation="overview", containerType="feature", id="...")
 // Review taskCounts.byStatus to see incomplete tasks
 
-// Step 2: Attempt status transition
-result = manage_container(
-  operation="setStatus",
-  containerType="feature",
-  id="...",
-  status="testing"  // or "completed"
-)
+// Step 2: Use Status Progression Skill to change status
+// The skill validates prerequisites, reads config.yaml, and provides detailed error messages
+"Use Status Progression Skill to move feature to 'testing' or 'completed' status"
 
-// Step 3: Handle validation results
-if (result.success) {
-  // Status changed successfully
-  // Prerequisite validation passed automatically
-  console.log("Feature status updated successfully")
-} else {
-  // Validation failed - error message explains what's missing
-  // Example: "Cannot transition to TESTING: 2 task(s) not completed..."
-  console.error(result.error)
-  // Address the issues, then retry
-}
+// Step 3: Status Progression Skill handles validation automatically
+// If validation passes: Status changes successfully
+// If validation fails: Skill returns detailed error explaining what's missing
+//   Example: "Cannot transition to TESTING: 2 task(s) not completed..."
+//   Address the issues, then retry via Status Progression Skill
 ```
 
 **What You Should Check Manually:**
@@ -357,15 +347,11 @@ manage_sections(
   tags="summary,completion"
 )
 
-// Step 4: Mark feature complete (prerequisite validation happens automatically)
-result = manage_container(
-  operation="setStatus",
-  containerType="feature",
-  id="...",
-  status="completed"
-)
+// Step 4: Use Status Progression Skill to mark feature complete
+// The skill validates prerequisites automatically (all tasks completed/cancelled)
+"Use Status Progression Skill to mark feature as completed"
 
-// If validation fails, result.error will explain what's missing:
+// If validation fails, Skill returns detailed error explaining what's missing:
 // "Cannot transition to COMPLETED: 2 task(s) not completed.
 //  Incomplete tasks: \"Implement API\", \"Write tests\""
 ```
@@ -566,15 +552,10 @@ Then Planning Specialist will break it into domain-isolated tasks."
      tags="summary,completion"
    )
 
-3. Mark status="completed" (automatic prerequisite validation):
-   result = manage_container(
-     operation="setStatus",
-     containerType="feature",
-     id="Y",
-     status="completed"
-   )
-   // System automatically validates: all tasks completed/cancelled
-   // If validation fails, result.error contains details
+3. Use Status Progression Skill to mark complete (automatic prerequisite validation):
+   "Use Status Progression Skill to mark feature Y as completed"
+   // Skill automatically validates: all tasks completed/cancelled
+   // If validation fails, Skill returns error with details
 
 4. Return: "Feature Y completed successfully.
    8 tasks completed, all tests passing."
@@ -649,13 +630,8 @@ manage_container(
   complexity=5
 )
 
-// 2. Now retry status transition
-manage_container(
-  operation="setStatus",
-  containerType="feature",
-  id="feature-uuid",
-  status="in-development"
-)
+// 2. Now use Status Progression Skill to transition status
+"Use Status Progression Skill to move feature to in-development"
 ```
 
 **Prevention:** Always create tasks before moving features into development. Use Feature Architect or Planning Specialist for task breakdown.
@@ -673,14 +649,14 @@ overview = query_container(operation="overview", containerType="feature", id="..
 // Review: overview.taskCounts.byStatus
 
 // 2. Complete remaining tasks OR cancel unnecessary tasks
-// Option A: Complete tasks
-manage_container(operation="setStatus", containerType="task", id="task-uuid", status="completed")
+// Option A: Complete tasks (use Status Progression Skill)
+"Use Status Progression Skill to mark task as completed"
 
-// Option B: Cancel tasks that are no longer needed
-manage_container(operation="setStatus", containerType="task", id="task-uuid", status="cancelled")
+// Option B: Cancel tasks that are no longer needed (use Status Progression Skill)
+"Use Status Progression Skill to mark task as cancelled"
 
-// 3. Retry feature status transition
-manage_container(operation="setStatus", containerType="feature", id="...", status="testing")
+// 3. Retry feature status transition via Status Progression Skill
+"Use Status Progression Skill to move feature to testing"
 ```
 
 **Prevention:** Track task progress regularly. Use `query_container(operation="overview")` to monitor completion status before attempting status changes.
@@ -702,19 +678,19 @@ tasks = query_container(
 )
 
 // 2. For each incomplete task, decide:
-// Option A: Complete the task (if work is done)
-manage_container(operation="setStatus", containerType="task", id="...", status="completed")
+// Option A: Complete the task (if work is done, use Status Progression Skill)
+"Use Status Progression Skill to mark task as completed"
 
-// Option B: Cancel the task (if no longer needed)
-manage_container(operation="setStatus", containerType="task", id="...", status="cancelled")
+// Option B: Cancel the task (if no longer needed, use Status Progression Skill)
+"Use Status Progression Skill to mark task as cancelled"
 
 // 3. Verify all tasks are resolved
 overview = query_container(operation="overview", containerType="feature", id="...")
 // Check: overview.taskCounts.byStatus.pending === 0
 // Check: overview.taskCounts.byStatus['in-progress'] === 0
 
-// 4. Retry feature completion
-manage_container(operation="setStatus", containerType="feature", id="...", status="completed")
+// 4. Retry feature completion via Status Progression Skill
+"Use Status Progression Skill to mark feature as completed"
 ```
 
 **Prevention:** Regularly review task status. Cancel tasks early if scope changes. Don't leave tasks in limbo.
@@ -735,13 +711,8 @@ manage_container(
   summary="Implemented user authentication with JWT tokens. Added login/logout endpoints, password hashing with bcrypt, and refresh token rotation. All tests passing."
 )
 
-// 2. Now mark task complete
-manage_container(
-  operation="setStatus",
-  containerType="task",
-  id="task-uuid",
-  status="completed"
-)
+// 2. Now use Status Progression Skill to mark task complete
+"Use Status Progression Skill to mark task as completed"
 ```
 
 **Prevention:** Add summaries as you complete work. Summaries help future reference and provide context for downstream tasks.

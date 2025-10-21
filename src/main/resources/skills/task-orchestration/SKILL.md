@@ -271,13 +271,10 @@ manage_sections(
   tags="files-changed,completion"
 )
 
-Step 3: Mark task complete
-manage_container(
-  operation="setStatus",
-  containerType="task",
-  id="task-uuid",
-  status="completed"
-)
+Step 3: Use Status Progression Skill to mark task complete
+"Use Status Progression Skill to mark task as completed"
+// The skill validates prerequisites (summary length, no blocking dependencies)
+// and reads config.yaml for workflow rules
 
 Step 4: Check for cascade (see Workflow 4)
 ```
