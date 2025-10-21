@@ -434,13 +434,13 @@ Skills auto-activate from natural language. See: [.claude/skills/README.md](.cla
 1. Specialist reads task context directly via `query_container(operation="get", ...)`
 2. Specialist performs work (writes code, tests, documentation)
 3. Specialist updates task sections with results via `manage_sections(...)`
-4. Specialist returns brief summary (50-100 tokens) to orchestrator
-5. Orchestrator marks task complete (specialists do NOT self-complete)
+4. Specialist marks task complete via `manage_container(operation="setStatus", status="completed", ...)`
+5. Specialist returns brief summary (50-100 tokens) to orchestrator
 
 **Standardized Specialist Structure**:
 All specialist agents follow a consistent template structure:
-- **Workflow Section**: 4-step process (read task, do work, update sections, return summary)
-- **Critical Patterns**: Clear directive that specialists do NOT mark tasks complete
+- **Workflow Section**: 5-step process (read task, do work, update sections, mark complete, return summary)
+- **Critical Patterns**: Clear directive that specialists manage their own task lifecycle
 - **Blocking Scenarios**: How to handle blockers and report them
 - **Domain Expertise**: Specialist-specific technical guidance
 - **Quality Standards**: Role-specific validation requirements (e.g., tests for engineers, clarity for writers)
@@ -448,7 +448,7 @@ All specialist agents follow a consistent template structure:
 
 This standardization ensures:
 - Consistent behavior across all specialists
-- Clear separation of concerns (specialists implement, orchestrator coordinates)
+- Self-service pattern (specialists manage full lifecycle autonomously)
 - Predictable token usage (minimal summaries, not full code/docs)
 - Proper blocker reporting when work cannot be completed
 
@@ -512,8 +512,8 @@ recommend_agent(taskId="task-uuid")
 1. User: "Implement task X"
 2. You: `recommend_agent(taskId)` → returns "Backend Engineer"
 3. You: Launch Backend Engineer subagent with task ID
-4. Backend Engineer: Reads task, implements code, updates sections, returns summary
-5. You: Mark task complete based on specialist's summary
+4. Backend Engineer: Reads task, implements code, updates sections, marks complete, returns summary
+5. You: Verify completion and inform user
 
 ### Critical Patterns
 - **Always** run `list_templates` before creating tasks/features
@@ -552,8 +552,8 @@ recommend_agent(taskId="task-uuid")
 1. Specialist reads task via `query_container(operation="get", containerType="task", id="...", includeSections=true)`
 2. Specialist performs implementation work (code, tests, documentation)
 3. Specialist updates task sections via `manage_sections(operation="add|updateText", ...)`
-4. Specialist returns brief summary (50-100 tokens) - NOT full implementation details
-5. Orchestrator marks task complete - specialists do NOT self-complete
+4. Specialist marks task complete via `manage_container(operation="setStatus", status="completed", ...)`
+5. Specialist returns brief summary (50-100 tokens) - NOT full implementation details
 
 **Template Discovery** (ALWAYS required, regardless of using sub-agents):
 - Always: list_templates(targetEntityType, isEnabled=true)

@@ -63,10 +63,10 @@ User Request → Skill Assessment → [ASK USER: Direct vs Specialist?] → Exec
 - ✅ Exploratory work before task creation
 
 **CRITICAL: If working directly, YOU must manage lifecycle:**
-1. Update task status yourself (via Status Progression Skill)
+1. Update task status yourself via `manage_container(operation="setStatus", ...)`
 2. Populate task summary field (300-500 chars, REQUIRED for completion)
 3. Create "Files Changed" section (ordinal 999)
-4. Mark task complete when done (will fail if summary too short/long)
+4. Mark task complete when done via `manage_container(operation="setStatus", status="completed", ...)`
 5. Ensure no incomplete blocking dependencies before starting tasks
 6. Don't leave tasks in stale states
 
@@ -109,10 +109,10 @@ Status Progression Skill enforces strict prerequisite validation:
 - ✅ User wants full task tracking
 
 **Specialist benefits:**
-- Automatic task lifecycle management
+- Specialists manage their own task lifecycle (self-service)
 - Testing and validation
 - Proper documentation
-- Task status updates
+- Task status updates (specialist marks complete)
 - "Files Changed" tracking
 
 ## Before Every Response - Decision Checklist
