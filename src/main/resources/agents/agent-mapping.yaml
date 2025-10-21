@@ -14,52 +14,6 @@
 #   - context: Background information
 #   - documentation: User-facing docs
 
-# Parallel Processing Configuration
-# Supports launching multiple specialist agents concurrently for independent tasks
-# when dependencies allow parallel execution.
-parallelProcessing:
-  # Maximum number of tasks that can be processed in parallel
-  # Orchestrator can recommend up to this many unblocked tasks per batch
-  maxParallelTasks: 5
-
-  # Agents that support parallel execution workflows
-  capabilities:
-    # Feature Architect - Designs features and creates initial task breakdown
-    - agent: Feature Architect
-      supportsParallel: false
-      description: "Creates features with structured task breakdowns"
-
-    # Planning Specialist - Creates detailed task breakdowns with dependency metadata
-    - agent: Planning Specialist
-      supportsParallel: false
-      description: "Creates dependency-aware task breakdowns for parallel execution"
-
-    # Specialist Agents - All specialists can run concurrently for independent tasks
-    - agent: Backend Engineer
-      supportsParallel: true
-      concurrent: true
-      description: "Backend implementation - can run in parallel with other specialists"
-
-    - agent: Frontend Developer
-      supportsParallel: true
-      concurrent: true
-      description: "Frontend implementation - can run in parallel with other specialists"
-
-    - agent: Database Engineer
-      supportsParallel: true
-      concurrent: true
-      description: "Database work - can run in parallel with other specialists"
-
-    - agent: Test Engineer
-      supportsParallel: true
-      concurrent: true
-      description: "Testing work - can run in parallel with other specialists"
-
-    - agent: Technical Writer
-      supportsParallel: true
-      concurrent: true
-      description: "Documentation - can run in parallel with other specialists"
-
 # Map workflow activities to agents
 # Agent names must match Claude Code subagent_type format (Proper Case with spaces)
 workflowPhases:
@@ -171,7 +125,6 @@ entityTypes:
   TASK:
     # Tasks use tag-based selection during implementation
     # No specific agent for general tasks (uses main Claude Code instance)
-    fallback: null
 
 # ============================================================================
 # FALLBACK CONFIGURATION
@@ -186,36 +139,3 @@ fallback_behavior: "use_default"  # Options: use_default, ask_user, skip
 # - use_default: Automatically use default_specialist
 # - ask_user: Prompt user to select specialist
 # - skip: Don't assign specialist, return no recommendation
-
-# ============================================================================
-# ORCHESTRATION CONFIGURATION
-# ============================================================================
-# Additional configuration for orchestration workflows
-
-orchestration:
-  # Enable smart routing based on task complexity
-  complexity_routing:
-    enabled: true
-    thresholds:
-      simple: 4      # <= 4 complexity: Consider direct tools or skills
-      moderate: 7    # 5-7 complexity: Use specialists (standard)
-      complex: 10    # 8-10 complexity: Always use specialists, may need breakdown
-
-  # Parallel execution hints for Task Orchestration Skill
-  parallel_hints:
-    database_first: true    # Prioritize database tasks in early batches
-    ui_independent: true    # UI tasks can run parallel with backend
-    tests_last: true        # Testing tasks depend on implementation
-    docs_parallel: true     # Documentation can run parallel with implementation
-
-  # Status progression hints
-  status_hints:
-    auto_progress_simple: true       # Auto-progress simple tasks
-    require_summary: true            # Require summary before task completion
-    validate_dependencies: true      # Check dependencies before starting
-
-  # Quality gate integration
-  quality_gates:
-    enforce_before_completion: true  # Enforce quality gates
-    testing_required: true           # Require tests for completion
-    documentation_required: false    # Don't require docs for all tasks
