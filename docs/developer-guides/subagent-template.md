@@ -28,16 +28,23 @@ model: [sonnet|opus]
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text in existing sections
    - `manage_sections(operation="add", ...)` - Add sections for [specific content types]
 5. **[Agent-specific validation step if applicable]**: [e.g., "Run tests", "Build project", "Validate markup"]
-6. **Populate task summary field** (300-500 chars):
+6. **Populate task summary field** (REQUIRED - 300-500 chars):
    - `manage_container(operation="update", containerType="task", id="...", summary="...")`
    - Brief 2-3 sentence summary of what was done, test results, what's ready
+   - **CRITICAL**: Summary is REQUIRED and validated before task completion (300-500 chars)
+   - **VALIDATION**: System enforces 300-500 character limit - task cannot be completed without valid summary
+   - If missing or invalid, setStatus will fail - summary must be populated BEFORE step 8
 7. **Create "Files Changed" section**:
    - `manage_sections(operation="add", entityType="TASK", entityId="...", title="Files Changed", content="...", ordinal=999, tags="files-changed,completion")`
    - Markdown list of files modified/created with brief descriptions
    - Helps downstream tasks and git hooks parse changes
 8. **Mark task complete**:
+   - **PREREQUISITE CHECK**: Verify summary field is populated and valid (300-500 chars)
    - `manage_container(operation="setStatus", containerType="task", id="...", status="completed")`
-   - ONLY after all validation passes and work is complete
+   - ONLY after all validation passes, work is complete, AND summary field is populated
+   - **WARNING**: setStatus will FAIL if summary is missing or invalid (< 300 or > 500 chars)
+   - **VALIDATION BLOCKS COMPLETION**: The system will reject completion attempts without valid summary
+   - If setStatus fails, populate/fix summary field (step 6) then retry
 9. **Return minimal output to orchestrator**:
    - Format: "✅ [Task title] completed. [Optional 1 sentence of critical context]"
    - Or if blocked: "⚠️ BLOCKED\n\nReason: [one sentence]\nRequires: [action needed]"
@@ -50,15 +57,103 @@ model: [sonnet|opus]
 - Read task and dependencies (self-service)
 - Perform the work
 - Update task sections with detailed results
-- Populate task summary field with brief outcome
+- Populate task summary field with brief outcome (REQUIRED - 300-500 chars)
 - Create "Files Changed" section for downstream tasks
-- Mark task complete when validation passes
+- Mark task complete when validation passes (requires valid summary)
 - Return minimal status to orchestrator
 
 **Why this matters:**
 - Direct specialist pattern eliminates 3-agent hops (1800-2700 tokens saved)
 - You have full context and can make completion decisions
 - Downstream specialists read your "Files Changed" section for context
+
+## Task Summary Field Requirements (MANDATORY)
+
+**The task summary field is REQUIRED** and validated before task completion.
+
+**CRITICAL**: This is not optional - the system will block task completion if the summary is missing or invalid. Every specialist MUST populate the summary field with a 300-500 character summary before marking tasks complete.
+
+### Summary Validation Rules
+
+**Character count**: 300-500 characters (strictly enforced)
+- Too short (< 300): setStatus will FAIL
+- Too long (> 500): setStatus will FAIL
+- Missing/empty: setStatus will FAIL
+
+**When to populate**: ALWAYS populate in step 6, BEFORE marking task complete (step 8)
+
+**What to include**:
+- What was accomplished (1-2 sentences)
+- Key results or validation status (test results, build status, files created)
+- What's ready for next steps (dependencies satisfied, APIs ready, docs complete)
+
+### Good Summary Examples (300-500 chars)
+
+**Backend Engineer**:
+```
+"Implemented user authentication API with JWT token generation and refresh endpoints. Created UserService, AuthController, and TokenManager classes with comprehensive error handling. All 35 unit tests and 12 integration tests passing. Database migration V15 adds users and refresh_tokens tables. Ready for frontend integration."
+```
+*Character count: 347*
+
+**Frontend Developer**:
+```
+"Built UserProfile component with avatar upload, bio editing, and settings management. Integrated with /api/user endpoints for data persistence. Added FormValidation utility with email/phone validators. Includes 18 unit tests and 8 integration tests, all passing. Responsive design works on mobile and desktop. Ready for QA review."
+```
+*Character count: 348*
+
+**Database Engineer**:
+```
+"Created migration V12 adding orders and order_items tables with foreign key constraints to users and products. Added indexes on user_id, created_at, and status columns for query optimization. Migration tested on dev database - executes in 45ms with no conflicts. Rollback script verified. Ready for production deployment."
+```
+*Character count: 345*
+
+**Technical Writer**:
+```
+"Documented complete Authentication API with endpoint specs, request/response examples, error codes, and rate limiting details. Created step-by-step integration guide with code samples in JavaScript and Python. Added troubleshooting section covering common issues. All code examples tested and verified. Documentation ready for publication."
+```
+*Character count: 363*
+
+**Test Engineer**:
+```
+"Implemented comprehensive test suite for payment processing module: 45 unit tests covering edge cases, 20 integration tests for API workflows, 8 end-to-end tests simulating user journeys. All tests passing with 96% code coverage. Added test fixtures for card validation and mock payment gateway responses. Test suite ready for CI/CD pipeline."
+```
+*Character count: 382*
+
+### Bad Summary Examples (What NOT to Do)
+
+❌ **Too short (< 300 chars)**:
+```
+"Implemented authentication. Tests pass. Ready for review."
+```
+*Character count: 62 - setStatus will FAIL*
+
+❌ **Too long (> 500 chars)**:
+```
+"I implemented a comprehensive user authentication system with multiple endpoints including login, logout, registration, password reset, email verification, and token refresh functionality. The implementation uses JWT tokens with RS256 signing algorithm and includes refresh token rotation for enhanced security. I created extensive unit tests covering all edge cases and integration tests for the complete authentication workflow. The database schema was updated with new tables for users, refresh tokens, and email verification codes. All tests are passing and the code has been reviewed for security vulnerabilities..."
+```
+*Character count: 623 - setStatus will FAIL*
+
+❌ **Missing key information**:
+```
+"I wrote some code for the authentication feature and added a few tests. The tests are passing so I think it's working correctly. I also updated the database schema with some new tables that we needed. Everything seems to be working fine and I didn't run into any major issues during development."
+```
+*Character count: 318 - Meets length but lacks specifics: What endpoints? How many tests? Which tables? What's ready?*
+
+### Handling Summary Validation Failures
+
+**If setStatus fails with summary validation error**:
+
+1. Check current summary character count
+2. Update summary to meet 300-500 char requirement:
+   ```
+   manage_container(operation="update", containerType="task", id="...", summary="[300-500 char summary]")
+   ```
+3. Retry setStatus:
+   ```
+   manage_container(operation="setStatus", containerType="task", id="...", status="completed")
+   ```
+
+**Prevention tip**: Use a character counter or write summary in text editor first, verify length, then populate field.
 
 ## [Agent-Specific Critical Section if needed]
 
@@ -289,9 +384,9 @@ model: sonnet|opus
 **Critical elements to include:**
 - **Self-service context reading**: Agent reads its own dependencies via `query_dependencies` and `query_sections`
 - **Section updates**: Agent documents detailed results in task sections
-- **Task summary field**: Agent populates database summary field (not a section)
+- **Task summary field**: Agent populates database summary field (REQUIRED - 300-500 chars, validated before completion)
 - **Files Changed section**: Ordinal 999, tags "files-changed,completion"
-- **Task completion**: Agent marks task complete after validation
+- **Task completion**: Agent marks task complete after validation (requires valid summary)
 - **Minimal response**: Return brief status, not full results
 
 **Example workflow structure:**
@@ -305,9 +400,15 @@ model: sonnet|opus
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text
    - `manage_sections(operation="add", ...)` - Add new sections
 5. **Run tests and validate** (if applicable)
-6. **Populate task summary field**: `manage_container(operation="update", summary="...")`
+6. **Populate task summary field** (REQUIRED - 300-500 chars):
+   - `manage_container(operation="update", summary="...")`
+   - **CRITICAL**: Summary is validated - must be 300-500 chars
+   - Include: what was done, validation results, what's ready
 7. **Create "Files Changed" section**: `manage_sections(operation="add", title="Files Changed", ordinal=999, tags="files-changed,completion")`
-8. **Mark task complete**: `manage_container(operation="setStatus", status="completed")`
+8. **Mark task complete** (requires valid summary):
+   - **PREREQUISITE**: Verify summary field is populated (300-500 chars)
+   - `manage_container(operation="setStatus", status="completed")`
+   - **WARNING**: Will FAIL if summary is missing/invalid
 9. **Return minimal output**: "✅ [Task] completed. [Optional context]"
 ```
 
@@ -325,9 +426,9 @@ model: sonnet|opus
 - Read task and dependencies (self-service)
 - Perform the work
 - Update task sections with detailed results
-- Populate task summary field with brief outcome (300-500 chars)
+- Populate task summary field with brief outcome (REQUIRED - 300-500 chars, validated before completion)
 - Create "Files Changed" section for downstream tasks
-- Mark task complete when validation passes
+- Mark task complete when validation passes (requires valid summary)
 - Return minimal status to orchestrator
 
 **Why this matters:**
@@ -657,7 +758,9 @@ Before finalizing a specialist file, verify:
 - [ ] Examples are concrete and domain-specific
 - [ ] Minimal response philosophy emphasized (✅ brief status, not full results)
 - [ ] Self-service dependency reading pattern used
-- [ ] Task summary field population instructions included
+- [ ] Task summary field population instructions included (REQUIRED - 300-500 chars)
+- [ ] Summary validation emphasis in workflow step 6 and step 8 (prerequisite check)
+- [ ] Warning that summary validation blocks task completion
 - [ ] "Files Changed" section creation instructions included (ordinal 999, tags "files-changed,completion")
 
 ## Token Optimization

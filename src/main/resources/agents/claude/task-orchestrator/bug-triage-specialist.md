@@ -96,6 +96,10 @@ manage_container(
 )
 ```
 
+**IMPORTANT**: Do NOT populate `summary` field during bug task creation.
+- ⚠️ **Summary populated at completion**: Fixing specialist MUST populate summary (300-500 chars) describing the fix before marking complete
+- StatusValidator enforces this requirement
+
 **Bug Task Description Template:**
 ```
 BUG: [One-line summary]

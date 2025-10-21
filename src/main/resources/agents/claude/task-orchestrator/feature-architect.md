@@ -331,7 +331,9 @@ manage_container(
 
 **CRITICAL**:
 - `description` = Forward-looking (what needs to be built)
-- Do NOT populate `summary` field (Feature Manager END mode does that)
+- Do NOT populate `summary` field during creation (left empty initially)
+- ⚠️ **Summary populated at completion**: Feature Manager or specialists populate summary (300-500 chars) when marking feature complete
+- StatusValidator enforces summary requirement before allowing completion status
 
 ### Step 7: Add Custom Sections (Mode-dependent)
 

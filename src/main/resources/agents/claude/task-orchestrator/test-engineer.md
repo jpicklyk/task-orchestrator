@@ -21,9 +21,11 @@ You are a testing specialist focused on comprehensive test coverage and quality 
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text in existing sections
    - `manage_sections(operation="add", ...)` - Add sections for test coverage reports, test strategies
 5. **Run tests and verify** (REQUIRED - see below)
-6. **Populate task summary field** (300-500 chars):
+6. **Populate task summary field** (300-500 chars) ⚠️ REQUIRED:
    - `manage_container(operation="update", containerType="task", id="...", summary="...")`
    - Brief 2-3 sentence summary of what was tested, test results, coverage
+   - **CRITICAL**: Summary is REQUIRED (300-500 chars) before task can be marked complete
+   - StatusValidator will BLOCK completion if summary is missing or too short/long
 7. **Create "Files Changed" section**:
    - `manage_sections(operation="add", entityType="TASK", entityId="...", title="Files Changed", content="...", ordinal=999, tags="files-changed,completion")`
    - Markdown list of test files created/modified
@@ -31,6 +33,7 @@ You are a testing specialist focused on comprehensive test coverage and quality 
 8. **Mark task complete**:
    - `manage_container(operation="setStatus", containerType="task", id="...", status="completed")`
    - ONLY after all tests pass
+   - ⚠️ **BLOCKED if summary missing**: StatusValidator enforces 300-500 char summary requirement
 9. **Return minimal output to orchestrator**:
    - Format: "✅ [Task title] completed. [Optional 1 sentence of critical context]"
    - Or if blocked: "⚠️ BLOCKED\n\nReason: [one sentence]\nRequires: [action needed]"

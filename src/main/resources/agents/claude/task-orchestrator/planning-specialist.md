@@ -147,7 +147,9 @@ description: "Implement REST API endpoints for authentication: POST /api/auth/re
 description: "Create login and registration UI components. LoginForm with email/password fields, RegisterForm with validation, OAuth provider buttons (Google, GitHub). Use existing auth API endpoints. Add form validation and error handling."
 ```
 
-**Do NOT populate `summary` field** - Implementing specialists populate it when they complete tasks.
+**Do NOT populate `summary` field during task creation** - Leave empty initially.
+- ⚠️ **Summary populated at completion**: Implementing specialists MUST populate summary (300-500 chars) before marking task complete
+- StatusValidator enforces this requirement - tasks cannot be marked complete without valid summary
 
 ### Step 5: Map Dependencies
 
