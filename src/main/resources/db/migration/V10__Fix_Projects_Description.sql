@@ -1,10 +1,21 @@
--- V10: Fix missing description field in projects table
--- Bug: V9 migration forgot to include description column when rebuilding projects table
+-- V10: Fix missing description data in projects table (BUGFIX for V9)
+-- Bug: V9 migration initially forgot to include description column when rebuilding projects table
 -- V6 and V7 added description (nullable) to all container types, but V9 omitted it for projects
 --
--- This migration adds description back to projects table to match features and tasks
+-- NOTE: V9 was subsequently fixed to preserve description column.
+-- This migration is now a no-op for fresh installations (V9 handles description correctly).
+-- For production databases that ran buggy V9, the description column was already added by
+-- the original version of this migration.
+--
+-- This migration now only ensures data recovery for any edge cases where description is NULL
+-- but summary has data (idempotent operation, safe to run on any database state).
 
-ALTER TABLE projects ADD COLUMN description TEXT;
+-- Migrate existing summary data to description IF description is NULL
+-- This is idempotent and safe - only updates rows where description is missing
+UPDATE projects SET description = summary
+WHERE description IS NULL AND summary IS NOT NULL AND summary != '';
 
--- Description is nullable (as per V7), so no default value or data migration needed
--- Existing projects will have NULL description, which is acceptable
+-- Note: The original ALTER TABLE ADD COLUMN has been removed because:
+-- 1. Fresh installations: V9 (fixed) already creates description column
+-- 2. Production databases: Original V10 already added description column
+-- 3. This version is fully idempotent and backward compatible

@@ -197,22 +197,22 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Whether v2.0 config-driven mode is enabled")
                                     )
                                 ),
-                                "personaDirectoryCreated" to JsonObject(
+                                "outputStyleDirectoryCreated" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether persona directory was newly created")
+                                        "description" to JsonPrimitive("Whether output-style directory was newly created")
                                     )
                                 ),
-                                "personaCopied" to JsonObject(
+                                "outputStyleCopied" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether persona file was newly copied")
+                                        "description" to JsonPrimitive("Whether output-style file was newly copied")
                                     )
                                 ),
-                                "personaPath" to JsonObject(
+                                "outputStylePath" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Path to the persona file")
+                                        "description" to JsonPrimitive("Path to the output-style file")
                                     )
                                 )
                             )
@@ -266,13 +266,13 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             logger.info("Copying skill templates...")
             val copiedSkills = orchestrationSetupManager.copySkillTemplates()
 
-            // Step 9: Create persona directory
-            logger.info("Creating .claude/persona/ directory structure...")
-            val personaDirectoryCreated = orchestrationSetupManager.createPersonaDirectory()
+            // Step 9: Create output-style directory
+            logger.info("Creating .claude/output-styles/ directory structure...")
+            val outputStyleDirectoryCreated = orchestrationSetupManager.createOutputStyleDirectory()
 
-            // Step 10: Copy persona file
-            logger.info("Copying persona file...")
-            val personaCopied = orchestrationSetupManager.copyPersonaFile()
+            // Step 10: Copy output-style file
+            logger.info("Copying output-style file...")
+            val outputStyleCopied = orchestrationSetupManager.copyOutputStyleFile()
 
             // Calculate skipped files
             val allAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
@@ -283,7 +283,7 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             // Build response message
             val message = buildString {
                 append("Claude Code orchestration system setup ")
-                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated || personaDirectoryCreated) {
+                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated || outputStyleDirectoryCreated) {
                     append("completed successfully. ")
                 } else {
                     append("verified. ")
@@ -303,10 +303,10 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     append("Skipped ${skippedSkills.size} existing skill(s). ")
                 }
 
-                if (personaCopied) {
-                    append("Created persona file. ")
+                if (outputStyleCopied) {
+                    append("Created output-style file. ")
                 } else {
-                    append("Persona file already exists. ")
+                    append("Output-style file already exists. ")
                 }
 
                 if (agentMappingCopied) {
@@ -349,10 +349,10 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     put("skillsSkipped", JsonArray(skippedSkills.map { JsonPrimitive(it) }))
                     put("skillsDirectory", orchestrationSetupManager.getSkillsDir().toString())
                     put("totalSkills", allSkills.size)
-                    put("personaDirectoryCreated", personaDirectoryCreated)
-                    put("personaCopied", personaCopied)
-                    put("personaPath", orchestrationSetupManager.getPersonaDir().resolve(
-                        OrchestrationSetupManager.PERSONA_FILE
+                    put("outputStyleDirectoryCreated", outputStyleDirectoryCreated)
+                    put("outputStyleCopied", outputStyleCopied)
+                    put("outputStylePath", orchestrationSetupManager.getOutputStyleDir().resolve(
+                        OrchestrationSetupManager.OUTPUT_STYLE_FILE
                     ).toString())
                 },
                 message = message

@@ -1,4 +1,4 @@
-ex# CLAUDE.md
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -186,6 +186,11 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Migrations:** `src/main/resources/db/migration/`
 - **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
+- **Claude Code Integration:**
+  - **Output-style (source):** `src/main/resources/output-styles/task-orchestrator.md`
+  - **Output-style (installed):** `.claude/output-styles/task-orchestrator.md` (use `/output-styles` command in Claude Code)
+  - **Skills:** `.claude/skills/` (installed by `setup_claude_orchestration`)
+  - **Subagents:** `.claude/agents/task-orchestrator/` (installed by `setup_claude_orchestration`)
 
 ## Tool Development Guidelines
 
@@ -360,6 +365,11 @@ See: [workflow-prompts.md](docs/workflow-prompts.md), [templates.md](docs/templa
 **What**: Auto-activating lightweight coordination (2-5 tool calls, 60-82% token savings vs subagents)
 **Setup**: Run `setup_claude_orchestration` once
 **Use for**: Status checks, progress tracking, completing tasks/features
+
+**Installation Paths**:
+- Skills: `.claude/skills/` (auto-discovered by Claude Code)
+- Subagents: `.claude/agents/task-orchestrator/` (auto-discovered by Claude Code)
+- Output-style: `.claude/output-styles/task-orchestrator.md` (accessible via `/output-styles` command)
 
 **Skills Available**:
 - Feature Management - "What's next?", "Complete feature" (~300-600 tokens)

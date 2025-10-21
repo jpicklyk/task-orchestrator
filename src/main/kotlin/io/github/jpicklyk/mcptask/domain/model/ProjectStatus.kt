@@ -19,9 +19,10 @@ enum class ProjectStatus {
 
     companion object {
         /**
-         * Converts a string to a ProjectStatus enum value.
-         * @param status The string representation of the status.
-         * @return The ProjectStatus enum value or null if not found.
+         * Converts a string to a ProjectStatus enum value (case-insensitive).
+         * Supports both underscore and hyphen separators.
+         * @param status The string representation of the status
+         * @return The ProjectStatus enum value or null if not found
          */
         fun fromString(status: String): ProjectStatus? {
             return try {
@@ -36,4 +37,9 @@ enum class ProjectStatus {
          */
         fun getDefault(): ProjectStatus = PLANNING
     }
+
+    /**
+     * Returns the string representation of this status in uppercase with underscores.
+     */
+    override fun toString(): String = name
 }

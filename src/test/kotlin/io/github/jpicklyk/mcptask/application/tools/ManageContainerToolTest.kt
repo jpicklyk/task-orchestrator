@@ -504,7 +504,30 @@ class ManageContainerToolTest {
     @Nested
     inner class SetStatusOperationTests {
         @Test
-        fun `should set task status successfully`() = runBlocking {
+        fun `should set task status successfully with valid transition`() = runBlocking {
+            // Valid transition: PENDING -> IN_PROGRESS
+            val params = buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId.toString())
+                put("status", "in-progress")
+            }
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.IN_PROGRESS))
+            // Mock dependency check for IN_PROGRESS prerequisite validation
+            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("in-progress") == true)
+        }
+
+        @Test
+        fun `should reject task status with invalid transition`() = runBlocking {
+            // Invalid transition: PENDING -> COMPLETED (skips in-progress and testing)
             val params = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -513,17 +536,41 @@ class ManageContainerToolTest {
             }
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.COMPLETED))
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
+        }
+
+        @Test
+        fun `should set feature status successfully with valid transition`() = runBlocking {
+            // Valid transition: IN_DEVELOPMENT -> TESTING
+            val params = buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("status", "testing")
+            }
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.TESTING))
+            // Mock task check for TESTING prerequisite validation (requires all tasks completed)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
+                listOf(mockTask.copy(status = TaskStatus.COMPLETED))
+            )
 
             val result = tool.execute(params, context)
 
             val resultObj = result.jsonObject
             assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("completed") == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("testing") == true)
         }
 
         @Test
-        fun `should set feature status successfully`() = runBlocking {
+        fun `should reject feature status with invalid transition`() = runBlocking {
+            // Invalid transition: IN_DEVELOPMENT -> COMPLETED (skips testing and validating)
             val params = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "feature")
@@ -532,13 +579,12 @@ class ManageContainerToolTest {
             }
 
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.COMPLETED))
 
             val result = tool.execute(params, context)
 
             val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("completed") == true)
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
         }
 
         @Test
@@ -552,12 +598,231 @@ class ManageContainerToolTest {
 
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
             coEvery { mockProjectRepository.update(any()) } returns Result.Success(mockProject.copy(status = ProjectStatus.COMPLETED))
+            // Mock feature check for COMPLETED prerequisite validation (requires all features completed)
+            coEvery { mockFeatureRepository.findByProject(projectId, 1000) } returns Result.Success(
+                listOf(mockFeature.copy(status = FeatureStatus.COMPLETED))
+            )
 
             val result = tool.execute(params, context)
 
             val resultObj = result.jsonObject
             assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
             assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("completed") == true)
+        }
+    }
+
+    @Nested
+    inner class StatusParsingTests {
+        @Test
+        fun `should parse new TaskStatus BACKLOG`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("title", "Backlog Task")
+                put("status", "backlog")
+            }
+
+            coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.BACKLOG))
+            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+        }
+
+        @Test
+        fun `should parse new TaskStatus IN_REVIEW with different formats`() = runBlocking {
+            // Test all format variations
+            val formats = listOf("in-review", "in_review", "inreview")
+
+            formats.forEach { format ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "task")
+                    put("title", "Review Task")
+                    put("status", format)
+                }
+
+                coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.IN_REVIEW))
+                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+                val result = tool.execute(params, context)
+
+                val resultObj = result.jsonObject
+                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+            }
+        }
+
+        @Test
+        fun `should parse new TaskStatus CHANGES_REQUESTED with different formats`() = runBlocking {
+            val formats = listOf("changes-requested", "changes_requested", "changesrequested")
+
+            formats.forEach { format ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "task")
+                    put("title", "Changes Task")
+                    put("status", format)
+                }
+
+                coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.CHANGES_REQUESTED))
+                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+                val result = tool.execute(params, context)
+
+                val resultObj = result.jsonObject
+                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+            }
+        }
+
+        @Test
+        fun `should parse new TaskStatus ON_HOLD with different formats`() = runBlocking {
+            val formats = listOf("on-hold", "on_hold", "onhold")
+
+            formats.forEach { format ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "task")
+                    put("title", "On Hold Task")
+                    put("status", format)
+                }
+
+                coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.ON_HOLD))
+                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+                val result = tool.execute(params, context)
+
+                val resultObj = result.jsonObject
+                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+            }
+        }
+
+        @Test
+        fun `should parse new FeatureStatus DRAFT`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "feature")
+                put("name", "Draft Feature")
+                put("status", "draft")
+            }
+
+            coEvery { mockFeatureRepository.create(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.DRAFT))
+            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+        }
+
+        @Test
+        fun `should parse new FeatureStatus ON_HOLD with different formats`() = runBlocking {
+            val formats = listOf("on-hold", "on_hold", "onhold")
+
+            formats.forEach { format ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "feature")
+                    put("name", "On Hold Feature")
+                    put("status", format)
+                }
+
+                coEvery { mockFeatureRepository.create(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.ON_HOLD))
+                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+                val result = tool.execute(params, context)
+
+                val resultObj = result.jsonObject
+                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+            }
+        }
+
+        @Test
+        fun `should parse existing ProjectStatus ON_HOLD with different formats`() = runBlocking {
+            val formats = listOf("on-hold", "on_hold", "onhold")
+
+            formats.forEach { format ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "project")
+                    put("name", "On Hold Project")
+                    put("status", format)
+                }
+
+                coEvery { mockProjectRepository.create(any()) } returns Result.Success(mockProject.copy(status = ProjectStatus.ON_HOLD))
+
+                val result = tool.execute(params, context)
+
+                val resultObj = result.jsonObject
+                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+            }
+        }
+
+        @Test
+        fun `should parse existing ProjectStatus CANCELLED with different formats`() = runBlocking {
+            val formats = listOf("cancelled", "canceled")
+
+            formats.forEach { format ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "project")
+                    put("name", "Cancelled Project")
+                    put("status", format)
+                }
+
+                coEvery { mockProjectRepository.create(any()) } returns Result.Success(mockProject.copy(status = ProjectStatus.CANCELLED))
+
+                val result = tool.execute(params, context)
+
+                val resultObj = result.jsonObject
+                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+            }
+        }
+
+        @Test
+        fun `should reject invalid task status`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("title", "Invalid Task")
+                put("status", "invalid-status")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid status"))
+        }
+
+        @Test
+        fun `should reject invalid feature status`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "feature")
+                put("name", "Invalid Feature")
+                put("status", "invalid-status")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid status"))
+        }
+
+        @Test
+        fun `should reject invalid project status`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "project")
+                put("name", "Invalid Project")
+                put("status", "invalid-status")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid status"))
         }
     }
 

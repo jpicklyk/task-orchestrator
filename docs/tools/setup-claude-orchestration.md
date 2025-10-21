@@ -17,17 +17,33 @@ The setup tool installs a **3-level agent coordination architecture**:
 
 ### What Gets Installed
 
-1. **Agent Definition Files** (`.claude/agents/`)
-   - 10 specialized agent markdown files with YAML frontmatter
+1. **Agent Definition Files** (`.claude/agents/task-orchestrator/`)
+   - 8 specialized agent markdown files with YAML frontmatter
    - Claude Code automatically discovers agents in this directory
    - Files include agent instructions, capabilities, and workflows
 
-2. **Agent Mapping Configuration** (`.taskorchestrator/agent-mapping.yaml`)
+2. **Skills** (`.claude/skills/`)
+   - 6 lightweight coordination skills for task/feature management
+   - Auto-activating from natural language
+   - 60-82% token savings vs subagents for coordination tasks
+
+3. **Output Style** (`.claude/output-styles/task-orchestrator.md`)
+   - Claude Code output style configuration
+   - Enables `/output-style` command selection
+   - Intelligent routing between Skills and Specialists
+   - User preference prompts for implementation work
+
+4. **Agent Mapping Configuration** (`.taskorchestrator/agent-mapping.yaml`)
    - Maps task tags to agent names
    - Defines section tags for efficient context retrieval
    - Customizable for project-specific needs
 
-3. **Decision Gates** (`CLAUDE.md`)
+5. **Orchestration Config** (`.taskorchestrator/config.yaml`)
+   - Status progression workflows
+   - Quality gate configuration
+   - Parallel execution settings
+
+6. **Decision Gates** (`CLAUDE.md`)
    - Injects proactive routing decision points
    - Helps orchestrator decide when to launch agents
    - Preserves existing CLAUDE.md content
@@ -220,19 +236,28 @@ After running `setup_claude_orchestration`, your project will have:
 ```
 project-root/
 ├── .claude/
-│   └── agents/
-│       ├── backend-engineer.md
-│       ├── database-engineer.md
-│       ├── frontend-developer.md
-│       ├── test-engineer.md
-│       ├── technical-writer.md
-│       ├── feature-architect.md
-│       ├── planning-specialist.md
-│       ├── feature-manager.md
-│       ├── task-manager.md
-│       └── bug-triage-specialist.md
+│   ├── agents/
+│   │   └── task-orchestrator/
+│   │       ├── backend-engineer.md
+│   │       ├── database-engineer.md
+│   │       ├── frontend-developer.md
+│   │       ├── test-engineer.md
+│   │       ├── technical-writer.md
+│   │       ├── feature-architect.md
+│   │       ├── planning-specialist.md
+│   │       └── bug-triage-specialist.md
+│   ├── skills/
+│   │   ├── dependency-analysis/
+│   │   ├── dependency-orchestration/
+│   │   ├── feature-orchestration/
+│   │   ├── hook-builder/
+│   │   ├── status-progression/
+│   │   └── task-orchestration/
+│   └── output-styles/
+│       └── task-orchestrator.md       # Output style for /output-style command
 └── .taskorchestrator/
-    └── agent-mapping.yaml
+    ├── agent-mapping.yaml             # Tag-based agent routing
+    └── config.yaml                    # Status progressions, quality gates
 ```
 
 ## Agent Definition Format
@@ -263,16 +288,43 @@ You are a backend specialist focused on REST APIs, services, and business logic.
 
 ## Next Steps After Setup
 
-### 1. Verify Agent Availability
+### 1. Enable Task Orchestrator Output Style (Recommended)
+
+Activate the Task Orchestrator output style for optimized orchestration behavior:
+
+**In Claude Code:**
+1. Type `/output-style` in the chat
+2. Select **Task Orchestrator** from the list
+3. Claude Code will now follow intelligent routing patterns
+
+**What the output style does:**
+- **Mandatory Skills usage** for coordination (status, routing, dependencies)
+- **User preference prompts** for implementation work (direct vs specialist)
+- **Automatic task lifecycle management** when working directly
+- **Decision-making guidance** between Skills and Specialists
+
+**Example behavior with output style:**
+```
+User: "What's the next task?"
+→ Claude uses Feature Orchestration Skill (mandatory coordination)
+
+User: "Fix this blocker"
+→ Claude asks: "Direct fix (fast) or Specialist (structured)?"
+
+User: "Update README"
+→ Claude asks: "Direct edit (quick) or Technical Writer (comprehensive)?"
+```
+
+### 2. Verify Agent Availability
 
 Check that Claude Code discovered the agents:
 ```
 User: "List available agents"
 ```
 
-Claude Code should show the 10 installed agents.
+Claude Code should show the 8 installed agents.
 
-### 2. Test Agent Recommendation
+### 3. Test Agent Recommendation
 
 Create a test task and get agent recommendation:
 ```json
@@ -292,7 +344,7 @@ Then use:
 
 Should recommend **Backend Engineer**.
 
-### 3. Review Agent Mapping
+### 4. Review Agent Mapping
 
 Check the agent mapping configuration:
 ```
@@ -301,7 +353,31 @@ User: "Show me the agent mapping configuration"
 
 Or read: `.taskorchestrator/agent-mapping.yaml`
 
-### 4. Customize Agents (Optional)
+### 5. Customize Output Style (Optional)
+
+The output style file can be customized to match your workflow preferences:
+
+**Edit**: `.claude/output-styles/task-orchestrator.md`
+
+**Customizations:**
+- Change when Skills are mandatory vs optional
+- Adjust user preference prompting behavior
+- Add project-specific decision rules
+- Customize routing logic
+
+**Example customization:**
+```markdown
+## Custom Decision Rules
+
+For this project:
+- All database work → Always use Database Engineer (no prompt)
+- Simple docs → Always direct edit (no prompt)
+- Complex features → Always use Feature Architect (no prompt)
+```
+
+After editing, the `/output-style` command will use your customizations.
+
+### 6. Customize Agents (Optional)
 
 Edit agent files in `.claude/agents/` to:
 - Add project-specific workflows
@@ -420,17 +496,21 @@ devops-engineer:  # New agent
 ### Version Control Recommendations
 
 **Commit to Git**:
-- ✅ `.claude/agents/*.md` - Share agent definitions with team
+- ✅ `.claude/agents/task-orchestrator/*.md` - Share agent definitions with team
+- ✅ `.claude/skills/` - Share Skills with team (if customized)
+- ✅ `.claude/output-styles/task-orchestrator.md` - Share output style configuration
 - ✅ `.taskorchestrator/agent-mapping.yaml` - Share tag mappings
+- ✅ `.taskorchestrator/config.yaml` - Share orchestration config
 
 **Add to .gitignore**:
-- ❌ Don't ignore agent files (they're project configuration)
+- ❌ Don't ignore orchestration files (they're project configuration)
 
 **For Teams**:
 - Commit agent customizations
+- Commit output style customizations for consistent team behavior
 - Document custom workflows in agent files
-- Review agent file changes in PRs
-- Keep agent definitions synchronized across team
+- Review orchestration file changes in PRs
+- Keep orchestration setup synchronized across team
 
 ## Common Workflows
 
@@ -575,3 +655,15 @@ You:
 ### Q: What happens if decision gates already exist in CLAUDE.md?
 
 **A**: The tool detects existing gates and skips injection to avoid duplicates.
+
+### Q: What's the difference between output style and agent definitions?
+
+**A**: Agent definitions specify **what** specialists do (Backend Engineer implements code). Output style specifies **how** the orchestrator makes decisions (when to use Skills vs Specialists, when to ask user). They work together for optimal coordination.
+
+### Q: Do I need to use the output style?
+
+**A**: It's recommended but optional. Without it, Claude Code uses default behavior. With the Task Orchestrator output style, you get intelligent routing, user preference prompts, and mandatory Skills usage for coordination.
+
+### Q: Can I customize the output style for my team's workflow?
+
+**A**: Yes! Edit `.claude/output-styles/task-orchestrator.md` to match your team's preferences. Commit customizations to git for team-wide consistency.

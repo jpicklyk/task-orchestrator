@@ -31,10 +31,18 @@ fun main(args: Array<String>) {
     }
 
     try {
+        // Check if running in repair mode
+        val isRepairMode = System.getenv("FLYWAY_REPAIR")?.toBoolean() ?: false
+
         // Initialize database
         initializeDatabase(logger)
 
-        
+        // Exit after repair if in repair mode
+        if (isRepairMode) {
+            logger.info("Repair mode complete, exiting...")
+            exitProcess(0)
+        }
+
         // Create and run the MCP server
         val mcpServer = McpServer(VersionInfo.VERSION)
         mcpServer.run()

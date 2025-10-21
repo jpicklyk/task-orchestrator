@@ -1123,9 +1123,23 @@ Docs: task-orchestrator://docs/tools/manage-container
             is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve project") { JsonNull }
         }
 
-        // Validate transition with StatusValidator
+        // Build prerequisite context for validation
+        val prerequisiteContext = StatusValidator.PrerequisiteContext(
+            taskRepository = context.taskRepository(),
+            featureRepository = context.featureRepository(),
+            projectRepository = context.projectRepository(),
+            dependencyRepository = context.dependencyRepository()
+        )
+
+        // Validate transition with StatusValidator (including prerequisites)
         val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val transitionValidation = statusValidator.validateTransition(currentStatusStr, statusStr, "project")
+        val transitionValidation = statusValidator.validateTransition(
+            currentStatusStr,
+            statusStr,
+            "project",
+            id,
+            prerequisiteContext
+        )
 
         if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
             return errorResponse(
@@ -1165,9 +1179,23 @@ Docs: task-orchestrator://docs/tools/manage-container
             is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve feature") { JsonNull }
         }
 
-        // Validate transition with StatusValidator
+        // Build prerequisite context for validation
+        val prerequisiteContext = StatusValidator.PrerequisiteContext(
+            taskRepository = context.taskRepository(),
+            featureRepository = context.featureRepository(),
+            projectRepository = context.projectRepository(),
+            dependencyRepository = context.dependencyRepository()
+        )
+
+        // Validate transition with StatusValidator (including prerequisites)
         val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val transitionValidation = statusValidator.validateTransition(currentStatusStr, statusStr, "feature")
+        val transitionValidation = statusValidator.validateTransition(
+            currentStatusStr,
+            statusStr,
+            "feature",
+            id,
+            prerequisiteContext
+        )
 
         if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
             return errorResponse(
@@ -1207,9 +1235,23 @@ Docs: task-orchestrator://docs/tools/manage-container
             is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve task") { JsonNull }
         }
 
-        // Validate transition with StatusValidator
+        // Build prerequisite context for validation
+        val prerequisiteContext = StatusValidator.PrerequisiteContext(
+            taskRepository = context.taskRepository(),
+            featureRepository = context.featureRepository(),
+            projectRepository = context.projectRepository(),
+            dependencyRepository = context.dependencyRepository()
+        )
+
+        // Validate transition with StatusValidator (including prerequisites)
         val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val transitionValidation = statusValidator.validateTransition(currentStatusStr, statusStr, "task")
+        val transitionValidation = statusValidator.validateTransition(
+            currentStatusStr,
+            statusStr,
+            "task",
+            id,
+            prerequisiteContext
+        )
 
         if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
             return errorResponse(
@@ -1512,31 +1554,50 @@ Docs: task-orchestrator://docs/tools/manage-container
 
     private fun parseProjectStatus(status: String): ProjectStatus {
         return when (status.lowercase().replace('-', '_')) {
+            // v1.0 original statuses
             "planning" -> ProjectStatus.PLANNING
             "in_development", "indevelopment", "in-development" -> ProjectStatus.IN_DEVELOPMENT
             "completed" -> ProjectStatus.COMPLETED
             "archived" -> ProjectStatus.ARCHIVED
+            // v2.0 orchestration statuses
+            "on_hold", "onhold", "on-hold" -> ProjectStatus.ON_HOLD
+            "cancelled", "canceled" -> ProjectStatus.CANCELLED
             else -> throw IllegalArgumentException("Invalid project status: $status")
         }
     }
 
     private fun parseFeatureStatus(status: String): FeatureStatus {
         return when (status.lowercase().replace('-', '_')) {
+            // v1.0 original statuses
             "planning" -> FeatureStatus.PLANNING
             "in_development", "indevelopment", "in-development" -> FeatureStatus.IN_DEVELOPMENT
             "completed" -> FeatureStatus.COMPLETED
             "archived" -> FeatureStatus.ARCHIVED
+            // v2.0 orchestration statuses
+            "draft" -> FeatureStatus.DRAFT
+            "on_hold", "onhold", "on-hold" -> FeatureStatus.ON_HOLD
+            "testing" -> FeatureStatus.TESTING
+            "validating" -> FeatureStatus.VALIDATING
+            "pending_review", "pendingreview", "pending-review" -> FeatureStatus.PENDING_REVIEW
             else -> throw IllegalArgumentException("Invalid feature status: $status")
         }
     }
 
     private fun parseTaskStatus(status: String): TaskStatus {
         return when (status.lowercase().replace('-', '_')) {
+            // v1.0 original statuses
             "pending" -> TaskStatus.PENDING
             "in_progress", "inprogress", "in-progress" -> TaskStatus.IN_PROGRESS
             "completed" -> TaskStatus.COMPLETED
             "cancelled", "canceled" -> TaskStatus.CANCELLED
             "deferred" -> TaskStatus.DEFERRED
+            // v2.0 orchestration statuses
+            "backlog" -> TaskStatus.BACKLOG
+            "in_review", "inreview", "in-review" -> TaskStatus.IN_REVIEW
+            "changes_requested", "changesrequested", "changes-requested" -> TaskStatus.CHANGES_REQUESTED
+            "on_hold", "onhold", "on-hold" -> TaskStatus.ON_HOLD
+            "testing" -> TaskStatus.TESTING
+            "blocked" -> TaskStatus.BLOCKED
             else -> throw IllegalArgumentException("Invalid task status: $status")
         }
     }

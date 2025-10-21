@@ -1,17 +1,25 @@
 # Task Orchestrator Configuration
 # This file configures orchestration behavior, status progressions, and quality gates
 # Version: 2.0.0
+#
+# IMPLEMENTATION STATUS LEGEND:
+# ✅ IMPLEMENTED - Feature is actively used by the codebase
+# ⚠️ PARTIAL - Feature is partially implemented or referenced
+# ❌ NOT IMPLEMENTED YET - Configuration defined for future use
+#
+# See: docs/configuration-status.md for detailed implementation status
 
 version: "2.0.0"
 
 # ============================================================================
-# STATUS PROGRESSION CONFIGURATION
+# STATUS PROGRESSION CONFIGURATION (✅ IMPLEMENTED)
 # ============================================================================
 # Define allowed status flows for features and tasks
 # Progression typically moves forward, but can move backward for rework
 #
-# NOTE: This config is activated when setup_claude_agents tool is run.
-# Without this config, system uses legacy enum-based validation.
+# IMPLEMENTATION: StatusValidator.kt loads and enforces these workflows
+# NOTE: This config activates v2.0 mode when setup_claude_orchestration tool is run.
+# Without this config, system uses legacy v1.0 enum-based validation.
 
 status_progression:
   features:
@@ -109,8 +117,12 @@ status_progression:
       - cancelled
 
 # ============================================================================
-# STATUS VALIDATION RULES
+# STATUS VALIDATION RULES (❌ NOT IMPLEMENTED YET)
 # ============================================================================
+# Advanced validation rules for status transitions
+#
+# PLANNED: These rules would extend basic status validation with additional checks
+# CURRENT: StatusValidator.kt only enforces basic allowed_statuses and flows
 
 status_validation:
   # Enforce strict sequential flow (can't skip statuses)
@@ -126,9 +138,12 @@ status_validation:
   validate_prerequisites: true
 
 # ============================================================================
-# PARALLEL EXECUTION SETTINGS
+# PARALLEL EXECUTION SETTINGS (❌ NOT IMPLEMENTED YET)
 # ============================================================================
 # Configure how tasks are executed in parallel based on dependencies
+#
+# PLANNED: Future parallel execution engine for concurrent task processing
+# CURRENT: No code reads these settings; parallel execution is manual
 
 parallelism:
   enabled: true                    # Enable parallel task execution
@@ -148,9 +163,12 @@ parallelism:
     max_cpu_percent: 80            # Maximum CPU utilization
 
 # ============================================================================
-# QUALITY GATE CONFIGURATION
+# QUALITY GATE CONFIGURATION (❌ NOT IMPLEMENTED YET)
 # ============================================================================
 # Define validation requirements before status changes
+#
+# PLANNED: Automated quality gate enforcement before feature/task completion
+# CURRENT: No code enforces these gates; validation is external/manual
 
 quality_gates:
   # Testing gate
@@ -187,22 +205,26 @@ quality_gates:
       no_medium: false             # Allow medium vulnerabilities
 
 # ============================================================================
-# SPECIALIST ROUTING CONFIGURATION
+# SPECIALIST ROUTING CONFIGURATION (⚠️ PARTIAL - see agent-mapping.yaml)
 # ============================================================================
 # Configure how tasks are routed to specialist subagents
+#
+# IMPLEMENTATION: AgentRecommendationServiceImpl.kt reads agent-mapping.yaml
+# NOTE: Most routing config is in .taskorchestrator/agent-mapping.yaml
+# CURRENT: These specific settings (below) are not yet loaded from this file
 
 specialist_routing:
   # Primary routing method
   use_recommend_agent: true        # Use recommend_agent tool for routing
 
-  # Fallback when no specialist matches
+  # Fallback when no specialist matches (⚠️ DEFINED IN agent-mapping.yaml instead)
   default_specialist: "Backend Engineer"    # Default specialist name
 
   fallback_behavior: "use_default" # Options: "use_default", "ask_user"
                                    # - use_default: Use default_specialist
                                    # - ask_user: Prompt user to select specialist
 
-  # Custom mappings (supplements agent-mapping.yaml)
+  # Custom mappings (supplements agent-mapping.yaml) (❌ NOT IMPLEMENTED YET)
   custom_mappings:
     # Example custom specialist routing
     # - tags: ["mobile", "ios", "android"]
@@ -211,9 +233,12 @@ specialist_routing:
     #   specialist: "ML Engineer"
 
 # ============================================================================
-# HOOK INTEGRATION
+# HOOK INTEGRATION (❌ NOT IMPLEMENTED YET)
 # ============================================================================
 # Configure hook triggers for workflow automation
+#
+# PLANNED: Automated hook execution system for workflow events
+# CURRENT: No hook execution engine; hooks are external (Claude Code only)
 
 hooks:
   enabled: true                    # Enable hook system
@@ -244,9 +269,12 @@ hooks:
       timeout: 60
 
 # ============================================================================
-# WORKFLOW AUTOMATION
+# WORKFLOW AUTOMATION (❌ NOT IMPLEMENTED YET)
 # ============================================================================
 # Configure automatic workflow behaviors
+#
+# PLANNED: Automated task creation, specialist assignment, status progression
+# CURRENT: No automation engine reads these settings; all actions are manual
 
 automation:
   # Feature and task creation
@@ -266,9 +294,12 @@ automation:
     #   - "Testing Strategy"
 
 # ============================================================================
-# MONITORING AND LOGGING
+# MONITORING AND LOGGING (❌ NOT IMPLEMENTED YET)
 # ============================================================================
 # Configure logging, metrics, and reporting
+#
+# PLANNED: Comprehensive monitoring, metrics tracking, and reporting system
+# CURRENT: No monitoring infrastructure; basic logging only
 
 monitoring:
   # Logging level
@@ -290,27 +321,33 @@ monitoring:
 # FEATURE-SPECIFIC SETTINGS
 # ============================================================================
 
-# Complexity thresholds for routing decisions
+# Complexity thresholds for routing decisions (⚠️ REFERENCED but not loaded)
+# NOTE: These values are documented in Skills but not loaded by backend code
 complexity:
   simple_threshold: 4              # Complexity ≤ 4 = simple task
   moderate_threshold: 7            # Complexity 5-7 = moderate task
   complex_threshold: 10            # Complexity 8-10 = complex task
 
-# Feature creation thresholds
+# Feature creation thresholds (⚠️ REFERENCED but not loaded)
+# NOTE: These values are documented in Skills but not loaded by backend code
 feature_creation:
   simple_max_tasks: 3              # Max tasks for "simple" feature
   simple_max_description: 200      # Max chars for "simple" feature
   complex_min_tasks: 5             # Min tasks for "complex" feature
 
-# Dependency management
+# Dependency management (❌ NOT IMPLEMENTED YET)
 dependencies:
   auto_detect_circular: true       # Auto-detect circular dependencies
   warn_on_deep_chains: true        # Warn when dependency chains > 5 levels
   max_dependency_depth: 10         # Maximum allowed dependency depth
 
 # ============================================================================
-# TEAM COLLABORATION
+# TEAM COLLABORATION (❌ NOT IMPLEMENTED YET)
 # ============================================================================
+# Team notifications and task assignment
+#
+# PLANNED: Team collaboration features for multi-user workflows
+# CURRENT: No collaboration infrastructure; single-user focus
 
 collaboration:
   # Team notifications
@@ -331,8 +368,12 @@ collaboration:
     workload_balance: true         # Balance workload across team
 
 # ============================================================================
-# ADVANCED SETTINGS
+# ADVANCED SETTINGS (❌ NOT IMPLEMENTED YET)
 # ============================================================================
+# Performance tuning and experimental features
+#
+# PLANNED: Advanced optimization and experimental capabilities
+# CURRENT: No code uses these settings
 
 advanced:
   # Performance tuning

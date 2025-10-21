@@ -67,9 +67,17 @@ class StatusValidator {
      * @param currentStatus The current status
      * @param newStatus The target status
      * @param containerType The container type ("project", "feature", or "task")
+     * @param containerId Optional container ID for prerequisite validation (if null, skips prerequisite checks)
+     * @param context Optional execution context for prerequisite validation (required if containerId provided)
      * @return ValidationResult indicating validity with optional error message and suggestions
      */
-    fun validateTransition(currentStatus: String, newStatus: String, containerType: String): ValidationResult {
+    suspend fun validateTransition(
+        currentStatus: String,
+        newStatus: String,
+        containerType: String,
+        containerId: java.util.UUID? = null,
+        context: PrerequisiteContext? = null
+    ): ValidationResult {
         // Status validation first
         val statusValidation = validateStatus(newStatus, containerType)
         if (statusValidation is ValidationResult.Invalid) {
@@ -78,11 +86,67 @@ class StatusValidator {
 
         val config = loadConfig()
 
-        return if (config != null) {
+        // Basic transition validation (config-based or v1.0 mode)
+        val transitionResult = if (config != null) {
             validateTransitionV2(currentStatus, newStatus, containerType, config)
         } else {
             // v1.0 mode: all transitions allowed (no config-based rules)
             ValidationResult.Valid
+        }
+
+        if (transitionResult is ValidationResult.Invalid) {
+            return transitionResult
+        }
+
+        // Prerequisite validation if containerId and context provided
+        if (containerId != null && context != null) {
+            val prerequisiteResult = validatePrerequisites(containerId, newStatus, containerType, context)
+            if (prerequisiteResult is ValidationResult.Invalid) {
+                return prerequisiteResult
+            }
+        }
+
+        return ValidationResult.Valid
+    }
+
+    /**
+     * Validates prerequisites before a status change.
+     * This method should be called by tools AFTER status/transition validation.
+     *
+     * Prerequisites checked:
+     * - Features: Specific statuses require tasks (e.g., IN_DEVELOPMENT needs 1+ tasks, TESTING needs all tasks done)
+     * - Tasks: COMPLETED requires 300-500 char summary, IN_PROGRESS checks blocking dependencies
+     * - Projects: COMPLETED requires all features completed
+     *
+     * @param entityId The entity ID being updated
+     * @param newStatus The target status
+     * @param containerType The container type ("project", "feature", or "task")
+     * @param prerequisiteContext Context object containing repositories and entity data
+     * @return ValidationResult indicating validity with detailed error messages
+     */
+    suspend fun validatePrerequisites(
+        entityId: java.util.UUID,
+        newStatus: String,
+        containerType: String,
+        prerequisiteContext: PrerequisiteContext
+    ): ValidationResult {
+        val config = loadConfig()
+
+        // Check if prerequisite validation is enabled (default: true)
+        val validationConfig = if (config != null) getValidationConfig(config) else emptyMap()
+        val validatePrerequisites = validationConfig["validate_prerequisites"] as? Boolean ?: true
+
+        if (!validatePrerequisites) {
+            return ValidationResult.Valid
+        }
+
+        val normalizedStatus = normalizeStatus(newStatus)
+
+        return when (containerType) {
+            "feature" -> validateFeaturePrerequisites(entityId, normalizedStatus, prerequisiteContext)
+            "task" -> validateTaskPrerequisites(entityId, normalizedStatus, prerequisiteContext)
+            "project" -> validateProjectPrerequisites(entityId, normalizedStatus, prerequisiteContext)
+            else -> ValidationResult.Valid
         }
     }
 
@@ -100,6 +164,231 @@ class StatusValidator {
             getAllowedStatusesV1(containerType)
         }
     }
+
+    // ========== PREREQUISITE VALIDATION ==========
+
+    /**
+     * Validates feature prerequisites.
+     * - IN_DEVELOPMENT: Needs at least 1 task
+     * - TESTING: Needs all tasks completed
+     * - COMPLETED: Needs all tasks completed
+     */
+    private suspend fun validateFeaturePrerequisites(
+        featureId: java.util.UUID,
+        newStatus: String,
+        context: PrerequisiteContext
+    ): ValidationResult {
+        return when (newStatus) {
+            "in-development" -> {
+                // Need at least 1 task
+                val taskCountResult = context.featureRepository.getTaskCount(featureId)
+                if (taskCountResult.isError()) {
+                    val error = (taskCountResult as io.github.jpicklyk.mcptask.domain.repository.Result.Error).error
+                    return ValidationResult.Invalid("Failed to check task count: ${error.message}")
+                }
+
+                val taskCount = taskCountResult.getOrNull() ?: 0
+                if (taskCount == 0) {
+                    ValidationResult.Invalid(
+                        "Feature must have at least 1 task before transitioning to IN_DEVELOPMENT",
+                        listOf("Create tasks for this feature first")
+                    )
+                } else {
+                    ValidationResult.Valid
+                }
+            }
+
+            "testing" -> {
+                // Need all tasks completed
+                validateAllTasksCompleted(featureId, context, "TESTING")
+            }
+
+            "completed" -> {
+                // Must have all tasks completed
+                validateAllTasksCompleted(featureId, context, "COMPLETED")
+            }
+
+            else -> ValidationResult.Valid
+        }
+    }
+
+    /**
+     * Helper to validate all tasks are completed for a feature.
+     */
+    private suspend fun validateAllTasksCompleted(
+        featureId: java.util.UUID,
+        context: PrerequisiteContext,
+        targetStatus: String
+    ): ValidationResult {
+        val tasksResult = context.taskRepository.findByFeature(featureId, statusFilter = null, priorityFilter = null, limit = 1000)
+        if (tasksResult.isError()) {
+            val error = (tasksResult as io.github.jpicklyk.mcptask.domain.repository.Result.Error).error
+            return ValidationResult.Invalid("Failed to check tasks: ${error.message}")
+        }
+
+        val tasks = tasksResult.getOrNull() ?: emptyList()
+        if (tasks.isEmpty()) {
+            return ValidationResult.Invalid(
+                "Feature must have tasks before transitioning to $targetStatus",
+                listOf("Create and complete tasks for this feature")
+            )
+        }
+
+        val incompleteTasks = tasks.filter { task ->
+            val statusStr = task.status.name.lowercase().replace('_', '-')
+            statusStr != "completed"
+        }
+
+        if (incompleteTasks.isNotEmpty()) {
+            val incompleteCount = incompleteTasks.size
+            val taskTitles = incompleteTasks.take(3).joinToString(", ") { "\"${it.title}\"" }
+            val suffix = if (incompleteTasks.size > 3) " and ${incompleteTasks.size - 3} more" else ""
+
+            return ValidationResult.Invalid(
+                "Cannot transition to $targetStatus: $incompleteCount task(s) not completed. Incomplete tasks: $taskTitles$suffix",
+                listOf("Complete all tasks first")
+            )
+        }
+
+        return ValidationResult.Valid
+    }
+
+    /**
+     * Validates task prerequisites.
+     * - IN_PROGRESS: No blocking dependencies
+     * - COMPLETED: Summary must be 300-500 characters
+     */
+    private suspend fun validateTaskPrerequisites(
+        taskId: java.util.UUID,
+        newStatus: String,
+        context: PrerequisiteContext
+    ): ValidationResult {
+        return when (newStatus) {
+            "in-progress" -> {
+                // Check for blocking dependencies
+                val dependencies = context.dependencyRepository.findByToTaskId(taskId)
+                val blockingDeps = dependencies.filter {
+                    it.type == io.github.jpicklyk.mcptask.domain.model.DependencyType.BLOCKS
+                }
+
+                if (blockingDeps.isEmpty()) {
+                    return ValidationResult.Valid
+                }
+
+                // Check if any blocking tasks are incomplete
+                val blockingTaskIds = blockingDeps.map { it.fromTaskId }
+                val incompleteBlockers = mutableListOf<String>()
+
+                for (blockerId in blockingTaskIds) {
+                    val blockerResult = context.taskRepository.getById(blockerId)
+                    if (blockerResult.isSuccess()) {
+                        val blocker = blockerResult.getOrNull()
+                        if (blocker != null) {
+                            val statusStr = blocker.status.name.lowercase().replace('_', '-')
+                            if (statusStr != "completed") {
+                                incompleteBlockers.add("\"${blocker.title}\" (${blocker.status.name})")
+                            }
+                        }
+                    }
+                }
+
+                if (incompleteBlockers.isNotEmpty()) {
+                    ValidationResult.Invalid(
+                        "Cannot transition to IN_PROGRESS: Task is blocked by ${incompleteBlockers.size} incomplete task(s): ${incompleteBlockers.take(3).joinToString(", ")}",
+                        listOf("Complete blocking tasks first", "Remove blocking dependencies")
+                    )
+                } else {
+                    ValidationResult.Valid
+                }
+            }
+
+            "completed" -> {
+                // Check summary length (must be 300-500 characters)
+                val taskResult = context.taskRepository.getById(taskId)
+                if (taskResult.isError()) {
+                    val error = (taskResult as io.github.jpicklyk.mcptask.domain.repository.Result.Error).error
+                    return ValidationResult.Invalid("Failed to check task: ${error.message}")
+                }
+
+                val task = taskResult.getOrNull()
+                if (task == null) {
+                    return ValidationResult.Invalid("Task not found")
+                }
+
+                val summaryLength = task.summary.trim().length
+                if (summaryLength < 300 || summaryLength > 500) {
+                    ValidationResult.Invalid(
+                        "Cannot transition to COMPLETED: Task summary must be 300-500 characters (current: $summaryLength characters)",
+                        listOf("Update task summary to meet length requirement")
+                    )
+                } else {
+                    ValidationResult.Valid
+                }
+            }
+
+            else -> ValidationResult.Valid
+        }
+    }
+
+    /**
+     * Validates project prerequisites.
+     * - COMPLETED: All features must be completed
+     */
+    private suspend fun validateProjectPrerequisites(
+        projectId: java.util.UUID,
+        newStatus: String,
+        context: PrerequisiteContext
+    ): ValidationResult {
+        return when (newStatus) {
+            "completed" -> {
+                // Check all features are completed
+                val featuresResult = context.featureRepository.findByProject(projectId, limit = 1000)
+                if (featuresResult.isError()) {
+                    val error = (featuresResult as io.github.jpicklyk.mcptask.domain.repository.Result.Error).error
+                    return ValidationResult.Invalid("Failed to check features: ${error.message}")
+                }
+
+                val features = featuresResult.getOrNull() ?: emptyList()
+                if (features.isEmpty()) {
+                    return ValidationResult.Invalid(
+                        "Project must have features before transitioning to COMPLETED",
+                        listOf("Create and complete features for this project")
+                    )
+                }
+
+                val incompleteFeatures = features.filter { feature ->
+                    val statusStr = feature.status.name.lowercase().replace('_', '-')
+                    statusStr != "completed"
+                }
+
+                if (incompleteFeatures.isNotEmpty()) {
+                    val incompleteCount = incompleteFeatures.size
+                    val featureNames = incompleteFeatures.take(3).joinToString(", ") { "\"${it.name}\"" }
+                    val suffix = if (incompleteFeatures.size > 3) " and ${incompleteFeatures.size - 3} more" else ""
+
+                    return ValidationResult.Invalid(
+                        "Cannot transition to COMPLETED: $incompleteCount feature(s) not completed. Incomplete features: $featureNames$suffix",
+                        listOf("Complete all features first")
+                    )
+                }
+
+                ValidationResult.Valid
+            }
+
+            else -> ValidationResult.Valid
+        }
+    }
+
+    /**
+     * Context object containing repositories needed for prerequisite validation.
+     * Tools should construct this from their ToolExecutionContext.
+     */
+    data class PrerequisiteContext(
+        val taskRepository: io.github.jpicklyk.mcptask.domain.repository.TaskRepository,
+        val featureRepository: io.github.jpicklyk.mcptask.domain.repository.FeatureRepository,
+        val projectRepository: io.github.jpicklyk.mcptask.domain.repository.ProjectRepository,
+        val dependencyRepository: io.github.jpicklyk.mcptask.domain.repository.DependencyRepository
+    )
 
     // ========== V2.0 CONFIG-BASED VALIDATION ==========
 

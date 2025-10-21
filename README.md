@@ -515,6 +515,17 @@ Ask your AI:
 
 Creates `.claude/agents/` directory with 10 specialist agent definitions.
 
+**Claude Code Output Style**: The `setup_claude_agents` tool also creates an output-style file at `.claude/output-styles/task-orchestrator.md`. This enables Claude Code's `/output-style` command to configure optimized orchestration behavior:
+
+1. After running `setup_claude_agents`, use `/output-style` in Claude Code
+2. Select **Task Orchestrator** from the list
+3. Claude Code will follow intelligent routing patterns:
+   - Use Skills for coordination (status updates, dependency checks)
+   - Ask user preference for implementation work (direct vs specialist)
+   - Automatically manage task lifecycles
+
+The output style provides decision-making guidance that complements the agent definitions.
+
 ### Step 5: Start Building
 
 **Simple workflow (any platform)**:
@@ -655,7 +666,7 @@ Multiple AI agents work in parallel without conflicts. Built-in concurrency prot
 - **Claude can't find tools**: Restart Claude Desktop
 - **Docker not running**: Start Docker Desktop, verify with `docker version`
 - **Connection problems**: Enable `MCP_DEBUG=true` and check logs
-- **Sub-agents not available**: Run `setup_claude_agents` (Claude Code only)
+- **Sub-agents not available**: Run `setup_claude_orchestration` (Claude Code only)
 
 **Get Help**:
 - 📖 [Troubleshooting Guide](docs/troubleshooting.md) - Comprehensive solutions

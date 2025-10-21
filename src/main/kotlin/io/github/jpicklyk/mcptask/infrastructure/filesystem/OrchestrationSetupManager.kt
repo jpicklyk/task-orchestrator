@@ -17,16 +17,16 @@ import java.nio.file.StandardCopyOption
  * - Model field: "sonnet" or "opus" (not full model names)
  *
  * ## Universal (Any AI Client)
- * - Persona in .claude/persona/ - orchestrator behavior and decision-making patterns
+ * - Output-style in .claude/output-styles/ - orchestrator behavior and decision-making patterns
  * - Configuration in .taskorchestrator/config.yaml - status progression, quality gates
  * - Agent mapping in .taskorchestrator/agent-mapping.yaml - tag-based routing
  * - Decision gates injected into CLAUDE.md
  *
  * ## Responsibilities
- * - Create and manage .claude/ directory structure (agents, skills, persona)
+ * - Create and manage .claude/ directory structure (agents, skills, output-styles)
  * - Create and manage .taskorchestrator/ directory with config files
  * - Copy Claude-specific agent and skill templates from embedded resources
- * - Copy universal persona and config files from embedded resources
+ * - Copy universal output-style and config files from embedded resources
  * - Read/write orchestration files
  * - Handle Docker volume mounts
  * - Portable across Windows/Linux/macOS
@@ -49,19 +49,19 @@ class OrchestrationSetupManager(
         const val CLAUDE_DIR = ".claude"
         const val AGENTS_DIR = "agents"
         const val SKILLS_DIR = "skills"
-        const val PERSONA_DIR = "persona"
+        const val OUTPUT_STYLE_DIR = "output-styles"
         const val TASK_ORCHESTRATOR_SUBDIR = "task-orchestrator"
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
 
         // Resource paths
         const val RESOURCE_PATH_PREFIX = "/agents/claude/task-orchestrator"
         const val SKILLS_RESOURCE_PATH = "/skills"
-        const val PERSONA_RESOURCE_PATH = "/persona"
+        const val OUTPUT_STYLE_RESOURCE_PATH = "/output-styles"
 
         // Configuration files
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
         const val CONFIG_FILE = "config.yaml"
-        const val PERSONA_FILE = "task-orchestrator.md"
+        const val OUTPUT_STYLE_FILE = "task-orchestrator.md"
         const val CLAUDE_MD_FILE = "CLAUDE.md"
         const val DECISION_GATES_MARKER = "## Decision Gates (Claude Code)"
 
@@ -414,10 +414,10 @@ class OrchestrationSetupManager(
     }
 
     /**
-     * Get the persona directory path (.claude/persona/)
+     * Get the output-style directory path (.claude/output-styles/)
      */
-    fun getPersonaDir(): Path {
-        return getClaudeDir().resolve(PERSONA_DIR)
+    fun getOutputStyleDir(): Path {
+        return getClaudeDir().resolve(OUTPUT_STYLE_DIR)
     }
 
     /**
@@ -487,15 +487,15 @@ class OrchestrationSetupManager(
     }
 
     /**
-     * Create the .claude/persona/ directory structure.
+     * Create the .claude/output-styles/ directory structure.
      * Returns true if created, false if already exists.
      */
-    fun createPersonaDirectory(): Boolean {
-        val personaDir = getPersonaDir()
+    fun createOutputStyleDirectory(): Boolean {
+        val outputStyleDir = getOutputStyleDir()
 
-        if (!Files.exists(personaDir)) {
-            Files.createDirectories(personaDir)
-            logger.info("Created directory: $personaDir")
+        if (!Files.exists(outputStyleDir)) {
+            Files.createDirectories(outputStyleDir)
+            logger.info("Created directory: $outputStyleDir")
             return true
         }
 
@@ -503,28 +503,28 @@ class OrchestrationSetupManager(
     }
 
     /**
-     * Copy persona file from embedded resources to .claude/persona/
+     * Copy output-style file from embedded resources to .claude/output-styles/
      * Skips if file already exists (idempotent).
      *
      * Returns true if the file was copied, false if it already existed.
      */
-    fun copyPersonaFile(): Boolean {
-        val personaDir = getPersonaDir()
-        val targetFile = personaDir.resolve(PERSONA_FILE)
+    fun copyOutputStyleFile(): Boolean {
+        val outputStyleDir = getOutputStyleDir()
+        val targetFile = outputStyleDir.resolve(OUTPUT_STYLE_FILE)
 
         // Skip if file already exists (idempotent)
         if (Files.exists(targetFile)) {
-            logger.debug("Persona file already exists, skipping: $PERSONA_FILE")
+            logger.debug("Output-style file already exists, skipping: $OUTPUT_STYLE_FILE")
             return false
         }
 
         // Ensure directory exists
-        if (!Files.exists(personaDir)) {
-            throw IllegalStateException("Persona directory does not exist. Call createPersonaDirectory() first.")
+        if (!Files.exists(outputStyleDir)) {
+            throw IllegalStateException("Output-style directory does not exist. Call createOutputStyleDirectory() first.")
         }
 
         // Read from embedded resources
-        val resourcePath = "$PERSONA_RESOURCE_PATH/$PERSONA_FILE"
+        val resourcePath = "$OUTPUT_STYLE_RESOURCE_PATH/$OUTPUT_STYLE_FILE"
         val resourceStream = javaClass.getResourceAsStream(resourcePath)
             ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
 
@@ -533,7 +533,7 @@ class OrchestrationSetupManager(
             Files.copy(input, targetFile, StandardCopyOption.REPLACE_EXISTING)
         }
 
-        logger.info("Copied persona file: $PERSONA_FILE")
+        logger.info("Copied output-style file: $OUTPUT_STYLE_FILE")
         return true
     }
 

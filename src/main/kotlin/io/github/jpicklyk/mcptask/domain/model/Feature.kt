@@ -93,16 +93,30 @@ enum class FeatureStatus {
     ARCHIVED,
 
     // v2.0 orchestration statuses
+    DRAFT,           // Initial draft state, not yet in planning
+    ON_HOLD,         // Feature temporarily paused
     TESTING,         // Feature in testing phase, test suite running
     VALIDATING,      // Tests passed, final validation before completion
     PENDING_REVIEW,  // Awaiting human review approval
     BLOCKED;         // Feature blocked by external dependencies or issues
 
     companion object {
+        /**
+         * Converts a string to a FeatureStatus enum value (case-insensitive).
+         * Supports both underscore and hyphen separators.
+         * @param value The string representation of the status
+         * @return The FeatureStatus enum value
+         * @throws ValidationException if the status value is invalid
+         */
         fun fromString(value: String): FeatureStatus = try {
             valueOf(value.uppercase().replace('-', '_'))
         } catch (_: IllegalArgumentException) {
             throw ValidationException("Invalid feature status: $value")
         }
     }
+
+    /**
+     * Returns the string representation of this status in uppercase with underscores.
+     */
+    override fun toString(): String = name
 }

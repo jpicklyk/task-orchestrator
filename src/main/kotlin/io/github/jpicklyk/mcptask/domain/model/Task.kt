@@ -127,6 +127,30 @@ enum class TaskStatus {
     DEFERRED,     // Postponed indefinitely
 
     // v2.0 orchestration statuses
-    TESTING,      // Implementation complete, running tests
-    BLOCKED       // Blocked by incomplete dependencies
+    BACKLOG,            // Task in backlog, not yet ready for work
+    IN_REVIEW,          // Task implementation complete, awaiting review
+    CHANGES_REQUESTED,  // Review completed, changes requested
+    ON_HOLD,            // Task temporarily paused
+    TESTING,            // Implementation complete, running tests
+    BLOCKED;            // Blocked by incomplete dependencies
+
+    companion object {
+        /**
+         * Converts a string to a TaskStatus enum value (case-insensitive).
+         * Supports both underscore and hyphen separators.
+         * @param value The string representation of the status
+         * @return The TaskStatus enum value
+         * @throws IllegalArgumentException if the status value is invalid
+         */
+        fun fromString(value: String): TaskStatus = try {
+            valueOf(value.uppercase().replace('-', '_'))
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid task status: $value")
+        }
+    }
+
+    /**
+     * Returns the string representation of this status in uppercase with underscores.
+     */
+    override fun toString(): String = name
 }
