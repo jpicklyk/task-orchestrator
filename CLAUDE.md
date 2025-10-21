@@ -192,6 +192,50 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
   - **Skills:** `.claude/skills/` (installed by `setup_claude_orchestration`)
   - **Subagents:** `.claude/agents/task-orchestrator/` (installed by `setup_claude_orchestration`)
 
+## ⚠️ CRITICAL: Source vs Installed Files
+
+**The Rule**: ALWAYS modify SOURCE files in `src/main/resources/`, NEVER modify installed files in `.claude/` unless otherwise stated by the user
+
+### File Locations
+
+**SOURCE files** (single source of truth - modify these):
+- Agents: `src/main/resources/agents/claude/task-orchestrator/*.md`
+- Skills: `src/main/resources/skills/*/SKILL.md`
+- Output-style: `src/main/resources/output-styles/task-orchestrator.md`
+- Config: `src/main/resources/orchestration/default-config.yaml`
+
+**INSTALLED files** (copies created by setup_claude_orchestration - DO NOT modify):
+- Agents: `.claude/agents/task-orchestrator/*.md`
+- Skills: `.claude/skills/*/SKILL.md`
+- Output-style: `.claude/output-styles/task-orchestrator.md`
+- Config: `.taskorchestrator/config.yaml`
+
+### How It Works
+
+1. **setup_claude_orchestration** copies from `src/main/resources/` → `.claude/` and `.taskorchestrator/`
+2. Claude Code discovers files in `.claude/` at runtime
+3. Users can customize their local `.claude/` files (not committed)
+4. Source files in `src/main/resources/` are committed and versioned
+
+### Why This Matters
+
+- ✅ Source files are versioned in git
+- ✅ Source files are the template for all installations
+- ✅ Changes to source files affect all future `setup_claude_orchestration` runs
+- ❌ Changes to `.claude/` files are local-only and will be overwritten
+- ❌ Changes to `.claude/` files won't be committed (in .gitignore)
+
+### For AI Specialists
+
+**When updating agents, skills, or config (default behavior)**:
+1. Write to `src/main/resources/agents/claude/task-orchestrator/[filename].md`
+2. Write to `src/main/resources/skills/[skill-name]/SKILL.md`
+3. Write to `src/main/resources/output-styles/task-orchestrator.md`
+4. DO NOT write to `.claude/` directory unless user explicitly requests it
+5. After updating source files, users run `setup_claude_orchestration` to propagate changes
+
+**Exception**: If user explicitly says "update my local .claude/ files" or "customize my installation", then write to `.claude/` instead (these changes won't be committed).
+
 ## Tool Development Guidelines
 
 **Tool Implementation Checklist:**
