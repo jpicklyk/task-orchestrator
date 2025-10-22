@@ -224,7 +224,8 @@ Sections you create:
 
 ---
 
-### Step 4: Discover Templates
+### Step 4: Discover Templates (TOKEN OPTIMIZED)
+
 ```
 query_templates(
   operation="list",
@@ -232,6 +233,8 @@ query_templates(
   isEnabled=true
 )
 ```
+
+**OPTIMIZATION 3**: Conditional template application based on PRD type to reduce unnecessary template overhead (~2,000 tokens savings).
 
 **Template selection by mode**:
 
@@ -245,10 +248,103 @@ query_templates(
 - Standard combo: Context & Background + Requirements Specification
 - Add Technical Approach if technical complexity is high
 
-**PRD Mode**:
-- Apply 2-3 templates
-- Standard combo: Context & Background + Requirements Specification + Technical Approach
-- Templates provide structure, PRD content fills them
+**PRD Mode** (CONDITIONAL LOGIC):
+
+**Step 4a: Detect PRD Type**
+
+Analyze PRD content to determine focus:
+
+**Technical PRD** (skip business templates):
+- Contains: Database schemas, API specifications, architecture diagrams, code examples
+- Contains: Technical requirements, performance metrics, system constraints
+- Does NOT contain: Business justification, ROI analysis, stakeholder concerns
+- **Audience**: Developers and technical team
+
+**Business PRD** (apply full templates):
+- Contains: Business context, market analysis, user personas, ROI projections
+- Contains: Stakeholder requirements, success metrics, business goals
+- **Audience**: Mixed (business stakeholders + technical team)
+
+**Step 4b: Apply Templates Conditionally**
+
+**For Technical PRD**:
+```
+templateIds: [
+  "Requirements Specification",
+  "Technical Approach"
+]
+```
+Skip: "Context & Background" (Why This Matters, User Context, Dependencies & Coordination)
+**Token Savings**: ~2,000 tokens (Planning Specialist won't read business sections)
+**Rationale**: Technical PRDs already have technical details, don't need business context templates
+
+**For Business PRD**:
+```
+templateIds: [
+  "Context & Background",
+  "Requirements Specification",
+  "Technical Approach"
+]
+```
+Apply all: Full business + technical context
+**Token Cost**: Standard (~7,000 tokens with all sections)
+**Rationale**: Business stakeholders need full context, planning team needs to understand business drivers
+
+**Detection Heuristics**:
+
+Technical PRD indicators (score +1 each):
+- Contains SQL/code blocks
+- Mentions specific technologies (PostgreSQL, React, AWS)
+- Has architecture/sequence diagrams
+- Lists API endpoints or schemas
+- Performance requirements with numbers (< 100ms, 1000 RPS)
+
+Business PRD indicators (score +1 each):
+- Mentions ROI, revenue, market share
+- Contains user personas or market research
+- Discusses business goals or KPIs
+- Stakeholder analysis present
+- Competitive analysis included
+
+**Decision Logic**:
+- Technical score > Business score → Technical PRD (skip business templates)
+- Business score > Technical score → Business PRD (apply all templates)
+- Tied → Business PRD (safer to include more context)
+
+**Example Technical PRD**:
+```
+User provided: "Database Migration - Add User Authentication Tables"
+
+PRD contains:
+- Users table schema (id, email, password_hash, created_at)
+- Sessions table schema (id, user_id, token, expires_at)
+- Indexes: users.email (unique), sessions.token, sessions.expires_at
+- Migration: Flyway V4__Add_Auth_Tables.sql
+- Performance: Indexed lookups < 10ms
+
+Detection: 5 technical indicators, 0 business indicators
+Result: Technical PRD
+Templates: Requirements Specification + Technical Approach ONLY
+Savings: ~2,000 tokens (skipped Context & Background template)
+```
+
+**Example Business PRD**:
+```
+User provided: "E-commerce Customer Loyalty Program"
+
+PRD contains:
+- Business goal: Increase customer retention by 20%
+- Market research: Competitors offer points-based rewards
+- User personas: Frequent shoppers, occasional buyers
+- ROI projection: $500K incremental revenue
+- Technical requirements: Points system, rewards catalog
+- Success metrics: Repeat purchase rate, customer lifetime value
+
+Detection: 5 business indicators, 1 technical indicator
+Result: Business PRD
+Templates: Context & Background + Requirements Specification + Technical Approach
+Token Cost: Full ~7,000 tokens (all context needed)
+```
 
 ### Step 5: Design Tag Strategy
 
@@ -335,7 +431,9 @@ manage_container(
 - ⚠️ **Summary populated at completion**: Feature Manager or specialists populate summary (300-500 chars) when marking feature complete
 - StatusValidator enforces summary requirement before allowing completion status
 
-### Step 7: Add Custom Sections (Mode-dependent)
+### Step 7: Add Custom Sections (Mode-dependent, WITH ROUTING TAGS)
+
+**OPTIMIZATION 4**: Tag sections with specialist routing indicators for efficient selective reading.
 
 **Quick Mode**: Skip this step (templates are enough)
 
@@ -350,11 +448,11 @@ manage_sections(
   content="[From user interview]",
   contentFormat="MARKDOWN",
   ordinal=0,
-  tags="context,business"
+  tags="context,business,planning-specialist"
 )
 ```
 
-**PRD Mode**: Add 3-5 sections from PRD
+**PRD Mode**: Add 3-5 sections from PRD with specialist routing tags
 ```
 manage_sections(
   operation="bulkCreate",
@@ -367,7 +465,7 @@ manage_sections(
       content: "[Extracted from PRD]",
       contentFormat: "MARKDOWN",
       ordinal: 0,
-      tags: "context,business"
+      tags: "context,business,planning-specialist"
     },
     {
       entityType: "FEATURE",
@@ -377,7 +475,7 @@ manage_sections(
       content: "[Extracted from PRD]",
       contentFormat: "MARKDOWN",
       ordinal: 1,
-      tags: "requirements,user-stories"
+      tags: "requirements,user-stories,planning-specialist,task-breakdown"
     },
     {
       entityType: "FEATURE",
@@ -387,11 +485,72 @@ manage_sections(
       content: "[Extracted from PRD]",
       contentFormat: "MARKDOWN",
       ordinal: 2,
-      tags: "technical,architecture"
+      tags: "technical,architecture,planning-specialist,execution"
+    },
+    {
+      entityType: "FEATURE",
+      entityId: "[feature-id]",
+      title: "Task Dependencies",
+      usageDescription: "Execution order and task relationships",
+      content: "[Extracted from PRD]",
+      contentFormat: "MARKDOWN",
+      ordinal: 3,
+      tags: "dependencies,execution,planning-specialist,task-breakdown"
     }
   ]
 )
 ```
+
+**Section Tagging Strategy (OPTIMIZATION 4)**:
+
+**Content type tags** (what this section contains):
+- `context`, `business`, `requirements`, `technical`, `architecture`
+- `user-stories`, `dependencies`, `execution`, `acceptance-criteria`
+
+**Specialist routing tags** (who needs to read this):
+- `planning-specialist` - Planning Specialist needs this for task breakdown
+- `task-breakdown` - Specific to creating task structure
+- `execution` - Execution order, dependencies, sequencing
+- `backend-engineer`, `frontend-developer`, etc. - Implementation specialists
+
+**PRD Section Tagging Examples**:
+
+```
+Business Context → tags: "context,business,planning-specialist"
+  - Planning Specialist reads to understand feature purpose
+
+User Stories → tags: "requirements,user-stories,planning-specialist,task-breakdown"
+  - Planning Specialist extracts user stories into tasks
+
+Technical Specs → tags: "technical,architecture,planning-specialist,backend-engineer,database-engineer"
+  - Planning Specialist + Implementation specialists all need this
+
+Dependencies → tags: "dependencies,execution,planning-specialist"
+  - Planning Specialist maps task dependencies from this
+
+API Specifications → tags: "api,technical,backend-engineer,frontend-developer,technical-writer"
+  - Backend implements, Frontend consumes, Technical Writer documents
+```
+
+**Token Efficiency Benefits**:
+
+When Planning Specialist uses selective section reading:
+```
+query_sections(
+  entityType="FEATURE",
+  entityId="[feature-id]",
+  tags="planning-specialist,task-breakdown,execution"
+)
+```
+Only gets sections tagged for planning work:
+- User Stories ✅
+- Technical Specs ✅
+- Dependencies ✅
+- Business Context ✅
+- Marketing Materials ❌ (not tagged for planning)
+- Stakeholder Analysis ❌ (not tagged for planning)
+
+**Result**: ~3,000-4,000 tokens vs ~7,000+ tokens (43% reduction)
 
 ### Step 8: Return Handoff to Orchestrator
 
