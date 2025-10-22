@@ -465,12 +465,12 @@ Run from your project directory:
 
 **macOS/Linux**:
 ```bash
-claude mcp add-json task-orchestrator "{\"type\":\"stdio\",\"command\":\"docker\",\"args\":[\"run\",\"--rm\",\"-i\",\"-v\",\"mcp-task-data:/app/data\",\"-v\",\"$(pwd):/workspace\",\"-e\",\"AGENT_CONFIG_DIR=/workspace\",\"ghcr.io/jpicklyk/task-orchestrator:latest\"]}"
+claude mcp add-json task-orchestrator "{\"type\":\"stdio\",\"command\":\"docker\",\"args\":[\"run\",\"--rm\",\"-i\",\"-v\",\"mcp-task-data:/app/data\",\"-v\",\"$(pwd):/project\",\"-e\",\"AGENT_CONFIG_DIR=/project\",\"ghcr.io/jpicklyk/task-orchestrator:latest\"]}"
 ```
 
 **Windows PowerShell**:
 ```powershell
-claude mcp add-json task-orchestrator "{`"type`":`"stdio`",`"command`":`"docker`",`"args`":[`"run`",`"--rm`",`"-i`",`"-v`",`"mcp-task-data:/app/data`",`"-v`",`"${PWD}:/workspace`",`"-e`",`"AGENT_CONFIG_DIR=/workspace`",`"ghcr.io/jpicklyk/task-orchestrator:latest`"]}"
+claude mcp add-json task-orchestrator "{`"type`":`"stdio`",`"command`":`"docker`",`"args`":[`"run`",`"--rm`",`"-i`",`"-v`",`"mcp-task-data:/app/data`",`"-v`",`"${PWD}:/project`",`"-e`",`"AGENT_CONFIG_DIR=/project`",`"ghcr.io/jpicklyk/task-orchestrator:latest`"]}"
 ```
 
 #### For Claude Desktop
@@ -483,8 +483,8 @@ Add to `claude_desktop_config.json`:
       "args": [
         "run", "--rm", "-i",
         "--volume", "mcp-task-data:/app/data",
-        "--volume", "/absolute/path/to/your/project:/workspace",
-        "--env", "AGENT_CONFIG_DIR=/workspace",
+        "--volume", "/absolute/path/to/your/project:/project",
+        "--env", "AGENT_CONFIG_DIR=/project",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
@@ -492,7 +492,7 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-> **Note**: Replace `/absolute/path/to/your/project` with your project's actual path. For Windows: `C:/Users/username/project`, for macOS/Linux: `/Users/username/project` or `/home/username/project`.
+> **Note**: Replace `/absolute/path/to/your/project` with your project's actual path. For Windows: `D:/Users/username/project`, for macOS/Linux: `/Users/username/project` or `/home/username/project`.
 
 #### For Other MCP Clients
 Adapt the Docker configuration to your platform's MCP format (Cursor, Windsurf, etc.). See the [Quick Start Guide](docs/quick-start.md) for detailed configuration examples for all platforms.
