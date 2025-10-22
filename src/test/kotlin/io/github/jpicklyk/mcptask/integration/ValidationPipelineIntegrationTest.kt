@@ -176,7 +176,24 @@ class ValidationPipelineIntegrationTest {
             val featureId = createFeature(projectId)
             val taskId = createTask(featureId)
 
-            // Attempt to set status to COMPLETED without sufficient summary (should fail prerequisite validation)
+            // First transition through intermediate statuses to reach a state where we can test prerequisite validation
+            // PENDING -> IN_PROGRESS
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "in-progress")
+            }, executionContext)
+
+            // IN_PROGRESS -> TESTING (skipping summary check for now)
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "testing")
+            }, executionContext)
+
+            // Now attempt TESTING -> COMPLETED without sufficient summary (should fail prerequisite validation)
             val setStatusParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -259,6 +276,14 @@ class ValidationPipelineIntegrationTest {
             val projectId = createProject()
             val featureId = createFeature(projectId)
 
+            // Transition project to IN_DEVELOPMENT first (prerequisite for COMPLETED)
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "project")
+                put("id", projectId)
+                put("status", "in-development")
+            }, executionContext)
+
             // Attempt to complete project (should fail because feature is not completed)
             val setStatusParams = buildJsonObject {
                 put("operation", "setStatus")
@@ -283,6 +308,21 @@ class ValidationPipelineIntegrationTest {
             val projectId = createProject()
             val featureId = createFeature(projectId)
             val taskId = createTask(featureId)
+
+            // Transition through intermediate statuses to reach TESTING
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "in-progress")
+            }, executionContext)
+
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "testing")
+            }, executionContext)
 
             // Attempt to complete without proper summary
             val setStatusParams = buildJsonObject {
@@ -377,6 +417,21 @@ class ValidationPipelineIntegrationTest {
             val projectId = createProject()
             val featureId = createFeature(projectId)
             val taskId = createTask(featureId, summary = "Too short")
+
+            // Transition through intermediate statuses to reach TESTING
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "in-progress")
+            }, executionContext)
+
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "testing")
+            }, executionContext)
 
             // Try to complete
             val setStatusParams = buildJsonObject {
@@ -586,7 +641,24 @@ class ValidationPipelineIntegrationTest {
             assertTrue((featureToDevResponse as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
                 "Feature should transition to IN_DEVELOPMENT with tasks present")
 
-            // 5. Complete the task
+            // 5. Complete the task (transition through intermediate statuses)
+            // PENDING -> IN_PROGRESS
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "in-progress")
+            }, executionContext)
+
+            // IN_PROGRESS -> TESTING
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", taskId)
+                put("status", "testing")
+            }, executionContext)
+
+            // TESTING -> COMPLETED
             val completeTaskParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -598,7 +670,24 @@ class ValidationPipelineIntegrationTest {
             assertTrue((completeTaskResponse as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
                 "Task should complete with valid summary")
 
-            // 6. Complete the feature (should succeed - all tasks completed)
+            // 6. Complete the feature (transition through intermediate statuses)
+            // IN_DEVELOPMENT -> TESTING
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "feature")
+                put("id", featureId)
+                put("status", "testing")
+            }, executionContext)
+
+            // TESTING -> VALIDATING
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "feature")
+                put("id", featureId)
+                put("status", "validating")
+            }, executionContext)
+
+            // VALIDATING -> COMPLETED
             val completeFeatureParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "feature")
@@ -610,7 +699,16 @@ class ValidationPipelineIntegrationTest {
             assertTrue((completeFeatureResponse as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
                 "Feature should complete with all tasks completed")
 
-            // 7. Complete the project (should succeed - all features completed)
+            // 7. Complete the project (transition through intermediate statuses)
+            // PLANNING -> IN_DEVELOPMENT
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "project")
+                put("id", projectId)
+                put("status", "in-development")
+            }, executionContext)
+
+            // IN_DEVELOPMENT -> COMPLETED (projects have shorter flow)
             val completeProjectParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "project")
@@ -651,7 +749,21 @@ class ValidationPipelineIntegrationTest {
             assertFalse((startTask2Response as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
                 "Task2 should not start while blocked")
 
-            // Complete task1
+            // Complete task1 (transition through intermediate statuses)
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", task1Id)
+                put("status", "in-progress")
+            }, executionContext)
+
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "task")
+                put("id", task1Id)
+                put("status", "testing")
+            }, executionContext)
+
             val completeTask1Params = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -698,6 +810,14 @@ class ValidationPipelineIntegrationTest {
             val projectId = createProject()
             val featureId = createFeature(projectId)
             createTask(featureId, "Test Task", "A".repeat(350))
+
+            // Transition feature to IN_DEVELOPMENT first
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "setStatus")
+                put("containerType", "feature")
+                put("id", featureId)
+                put("status", "in-development")
+            }, executionContext)
 
             // Try to transition to TESTING (should fail - task not completed)
             val toTestingParams = buildJsonObject {

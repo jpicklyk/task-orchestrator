@@ -9,10 +9,14 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.*
 
@@ -38,6 +42,18 @@ class ManageContainerToolTest {
 
     @BeforeEach
     fun setup() {
+        // Set up config file for v2.0 validation mode
+        val projectRoot = java.nio.file.Paths.get(System.getProperty("user.dir"))
+        val configDir = projectRoot.resolve(".taskorchestrator")
+        java.nio.file.Files.createDirectories(configDir)
+        val configFile = configDir.resolve("config.yaml")
+
+        // Copy default config from resources
+        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("orchestration/default-config.yaml")
+        if (defaultConfigResource != null) {
+            java.nio.file.Files.copy(defaultConfigResource, configFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+
         // Create mock repositories
         mockTaskRepository = mockk()
         mockFeatureRepository = mockk()
@@ -92,6 +108,19 @@ class ManageContainerToolTest {
 
         // Create tool with null locking service to bypass locking in unit tests
         tool = ManageContainerTool(null, null)
+    }
+
+    @AfterEach
+    fun tearDown() {
+        // Clean up test config file
+        try {
+            val configFile = Paths.get(System.getProperty("user.dir"), ".taskorchestrator", "config.yaml")
+            Files.deleteIfExists(configFile)
+            val configDir = Paths.get(System.getProperty("user.dir"), ".taskorchestrator")
+            Files.deleteIfExists(configDir)
+        } catch (e: Exception) {
+            // Ignore cleanup errors
+        }
     }
 
     @Nested

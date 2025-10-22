@@ -210,12 +210,14 @@ class AgentRecommendationServiceImpl(
 
     @Suppress("UNCHECKED_CAST")
     private fun parseEntityTypes(rawData: Map<String, Any>): Map<String, EntityMapping> {
-        val entityTypes = rawData["entityTypes"] as? Map<String, Map<String, String>>
-        return entityTypes?.mapValues { (_, value) ->
-            EntityMapping(
-                planning = value["planning"],
-                fallback = value["fallback"]
+        val entityTypes = rawData["entityTypes"] as? Map<String, Any?>
+        return entityTypes?.mapNotNull { (key, value) ->
+            // Skip entries where value is null (only comments in YAML, no key-value pairs)
+            val valueMap = value as? Map<String, String> ?: return@mapNotNull null
+            key to EntityMapping(
+                planning = valueMap["planning"],
+                fallback = valueMap["fallback"]
             )
-        } ?: emptyMap()
+        }?.toMap() ?: emptyMap()
     }
 }
