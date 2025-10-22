@@ -14,17 +14,19 @@ import java.sql.Connection
 import java.util.UUID
 
 /**
- * Tests for V11 migration - Restore Status CHECK Constraints.
+ * Tests for V11/V12 migrations - Status CHECK Constraints.
  *
  * This test validates:
  * 1. Migration applies successfully on clean database
  * 2. Migration applies successfully on v1.0 database (with existing data)
  * 3. CHECK constraints enforce valid enum values
  * 4. CHECK constraints reject invalid enum values
- * 5. All new v2.0 enum values are accepted
+ * 5. All new v2.0 enum values are accepted (V11 + V12 additions)
  * 6. Data is preserved during migration
  * 7. Status columns reduced from VARCHAR(50) to VARCHAR(20)
  * 8. All indexes recreated correctly
+ *
+ * Note: V11 added initial v2.0 statuses, V12 completed the v2.0 status system.
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class StatusConstraintRestorationTest {
@@ -57,13 +59,13 @@ class StatusConstraintRestorationTest {
 
     @Test
     fun `V11 migration should apply successfully on clean database`() {
-        // Apply all migrations including V11
+        // Apply all migrations including V11 and V12
         val migrationResult = schemaManager.updateSchema()
         assertTrue(migrationResult, "Migration should complete successfully")
 
-        // Verify we're at least at version 11
+        // Verify we're at least at version 12 (V12 completes v2.0 status system)
         val version = schemaManager.getCurrentVersion()
-        assertTrue(version >= 11, "Schema version should be at least 11 after migration, got $version")
+        assertTrue(version >= 12, "Schema version should be at least 12 after migration, got $version")
     }
 
     @Test
@@ -123,7 +125,8 @@ class StatusConstraintRestorationTest {
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val connection = database.connector().connection as Connection
-        val validStatuses = listOf("PLANNING", "IN_DEVELOPMENT", "COMPLETED", "ARCHIVED")
+        // V12 adds ON_HOLD and CANCELLED to valid project statuses (6 total)
+        val validStatuses = listOf("PLANNING", "IN_DEVELOPMENT", "ON_HOLD", "CANCELLED", "COMPLETED", "ARCHIVED")
 
         validStatuses.forEach { status ->
             val projectId = UUID.randomUUID().toString().replace("-", "")
@@ -145,7 +148,8 @@ class StatusConstraintRestorationTest {
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val connection = database.connector().connection as Connection
-        val invalidStatuses = listOf("INVALID_STATUS", "DRAFT", "ON_HOLD", "PENDING", "BACKLOG")
+        // V12: ON_HOLD and CANCELLED are now VALID for projects, so test different invalid values
+        val invalidStatuses = listOf("INVALID_STATUS", "DRAFT", "PENDING", "BACKLOG", "IN_PROGRESS", "TESTING")
 
         invalidStatuses.forEach { status ->
             val projectId = UUID.randomUUID().toString().replace("-", "")
@@ -178,8 +182,11 @@ class StatusConstraintRestorationTest {
             VALUES (x'$projectId', 'Test Project', 'Test Summary', 'Test Desc', 'PLANNING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '', 1)
         """)
 
-        // Test v1.0 statuses + v2.0 new statuses (DRAFT, ON_HOLD)
-        val validStatuses = listOf("PLANNING", "IN_DEVELOPMENT", "COMPLETED", "ARCHIVED", "DRAFT", "ON_HOLD")
+        // V12 adds TESTING, VALIDATING, PENDING_REVIEW, BLOCKED, DEPLOYED (11 total)
+        val validStatuses = listOf(
+            "DRAFT", "PLANNING", "IN_DEVELOPMENT", "TESTING", "VALIDATING",
+            "PENDING_REVIEW", "BLOCKED", "ON_HOLD", "DEPLOYED", "COMPLETED", "ARCHIVED"
+        )
 
         validStatuses.forEach { status ->
             val featureId = UUID.randomUUID().toString().replace("-", "")
@@ -190,6 +197,7 @@ class StatusConstraintRestorationTest {
                 """)
                 true
             } catch (e: Exception) {
+                println("Failed to insert feature with status $status: ${e.message}")
                 false
             }
             assertTrue(insertSucceeded, "Should accept valid feature status: $status")
@@ -249,10 +257,11 @@ class StatusConstraintRestorationTest {
             VALUES (x'$featureId', x'$projectId', 'Test Feature', 'Test Summary', 'PLANNING', 'MEDIUM', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '', 1, 'Test Desc')
         """)
 
-        // Test v1.0 statuses + v2.0 new statuses (BACKLOG, IN_REVIEW, CHANGES_REQUESTED, ON_HOLD)
+        // V12 adds TESTING, READY_FOR_QA, INVESTIGATING, BLOCKED, DEPLOYED (14 total)
         val validStatuses = listOf(
-            "PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED", "DEFERRED",  // v1.0
-            "BACKLOG", "IN_REVIEW", "CHANGES_REQUESTED", "ON_HOLD"  // v2.0 new
+            "BACKLOG", "PENDING", "IN_PROGRESS", "IN_REVIEW", "CHANGES_REQUESTED",
+            "TESTING", "READY_FOR_QA", "INVESTIGATING", "BLOCKED", "ON_HOLD",
+            "DEPLOYED", "COMPLETED", "CANCELLED", "DEFERRED"
         )
 
         validStatuses.forEach { status ->
@@ -408,20 +417,23 @@ class StatusConstraintRestorationTest {
         assertTrue(schemaManager.updateSchema(), "Second migration should succeed (idempotent)")
 
         val version = schemaManager.getCurrentVersion()
-        assertTrue(version >= 11, "Version should still be at least 11 after idempotent migration")
+        assertTrue(version >= 12, "Version should still be at least 12 after idempotent migration")
     }
 
     @Test
     fun `status values should fit in VARCHAR(20) without truncation`() {
         // This test verifies that all enum values fit within VARCHAR(20)
+        // V12 adds more statuses, verify all fit
         val allStatusValues = listOf(
-            // Project statuses
-            "PLANNING", "IN_DEVELOPMENT", "COMPLETED", "ARCHIVED",
-            // Feature statuses
-            "DRAFT", "ON_HOLD",
-            // Task statuses
-            "PENDING", "IN_PROGRESS", "CANCELLED", "DEFERRED",
-            "BACKLOG", "IN_REVIEW", "CHANGES_REQUESTED"
+            // Project statuses (6)
+            "PLANNING", "IN_DEVELOPMENT", "ON_HOLD", "CANCELLED", "COMPLETED", "ARCHIVED",
+            // Feature statuses (11)
+            "DRAFT", "PLANNING", "IN_DEVELOPMENT", "TESTING", "VALIDATING",
+            "PENDING_REVIEW", "BLOCKED", "ON_HOLD", "DEPLOYED", "COMPLETED", "ARCHIVED",
+            // Task statuses (14)
+            "BACKLOG", "PENDING", "IN_PROGRESS", "IN_REVIEW", "CHANGES_REQUESTED",
+            "TESTING", "READY_FOR_QA", "INVESTIGATING", "BLOCKED", "ON_HOLD",
+            "DEPLOYED", "COMPLETED", "CANCELLED", "DEFERRED"
         )
 
         allStatusValues.forEach { status ->

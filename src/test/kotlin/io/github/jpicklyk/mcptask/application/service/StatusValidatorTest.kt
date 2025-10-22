@@ -272,12 +272,13 @@ class StatusValidatorTest {
         // TaskStatus enum values (v1.0 + v2.0)
         val validStatuses = listOf(
             "pending", "in-progress", "completed", "cancelled", "deferred",
-            "backlog", "in-review", "changes-requested", "on-hold", "testing", "blocked"
+            "backlog", "in-review", "changes-requested", "on-hold", "testing",
+            "ready-for-qa", "investigating", "blocked", "deployed"
         )
 
         validStatuses.forEach { status ->
             val result = validator.validateStatus(status, "task")
-            assertTrue(result is StatusValidator.ValidationResult.Valid,
+            assertTrue(result is StatusValidator.ValidationResult.Valid || result is StatusValidator.ValidationResult.ValidWithAdvisory,
                 "Expected $status to be valid for task, but got: ${if (result is StatusValidator.ValidationResult.Invalid) result.reason else "unknown"}")
         }
     }
@@ -289,12 +290,12 @@ class StatusValidatorTest {
         // FeatureStatus enum values (v1.0 + v2.0)
         val validStatuses = listOf(
             "planning", "in-development", "completed", "archived",
-            "draft", "on-hold", "testing", "validating", "pending-review", "blocked"
+            "draft", "on-hold", "testing", "validating", "pending-review", "blocked", "deployed"
         )
 
         validStatuses.forEach { status ->
             val result = validator.validateStatus(status, "feature")
-            assertTrue(result is StatusValidator.ValidationResult.Valid,
+            assertTrue(result is StatusValidator.ValidationResult.Valid || result is StatusValidator.ValidationResult.ValidWithAdvisory,
                 "Expected $status to be valid for feature, but got: ${if (result is StatusValidator.ValidationResult.Invalid) result.reason else "unknown"}")
         }
     }
@@ -944,6 +945,576 @@ class StatusValidatorTest {
         }
     }
 
+    // ========== DEPLOYMENT TAG ADVISORY TESTS (6 tests) ==========
+
+    @Test
+    fun `deployment tag - deployed status with production tag returns valid`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("production", "backend"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Expected Valid but got: ${if (result is StatusValidator.ValidationResult.ValidWithAdvisory) result.advisory else "other"}")
+    }
+
+    @Test
+    fun `deployment tag - deployed status with staging tag returns valid`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("staging", "api"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `deployment tag - deployed status with canary tag returns valid`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "feature", listOf("canary", "experimental"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `deployment tag - deployed status with dev tag returns valid`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("dev", "testing"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `deployment tag - deployed status without environment tag returns advisory`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("backend", "api"))
+        assertTrue(result is StatusValidator.ValidationResult.ValidWithAdvisory,
+            "Expected ValidWithAdvisory but got: $result")
+        val advisory = result as StatusValidator.ValidationResult.ValidWithAdvisory
+        assertTrue(advisory.advisory.contains("environment tag"))
+        assertTrue(advisory.advisory.contains("staging") || advisory.advisory.contains("production"))
+    }
+
+    @Test
+    fun `deployment tag - deployed status with empty tags returns advisory`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "feature", emptyList())
+        assertTrue(result is StatusValidator.ValidationResult.ValidWithAdvisory)
+        val advisory = result as StatusValidator.ValidationResult.ValidWithAdvisory
+        assertTrue(advisory.advisory.contains("environment tag"))
+    }
+
+    @Test
+    fun `deployment tag - non-deployed status ignores tags`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        // Non-deployed status should not trigger advisory even without environment tags
+        val result = validator.validateStatus("in-progress", "task", listOf("backend"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `deployment tag - case insensitive environment tag matching`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result1 = validator.validateStatus("deployed", "task", listOf("Production"))
+        assertTrue(result1 is StatusValidator.ValidationResult.Valid)
+
+        val result2 = validator.validateStatus("deployed", "task", listOf("STAGING"))
+        assertTrue(result2 is StatusValidator.ValidationResult.Valid)
+
+        val result3 = validator.validateStatus("deployed", "task", listOf("Prod"))
+        assertTrue(result3 is StatusValidator.ValidationResult.Valid)
+    }
+
+    // ========== NEW V2.0 STATUS TESTS (14 tests) ==========
+
+    @Test
+    fun `v2 status - validates new task status TESTING`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("testing", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "TESTING should be valid task status")
+    }
+
+    @Test
+    fun `v2 status - validates new task status READY_FOR_QA`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("ready-for-qa", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "READY_FOR_QA should be valid task status")
+    }
+
+    @Test
+    fun `v2 status - validates new task status INVESTIGATING`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("investigating", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "INVESTIGATING should be valid task status")
+    }
+
+    @Test
+    fun `v2 status - validates new task status BLOCKED`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("blocked", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "BLOCKED should be valid task status")
+    }
+
+    @Test
+    fun `v2 status - validates new task status DEPLOYED`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("production"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "DEPLOYED should be valid task status")
+    }
+
+    @Test
+    fun `v2 status - validates new feature status TESTING`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("testing", "feature")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "TESTING should be valid feature status")
+    }
+
+    @Test
+    fun `v2 status - validates new feature status VALIDATING`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("validating", "feature")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "VALIDATING should be valid feature status")
+    }
+
+    @Test
+    fun `v2 status - validates new feature status PENDING_REVIEW`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("pending-review", "feature")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "PENDING_REVIEW should be valid feature status")
+    }
+
+    @Test
+    fun `v2 status - validates new feature status BLOCKED`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("blocked", "feature")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "BLOCKED should be valid feature status")
+    }
+
+    @Test
+    fun `v2 status - validates new feature status DEPLOYED`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "feature", listOf("staging"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "DEPLOYED should be valid feature status")
+    }
+
+    @Test
+    fun `v2 status - validates new project status ON_HOLD`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("on-hold", "project")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "ON_HOLD should be valid project status")
+    }
+
+    @Test
+    fun `v2 status - validates new project status CANCELLED`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("cancelled", "project")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "CANCELLED should be valid project status")
+    }
+
+    @Test
+    fun `v2 status - all new task statuses in getAllowedStatuses`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val statuses = validator.getAllowedStatuses("task")
+
+        // Verify all v2.0 new statuses are present
+        assertTrue(statuses.contains("testing"), "Should contain TESTING")
+        assertTrue(statuses.contains("ready-for-qa"), "Should contain READY_FOR_QA")
+        assertTrue(statuses.contains("investigating"), "Should contain INVESTIGATING")
+        assertTrue(statuses.contains("blocked"), "Should contain BLOCKED")
+        assertTrue(statuses.contains("deployed"), "Should contain DEPLOYED")
+    }
+
+    @Test
+    fun `v2 status - all new feature statuses in getAllowedStatuses`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val statuses = validator.getAllowedStatuses("feature")
+
+        // Verify all v2.0 new statuses are present
+        assertTrue(statuses.contains("testing"), "Should contain TESTING")
+        assertTrue(statuses.contains("validating"), "Should contain VALIDATING")
+        assertTrue(statuses.contains("pending-review"), "Should contain PENDING_REVIEW")
+        assertTrue(statuses.contains("blocked"), "Should contain BLOCKED")
+        assertTrue(statuses.contains("deployed"), "Should contain DEPLOYED")
+    }
+
+    // ========== V2.0 DEPLOYMENT ADVISORY TESTS (8 tests) ==========
+
+    @Test
+    fun `deployment advisory - deployed task without env tag triggers advisory`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("backend", "api"))
+        assertTrue(result is StatusValidator.ValidationResult.ValidWithAdvisory,
+            "Deployed status without env tag should return ValidWithAdvisory")
+
+        val advisory = result as StatusValidator.ValidationResult.ValidWithAdvisory
+        assertTrue(advisory.advisory.contains("environment tag"))
+    }
+
+    @Test
+    fun `deployment advisory - deployed feature without env tag triggers advisory`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "feature", listOf("ui", "frontend"))
+        assertTrue(result is StatusValidator.ValidationResult.ValidWithAdvisory,
+            "Deployed feature without env tag should return ValidWithAdvisory")
+
+        val advisory = result as StatusValidator.ValidationResult.ValidWithAdvisory
+        assertTrue(advisory.advisory.contains("environment tag"))
+    }
+
+    @Test
+    fun `deployment advisory - all recognized environment tags`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val environmentTags = listOf("staging", "production", "canary", "dev", "development", "prod")
+
+        environmentTags.forEach { envTag ->
+            val result = validator.validateStatus("deployed", "task", listOf(envTag))
+            assertTrue(result is StatusValidator.ValidationResult.Valid,
+                "Environment tag '$envTag' should suppress advisory")
+        }
+    }
+
+    @Test
+    fun `deployment advisory - validateTransition preserves advisory`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateTransition("completed", "deployed", "task", tags = listOf("backend"))
+        assertTrue(result is StatusValidator.ValidationResult.ValidWithAdvisory,
+            "Transition to deployed without env tag should preserve advisory")
+
+        val advisory = result as StatusValidator.ValidationResult.ValidWithAdvisory
+        assertTrue(advisory.advisory.contains("environment tag"))
+    }
+
+    @Test
+    fun `deployment advisory - validateTransition with env tag returns valid`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateTransition("completed", "deployed", "task", tags = listOf("production"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Transition to deployed with env tag should be Valid")
+    }
+
+    @Test
+    fun `deployment advisory - multiple tags with one env tag is valid`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", listOf("backend", "api", "staging", "feature-x"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Should be Valid if at least one env tag present")
+    }
+
+    @Test
+    fun `deployment advisory - advisory message suggests environment tags`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val result = validator.validateStatus("deployed", "task", emptyList())
+        assertTrue(result is StatusValidator.ValidationResult.ValidWithAdvisory)
+
+        val advisory = (result as StatusValidator.ValidationResult.ValidWithAdvisory).advisory
+        // Check that advisory suggests common environment tags
+        assertTrue(advisory.contains("staging") || advisory.contains("production") || advisory.contains("environment"))
+    }
+
+    @Test
+    fun `deployment advisory - non-deployed status never triggers advisory`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val nonDeployedStatuses = listOf("pending", "in-progress", "testing", "completed", "blocked")
+
+        nonDeployedStatuses.forEach { status ->
+            val result = validator.validateStatus(status, "task", emptyList())
+            assertFalse(result is StatusValidator.ValidationResult.ValidWithAdvisory,
+                "Status '$status' should never trigger deployment advisory")
+        }
+    }
+
+    // ========== V2.0 CONFIG MODE COMPREHENSIVE TESTS (12 tests) ==========
+
+    @Test
+    fun `v2 config mode - validates all task statuses from config`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        val configStatuses = listOf("pending", "in-progress", "testing", "blocked", "completed", "cancelled", "deferred")
+
+        configStatuses.forEach { status ->
+            val result = validator.validateStatus(status, "task")
+            assertTrue(result is StatusValidator.ValidationResult.Valid || result is StatusValidator.ValidationResult.ValidWithAdvisory,
+                "Status '$status' should be valid in v2 config mode")
+        }
+    }
+
+    @Test
+    fun `v2 config mode - validates all feature statuses from config`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        val configStatuses = listOf("planning", "in-development", "testing", "validating", "pending-review", "blocked", "completed", "archived")
+
+        configStatuses.forEach { status ->
+            val result = validator.validateStatus(status, "feature")
+            assertTrue(result is StatusValidator.ValidationResult.Valid || result is StatusValidator.ValidationResult.ValidWithAdvisory,
+                "Feature status '$status' should be valid in v2 config mode")
+        }
+    }
+
+    @Test
+    fun `v2 config mode - validates all project statuses from config`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        val configStatuses = listOf("planning", "in-development", "completed", "archived", "on-hold", "cancelled")
+
+        configStatuses.forEach { status ->
+            val result = validator.validateStatus(status, "project")
+            assertTrue(result is StatusValidator.ValidationResult.Valid,
+                "Project status '$status' should be valid in v2 config mode")
+        }
+    }
+
+    @Test
+    fun `v2 config mode - terminal status blocks all transitions`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        // Task terminal statuses: completed, cancelled, deferred
+        val taskTerminalStatuses = listOf("completed", "cancelled", "deferred")
+
+        taskTerminalStatuses.forEach { terminalStatus ->
+            val result = validator.validateTransition(terminalStatus, "in-progress", "task")
+            assertTrue(result is StatusValidator.ValidationResult.Invalid,
+                "Transition from terminal status '$terminalStatus' should be blocked")
+
+            val invalid = result as StatusValidator.ValidationResult.Invalid
+            assertTrue(invalid.reason.contains("terminal"),
+                "Error message should mention 'terminal' for status '$terminalStatus'")
+        }
+    }
+
+    @Test
+    fun `v2 config mode - feature terminal status blocks transitions`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        // Feature terminal statuses: completed, archived
+        val result = validator.validateTransition("archived", "planning", "feature")
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Transition from archived should be blocked")
+
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("terminal"))
+    }
+
+    @Test
+    fun `v2 config mode - project terminal status blocks transitions`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        // Project terminal statuses: completed, archived, cancelled
+        val result = validator.validateTransition("cancelled", "in-development", "project")
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Transition from cancelled project should be blocked")
+    }
+
+    @Test
+    fun `v2 config mode - emergency transition to blocked from any status`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        val normalStatuses = listOf("pending", "in-progress", "testing")
+
+        normalStatuses.forEach { fromStatus ->
+            val result = validator.validateTransition(fromStatus, "blocked", "task")
+            assertTrue(result is StatusValidator.ValidationResult.Valid,
+                "Emergency transition from '$fromStatus' to blocked should be allowed")
+        }
+    }
+
+    @Test
+    fun `v2 config mode - emergency transition to cancelled from any status`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        val result = validator.validateTransition("testing", "cancelled", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Emergency transition to cancelled should be allowed")
+    }
+
+    @Test
+    fun `v2 config mode - emergency transition to archived for features`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        val result = validator.validateTransition("in-development", "archived", "feature")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Emergency transition to archived should be allowed for features")
+    }
+
+    @Test
+    fun `v2 config mode - backward transition allowed when enabled`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir) // Config has allow_backward: true
+
+        val result = validator.validateTransition("testing", "in-progress", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Backward transition should be allowed when allow_backward is true")
+    }
+
+    @Test
+    fun `v2 config mode - config with backward disabled blocks backward transitions`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithNoBackward(tempDir)
+
+        val result = validator.validateTransition("testing", "in-progress", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Backward transition should be blocked when allow_backward is false")
+
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("Backward transition"))
+    }
+
+    @Test
+    fun `v2 config mode - sequential enforcement prevents status skipping`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir) // Config has enforce_sequential: true
+
+        // Try to skip from pending directly to testing (should go through in-progress first)
+        val result = validator.validateTransition("pending", "testing", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Should not allow skipping statuses when enforce_sequential is true")
+
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("skip") || invalid.reason.contains("through"))
+        assertTrue(invalid.suggestions.contains("in-progress"),
+            "Should suggest the next status in sequence")
+    }
+
+    // ========== V1/V2 MODE BACKWARD COMPATIBILITY TESTS (6 tests) ==========
+
+    @Test
+    fun `backward compat - v1 mode accepts all enum statuses`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+        // No config file = v1 mode
+
+        // Test all v1.0 + v2.0 task statuses are accepted
+        val allTaskStatuses = listOf(
+            "pending", "in-progress", "completed", "cancelled", "deferred",
+            "backlog", "in-review", "changes-requested", "on-hold",
+            "testing", "ready-for-qa", "investigating", "blocked", "deployed"
+        )
+
+        allTaskStatuses.forEach { status ->
+            val result = validator.validateStatus(status, "task")
+            assertTrue(result is StatusValidator.ValidationResult.Valid || result is StatusValidator.ValidationResult.ValidWithAdvisory,
+                "v1 mode should accept enum status '$status'")
+        }
+    }
+
+    @Test
+    fun `backward compat - v1 mode no transition validation`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        // No config = v1 mode
+
+        // Even weird transitions should be allowed in v1 mode (no config-based rules)
+        val result = validator.validateTransition("completed", "pending", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "v1 mode should allow all transitions (no config rules)")
+    }
+
+    @Test
+    fun `backward compat - v2 mode applies strict rules`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        // Same transition should be blocked in v2 mode
+        val result = validator.validateTransition("completed", "pending", "task")
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "v2 mode should block transitions from terminal statuses")
+    }
+
+    @Test
+    fun `backward compat - switching from v2 to v1 mode works`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+        createTestConfig(tempDir)
+
+        // First call in v2 mode
+        val v2Result = validator.validateStatus("validating", "feature")
+        assertTrue(v2Result is StatusValidator.ValidationResult.Valid)
+
+        // Delete config to switch to v1 mode
+        val configPath = tempDir.resolve(".taskorchestrator/config.yaml")
+        Files.delete(configPath)
+
+        // Force cache invalidation by changing user.dir
+        val tempDir2 = Files.createTempDirectory("test2")
+        System.setProperty("user.dir", tempDir2.toString())
+
+        // Now in v1 mode - should still accept enum values
+        val v1Result = validator.validateStatus("validating", "feature")
+        assertTrue(v1Result is StatusValidator.ValidationResult.Valid,
+            "Should still accept enum values in v1 mode")
+    }
+
+    @Test
+    fun `backward compat - v1 mode getAllowedStatuses returns all enums`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+
+        val taskStatuses = validator.getAllowedStatuses("task")
+
+        // Should have all enum values (14 total for tasks)
+        assertTrue(taskStatuses.size >= 14,
+            "v1 mode should return all enum values (got ${taskStatuses.size})")
+        assertTrue(taskStatuses.contains("deployed"))
+        assertTrue(taskStatuses.contains("ready-for-qa"))
+        assertTrue(taskStatuses.contains("investigating"))
+    }
+
+    @Test
+    fun `backward compat - v2 mode getAllowedStatuses returns config values only`(@TempDir tempDir: Path) {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithLimitedStatuses(tempDir)
+
+        val taskStatuses = validator.getAllowedStatuses("task")
+
+        // Should only have config-specified statuses
+        assertTrue(taskStatuses.size == 3,
+            "v2 mode should return only config statuses (got ${taskStatuses.size})")
+        assertTrue(taskStatuses.contains("pending"))
+        assertTrue(taskStatuses.contains("in-progress"))
+        assertTrue(taskStatuses.contains("completed"))
+        assertFalse(taskStatuses.contains("deployed"),
+            "Should not contain statuses not in config")
+    }
+
     // ========== HELPER METHODS ==========
 
     /**
@@ -1165,6 +1736,38 @@ status_progression:
     allowed_statuses:
       - planning
       - completed
+"""
+        Files.writeString(taskOrchestratorDir.resolve("config.yaml"), configContent)
+    }
+
+    private fun createConfigWithNoBackward(tempDir: Path) {
+        val taskOrchestratorDir = tempDir.resolve(".taskorchestrator")
+        Files.createDirectories(taskOrchestratorDir)
+
+        val configContent = """
+version: "2.0.0"
+
+status_progression:
+  tasks:
+    allowed_statuses:
+      - pending
+      - in-progress
+      - testing
+      - completed
+
+    default_flow:
+      - pending
+      - in-progress
+      - testing
+      - completed
+
+    terminal_statuses:
+      - completed
+
+status_validation:
+  enforce_sequential: true
+  allow_backward: false
+  allow_emergency: true
 """
         Files.writeString(taskOrchestratorDir.resolve("config.yaml"), configContent)
     }

@@ -1,0 +1,398 @@
+# Task Orchestrator Configuration - Solo Developer Workflow
+# Full v2.0 workflow with all 31 statuses for comprehensive tracking
+# Version: 2.0.0
+#
+# USE CASE: Professional solo developers who want complete visibility and control
+# PHILOSOPHY: "Full lifecycle tracking" - monitor every stage of development
+# STATUSES: All 31 v2.0 statuses (10 feature + 11 task + 6 project + 4 cross-cutting)
+#
+# Best for:
+# - Professional consultants managing client projects
+# - Solo developers working on complex products
+# - Projects requiring detailed status reporting
+# - Long-running projects with multiple phases
+# - Developers who want maximum flexibility and granularity
+
+version: "2.0.0"
+
+# ============================================================================
+# STATUS PROGRESSION - FULL V2.0 WORKFLOW
+# ============================================================================
+# Complete status system with all 31 statuses for maximum control and visibility
+
+status_progression:
+  features:
+    # ALL FEATURE STATUSES (10 statuses)
+    #
+    # draft: Initial exploration and rough requirements gathering
+    #        → Use when: Feature concept is being explored, not ready for planning
+    #        → Next steps: Refine requirements, move to planning
+    #        → Example: "User authentication" feature in early ideation stage
+    #
+    # planning: Detailed requirements definition, task breakdown, technical approach
+    #           → Use when: Requirements clear, decomposing into actionable tasks
+    #           → Next steps: Complete task breakdown, move to in-development
+    #           → Example: Breaking down authentication into tasks (login, signup, password reset)
+    #
+    # in-development: Active implementation of tasks by specialists
+    #                 → Use when: Tasks being actively worked on by developers
+    #                 → Next steps: Complete all tasks, move to testing
+    #                 → Example: Developers implementing login and signup flows
+    #
+    # testing: All development complete, running test suite and validation
+    #          → Use when: Implementation finished, ready for QA
+    #          → Next steps: Pass all tests, move to validating
+    #          → Example: Running automated tests, manual QA on authentication flows
+    #
+    # validating: Tests passed, performing final validation before completion
+    #             → Use when: Tests pass, needs final review/approval
+    #             → Next steps: Validation complete, move to completed or pending-review
+    #             → Example: Final security audit of authentication implementation
+    #
+    # pending-review: Awaiting human review/approval before marking complete
+    #                 → Use when: Feature complete but requires stakeholder sign-off
+    #                 → Next steps: Review approved, move to completed
+    #                 → Example: Client reviewing authentication UX before approval
+    #
+    # blocked: External dependencies, technical issues, or missing resources
+    #          → Use when: Cannot proceed due to blockers
+    #          → Emergency status: Can enter from any state
+    #          → Next steps: Resolve blocker, resume previous flow
+    #          → Example: OAuth provider API down, blocking authentication integration
+    #
+    # on-hold: Temporarily paused due to priority changes or resource constraints
+    #          → Use when: Work paused intentionally
+    #          → Emergency status: Can enter from any state
+    #          → Next steps: Resume when resources available
+    #          → Example: Authentication feature paused to prioritize critical bug fix
+    #
+    # completed: Feature complete, validated, and delivered
+    #            → Use when: All work finished, tests pass, validation complete
+    #            → Terminal status: No further progression
+    #            → Example: Authentication feature shipped to production
+    #
+    # archived: Archived for historical reference (obsolete or replaced)
+    #           → Use when: Feature no longer active but kept for reference
+    #           → Emergency status: Can enter from any state
+    #           → Terminal status: No further progression
+    #           → Example: Legacy authentication replaced by new OAuth implementation
+    allowed_statuses:
+      - draft
+      - planning
+      - in-development
+      - testing
+      - validating
+      - pending-review
+      - blocked
+      - on-hold
+      - completed
+      - archived
+
+    # Default flow for comprehensive feature development
+    default_flow:
+      - draft              # Initial draft, rough ideas
+      - planning           # Define requirements, break into tasks
+      - in-development     # Active implementation
+      - testing            # All tasks complete, running tests
+      - validating         # Tests passed, final validation
+      - completed          # Feature complete and validated
+
+    # Alternative flow with stakeholder review gate
+    with_review_flow:
+      - draft
+      - planning
+      - in-development
+      - testing
+      - validating
+      - pending-review     # Awaiting client/stakeholder approval
+      - completed
+
+    # Statuses that can be entered from any state
+    emergency_transitions:
+      - blocked           # Feature blocked (external dependency, technical issue)
+      - on-hold           # Feature paused (priority change, resource constraint)
+      - archived          # Feature archived (obsolete, replaced, no longer needed)
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses:
+      - completed
+      - archived
+
+  tasks:
+    # ALL TASK STATUSES (11 statuses)
+    #
+    # backlog: Task identified but not yet scheduled or prioritized
+    #          → Use when: Task in backlog awaiting prioritization
+    #          → Next steps: Prioritize task, move to pending
+    #          → Example: "Add remember me checkbox" task identified but not scheduled
+    #
+    # pending: Task ready to start, waiting for specialist assignment or resources
+    #          → Use when: Task prioritized, dependencies met, ready to implement
+    #          → Next steps: Assign specialist, move to in-progress
+    #          → Example: "Implement login endpoint" ready for backend developer
+    #
+    # in-progress: Actively being worked on by specialist
+    #              → Use when: Specialist actively implementing
+    #              → Next steps: Implementation complete, move to in-review or testing
+    #              → Example: Developer writing login endpoint code
+    #
+    # in-review: Implementation complete, awaiting code review or peer validation
+    #            → Use when: Code complete, needs human review before testing
+    #            → Next steps: Review approved → testing, changes needed → changes-requested
+    #            → Example: Login endpoint PR submitted, awaiting code review
+    #
+    # changes-requested: Review completed with requested changes; needs rework
+    #                    → Use when: Reviewer requests modifications
+    #                    → Next steps: Implement changes (back to in-progress), re-submit for review
+    #                    → Example: Code reviewer requests error handling improvements
+    #
+    # testing: Implementation complete, running automated tests or manual QA
+    #          → Use when: Code ready for quality assurance validation
+    #          → Next steps: Tests pass → completed, tests fail → in-progress for fixes
+    #          → Example: Running unit tests and integration tests on login endpoint
+    #
+    # blocked: Blocked by incomplete dependencies or external issues
+    #          → Use when: Cannot proceed until blocker resolved
+    #          → Next steps: Resolve blocker, resume previous status
+    #          → Example: Cannot implement OAuth integration until API credentials received
+    #
+    # on-hold: Temporarily paused due to resource constraints or priority changes
+    #          → Use when: Work intentionally paused
+    #          → Next steps: Resume when ready, return to previous status
+    #          → Example: Password reset task paused to focus on critical security fix
+    #
+    # completed: Task finished, validated, and merged/delivered
+    #            → Use when: All work complete, tests pass, review approved
+    #            → Terminal status: No further progression
+    #            → Example: Login endpoint merged to main branch, deployed to production
+    #
+    # cancelled: Explicitly cancelled by user or stakeholder
+    #            → Use when: Task abandoned, no longer needed
+    #            → Terminal status: No further progression
+    #            → Example: "Add social login buttons" cancelled after client decision
+    #
+    # deferred: Postponed indefinitely; may resume in future release
+    #           → Use when: Task delayed but not cancelled
+    #           → Terminal status: No further progression
+    #           → Example: "Add biometric authentication" deferred to v2.0 release
+    allowed_statuses:
+      - backlog
+      - pending
+      - in-progress
+      - in-review
+      - changes-requested
+      - testing
+      - blocked
+      - on-hold
+      - completed
+      - cancelled
+      - deferred
+
+    # Default comprehensive task flow
+    default_flow:
+      - backlog            # Task in backlog, needs prioritization
+      - pending            # Task ready, waiting to start
+      - in-progress        # Actively being worked on
+      - testing            # Implementation complete, running tests
+      - completed          # Task complete
+
+    # Alternative flow with code review gate
+    with_review:
+      - backlog
+      - pending
+      - in-progress
+      - in-review          # Awaiting code review
+      - testing            # Review approved, testing
+      - completed
+
+    # Flow with review iterations (most realistic for quality work)
+    with_review_iterations:
+      - backlog
+      - pending
+      - in-progress
+      - in-review          # Initial review
+      - changes-requested  # Changes needed
+      - in-progress        # Implementing changes
+      - in-review          # Re-review after changes
+      - testing
+      - completed
+
+    # Flow with dependency blocking
+    with_blocking:
+      - backlog
+      - pending
+      - blocked            # Blocked by dependencies
+      - in-progress        # Unblocked, working
+      - testing
+      - completed
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses:
+      - completed
+      - cancelled         # User cancelled the task
+      - deferred          # Task postponed, may resume later
+
+  projects:
+    # ALL PROJECT STATUSES (6 statuses)
+    #
+    # planning: Defining project scope, features, timeline, resources
+    #           → Use when: Project initiated, high-level planning underway
+    #           → Next steps: Complete feature breakdown, move to in-development
+    #           → Example: New e-commerce platform in planning phase
+    #
+    # in-development: Active development of features by specialists
+    #                 → Use when: Features being actively implemented
+    #                 → Next steps: Complete all features, move to completed
+    #                 → Example: Building user management, product catalog, checkout features
+    #
+    # on-hold: Temporarily paused due to resource constraints or priority changes
+    #          → Use when: Project work intentionally suspended
+    #          → Emergency status: Can enter from any state
+    #          → Next steps: Resume when conditions improve
+    #          → Example: E-commerce project paused while waiting for payment gateway approval
+    #
+    # cancelled: Project cancelled or abandoned (requirements changed, no longer viable)
+    #            → Use when: Project permanently stopped
+    #            → Emergency status: Can enter from any state
+    #            → Terminal status: No further progression
+    #            → Example: E-commerce project cancelled after acquisition by competitor
+    #
+    # completed: Project finished and delivered to production or stakeholders
+    #            → Use when: All features complete, project goals achieved
+    #            → Terminal status: No further progression
+    #            → Example: E-commerce platform launched and running in production
+    #
+    # archived: Archived for historical reference (completed long ago or obsolete)
+    #           → Use when: Project no longer active but kept for reference
+    #           → Terminal status: No further progression
+    #           → Example: Legacy e-commerce platform replaced by new version
+    allowed_statuses:
+      - planning
+      - in-development
+      - on-hold
+      - cancelled
+      - completed
+      - archived
+
+    # Default project flow
+    default_flow:
+      - planning           # Define scope and features
+      - in-development     # Active development
+      - completed          # Project finished
+      - archived           # Archive for history
+
+    # Statuses that can be entered from any state
+    emergency_transitions:
+      - on-hold           # Project paused (funding issues, priority shift)
+      - cancelled         # Project cancelled (requirements changed, superseded)
+
+    # Terminal statuses
+    terminal_statuses:
+      - completed
+      - archived
+      - cancelled
+
+# ============================================================================
+# STATUS VALIDATION RULES - COMPREHENSIVE WORKFLOW
+# ============================================================================
+# Balanced validation for professional solo development
+
+status_validation:
+  # Enforce sequential flow through defined stages
+  # Solo developers benefit from structured progression to ensure quality
+  enforce_sequential: true
+
+  # Allow backward transitions for rework and iteration
+  # Essential for review cycles and fixing issues found in testing
+  allow_backward: true
+
+  # Allow emergency transitions (blocked, on-hold, archived, cancelled, deferred)
+  # Critical for handling real-world blockers and priority changes
+  allow_emergency: true
+
+  # Validate prerequisites before status changes
+  # Ensure features have tasks, tasks have dependencies resolved, etc.
+  validate_prerequisites: true
+
+# ============================================================================
+# ENVIRONMENT TAG CONVENTION
+# ============================================================================
+# Tag tasks with deployment environment to track deployment status across stages
+#
+# USAGE: Add environment tags to tasks as they progress through deployment pipeline
+#
+# Environment tags (use as task tags):
+#   - env:local       → Feature running on local development machine only
+#   - env:dev         → Deployed to development environment for testing
+#   - env:staging     → Deployed to staging environment for pre-production validation
+#   - env:prod        → Deployed to production environment (live to users)
+#
+# Multi-environment tagging:
+#   Tasks can have multiple environment tags showing deployment history:
+#   Tags: backend, api, env:local, env:dev, env:staging, env:prod
+#   → Indicates feature progressed through all environments to production
+#
+# Query examples:
+#   search_tasks(tags="env:prod")           → All production-deployed tasks
+#   search_tasks(tags="env:staging,!env:prod") → Features in staging but not production
+#   search_tasks(tags="env:local")          → Features only tested locally
+#
+# Deployment workflow pattern:
+#   1. Task completed → Add env:local (tested on dev machine)
+#   2. Deploy to dev → Add env:dev (deployed to development environment)
+#   3. Deploy to staging → Add env:staging (pre-production validation)
+#   4. Deploy to production → Add env:prod (live to users)
+#   5. Keep all environment tags for full deployment history
+#
+# Why use environment tags:
+#   - Track deployment progress across environments
+#   - Identify features ready for production promotion
+#   - Coordinate multi-environment deployments
+#   - Generate deployment reports by environment
+#   - Audit deployment history for features
+#
+# Integration with CI/CD:
+#   - Deployment scripts can query tasks: search_tasks(tags="env:staging")
+#   - Automatically tag tasks during deployment
+#   - Generate release notes from env:prod tagged tasks
+#   - Track rollback by removing environment tags
+
+# ============================================================================
+# WORKFLOW PATTERNS FOR SOLO DEVELOPERS
+# ============================================================================
+#
+# Full lifecycle tracking:
+#   Feature: draft → planning → in-development → testing → validating → completed
+#   Task: backlog → pending → in-progress → in-review → testing → completed
+#   Project: planning → in-development → completed → archived
+#
+# Review iteration pattern (quality-focused):
+#   Task: in-progress → in-review → changes-requested → in-progress → in-review → testing → completed
+#
+# Blocked and unblocked pattern:
+#   Task: in-progress → blocked (dependency issue) → in-progress (unblocked) → completed
+#
+# Priority shift pattern:
+#   Feature: in-development → on-hold (urgent issue) → in-development (resume) → completed
+#
+# Professional reporting:
+#   - Use all statuses for complete visibility
+#   - Track features through validating and pending-review for client sign-off
+#   - Use deferred for features postponed to future releases
+#   - Use archived for legacy features replaced by new implementations
+#
+# Status decision guide:
+#   - backlog vs pending: Backlog = not scheduled, Pending = ready to start
+#   - blocked vs on-hold: Blocked = external issue, On-hold = intentional pause
+#   - cancelled vs deferred: Cancelled = abandoned, Deferred = postponed
+#   - completed vs archived: Completed = done, Archived = historical reference
+#
+# Tips for maximum value:
+#   1. Use backlog for task ideas that aren't prioritized yet
+#   2. Move to pending when task is ready and dependencies are met
+#   3. Use in-review even when solo (self-review before testing)
+#   4. Use validating for final security/performance checks
+#   5. Use pending-review when client/stakeholder needs to approve
+#   6. Tag tasks with env:local → env:dev → env:staging → env:prod
+#   7. Use deferred for future releases, not cancelled
+#   8. Archive completed features after several months for clean overview

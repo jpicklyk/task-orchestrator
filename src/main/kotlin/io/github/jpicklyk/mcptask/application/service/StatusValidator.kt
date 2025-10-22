@@ -44,22 +44,34 @@ class StatusValidator {
     sealed class ValidationResult {
         object Valid : ValidationResult()
         data class Invalid(val reason: String, val suggestions: List<String> = emptyList()) : ValidationResult()
+        data class ValidWithAdvisory(val advisory: String) : ValidationResult()
     }
 
     /**
      * Validates a status value for the given container type.
      * @param status The status string to validate (e.g., "in-progress", "testing")
      * @param containerType The container type ("project", "feature", or "task")
+     * @param tags Optional tags list for deployment environment advisory
      * @return ValidationResult indicating validity with optional error message and suggestions
      */
-    fun validateStatus(status: String, containerType: String): ValidationResult {
+    fun validateStatus(status: String, containerType: String, tags: List<String> = emptyList()): ValidationResult {
         val config = loadConfig()
 
-        return if (config != null) {
+        val result = if (config != null) {
             validateStatusV2(status, containerType, config)
         } else {
             validateStatusV1(status, containerType)
         }
+
+        // If status is valid and it's DEPLOYED, check for environment tags
+        if (result is ValidationResult.Valid) {
+            val normalizedStatus = normalizeStatus(status)
+            if (normalizedStatus == "deployed") {
+                return checkDeploymentTagAdvisory(tags)
+            }
+        }
+
+        return result
     }
 
     /**
@@ -76,10 +88,11 @@ class StatusValidator {
         newStatus: String,
         containerType: String,
         containerId: java.util.UUID? = null,
-        context: PrerequisiteContext? = null
+        context: PrerequisiteContext? = null,
+        tags: List<String> = emptyList()
     ): ValidationResult {
-        // Status validation first
-        val statusValidation = validateStatus(newStatus, containerType)
+        // Status validation first (including deployment tag advisory)
+        val statusValidation = validateStatus(newStatus, containerType, tags)
         if (statusValidation is ValidationResult.Invalid) {
             return statusValidation
         }
@@ -106,7 +119,8 @@ class StatusValidator {
             }
         }
 
-        return ValidationResult.Valid
+        // Return advisory if status validation had one, otherwise Valid
+        return statusValidation
     }
 
     /**
@@ -596,5 +610,27 @@ class StatusValidator {
      */
     private fun normalizeStatus(status: String): String {
         return status.lowercase().replace('_', '-')
+    }
+
+    /**
+     * Checks if deployment environment tags are present when status is DEPLOYED.
+     * Returns advisory if environment tags are missing (not an error).
+     *
+     * @param tags List of tags to check for environment markers
+     * @return ValidationResult.Valid if environment tag found, ValidWithAdvisory if missing
+     */
+    private fun checkDeploymentTagAdvisory(tags: List<String>): ValidationResult {
+        val environmentTags = setOf("staging", "production", "canary", "dev", "development", "prod")
+        val hasEnvironmentTag = tags.any { tag ->
+            environmentTags.contains(tag.lowercase())
+        }
+
+        return if (hasEnvironmentTag) {
+            ValidationResult.Valid
+        } else {
+            ValidationResult.ValidWithAdvisory(
+                "Consider adding an environment tag (staging, production, canary, dev) to indicate deployment target"
+            )
+        }
     }
 }

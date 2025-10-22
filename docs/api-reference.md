@@ -620,9 +620,258 @@ Scoped overview is optimized for "show me details" queries without the overhead 
 
 #### Status Values by Container Type
 
-**Tasks**: `pending`, `in-progress`, `completed`, `cancelled`, `deferred`
-**Features**: `planning`, `in-development`, `completed`, `archived`
-**Projects**: `planning`, `in-development`, `completed`, `archived`
+v2.0 introduces **31 comprehensive statuses** across all container types for orchestration workflows, deployment tracking, and quality assurance.
+
+##### TaskStatus (14 statuses)
+
+**Original v1.0 Statuses (5)**:
+
+| Status | Description | When to Use |
+|--------|-------------|-------------|
+| `pending` | Task ready to start | Initial state for new tasks |
+| `in-progress` | Task actively being worked on | Developer is implementing |
+| `completed` | Task finished successfully | All work done, tests passing, summary written (300-500 chars required) |
+| `cancelled` | Task explicitly cancelled | No longer needed or explicitly abandoned |
+| `deferred` | Task postponed indefinitely | Will be addressed later, not cancelled |
+
+**New v2.0 Orchestration Statuses (9)**:
+
+| Status | Description | When to Use |
+|--------|-------------|-------------|
+| `backlog` | Task in backlog, not ready | Awaiting prioritization or dependencies |
+| `in-review` | Implementation complete, awaiting review | Code written, waiting for peer review |
+| `changes-requested` | Review completed, changes needed | Reviewer requested modifications |
+| `on-hold` | Task temporarily paused | Waiting on external factors, temporarily stopped |
+| `testing` | Implementation complete, running tests | Code written, test suite executing |
+| `ready-for-qa` | Testing complete, ready for QA review | Tests pass, ready for quality assurance |
+| `investigating` | Actively investigating issues or approach | Research phase, technical exploration |
+| `blocked` | Blocked by incomplete dependencies | Cannot proceed until blockers resolve |
+| `deployed` | Successfully deployed to environment | Live in production/staging/canary (see environment tags below) |
+
+**Status Transitions**:
+- Forward: `pending → backlog → in-progress → testing → ready-for-qa → in-review → completed → deployed`
+- Backward (rework): `testing → in-progress`, `in-review → changes-requested → in-progress`
+- Emergency: Any status → `blocked`, `on-hold`, `cancelled`, `deferred`
+- Terminal: `completed`, `cancelled`, `deployed` cannot transition further
+
+**Prerequisites**:
+- `completed`: Requires summary field (300-500 characters) - StatusValidator enforces this
+- `in-progress`: Checks for blocking dependencies (warns if blockers incomplete)
+
+---
+
+##### FeatureStatus (11 statuses)
+
+**Original v1.0 Statuses (4)**:
+
+| Status | Description | When to Use |
+|--------|-------------|-------------|
+| `planning` | Feature design and planning phase | Initial state, defining requirements |
+| `in-development` | Feature actively being developed | At least 1 task exists and work is ongoing |
+| `completed` | Feature finished successfully | All tasks completed |
+| `archived` | Feature archived for reference | No longer active, kept for history |
+
+**New v2.0 Orchestration Statuses (7)**:
+
+| Status | Description | When to Use |
+|--------|-------------|-------------|
+| `draft` | Initial draft state, not yet planned | Idea stage, not yet in planning |
+| `on-hold` | Feature temporarily paused | Waiting on external factors |
+| `testing` | Feature in testing phase | All tasks completed, running test suite |
+| `validating` | Tests passed, final validation | Testing complete, final checks before completion |
+| `pending-review` | Awaiting human review approval | Ready for stakeholder review |
+| `blocked` | Blocked by external dependencies | Cannot proceed until blockers resolve |
+| `deployed` | Successfully deployed to environment | Live in production/staging/canary |
+
+**Status Transitions**:
+- Forward: `draft → planning → in-development → testing → validating → pending-review → completed → deployed`
+- Backward (rework): `testing → in-development`, `validating → testing`
+- Emergency: Any status → `blocked`, `on-hold`, `archived`
+- Terminal: `completed`, `archived`, `deployed` cannot transition further
+
+**Prerequisites**:
+- `in-development`: Requires at least 1 task
+- `testing`: Requires all tasks completed
+- `completed`: Requires all tasks completed
+
+---
+
+##### ProjectStatus (6 statuses)
+
+**Original v1.0 Statuses (4)**:
+
+| Status | Description | When to Use |
+|--------|-------------|-------------|
+| `planning` | Project design and planning phase | Initial state, defining scope |
+| `in-development` | Project actively being developed | Features and tasks in progress |
+| `completed` | Project finished successfully | All features completed |
+| `archived` | Project archived for reference | No longer active, kept for history |
+
+**New v2.0 Orchestration Statuses (2)**:
+
+| Status | Description | When to Use |
+|--------|-------------|-------------|
+| `on-hold` | Project temporarily paused | Waiting on external factors, resources |
+| `cancelled` | Project cancelled/abandoned | No longer pursuing this project |
+
+**Status Transitions**:
+- Forward: `planning → in-development → completed`
+- Emergency: Any status → `on-hold`, `cancelled`, `archived`
+- Terminal: `completed`, `archived`, `cancelled` cannot transition further
+
+**Prerequisites**:
+- `completed`: Requires all features completed
+
+---
+
+#### DEPLOYED Status with Environment Tags
+
+The `deployed` status supports **environment tags** to track deployment targets:
+
+**Recommended Environment Tags**:
+- `env:production` - Live production environment
+- `env:staging` - Staging/pre-production environment
+- `env:canary` - Canary deployment (gradual rollout)
+- `env:dev` - Development environment
+- `env:qa` - QA/testing environment
+
+**Example - Deploy Task to Production**:
+```json
+{
+  "operation": "update",
+  "containerType": "task",
+  "id": "task-uuid",
+  "status": "deployed",
+  "tags": "backend,api,env:production"
+}
+```
+
+**Example - Deploy Feature to Staging**:
+```json
+{
+  "operation": "setStatus",
+  "containerType": "feature",
+  "id": "feature-uuid",
+  "status": "deployed",
+  "tags": "authentication,env:staging"
+}
+```
+
+**StatusValidator Advisory**:
+When setting status to `deployed` without environment tags, StatusValidator returns `ValidWithAdvisory` suggesting you add environment tags. This is **advisory only**, not an error.
+
+---
+
+#### StatusValidator Usage
+
+The StatusValidator service enforces status validation rules:
+
+**Status Validation**:
+```kotlin
+// Validate status value
+statusValidator.validateStatus(
+    status = "testing",
+    containerType = "task",
+    tags = listOf("backend", "env:staging")
+)
+// Returns: ValidationResult.Valid
+```
+
+**Transition Validation**:
+```kotlin
+// Validate status transition
+statusValidator.validateTransition(
+    currentStatus = "in-progress",
+    newStatus = "testing",
+    containerType = "task",
+    containerId = taskUuid,
+    context = prerequisiteContext,
+    tags = listOf("backend")
+)
+// Returns: ValidationResult.Valid or ValidationResult.Invalid with suggestions
+```
+
+**Prerequisite Validation**:
+```kotlin
+// Check prerequisites for status change
+statusValidator.validatePrerequisites(
+    containerId = taskUuid,
+    newStatus = "completed",
+    containerType = "task",
+    context = prerequisiteContext
+)
+// For "completed": checks summary field (300-500 chars)
+// For "in-progress": checks blocking dependencies
+```
+
+**Example - Invalid Transition**:
+```json
+// Attempt to skip statuses
+{
+  "current": "pending",
+  "new": "completed"
+}
+// Result: ValidationResult.Invalid(
+//   reason: "Cannot transition directly from pending to completed",
+//   suggestions: ["Set status to in-progress first", "Complete implementation"]
+// )
+```
+
+---
+
+#### Deployment Workflow Examples
+
+**Task Deployment Flow**:
+```javascript
+// 1. Complete task
+manage_container(operation="update", containerType="task", id="...",
+                 status="completed", summary="Implemented OAuth with JWT tokens...")
+
+// 2. Deploy to staging
+manage_container(operation="update", containerType="task", id="...",
+                 status="deployed", tags="backend,oauth,env:staging")
+
+// 3. Verify staging, then deploy to production
+manage_container(operation="update", containerType="task", id="...",
+                 tags="backend,oauth,env:production")
+```
+
+**Feature Deployment Flow**:
+```javascript
+// 1. Complete all tasks
+// ... (tasks reach completed status)
+
+// 2. Move feature to testing
+manage_container(operation="setStatus", containerType="feature", id="...",
+                 status="testing")
+
+// 3. Validate tests passed
+manage_container(operation="setStatus", containerType="feature", id="...",
+                 status="validating")
+
+// 4. Get review approval
+manage_container(operation="setStatus", containerType="feature", id="...",
+                 status="pending-review")
+
+// 5. Mark complete
+manage_container(operation="setStatus", containerType="feature", id="...",
+                 status="completed")
+
+// 6. Deploy to production
+manage_container(operation="update", containerType="feature", id="...",
+                 status="deployed", tags="user-auth,env:production")
+```
+
+**Canary Deployment**:
+```javascript
+// Deploy to canary first (gradual rollout)
+manage_container(operation="update", containerType="feature", id="...",
+                 status="deployed", tags="payments,env:canary")
+
+// Monitor canary, then promote to production
+manage_container(operation="update", containerType="feature", id="...",
+                 tags="payments,env:production")
+```
 
 ---
 

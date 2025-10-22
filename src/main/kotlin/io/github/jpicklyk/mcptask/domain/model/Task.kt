@@ -132,7 +132,10 @@ enum class TaskStatus {
     CHANGES_REQUESTED,  // Review completed, changes requested
     ON_HOLD,            // Task temporarily paused
     TESTING,            // Implementation complete, running tests
-    BLOCKED;            // Blocked by incomplete dependencies
+    READY_FOR_QA,       // Testing complete, ready for quality assurance review
+    INVESTIGATING,      // Actively investigating issues or technical approach
+    BLOCKED,            // Blocked by incomplete dependencies
+    DEPLOYED;           // Task successfully deployed to production environment
 
     companion object {
         /**

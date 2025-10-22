@@ -1,0 +1,435 @@
+# Task Orchestrator Configuration - Team Development Workflow
+# Comprehensive team workflow with review gates and quality controls
+# Version: 2.0.0
+#
+# USE CASE: Development teams with code review, QA, and deployment processes
+# PHILOSOPHY: "Quality gates and collaboration" - structured team coordination
+# STATUSES: 25-31 statuses (all v2.0 statuses with emphasis on review/validation)
+#
+# Best for:
+# - Development teams with code review requirements
+# - Organizations with QA and testing phases
+# - Projects with stakeholder approval gates
+# - Teams deploying through dev → staging → production pipeline
+# - Collaborative development with multiple specialists
+
+version: "2.0.0"
+
+# ============================================================================
+# STATUS PROGRESSION - TEAM WORKFLOW WITH GATES
+# ============================================================================
+# Full status system with emphasis on review gates and team collaboration
+
+status_progression:
+  features:
+    # TEAM FEATURE STATUSES (10 statuses - all v2.0 statuses)
+    #
+    # draft: Initial feature proposal and exploration
+    #        → Use when: Product owner or team member proposes new feature
+    #        → Next steps: Team discussion, move to planning when approved
+    #        → Team pattern: Draft created by PO/stakeholder, reviewed in planning meeting
+    #
+    # planning: Collaborative requirements definition and task breakdown
+    #           → Use when: Team refining requirements and decomposing into tasks
+    #           → Next steps: Complete task breakdown with team, move to in-development
+    #           → Team pattern: Planning Specialist works with team lead to break down feature
+    #
+    # in-development: Tasks actively being implemented by team members
+    #                 → Use when: Developers picking up and implementing tasks
+    #                 → Next steps: All tasks complete, move to testing
+    #                 → Team pattern: Multiple developers working on different tasks in parallel
+    #
+    # testing: QA team validating feature after all development complete
+    #          → Use when: Development done, QA team running test suite
+    #          → Next steps: Tests pass, move to validating
+    #          → Team pattern: QA engineer runs automated and manual tests
+    #
+    # validating: Final validation before stakeholder review
+    #             → Use when: Tests passed, performing final checks
+    #             → Next steps: Validation complete, move to pending-review
+    #             → Team pattern: Tech lead validates implementation meets requirements
+    #
+    # pending-review: Awaiting stakeholder/client approval before completion
+    #                 → Use when: Feature ready for product owner or client review
+    #                 → Next steps: Approved → completed, rejected → in-development for changes
+    #                 → Team pattern: Product owner reviews feature in staging environment
+    #
+    # blocked: Feature blocked by external dependencies or team blockers
+    #          → Use when: Cannot proceed (API unavailable, infrastructure issues, etc.)
+    #          → Emergency status: Can enter from any state
+    #          → Team pattern: Team lead identifies blocker, assigns someone to resolve
+    #
+    # on-hold: Feature paused by management decision or resource constraints
+    #          → Use when: Intentionally paused (priority shift, budget constraints)
+    #          → Emergency status: Can enter from any state
+    #          → Team pattern: Product owner pauses feature, notifies team
+    #
+    # completed: Feature delivered to production and accepted by stakeholders
+    #            → Use when: Feature shipped, validated, and approved
+    #            → Terminal status: No further progression
+    #            → Team pattern: Deployed to production, stakeholder acceptance confirmed
+    #
+    # archived: Feature archived for historical reference
+    #           → Use when: Feature replaced, obsolete, or no longer maintained
+    #           → Emergency status: Can enter from any state
+    #           → Terminal status: No further progression
+    #           → Team pattern: Legacy features archived after replacement deployed
+    allowed_statuses:
+      - draft
+      - planning
+      - in-development
+      - testing
+      - validating
+      - pending-review
+      - blocked
+      - on-hold
+      - completed
+      - archived
+
+    # Team default flow with review gate
+    default_flow:
+      - draft              # Feature proposed
+      - planning           # Team plans and breaks down
+      - in-development     # Team implements tasks
+      - testing            # QA validates
+      - validating         # Final checks
+      - pending-review     # Stakeholder approval
+      - completed          # Shipped and approved
+
+    # Alternative flow without stakeholder review (internal features)
+    internal_flow:
+      - draft
+      - planning
+      - in-development
+      - testing
+      - validating
+      - completed          # Skip stakeholder review for internal tools
+
+    # Statuses that can be entered from any state
+    emergency_transitions:
+      - blocked           # External blocker or team blocker
+      - on-hold           # Management pause or resource constraint
+      - archived          # Feature obsolete or replaced
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses:
+      - completed
+      - archived
+
+  tasks:
+    # TEAM TASK STATUSES (11 statuses - all v2.0 statuses)
+    #
+    # backlog: Task identified but not yet prioritized in sprint/iteration
+    #          → Use when: Task created but not scheduled for immediate work
+    #          → Next steps: Team prioritizes in sprint planning, move to pending
+    #          → Team pattern: Product backlog maintained by product owner
+    #
+    # pending: Task ready for assignment, dependencies met
+    #          → Use when: Task in current sprint, ready for developer pickup
+    #          → Next steps: Developer self-assigns or assigned by lead, move to in-progress
+    #          → Team pattern: Sprint backlog tasks ready for team members to claim
+    #
+    # in-progress: Developer actively implementing the task
+    #              → Use when: Developer working on implementation
+    #              → Next steps: Implementation complete, move to in-review for code review
+    #              → Team pattern: Developer commits code regularly, updates task progress
+    #
+    # in-review: Code review by peer or tech lead
+    #            → Use when: Pull request submitted, awaiting code review
+    #            → Next steps: Approved → testing, changes needed → changes-requested
+    #            → Team pattern: Peer reviews code, provides feedback in PR
+    #
+    # changes-requested: Code review feedback requires implementation changes
+    #                    → Use when: Reviewer requests modifications before approval
+    #                    → Next steps: Developer implements changes, back to in-progress
+    #                    → Team pattern: Developer addresses review comments, updates PR
+    #
+    # testing: QA validation after code review approval
+    #          → Use when: Code approved, ready for QA testing
+    #          → Next steps: Tests pass → completed, bugs found → in-progress for fixes
+    #          → Team pattern: QA engineer validates functionality, reports issues
+    #
+    # blocked: Task blocked by incomplete dependencies or external issues
+    #          → Use when: Cannot proceed until blocker resolved
+    #          → Next steps: Team resolves blocker, return to previous status
+    #          → Team pattern: Daily standup identifies blockers, team coordinates resolution
+    #
+    # on-hold: Task paused by team decision or resource constraints
+    #          → Use when: Sprint priorities change, task deprioritized
+    #          → Next steps: Task reprioritized, return to previous status or in-progress
+    #          → Team pattern: Sprint planning adjusts priorities, pauses lower-priority tasks
+    #
+    # completed: Task finished, code reviewed, tests passed, merged to main
+    #            → Use when: All work done, PR merged, task delivered
+    #            → Terminal status: No further progression
+    #            → Team pattern: PR merged, task closed, sprint burndown updated
+    #
+    # cancelled: Task cancelled by product owner or team decision
+    #            → Use when: Requirements changed, task no longer needed
+    #            → Terminal status: No further progression
+    #            → Team pattern: Product owner cancels task, notifies team in sprint review
+    #
+    # deferred: Task postponed to future sprint or release
+    #           → Use when: Task delayed but may be resumed later
+    #           → Terminal status: No further progression (create new task to resume)
+    #           → Team pattern: Sprint planning defers task to next sprint or release
+    allowed_statuses:
+      - backlog
+      - pending
+      - in-progress
+      - in-review
+      - changes-requested
+      - testing
+      - blocked
+      - on-hold
+      - completed
+      - cancelled
+      - deferred
+
+    # Team default flow with code review and QA
+    default_flow:
+      - backlog            # Product backlog
+      - pending            # Sprint ready
+      - in-progress        # Developer working
+      - in-review          # Code review
+      - testing            # QA validation
+      - completed          # Merged and done
+
+    # Flow with review iterations (realistic team workflow)
+    with_review_iterations:
+      - backlog
+      - pending
+      - in-progress
+      - in-review          # Initial code review
+      - changes-requested  # Reviewer requests changes
+      - in-progress        # Developer addresses feedback
+      - in-review          # Re-review after changes
+      - testing            # QA validation
+      - completed
+
+    # Flow with dependency blocking (cross-team coordination)
+    with_blocking:
+      - backlog
+      - pending
+      - blocked            # Waiting on another team or external dependency
+      - in-progress        # Unblocked, working
+      - in-review
+      - testing
+      - completed
+
+    # Fast-track flow for urgent fixes (skip some gates)
+    hotfix_flow:
+      - pending            # Urgent issue identified
+      - in-progress        # Developer fixes immediately
+      - in-review          # Quick review by tech lead
+      - testing            # QA validates fix
+      - completed          # Deployed to production
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses:
+      - completed
+      - cancelled         # Task cancelled by product owner
+      - deferred          # Task postponed to future sprint/release
+
+  projects:
+    # TEAM PROJECT STATUSES (6 statuses - all v2.0 statuses)
+    #
+    # planning: Project scope definition and resource allocation
+    #           → Use when: Project kickoff, defining roadmap and features
+    #           → Next steps: Features defined, move to in-development
+    #           → Team pattern: Project manager works with stakeholders on project plan
+    #
+    # in-development: Active feature development by team
+    #                 → Use when: Team actively building features
+    #                 → Next steps: All features complete, move to completed
+    #                 → Team pattern: Sprints running, team delivering features incrementally
+    #
+    # on-hold: Project paused by management or external factors
+    #          → Use when: Project work suspended (budget freeze, priority shift)
+    #          → Emergency status: Can enter from any state
+    #          → Team pattern: Management pauses project, team reassigned to other work
+    #
+    # cancelled: Project cancelled or terminated
+    #            → Use when: Project permanently stopped (requirements changed, superseded)
+    #            → Emergency status: Can enter from any state
+    #            → Terminal status: No further progression
+    #            → Team pattern: Stakeholders cancel project, team notified
+    #
+    # completed: Project delivered and accepted by stakeholders
+    #            → Use when: All features delivered, project goals achieved
+    #            → Terminal status: No further progression
+    #            → Team pattern: Final release deployed, stakeholder acceptance confirmed
+    #
+    # archived: Project archived for historical reference
+    #           → Use when: Project completed long ago or replaced
+    #           → Terminal status: No further progression
+    #           → Team pattern: Maintenance ends, project moved to archived state
+    allowed_statuses:
+      - planning
+      - in-development
+      - on-hold
+      - cancelled
+      - completed
+      - archived
+
+    # Team project flow
+    default_flow:
+      - planning           # Project planning and kickoff
+      - in-development     # Team building features
+      - completed          # Project delivered
+      - archived           # Project archived after maintenance period
+
+    # Statuses that can be entered from any state
+    emergency_transitions:
+      - on-hold           # Budget freeze, priority shift
+      - cancelled         # Project terminated
+
+    # Terminal statuses
+    terminal_statuses:
+      - completed
+      - archived
+      - cancelled
+
+# ============================================================================
+# STATUS VALIDATION RULES - STRICT TEAM WORKFLOW
+# ============================================================================
+# Strict validation to enforce team processes and quality gates
+
+status_validation:
+  # Enforce sequential flow through defined gates
+  # Teams need structured progression to ensure code review and QA gates
+  enforce_sequential: true
+
+  # Allow backward transitions for rework and iteration
+  # Essential for review feedback loops and fixing test failures
+  allow_backward: true
+
+  # Allow emergency transitions (blocked, on-hold, etc.)
+  # Critical for handling real-world blockers and management decisions
+  allow_emergency: true
+
+  # Strict prerequisite validation
+  # Ensure features have tasks, dependencies resolved, reviews complete
+  validate_prerequisites: true
+
+# ============================================================================
+# ENVIRONMENT TAG CONVENTION
+# ============================================================================
+# Tag tasks with deployment environment for team coordination and deployment tracking
+#
+# USAGE: Teams use environment tags to track deployment pipeline progression
+#
+# Environment tags (use as task tags):
+#   - env:local       → Feature tested on developer's local machine
+#   - env:dev         → Deployed to shared development environment
+#   - env:staging     → Deployed to staging environment for QA and stakeholder review
+#   - env:prod        → Deployed to production (live to customers)
+#
+# Team deployment workflow:
+#   1. Developer completes task → Add env:local (local testing)
+#   2. PR merged → CI/CD deploys to dev → Add env:dev (team testing)
+#   3. QA validates in dev → Deploy to staging → Add env:staging (stakeholder review)
+#   4. Stakeholder approves → Deploy to prod → Add env:prod (live release)
+#   5. Keep all tags for full deployment audit trail
+#
+# Multi-environment visibility:
+#   - Query tasks in staging: search_tasks(tags="env:staging,!env:prod")
+#   - Find production features: search_tasks(tags="env:prod")
+#   - Identify dev-only features: search_tasks(tags="env:dev,!env:staging")
+#
+# Team coordination patterns:
+#   - Daily standup: Review tasks with env:dev tag (what's in development environment)
+#   - Sprint review: Demo tasks with env:staging tag (what's ready for stakeholders)
+#   - Release planning: Review tasks with env:staging,!env:prod (ready to ship)
+#   - Production audit: Track all tasks with env:prod tag (what's live)
+#
+# CI/CD integration:
+#   - Deployment scripts query tasks: search_tasks(tags="env:staging")
+#   - Automatically tag tasks during deployment pipeline
+#   - Generate release notes from env:prod tagged tasks in current sprint
+#   - Track deployment history for compliance and auditing
+#
+# Why critical for teams:
+#   - Coordinate deployments across team members
+#   - Identify what's deployed where at any time
+#   - Generate environment-specific reports for stakeholders
+#   - Audit deployment pipeline for compliance
+#   - Track rollback by querying environment tags
+#   - Support blue-green deployments by comparing env tags
+
+# ============================================================================
+# TEAM WORKFLOW PATTERNS
+# ============================================================================
+#
+# Standard feature flow (team collaboration):
+#   Feature: draft → planning → in-development → testing → validating → pending-review → completed
+#   - Draft: Product owner proposes
+#   - Planning: Team breaks down in planning meeting
+#   - In-development: Developers work on tasks in parallel
+#   - Testing: QA validates
+#   - Validating: Tech lead final checks
+#   - Pending-review: Stakeholder approves
+#   - Completed: Deployed to production
+#
+# Task flow with code review (standard for most teams):
+#   Task: backlog → pending → in-progress → in-review → testing → completed
+#   - Backlog: Product backlog
+#   - Pending: Sprint ready
+#   - In-progress: Developer working
+#   - In-review: Peer code review
+#   - Testing: QA validation
+#   - Completed: Merged and deployed
+#
+# Review iteration pattern (common for quality-focused teams):
+#   Task: in-progress → in-review → changes-requested → in-progress → in-review → testing → completed
+#   - Developer submits PR
+#   - Reviewer requests changes
+#   - Developer addresses feedback
+#   - Reviewer approves
+#   - QA validates
+#   - Task completed and merged
+#
+# Blocked and escalation pattern (team coordination):
+#   Task: in-progress → blocked → (daily standup identifies blocker) → in-progress → completed
+#   - Developer hits blocker (dependency incomplete, API down)
+#   - Task marked blocked
+#   - Team identifies blocker in standup
+#   - Team resolves blocker or reassigns task
+#   - Developer resumes work
+#
+# Sprint workflow pattern:
+#   - Sprint planning: Move tasks from backlog → pending
+#   - Daily standup: Check blocked and on-hold tasks
+#   - Code review: Move in-progress → in-review → testing
+#   - Sprint review: Demo completed tasks with env:staging tag
+#   - Retrospective: Review deferred and cancelled tasks
+#
+# Deployment pipeline pattern:
+#   - Developer completes task → env:local
+#   - CI/CD deploys to dev → env:dev
+#   - QA validates → env:staging
+#   - Stakeholder approves → env:prod
+#   - Track deployment with environment tags
+#
+# Team roles and responsibilities:
+#   - Product Owner: Manages backlog, approves features in pending-review
+#   - Tech Lead: Validates features, performs final checks
+#   - Developers: Implement tasks, submit PRs, address review feedback
+#   - Peer Reviewers: Review code in in-review status
+#   - QA Engineers: Validate tasks in testing status
+#   - DevOps: Manage deployments, update environment tags
+#
+# Quality gates (enforced by status progression):
+#   - Code Review Gate: in-progress → in-review → testing (can't skip review)
+#   - QA Gate: in-review → testing → completed (can't skip testing)
+#   - Stakeholder Gate: validating → pending-review → completed (approval required)
+#
+# Tips for team efficiency:
+#   1. Use backlog for all identified work (team visibility)
+#   2. Move to pending during sprint planning (sprint commitment)
+#   3. Always use in-review status (enforce code review culture)
+#   4. Tag with environments as deployment progresses (pipeline visibility)
+#   5. Use blocked status actively in standups (team coordination)
+#   6. Use on-hold for sprint priority changes (transparent reprioritization)
+#   7. Track deferred tasks for future sprint planning
+#   8. Use environment tags for deployment coordination

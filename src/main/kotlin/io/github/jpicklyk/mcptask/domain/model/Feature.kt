@@ -98,7 +98,8 @@ enum class FeatureStatus {
     TESTING,         // Feature in testing phase, test suite running
     VALIDATING,      // Tests passed, final validation before completion
     PENDING_REVIEW,  // Awaiting human review approval
-    BLOCKED;         // Feature blocked by external dependencies or issues
+    BLOCKED,         // Feature blocked by external dependencies or issues
+    DEPLOYED;        // Feature successfully deployed to production environment
 
     companion object {
         /**

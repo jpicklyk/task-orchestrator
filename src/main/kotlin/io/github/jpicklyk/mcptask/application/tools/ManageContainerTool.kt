@@ -1138,7 +1138,8 @@ Docs: task-orchestrator://docs/tools/manage-container
             statusStr,
             "project",
             id,
-            prerequisiteContext
+            prerequisiteContext,
+            existing.tags
         )
 
         if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
@@ -1159,14 +1160,24 @@ Docs: task-orchestrator://docs/tools/manage-container
         val status = parseProjectStatus(statusStr)
         val updated = existing.update(status = status)
 
+        // Prepare success message (include advisory if present)
+        val successMessage = if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+            "Project status updated to ${status.name.lowercase().replace('_', '-')}. Advisory: ${transitionValidation.advisory}"
+        } else {
+            "Project status updated to ${status.name.lowercase().replace('_', '-')}"
+        }
+
         return handleRepositoryResult(
             context.projectRepository().update(updated),
-            "Project status updated to ${status.name.lowercase().replace('_', '-')}"
+            successMessage
         ) { updatedProject ->
             buildJsonObject {
                 put("id", updatedProject.id.toString())
                 put("status", updatedProject.status.name.lowercase().replace('_', '-'))
                 put("modifiedAt", updatedProject.modifiedAt.toString())
+                if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+                    put("advisory", transitionValidation.advisory)
+                }
             }
         }
     }
@@ -1194,7 +1205,8 @@ Docs: task-orchestrator://docs/tools/manage-container
             statusStr,
             "feature",
             id,
-            prerequisiteContext
+            prerequisiteContext,
+            existing.tags
         )
 
         if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
@@ -1215,14 +1227,24 @@ Docs: task-orchestrator://docs/tools/manage-container
         val status = parseFeatureStatus(statusStr)
         val updated = existing.update(status = status)
 
+        // Prepare success message (include advisory if present)
+        val successMessage = if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+            "Feature status updated to ${status.name.lowercase().replace('_', '-')}. Advisory: ${transitionValidation.advisory}"
+        } else {
+            "Feature status updated to ${status.name.lowercase().replace('_', '-')}"
+        }
+
         return handleRepositoryResult(
             context.featureRepository().update(updated),
-            "Feature status updated to ${status.name.lowercase().replace('_', '-')}"
+            successMessage
         ) { updatedFeature ->
             buildJsonObject {
                 put("id", updatedFeature.id.toString())
                 put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
                 put("modifiedAt", updatedFeature.modifiedAt.toString())
+                if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+                    put("advisory", transitionValidation.advisory)
+                }
             }
         }
     }
@@ -1250,7 +1272,8 @@ Docs: task-orchestrator://docs/tools/manage-container
             statusStr,
             "task",
             id,
-            prerequisiteContext
+            prerequisiteContext,
+            existing.tags
         )
 
         if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
@@ -1271,14 +1294,24 @@ Docs: task-orchestrator://docs/tools/manage-container
         val status = parseTaskStatus(statusStr)
         val updated = existing.copy(status = status, modifiedAt = Instant.now())
 
+        // Prepare success message (include advisory if present)
+        val successMessage = if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+            "Task status updated to ${status.name.lowercase().replace('_', '-')}. Advisory: ${transitionValidation.advisory}"
+        } else {
+            "Task status updated to ${status.name.lowercase().replace('_', '-')}"
+        }
+
         return handleRepositoryResult(
             context.taskRepository().update(updated),
-            "Task status updated to ${status.name.lowercase().replace('_', '-')}"
+            successMessage
         ) { updatedTask ->
             buildJsonObject {
                 put("id", updatedTask.id.toString())
                 put("status", updatedTask.status.name.lowercase().replace('_', '-'))
                 put("modifiedAt", updatedTask.modifiedAt.toString())
+                if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+                    put("advisory", transitionValidation.advisory)
+                }
             }
         }
     }
