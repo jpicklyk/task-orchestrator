@@ -1121,6 +1121,196 @@ REVIEW WORKFLOW (applies to: Backend Engineer, Frontend Developer, Database Engi
    - Suggested actions
 ```
 
+### Tag Quality Analysis
+
+**After Planning Specialist completes, perform tag quality analysis for ALL created tasks:**
+
+This is a separate analysis from graph quality - it validates that tasks are properly tagged for specialist routing and domain identification.
+
+#### Tag Quality Analysis Workflow
+
+```javascript
+// Step 1: Extract all tasks from feature
+tasks = query_container(operation="overview", containerType="feature", id="...").tasks
+
+// Step 2: Tag Coverage Analysis
+tagCoverage = {
+  totalTasks: tasks.length,
+  tasksWithDomainTags: 0,
+  tasksWithoutDomainTags: [],
+  routingIssues: []
+}
+
+// Domain tags that indicate specialist area
+domainTags = [
+  "backend", "frontend", "database",
+  "testing", "documentation", "infrastructure",
+  "api", "ui", "schema", "migration"
+]
+
+// Step 3: Check each task for domain tag presence
+for each task in tasks:
+  taskTags = task.tags.split(",").map(t => t.trim())
+
+  // Check: Does task have at least one domain tag?
+  hasDomainTag = taskTags.some(tag => domainTags.includes(tag))
+
+  if (!hasDomainTag):
+    tagCoverage.tasksWithoutDomainTags.push({
+      id: task.id,
+      title: task.title,
+      tags: task.tags,
+      severity: "ALERT",
+      issue: "No domain-specific tag found"
+    })
+  else:
+    tagCoverage.tasksWithDomainTags++
+
+// Step 4: Routing Coverage Analysis
+routingCoverage = {
+  totalTasks: tasks.length,
+  routableTasks: 0,
+  unroutableTasks: []
+}
+
+for each task in tasks:
+  // Check: Can recommend_agent find a specialist?
+  recommendation = recommend_agent(taskId=task.id)
+
+  if (recommendation.recommended == false):
+    routingCoverage.unroutableTasks.push({
+      id: task.id,
+      title: task.title,
+      tags: task.tags,
+      severity: "ALERT",
+      issue: "No specialist recommendation available",
+      reason: recommendation.reason
+    })
+  else:
+    routingCoverage.routableTasks++
+
+// Step 5: Tag Consistency Analysis
+tagConsistency = {
+  issues: []
+}
+
+// Check for common tag inconsistencies
+for each task in tasks:
+  taskTags = task.tags.split(",").map(t => t.trim())
+
+  // Check 1: Inconsistent domain tags
+  domainTagCount = taskTags.filter(t => domainTags.includes(t)).length
+  if (domainTagCount > 2):
+    tagConsistency.issues.push({
+      task: task.title,
+      tags: taskTags,
+      issue: "Too many domain tags (suggests unclear scope)",
+      severity: "WARN"
+    })
+
+  // Check 2: Tag conventions
+  if (task.title.includes("Test") && !taskTags.includes("testing")):
+    tagConsistency.issues.push({
+      task: task.title,
+      tags: taskTags,
+      issue: "Test task missing 'testing' tag",
+      severity: "WARN"
+    })
+
+  if (task.title.includes("Documentation") && !taskTags.includes("documentation")):
+    tagConsistency.issues.push({
+      task: task.title,
+      tags: taskTags,
+      issue: "Documentation task missing 'documentation' tag",
+      severity: "WARN"
+    })
+
+// Step 6: Calculate Tag Quality Score
+tagQuality = {
+  domainCoverage: (tagCoverage.tasksWithDomainTags / tagCoverage.totalTasks) * 100,
+  routingCoverage: (routingCoverage.routableTasks / routingCoverage.totalTasks) * 100,
+  consistencyScore: 100 - (tagConsistency.issues.length / tasks.length * 100),
+  overallScore: average of above three
+}
+
+// Step 7: Report Tag Quality Analysis
+```
+
+#### Tag Quality Report Template
+
+```markdown
+## 🏷️ Tag Quality Analysis
+
+**Planning Specialist:** [Feature Name]
+**Tasks:** [N] | **Total Tags:** [M]
+
+### Domain Tag Coverage
+- **Coverage:** [X]% ([Y]/[N] tasks have domain tags)
+- **Missing Domain Tags:**
+  - [Task A]: Tags: "[tag1, tag2]" - No domain tag (backend/frontend/database/testing/documentation) ❌
+  - [Task B]: Tags: "[tag3]" - No domain tag ❌
+
+### Routing Coverage
+- **Coverage:** [X]% ([Y]/[N] tasks routable)
+- **Routing Issues:**
+  - [Task C]: Tags: "[tag1, tag2]" - No specialist match found ❌
+    - Reason: [recommend_agent reason]
+    - Suggestion: Add "backend" or "frontend" tag for specialist routing
+  - [Task D]: Tags: "[tag3, tag4]" - No specialist match found ❌
+    - Reason: [recommend_agent reason]
+    - Suggestion: Check agent-mapping.yaml for routing patterns
+
+### Tag Consistency
+- **Issues Found:** [N]
+  - [Task E]: Too many domain tags ([tag1, tag2, tag3]) - suggests unclear scope ⚠️
+  - [Task F]: Test task missing "testing" tag ⚠️
+  - [Task G]: Documentation task missing "documentation" tag ⚠️
+
+### Overall Tag Quality Score
+- **Domain Coverage:** [X]% (Target: 100%)
+- **Routing Coverage:** [Y]% (Target: 100%)
+- **Consistency Score:** [Z]% (Target: 95%+)
+- **OVERALL TAG QUALITY:** [Score]%
+
+### Issues Summary
+- 🚨 ALERT: [count] tasks missing domain tags (cannot identify specialist area)
+- 🚨 ALERT: [count] tasks not routable (recommend_agent returns no match)
+- ⚠️ WARN: [count] tag consistency issues (conventions not followed)
+
+### Recommendations
+1. [Most critical fix - e.g., "Add 'backend' tag to Kotlin Enums task"]
+2. [Second priority - e.g., "Update agent-mapping.yaml to handle 'configuration' tags"]
+3. [Convention fix - e.g., "Add 'testing' tag to all test tasks"]
+
+### Definition Improvements
+[If score < 100%, suggest updates to planning-specialist.md:]
+- Add mandatory domain tag validation in Step 7
+- Add checklist: "Verify EVERY task has at least one domain tag (backend/frontend/database/testing/documentation)"
+- Update Step 7 examples to show domain tag for each task type
+```
+
+#### When to Report
+
+- **ALWAYS after Planning Specialist completes** (regular workflow)
+- Report full analysis if tag quality < 100%
+- Brief "✅ Tag quality: 100%" if all tasks properly tagged and routable
+
+#### Add to TodoWrite (if issues found)
+
+```
+- "Review Planning Specialist tags: [X]% domain coverage (target 100%)"
+- "ALERT: [Task A] missing domain tag - add backend/frontend/database/testing/documentation"
+- "ALERT: [Task B] not routable - tags don't match agent-mapping.yaml patterns"
+- "WARN: Tag inconsistency - [Task C] has [issue]"
+```
+
+#### Continuous Improvement
+
+- Track tag quality scores over time
+- Update planning-specialist.md when patterns recur
+- Update agent-mapping.yaml when new tag patterns emerge
+- Target: 100% domain coverage, 100% routing coverage
+
 ### Optimization & Efficiency Analysis
 
 **After ANY workflow execution (Skills or Subagents), perform automatic optimization analysis:**

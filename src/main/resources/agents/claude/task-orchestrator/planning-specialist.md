@@ -398,24 +398,62 @@ manage_sections(
 
 ### Step 7: Inherit and Refine Tags
 
+**CRITICAL: EVERY task MUST have at least one domain-specific tag for specialist routing.**
+
+**Required Domain Tags** (at least ONE per task):
+- `backend` - Backend code, services, APIs
+- `frontend` - UI components, web interfaces
+- `database` - Schema, migrations, data models
+- `testing` - Test implementation, QA
+- `documentation` - User docs, API docs, guides
+- `infrastructure` - Deployment, DevOps, configuration
+
 **Inherit from feature**:
 - Copy feature's functional tags: `authentication`, `api`, `security`
 - Keep feature's type tags: `user-facing`, `core`, `high-priority`
 
-**Add domain tags**:
+**Add domain tags** (MANDATORY - at least one per task):
 - Database task: Add `database`, `schema`, `migration`
 - Backend task: Add `backend`, `api`, `rest`
 - Frontend task: Add `frontend`, `ui`, `components`
 - Test task: Add `testing`, `integration-tests`, `qa`
+- Documentation task: Add `documentation`, `user-guide`, `api-docs`
+- Configuration task: Add `backend`, `infrastructure`, `deployment`
+
+**Validation Checklist** (before moving to Step 8):
+```
+For each task:
+  ✓ Has at least ONE domain tag? (backend/frontend/database/testing/documentation/infrastructure)
+  ✓ Domain tag matches task type? (e.g., test tasks have "testing")
+  ✓ Not too many domain tags? (max 2, more suggests unclear scope)
+  ✓ Tags inherited from feature where relevant?
+```
 
 **Example**:
 ```
 Feature tags: authentication, security, core, user-facing
+
 Database task tags: authentication, security, database, schema, migration
+                    ↑ Inherited           ↑ Domain tag (REQUIRED)
+
 Backend task tags: authentication, security, backend, api, rest
+                   ↑ Inherited           ↑ Domain tag (REQUIRED)
+
 Frontend task tags: authentication, user-facing, frontend, ui, components
+                    ↑ Inherited                  ↑ Domain tag (REQUIRED)
+
 Test task tags: authentication, testing, integration-tests, api
+                ↑ Inherited     ↑ Domain tag (REQUIRED)
+
+Documentation task tags: user-facing, documentation, api-docs
+                         ↑ Inherited  ↑ Domain tag (REQUIRED)
 ```
+
+**Why domain tags are critical:**
+- `recommend_agent()` uses tags to route tasks to specialists
+- Missing domain tags = no specialist match = routing failure
+- Domain tags identify which specialist should work on the task
+- Target: 100% routing coverage (every task routable)
 
 ### Step 8: Return Brief Summary to Orchestrator
 
