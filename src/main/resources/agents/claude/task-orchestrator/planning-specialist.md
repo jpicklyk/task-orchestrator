@@ -398,62 +398,167 @@ manage_sections(
 
 ### Step 7: Inherit and Refine Tags
 
-**CRITICAL: EVERY task MUST have at least one domain-specific tag for specialist routing.**
+**CRITICAL: EVERY task MUST have EXACTLY ONE primary domain tag for specialist routing.**
 
-**Required Domain Tags** (at least ONE per task):
-- `backend` - Backend code, services, APIs
-- `frontend` - UI components, web interfaces
-- `database` - Schema, migrations, data models
-- `testing` - Test implementation, QA
-- `documentation` - User docs, API docs, guides
-- `infrastructure` - Deployment, DevOps, configuration
+**Required Domain Tags** (EXACTLY ONE per task):
+- `backend` - Backend code, services, APIs, business logic, Kotlin/Java application code
+- `frontend` - UI components, web interfaces, client-side code
+- `database` - Schema, migrations, data models, SQL scripts
+- `testing` - Test implementation, test suites, QA automation
+- `documentation` - User docs, API docs, guides, markdown files, Skills
+- `infrastructure` - Deployment, DevOps, CI/CD pipelines
+
+**CRITICAL RULE: ONE PRIMARY DOMAIN TAG ONLY**
+
+Each task must have EXACTLY ONE primary domain tag that identifies which specialist will work on it.
+
+**Why one tag?**
+- `recommend_agent()` needs clear specialist routing (backend vs database vs testing)
+- Multiple domain tags = ambiguous responsibility = unclear who works on it
+- Domain isolation principle: one task = one specialist
 
 **Inherit from feature**:
 - Copy feature's functional tags: `authentication`, `api`, `security`
 - Keep feature's type tags: `user-facing`, `core`, `high-priority`
+- Keep feature's technical tags: `v2.0`, `status-system`, `migration`
 
-**Add domain tags** (MANDATORY - at least one per task):
-- Database task: Add `database`, `schema`, `migration`
-- Backend task: Add `backend`, `api`, `rest`
-- Frontend task: Add `frontend`, `ui`, `components`
-- Test task: Add `testing`, `integration-tests`, `qa`
-- Documentation task: Add `documentation`, `user-guide`, `api-docs`
-- Configuration task: Add `backend`, `infrastructure`, `deployment`
+**Add ONE primary domain tag** (MANDATORY):
 
-**Validation Checklist** (before moving to Step 8):
+Use this decision matrix:
+
+| Task Type | Primary Domain Tag | Rationale |
+|-----------|-------------------|-----------|
+| Kotlin/Java domain models, enums, data classes | `backend` | Application code = Backend Engineer |
+| Kotlin/Java services, repositories, controllers | `backend` | Business logic = Backend Engineer |
+| Flyway migrations (SQL files) | `database` | Schema changes = Database Engineer |
+| Database schema design, indexes, constraints | `database` | Data modeling = Database Engineer |
+| Kotlin/Java test files (any .kt/.java in test/) | `testing` | Test implementation = Test Engineer |
+| Test infrastructure, test utilities | `testing` | Test tooling = Test Engineer |
+| Markdown files (.md), Skills, guides | `documentation` | Documentation = Technical Writer |
+| YAML config files for application behavior | `backend` | Application config = Backend Engineer |
+| Deployment configs, Dockerfile, CI/CD | `infrastructure` | DevOps = Infrastructure specialist |
+| React/Vue/Angular components | `frontend` | UI code = Frontend Developer |
+
+**Common Mistakes - What NOT to Do:**
+
+❌ **Mistake 1: Tagging Kotlin enums as "database"**
 ```
-For each task:
-  ✓ Has at least ONE domain tag? (backend/frontend/database/testing/documentation/infrastructure)
-  ✓ Domain tag matches task type? (e.g., test tasks have "testing")
-  ✓ Not too many domain tags? (max 2, more suggests unclear scope)
+Task: "Add new status enums to TaskStatus.kt"
+Wrong tags: database, backend, enums  ❌ (2 domain tags)
+Correct tags: backend, enums, kotlin  ✅ (ONE domain tag: backend)
+Why: Kotlin domain models = Backend Engineer's code
+```
+
+❌ **Mistake 2: Tagging migrations as "backend"**
+```
+Task: "Create Flyway migration V12 for new statuses"
+Wrong tags: database, backend, migration  ❌ (2 domain tags)
+Correct tags: database, migration, schema  ✅ (ONE domain tag: database)
+Why: SQL migrations = Database Engineer's work
+```
+
+❌ **Mistake 3: Tagging test files as "backend" or "database"**
+```
+Task: "Write unit tests for StatusValidator"
+Wrong tags: testing, backend, test-engineer  ❌ (2 domain tags + specialist tag)
+Correct tags: testing, unit-tests, validation  ✅ (ONE domain tag: testing)
+Why: Test implementation = Test Engineer's work (even if testing backend code)
+```
+
+```
+Task: "Write migration tests for V12"
+Wrong tags: testing, backend, database, migration  ❌ (3 domain tags!)
+Correct tags: testing, migration, database-testing  ✅ (ONE domain tag: testing)
+Why: Test Engineer writes ALL tests, regardless of what they test
+```
+
+❌ **Mistake 4: Tagging Skills/documentation as "backend"**
+```
+Task: "Enhance Status Progression Skill"
+Wrong tags: backend, skills, orchestration  ❌ (wrong domain)
+Correct tags: documentation, skills, orchestration  ✅ (documentation for markdown files)
+Why: Skills are markdown files = Technical Writer's domain
+```
+
+❌ **Mistake 5: Using specialist names as tags**
+```
+Task: "Update config.yaml"
+Wrong tags: backend, backend-engineer, configuration  ❌ (specialist tag as domain tag)
+Correct tags: backend, configuration, yaml  ✅ (no specialist names in task tags)
+Why: Specialist tags are for sections, not tasks. Use domain tags only.
+```
+
+**Edge Case Resolution:**
+
+**Q: Task involves both Kotlin code AND database migration - which domain tag?**
+A: **SPLIT INTO TWO TASKS**
+- Task 1: "Update Kotlin enums" (tags: `backend`, `enums`)
+- Task 2: "Create migration V12" (tags: `database`, `migration`)
+- Dependency: Task 1 BLOCKS Task 2
+
+**Q: Task is config file that affects deployment?**
+A: Determine PRIMARY purpose:
+- Application config (config.yaml, application.yml) → `backend`
+- Deployment config (Dockerfile, docker-compose.yml, .gitlab-ci.yml) → `infrastructure`
+
+**Q: Task is testing backend code - backend or testing?**
+A: **ALWAYS `testing`**
+- Test Engineer writes all test code, regardless of what it tests
+- Backend Engineer writes implementation code with basic unit tests
+- Test Engineer writes comprehensive test suites
+
+**Q: Task is documenting API endpoints?**
+A: **ALWAYS `documentation`**
+- Technical Writer creates all documentation
+- Backend Engineer may provide draft/notes, but documentation task = Technical Writer
+
+**Validation Checklist** (MANDATORY before moving to Step 8):
+
+```
+For EVERY task:
+  ✓ Has EXACTLY ONE primary domain tag? (not 0, not 2, not 3)
+  ✓ Domain tag matches task type using decision matrix above?
+  ✓ No specialist names as tags? (backend-engineer, test-engineer are for sections, not tasks)
   ✓ Tags inherited from feature where relevant?
+  ✓ If work crosses domains, did you split into separate tasks?
 ```
 
-**Example**:
+**If validation fails:**
+- Multiple domain tags → Split task into separate tasks (one per domain)
+- Wrong domain tag → Use decision matrix to pick correct one
+- Specialist name as tag → Remove it (recommend_agent will find specialist via domain tags)
+
+**Example - Correct Tagging**:
 ```
-Feature tags: authentication, security, core, user-facing
+Feature tags: v2.0, status-system, database, migration, kotlin, configuration
 
-Database task tags: authentication, security, database, schema, migration
-                    ↑ Inherited           ↑ Domain tag (REQUIRED)
+Task 1: "Add status enums to TaskStatus.kt"
+Tags: backend, kotlin, enums, v2.0, status-system
+       ↑ Domain (ONE)  ↑ Descriptive  ↑ Inherited
 
-Backend task tags: authentication, security, backend, api, rest
-                   ↑ Inherited           ↑ Domain tag (REQUIRED)
+Task 2: "Create Flyway migration V12 for new statuses"
+Tags: database, migration, schema, v2.0, status-system
+       ↑ Domain (ONE)  ↑ Descriptive  ↑ Inherited
 
-Frontend task tags: authentication, user-facing, frontend, ui, components
-                    ↑ Inherited                  ↑ Domain tag (REQUIRED)
+Task 3: "Write alignment tests for schema/config/enum consistency"
+Tags: testing, alignment, v2.0, quality, status-system
+       ↑ Domain (ONE)  ↑ Descriptive  ↑ Inherited
 
-Test task tags: authentication, testing, integration-tests, api
-                ↑ Inherited     ↑ Domain tag (REQUIRED)
+Task 4: "Update default-config.yaml with new statuses"
+Tags: backend, configuration, yaml, v2.0, status-system
+       ↑ Domain (ONE)  ↑ Descriptive  ↑ Inherited
 
-Documentation task tags: user-facing, documentation, api-docs
-                         ↑ Inherited  ↑ Domain tag (REQUIRED)
+Task 5: "Enhance Status Progression Skill documentation"
+Tags: documentation, skills, orchestration, v2.0, status-system
+       ↑ Domain (ONE)  ↑ Descriptive  ↑ Inherited
 ```
 
 **Why domain tags are critical:**
-- `recommend_agent()` uses tags to route tasks to specialists
+- `recommend_agent()` uses domain tags to route tasks to specialists
 - Missing domain tags = no specialist match = routing failure
-- Domain tags identify which specialist should work on the task
-- Target: 100% routing coverage (every task routable)
+- Multiple domain tags = ambiguous routing = unclear responsibility
+- Wrong domain tag = wrong specialist assigned = inefficient work
+- Target: 100% routing coverage with clear, unambiguous specialist assignment
 
 ### Step 8: Return Brief Summary to Orchestrator
 
