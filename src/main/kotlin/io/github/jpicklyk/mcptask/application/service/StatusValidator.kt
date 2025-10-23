@@ -491,6 +491,7 @@ class StatusValidator {
 
     private fun getAllowedStatusesV2(containerType: String, config: Map<String, Any?>): List<String> {
         val statusProgression = getStatusProgressionConfig(containerType, config)
+        @Suppress("UNCHECKED_CAST")
         return statusProgression["allowed_statuses"] as? List<String> ?: emptyList()
     }
 

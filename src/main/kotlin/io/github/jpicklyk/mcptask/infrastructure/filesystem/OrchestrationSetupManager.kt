@@ -54,9 +54,9 @@ class OrchestrationSetupManager(
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
 
         // Resource paths
-        const val RESOURCE_PATH_PREFIX = "/agents/claude/task-orchestrator"
-        const val SKILLS_RESOURCE_PATH = "/skills"
-        const val OUTPUT_STYLE_RESOURCE_PATH = "/output-styles"
+        const val RESOURCE_PATH_PREFIX = "/claude/agents"
+        const val SKILLS_RESOURCE_PATH = "/claude/skills"
+        const val OUTPUT_STYLE_RESOURCE_PATH = "/claude/output-styles"
 
         // Configuration files
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
@@ -282,7 +282,7 @@ class OrchestrationSetupManager(
         }
 
         // Read from embedded resources
-        val resourcePath = "/agents/$AGENT_MAPPING_FILE"
+        val resourcePath = "/claude/configuration/$AGENT_MAPPING_FILE"
         val resourceStream = javaClass.getResourceAsStream(resourcePath)
             ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
 
@@ -318,7 +318,7 @@ class OrchestrationSetupManager(
         }
 
         // Read from embedded resources
-        val resourcePath = "/orchestration/default-config.yaml"
+        val resourcePath = "/claude/configuration/default-config.yaml"
         val resourceStream = javaClass.getResourceAsStream(resourcePath)
             ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
 

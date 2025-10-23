@@ -441,6 +441,7 @@ Docs: task-orchestrator://docs/tools/query-container
         val statusStr = optionalString(params, "status")
 
         // Parse multi-value status filter (projects don't have priority)
+        @Suppress("UNCHECKED_CAST")
         val statusFilter = parseStatusFilter(statusStr, "project") as StatusFilter<ProjectStatus>?
 
         val tagsStr = optionalString(params, "tags")
@@ -489,6 +490,7 @@ Docs: task-orchestrator://docs/tools/query-container
         val priorityStr = optionalString(params, "priority")
 
         // Parse multi-value filters
+        @Suppress("UNCHECKED_CAST")
         val statusFilter = parseStatusFilter(statusStr, "feature") as StatusFilter<FeatureStatus>?
         val priorityFilter = parsePriorityFilter(priorityStr)
 
@@ -541,6 +543,7 @@ Docs: task-orchestrator://docs/tools/query-container
         val priorityStr = optionalString(params, "priority")
 
         // Parse multi-value filters
+        @Suppress("UNCHECKED_CAST")
         val statusFilter = parseStatusFilter(statusStr, "task") as StatusFilter<TaskStatus>?
         val priorityFilter = parsePriorityFilter(priorityStr)
 

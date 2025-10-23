@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.database.repository.*
-import io.github.jpicklyk.mcptask.infrastructure.database.schema.management.SchemaManagerFactory
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -14,8 +13,6 @@ import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.io.TempDir
-import org.yaml.snakeyaml.Yaml
-import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -58,7 +55,7 @@ class ValidationPipelineIntegrationTest {
         val configFile = configDir.resolve("config.yaml")
 
         // Load the production default-config.yaml from main resources
-        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("orchestration/default-config.yaml")
+        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("claude/configuration/default-config.yaml")
         if (defaultConfigResource != null) {
             Files.copy(defaultConfigResource, configFile, StandardCopyOption.REPLACE_EXISTING)
             println("Copied default-config.yaml from main resources to $configFile")

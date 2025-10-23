@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.*
 
@@ -49,7 +48,7 @@ class ManageContainerToolTest {
         val configFile = configDir.resolve("config.yaml")
 
         // Copy default config from resources
-        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("orchestration/default-config.yaml")
+        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("claude/configuration/default-config.yaml")
         if (defaultConfigResource != null) {
             java.nio.file.Files.copy(defaultConfigResource, configFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         }

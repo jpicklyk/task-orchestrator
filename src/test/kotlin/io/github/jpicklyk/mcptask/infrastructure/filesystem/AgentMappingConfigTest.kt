@@ -13,7 +13,7 @@ class AgentMappingConfigTest {
     @Test
     fun `agent-mapping yaml should be valid and parseable`() {
         // Read the embedded resource
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream, "agent-mapping.yaml should exist in resources")
 
         // Parse YAML
@@ -42,7 +42,7 @@ class AgentMappingConfigTest {
             "Test Engineer"
         )
 
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
         val yaml = Yaml()
@@ -65,7 +65,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `each tag mapping should have required fields`() {
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
         val yaml = Yaml()
@@ -111,7 +111,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `priority list should include all mapped agents`() {
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
         val yaml = Yaml()
@@ -149,7 +149,7 @@ class AgentMappingConfigTest {
         val expectedAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
 
         expectedAgentFiles.forEach { fileName ->
-            val resourceStream = javaClass.getResourceAsStream("/agents/claude/task-orchestrator/$fileName")
+            val resourceStream = javaClass.getResourceAsStream("/claude/agents/$fileName")
             assertNotNull(
                 resourceStream,
                 "Agent definition file '$fileName' should exist in resources"
@@ -160,7 +160,7 @@ class AgentMappingConfigTest {
     @Test
     fun `all tag mappings reference valid agent definition files`() {
         // Verify that all agents referenced in tagMappings have corresponding .md files
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
         val yaml = Yaml()
@@ -194,7 +194,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `section tags should be kebab-case strings`() {
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
         val yaml = Yaml()
@@ -224,7 +224,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `specific agent mappings should have expected tags`() {
-        val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
+        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
         val yaml = Yaml()
