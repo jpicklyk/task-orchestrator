@@ -76,17 +76,6 @@ status_progression:
     #           → Emergency status: Can enter from any state
     #           → Terminal status: No further progression
     #           → Example: Legacy authentication replaced by new OAuth implementation
-    allowed_statuses:
-      - draft
-      - planning
-      - in-development
-      - testing
-      - validating
-      - pending-review
-      - blocked
-      - on-hold
-      - completed
-      - archived
 
     # Default flow for comprehensive feature development
     default_flow:
@@ -175,18 +164,6 @@ status_progression:
     #           → Use when: Task delayed but not cancelled
     #           → Terminal status: No further progression
     #           → Example: "Add biometric authentication" deferred to v2.0 release
-    allowed_statuses:
-      - backlog
-      - pending
-      - in-progress
-      - in-review
-      - changes-requested
-      - testing
-      - blocked
-      - on-hold
-      - completed
-      - cancelled
-      - deferred
 
     # Default comprehensive task flow
     default_flow:
@@ -195,36 +172,6 @@ status_progression:
       - in-progress        # Actively being worked on
       - testing            # Implementation complete, running tests
       - completed          # Task complete
-
-    # Alternative flow with code review gate
-    with_review:
-      - backlog
-      - pending
-      - in-progress
-      - in-review          # Awaiting code review
-      - testing            # Review approved, testing
-      - completed
-
-    # Flow with review iterations (most realistic for quality work)
-    with_review_iterations:
-      - backlog
-      - pending
-      - in-progress
-      - in-review          # Initial review
-      - changes-requested  # Changes needed
-      - in-progress        # Implementing changes
-      - in-review          # Re-review after changes
-      - testing
-      - completed
-
-    # Flow with dependency blocking
-    with_blocking:
-      - backlog
-      - pending
-      - blocked            # Blocked by dependencies
-      - in-progress        # Unblocked, working
-      - testing
-      - completed
 
     # Terminal statuses (no progression from these)
     terminal_statuses:
@@ -266,13 +213,6 @@ status_progression:
     #           → Use when: Project no longer active but kept for reference
     #           → Terminal status: No further progression
     #           → Example: Legacy e-commerce platform replaced by new version
-    allowed_statuses:
-      - planning
-      - in-development
-      - on-hold
-      - cancelled
-      - completed
-      - archived
 
     # Default project flow
     default_flow:

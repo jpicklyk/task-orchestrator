@@ -483,6 +483,10 @@ class SchemaConfigAlignmentTest {
      * Gets allowed statuses from config.yaml for the specified entity type.
      */
     @Suppress("UNCHECKED_CAST")
+    /**
+     * Derives allowed statuses from configured flows, emergency transitions, and terminal statuses.
+     * This matches the v2.0 schema where allowed_statuses is no longer explicitly configured.
+     */
     private fun getConfigAllowedStatuses(entityType: String): List<String> {
         val statusProgression = configData["status_progression"] as? Map<String, Any>
             ?: throw IllegalStateException("Config missing status_progression section")
@@ -490,8 +494,26 @@ class SchemaConfigAlignmentTest {
         val entityConfig = statusProgression[entityType] as? Map<String, Any>
             ?: throw IllegalStateException("Config missing status_progression.$entityType section")
 
-        return entityConfig["allowed_statuses"] as? List<String>
-            ?: throw IllegalStateException("Config missing status_progression.$entityType.allowed_statuses")
+        val allowedStatuses = mutableSetOf<String>()
+
+        // Add all statuses from all defined flows
+        @Suppress("UNCHECKED_CAST")
+        val allFlows = entityConfig.filterKeys { it.endsWith("_flow") }
+        allFlows.values.forEach { flowValue ->
+            if (flowValue is List<*>) {
+                flowValue.filterIsInstance<String>().forEach { allowedStatuses.add(it) }
+            }
+        }
+
+        // Add emergency transitions
+        val emergencyStatuses = entityConfig["emergency_transitions"] as? List<String> ?: emptyList()
+        allowedStatuses.addAll(emergencyStatuses)
+
+        // Add terminal statuses
+        val terminalStatuses = entityConfig["terminal_statuses"] as? List<String> ?: emptyList()
+        allowedStatuses.addAll(terminalStatuses)
+
+        return allowedStatuses.toList()
     }
 
     /**

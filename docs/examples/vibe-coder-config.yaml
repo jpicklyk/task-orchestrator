@@ -41,12 +41,6 @@ status_progression:
     #
     # completed: Feature shipped and done
     #            → Terminal status: No further progression
-    allowed_statuses:
-      - draft
-      - in-development
-      - blocked
-      - on-hold
-      - completed
 
     # Simple linear flow: idea → build → done
     default_flow:
@@ -92,14 +86,6 @@ status_progression:
     #
     # cancelled: Task no longer needed
     #            → Terminal status: Explicitly abandoned
-    allowed_statuses:
-      - pending
-      - in-progress
-      - testing
-      - blocked
-      - on-hold
-      - completed
-      - cancelled
 
     # Simple flow: ready → build → verify → done
     default_flow:
@@ -136,11 +122,6 @@ status_progression:
     #
     # completed: Project shipped
     #            → Terminal status: Project delivered
-    allowed_statuses:
-      - planning
-      - in-development
-      - on-hold
-      - completed
 
     # Simple project flow
     default_flow:

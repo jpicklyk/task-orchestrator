@@ -74,17 +74,6 @@ status_progression:
     #           → Emergency status: Can enter from any state
     #           → Terminal status: No further progression
     #           → Team pattern: Legacy features archived after replacement deployed
-    allowed_statuses:
-      - draft
-      - planning
-      - in-development
-      - testing
-      - validating
-      - pending-review
-      - blocked
-      - on-hold
-      - completed
-      - archived
 
     # Team default flow with review gate
     default_flow:
@@ -173,18 +162,6 @@ status_progression:
     #           → Use when: Task delayed but may be resumed later
     #           → Terminal status: No further progression (create new task to resume)
     #           → Team pattern: Sprint planning defers task to next sprint or release
-    allowed_statuses:
-      - backlog
-      - pending
-      - in-progress
-      - in-review
-      - changes-requested
-      - testing
-      - blocked
-      - on-hold
-      - completed
-      - cancelled
-      - deferred
 
     # Team default flow with code review and QA
     default_flow:
@@ -194,28 +171,6 @@ status_progression:
       - in-review          # Code review
       - testing            # QA validation
       - completed          # Merged and done
-
-    # Flow with review iterations (realistic team workflow)
-    with_review_iterations:
-      - backlog
-      - pending
-      - in-progress
-      - in-review          # Initial code review
-      - changes-requested  # Reviewer requests changes
-      - in-progress        # Developer addresses feedback
-      - in-review          # Re-review after changes
-      - testing            # QA validation
-      - completed
-
-    # Flow with dependency blocking (cross-team coordination)
-    with_blocking:
-      - backlog
-      - pending
-      - blocked            # Waiting on another team or external dependency
-      - in-progress        # Unblocked, working
-      - in-review
-      - testing
-      - completed
 
     # Fast-track flow for urgent fixes (skip some gates)
     hotfix_flow:
@@ -264,13 +219,6 @@ status_progression:
     #           → Use when: Project completed long ago or replaced
     #           → Terminal status: No further progression
     #           → Team pattern: Maintenance ends, project moved to archived state
-    allowed_statuses:
-      - planning
-      - in-development
-      - on-hold
-      - cancelled
-      - completed
-      - archived
 
     # Team project flow
     default_flow:

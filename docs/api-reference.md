@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference (v2.0)
 
-The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-driven project management, achieving **71% token reduction** through container-based consolidation.
+The MCP Task Orchestrator v2.0 provides **17 consolidated MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
 
 > **Migration from v1.x**: See [v2.0 Migration Guide](migration/v2.0-migration-guide.md) for complete migration instructions.
 
@@ -34,6 +34,8 @@ The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-dri
   - [setup_claude_orchestration](#setup_claude_orchestration) ✏️
   - [get_agent_definition](#get_agent_definition) 🔍
   - [recommend_agent](#recommend_agent) 🔍
+- [Workflow Tools](#workflow-tools)
+  - [get_next_status](#get_next_status) 🔍
 - [Permission Model](#permission-model)
 - [Best Practices](#best-practices)
 
@@ -45,7 +47,7 @@ The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-dri
 
 ### Massive Consolidation
 
-**v1.x: 56 tools** → **v2.0: 16 tools** (71% reduction)
+**v1.x: 56 tools** → **v2.0: 17 tools** (70% reduction)
 
 | Category | v1.x Tools | v2.0 Tools | Reduction |
 |----------|------------|------------|-----------|
@@ -57,7 +59,7 @@ The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-dri
 
 ### Key Improvements
 
-✅ **71% token reduction** - Massive context window savings
+✅ **70% token reduction** - Massive context window savings
 ✅ **Permission separation** - `query_*` (read) vs `manage_*` (write)
 ✅ **Operation-based** - `operation` parameter routes to functionality
 ✅ **Consistent patterns** - Same interface across all container types
@@ -99,6 +101,8 @@ The MCP Task Orchestrator v2.0 provides **16 consolidated MCP tools** for AI-dri
 | `setup_claude_orchestration` | ✏️ WRITE | (single operation) | Initialize agent system |
 | `get_agent_definition` | 🔍 READ | (single operation) | Get agent metadata |
 | `recommend_agent` | 🔍 READ | (single operation) | Route task to skill/agent |
+| **Workflow Tools** |
+| `get_next_status` | 🔍 READ | (single operation) | Status progression recommendations |
 
 ---
 
@@ -2291,6 +2295,222 @@ None required - fully automatic setup
 
 ---
 
+## Workflow Tools
+
+Workflow tools provide intelligent recommendations for task management and status progression.
+
+### get_next_status
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Get intelligent status progression recommendations based on workflow configuration
+
+**Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `containerId` | UUID | **Yes** | UUID of task/feature/project to analyze |
+| `containerType` | enum | **Yes** | Type: `task`, `feature`, or `project` |
+| `currentStatus` | string | No | Override current status (for what-if analysis) |
+| `tags` | array[string] | No | Override entity tags (for flow determination) |
+
+#### How It Works
+
+The tool analyzes the entity and workflow configuration to recommend the next status:
+
+1. **Fetches entity** - Gets current status and tags from repository
+2. **Determines workflow** - Uses tags to match flow (e.g., bug_fix_flow, documentation_flow, default_flow)
+3. **Checks prerequisites** - Validates completion requirements via StatusValidator
+4. **Returns recommendation** - Ready/Blocked/Terminal with detailed context
+
+#### Recommendation Types
+
+**Ready**: Entity can progress to next status
+- Includes: `recommendedStatus`, `activeFlow`, `flowSequence`, `currentPosition`, `matchedTags`, `reason`
+
+**Blocked**: Prerequisites not met
+- Includes: `currentStatus`, `blockers` (array), `activeFlow`, `flowSequence`, `currentPosition`, `reason`
+
+**Terminal**: At final status (completed, cancelled, archived)
+- Includes: `currentStatus`, `activeFlow`, `reason`
+
+#### Example - Task Ready for Next Status
+
+**Request**:
+```json
+{
+  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "containerType": "task"
+}
+```
+
+**Response (Ready)**:
+```json
+{
+  "success": true,
+  "message": "Ready to progress to 'testing' in default_flow",
+  "data": {
+    "recommendation": "Ready",
+    "recommendedStatus": "testing",
+    "currentStatus": "in-progress",
+    "activeFlow": "default_flow",
+    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+    "currentPosition": 2,
+    "matchedTags": ["backend", "api"],
+    "reason": "Task is ready to progress from in-progress to testing. All prerequisites met."
+  }
+}
+```
+
+#### Example - Task Blocked by Prerequisites
+
+**Request**:
+```json
+{
+  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "containerType": "task"
+}
+```
+
+**Response (Blocked)**:
+```json
+{
+  "success": true,
+  "message": "Blocked by 1 issue(s)",
+  "data": {
+    "recommendation": "Blocked",
+    "currentStatus": "testing",
+    "blockers": [
+      "Task summary must be 300-500 characters (current: 50)"
+    ],
+    "activeFlow": "default_flow",
+    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+    "currentPosition": 3,
+    "reason": "Cannot progress: Task summary must be 300-500 characters (current: 50)"
+  }
+}
+```
+
+#### Example - Terminal Status
+
+**Request**:
+```json
+{
+  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "containerType": "task"
+}
+```
+
+**Response (Terminal)**:
+```json
+{
+  "success": true,
+  "message": "At terminal status 'completed'",
+  "data": {
+    "recommendation": "Terminal",
+    "currentStatus": "completed",
+    "activeFlow": "default_flow",
+    "reason": "Task has reached terminal status 'completed'. No further progression possible."
+  }
+}
+```
+
+#### Example - What-If Analysis
+
+Override current status or tags to test different scenarios:
+
+**Request**:
+```json
+{
+  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "containerType": "task",
+  "currentStatus": "pending",
+  "tags": ["bug", "urgent"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Ready to progress to 'in-progress' in bug_fix_flow",
+  "data": {
+    "recommendation": "Ready",
+    "recommendedStatus": "in-progress",
+    "currentStatus": "pending",
+    "activeFlow": "bug_fix_flow",
+    "flowSequence": ["pending", "in-progress", "testing", "completed"],
+    "currentPosition": 0,
+    "matchedTags": ["bug"],
+    "reason": "Using bug_fix_flow (matched tags: bug). Ready to start work."
+  }
+}
+```
+
+#### Integration with Status Progression Skill
+
+The **Status Progression Skill** (Claude Code only) uses `get_next_status` to provide human-friendly guidance:
+
+**User**: "Can I complete this task?"
+
+**Skill workflow**:
+1. Calls `get_next_status(containerId="...", containerType="task")`
+2. Interprets recommendation
+3. If Blocked → explains blockers and how to fix them
+4. If Ready → confirms and provides setStatus command
+5. If Terminal → explains status is final
+
+**Example Skill Response (Blocked)**:
+```
+Not ready for completion. Your config requires task summary (300-500 chars).
+
+Current: 50 characters
+Required: 300-500 characters
+
+Fix:
+manage_container(operation="update", containerType="task",
+  id="...", summary="[300-500 char description]")
+
+Then complete:
+manage_container(operation="setStatus", containerType="task",
+  id="...", status="completed")
+```
+
+#### Usage Notes
+
+1. **Read-Only**: This tool ONLY recommends status. Use `manage_container(operation="setStatus", ...)` to apply changes.
+
+2. **Flow Determination**: Entity tags are matched against workflow configuration (config.yaml) to determine active flow:
+   - Tags `["bug"]` → `bug_fix_flow`
+   - Tags `["docs", "documentation"]` → `documentation_flow`
+   - Default → `default_flow`
+
+3. **Prerequisite Validation**: Automatically checks:
+   - **Tasks**: Summary length (300-500 chars for completed), blocking dependencies
+   - **Features**: Task completion, minimum task count
+   - **Projects**: Feature completion
+
+4. **Terminal Statuses**: Cannot progress from:
+   - Tasks: `completed`, `cancelled`, `deferred`
+   - Features: `completed`, `archived`
+   - Projects: `completed`, `archived`, `cancelled`
+
+5. **What-If Analysis**: Use optional `currentStatus` and `tags` parameters to test scenarios without modifying entities
+
+#### Related Tools
+
+- `manage_container` - Apply status changes with `setStatus` operation
+- `query_container` - Get entity details
+- **Status Progression Skill** (Claude Code) - Natural language interface to get_next_status
+
+#### Additional Resources
+
+- **[Status Progression Guide](status-progression.md)** - Comprehensive workflow examples
+- **[config.yaml Reference](../src/main/resources/orchestration/default-config.yaml)** - Status flow configuration
+- **[Status Progression Skill](.claude/skills/status-progression/SKILL.md)** - Claude Code skill documentation
+
+---
+
 ## Permission Model
 
 ### Read vs Write Separation
@@ -2312,6 +2532,7 @@ v2.0 introduces **clear permission separation** between read and write operation
 - `get_tag_usage` - Find tag usage
 - `get_agent_definition` - Read agent metadata
 - `recommend_agent` - Get routing recommendation
+- `get_next_status` - Status progression recommendations
 
 **Characteristics**:
 - ✅ No locking required
@@ -2576,6 +2797,6 @@ AI Workflow:
 
 **Questions?** AI agents discover tool schemas automatically through MCP. Ask Claude directly for parameter details, usage examples, or integration patterns.
 
-**Last Updated**: 2025-10-19
+**Last Updated**: 2025-10-23
 **Version**: 2.0.0
-**Tool Count**: 16 tools (71% reduction from v1.x)
+**Tool Count**: 17 tools (70% reduction from v1.x)

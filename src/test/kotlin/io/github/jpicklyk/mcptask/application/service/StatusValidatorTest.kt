@@ -430,14 +430,15 @@ class StatusValidatorTest {
     }
 
     @Test
-    fun `config enablement - empty allowed_statuses permits all enums`(@TempDir tempDir: Path) {
+    fun `config enablement - statuses are derived from flows`(@TempDir tempDir: Path) {
         System.setProperty("user.dir", tempDir.toString())
         createConfigWithEmptyAllowedStatuses(tempDir)
 
-        // With empty allowed_statuses, should fall back to enum validation
+        // In v2, allowed_statuses is derived from flows (not explicitly configured)
+        // The config has default_flow: [pending, in-progress, completed]
         val result = validator.validateStatus("in-progress", "task")
-        // This will be invalid because empty list means no statuses allowed
-        assertTrue(result is StatusValidator.ValidationResult.Invalid)
+        // in-progress is in the default_flow, so it should be valid
+        assertTrue(result is StatusValidator.ValidationResult.Valid || result is StatusValidator.ValidationResult.ValidWithAdvisory)
     }
 
     @Test
@@ -1517,6 +1518,142 @@ class StatusValidatorTest {
 
     // ========== HELPER METHODS ==========
 
+    // ========== TAG-AWARE FLOW TESTS (Phase 2) ==========
+
+    @Test
+    fun `tag-aware flow - bug tag uses bug_fix_flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Bug fix flow: [pending, in-progress, testing, completed]
+        // Should allow pending → in-progress
+        val result = validator.validateTransition("pending", "in-progress", "task", tags = listOf("bug", "backend"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - documentation tag uses documentation_flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Documentation flow: [pending, in-progress, in-review, completed] (no testing)
+        // Should allow in-progress → in-review
+        val result = validator.validateTransition("in-progress", "in-review", "task", tags = listOf("docs"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - hotfix tag uses hotfix_flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Hotfix flow: [in-progress, testing, completed] (skip backlog+pending)
+        // Should allow in-progress → testing
+        val result = validator.validateTransition("in-progress", "testing", "task", tags = listOf("hotfix", "emergency"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - no matching tags uses default_flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Default flow: [backlog, pending, in-progress, testing, completed]
+        // Should use default flow for unmatched tags
+        val result = validator.validateTransition("backlog", "pending", "task", tags = listOf("feature", "backend"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - empty tags uses default_flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Default flow should be used when no tags provided
+        val result = validator.validateTransition("pending", "in-progress", "task", tags = emptyList())
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - first match wins in priority order`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // If task has both "bug" and "docs" tags, bug_fix_flow should win (appears first in mappings)
+        // Bug fix flow: [pending, in-progress, testing, completed]
+        // Docs flow: [pending, in-progress, in-review, completed]
+        // Transition to testing should be valid (in bug flow)
+        val result = validator.validateTransition("in-progress", "testing", "task", tags = listOf("bug", "docs"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - case insensitive tag matching`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Tag "BUG" should match mapping tag "bug"
+        val result = validator.validateTransition("pending", "in-progress", "task", tags = listOf("BUG"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - feature rapid_prototype_flow skips planning`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Rapid prototype flow: [draft, in-development, completed]
+        // Should allow draft → in-development directly
+        val result = validator.validateTransition("draft", "in-development", "feature", tags = listOf("prototype"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - feature experimental_flow allows archived without completion`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Experimental flow: [draft, in-development, archived]
+        // Should allow in-development → archived (experiments can be archived without completion)
+        val result = validator.validateTransition("in-development", "archived", "feature", tags = listOf("experiment"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - validates status not in active flow but in another flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // If task uses bug_fix_flow [pending, in-progress, testing, completed]
+        // Transition to "in-review" (not in bug flow) should still be allowed (might be emergency/manual override)
+        val result = validator.validateTransition("in-progress", "in-review", "task", tags = listOf("bug"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `tag-aware flow - blocks sequential skipping in active flow`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Bug fix flow: [pending, in-progress, testing, completed]
+        // Should block pending → completed (skip in-progress and testing)
+        val result = validator.validateTransition("pending", "completed", "task", tags = listOf("bug"))
+        assertTrue(result is StatusValidator.ValidationResult.Invalid)
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("skip"))
+    }
+
+    @Test
+    fun `tag-aware flow - allows backward transitions in active flow when enabled`(@TempDir tempDir: Path) = runBlocking {
+        System.setProperty("user.dir", tempDir.toString())
+        createConfigWithFlowMappings(tempDir)
+
+        // Documentation flow: [pending, in-progress, in-review, completed]
+        // Should allow in-review → in-progress (backward for rework)
+        val result = validator.validateTransition("in-review", "in-progress", "task", tags = listOf("docs"))
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
     /**
      * Creates a test configuration file in the specified directory
      */
@@ -1529,71 +1666,25 @@ version: "2.0.0"
 
 status_progression:
   features:
-    allowed_statuses:
-      - planning
-      - in-development
-      - testing
-      - validating
-      - pending-review
-      - blocked
-      - completed
-      - archived
+    default_flow: [planning, in-development, testing, validating, pending-review, completed]
 
-    default_flow:
-      - planning
-      - in-development
-      - testing
-      - validating
-      - completed
+    emergency_transitions: [blocked, archived]
 
-    emergency_transitions:
-      - blocked
-      - archived
-
-    terminal_statuses:
-      - completed
-      - archived
+    terminal_statuses: [completed, archived]
 
   tasks:
-    allowed_statuses:
-      - pending
-      - in-progress
-      - testing
-      - blocked
-      - completed
-      - cancelled
-      - deferred
+    default_flow: [pending, in-progress, testing, completed]
 
-    default_flow:
-      - pending
-      - in-progress
-      - testing
-      - completed
+    emergency_transitions: [blocked, cancelled, deferred]
 
-    terminal_statuses:
-      - completed
-      - cancelled
-      - deferred
+    terminal_statuses: [completed, cancelled, deferred]
 
   projects:
-    allowed_statuses:
-      - planning
-      - in-development
-      - completed
-      - archived
-      - on-hold
-      - cancelled
+    default_flow: [planning, in-development, completed, archived]
 
-    default_flow:
-      - planning
-      - in-development
-      - completed
-      - archived
+    emergency_transitions: [on-hold, cancelled]
 
-    terminal_statuses:
-      - completed
-      - archived
-      - cancelled
+    terminal_statuses: [completed, archived, cancelled]
 
 status_validation:
   enforce_sequential: true
@@ -1614,16 +1705,7 @@ version: "2.0.0"
 
 status_progression:
   tasks:
-    allowed_statuses:
-      - pending
-      - in-progress
-      - $customStatus
-      - completed
-
-    default_flow:
-      - pending
-      - in-progress
-      - completed
+    default_flow: [pending, in-progress, $customStatus, completed]
 """
         Files.writeString(taskOrchestratorDir.resolve("config.yaml"), configContent)
     }
@@ -1637,15 +1719,7 @@ version: "2.0.0"
 
 status_progression:
   tasks:
-    allowed_statuses:
-      - pending
-      - in-progress
-      - completed
-
-    default_flow:
-      - pending
-      - in-progress
-      - completed
+    default_flow: [pending, in-progress, completed]
 """
         Files.writeString(taskOrchestratorDir.resolve("config.yaml"), configContent)
     }
@@ -1659,12 +1733,7 @@ version: "2.0.0"
 
 status_progression:
   tasks:
-    allowed_statuses: []
-
-    default_flow:
-      - pending
-      - in-progress
-      - completed
+    default_flow: [pending, in-progress, completed]
 """
         Files.writeString(taskOrchestratorDir.resolve("config.yaml"), configContent)
     }
@@ -1678,15 +1747,7 @@ version: "2.0.0"
 
 status_progression:
   tasks:
-    allowed_statuses:
-      - pending
-      - in-progress
-      - completed
-
-    default_flow:
-      - pending
-      - in-progress
-      - completed
+    default_flow: [pending, in-progress, completed]
 
 status_validation:
   validate_prerequisites: false
@@ -1749,20 +1810,9 @@ version: "2.0.0"
 
 status_progression:
   tasks:
-    allowed_statuses:
-      - pending
-      - in-progress
-      - testing
-      - completed
+    default_flow: [pending, in-progress, testing, completed]
 
-    default_flow:
-      - pending
-      - in-progress
-      - testing
-      - completed
-
-    terminal_statuses:
-      - completed
+    terminal_statuses: [completed]
 
 status_validation:
   enforce_sequential: true
@@ -1810,5 +1860,62 @@ status_validation:
             modifiedAt = Instant.now(),
             tags = emptyList()
         )
+    }
+
+    /**
+     * Creates a test config with flow_mappings for tag-aware flow testing
+     */
+    private fun createConfigWithFlowMappings(tempDir: Path) {
+        val taskOrchestratorDir = tempDir.resolve(".taskorchestrator")
+        Files.createDirectories(taskOrchestratorDir)
+
+        val configContent = """
+version: "2.0.0"
+
+status_progression:
+  features:
+    default_flow: [draft, planning, in-development, testing, validating, completed]
+    rapid_prototype_flow: [draft, in-development, completed]
+    experimental_flow: [draft, in-development, archived]
+
+    flow_mappings:
+      - tags: [prototype, poc, spike]
+        flow: rapid_prototype_flow
+      - tags: [experiment, research]
+        flow: experimental_flow
+
+    emergency_transitions: [blocked, on-hold, archived]
+    terminal_statuses: [completed, archived]
+
+  tasks:
+    default_flow: [backlog, pending, in-progress, testing, completed]
+    bug_fix_flow: [pending, in-progress, testing, completed]
+    documentation_flow: [pending, in-progress, in-review, completed]
+    hotfix_flow: [in-progress, testing, completed]
+
+    flow_mappings:
+      - tags: [bug, bugfix, fix]
+        flow: bug_fix_flow
+      - tags: [documentation, docs]
+        flow: documentation_flow
+      - tags: [hotfix, emergency, urgent]
+        flow: hotfix_flow
+
+    emergency_transitions: [blocked, on-hold, cancelled, deferred]
+    terminal_statuses: [completed, cancelled, deferred]
+
+  projects:
+    default_flow: [planning, in-development, completed, archived]
+    emergency_transitions: [on-hold, cancelled]
+    terminal_statuses: [completed, archived, cancelled]
+
+status_validation:
+  enforce_sequential: true
+  allow_backward: true
+  allow_emergency: true
+  validate_prerequisites: true
+"""
+
+        Files.writeString(taskOrchestratorDir.resolve("config.yaml"), configContent)
     }
 }

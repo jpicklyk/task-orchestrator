@@ -24,6 +24,9 @@ version: "2.0.0"
 status_progression:
   features:
     # All valid feature statuses (v2.0) - 10 total statuses
+    # Valid feature statuses (defined by FeatureStatus enum):
+    # draft, planning, in-development, testing, validating, pending-review,
+    # blocked, on-hold, completed, archived, deployed
     #
     # DRAFT: Initial draft state for exploring ideas and rough requirements.
     #        Use when: Feature concept is being explored but not ready for planning.
@@ -67,50 +70,33 @@ status_progression:
     #           Use when: Feature is no longer active but kept for reference.
     #           Emergency status: Can be entered from any state.
     #           Terminal status: No further progression.
-    allowed_statuses:
-      - draft
-      - planning
-      - in-development
-      - testing
-      - validating
-      - pending-review
-      - blocked
-      - on-hold
-      - completed
-      - archived
 
     # Default flow for software development
-    default_flow:
-      - draft              # Initial draft, rough ideas
-      - planning           # Define requirements, break into tasks
-      - in-development     # Active implementation
-      - testing            # All tasks complete, running tests
-      - validating         # Tests passed, final validation
-      - completed          # Feature complete and validated
+    default_flow: [draft, planning, in-development, testing, validating, completed]
 
-    # Alternative flow with review gate
-    with_review_flow:
-      - draft
-      - planning
-      - in-development
-      - testing
-      - validating
-      - pending-review     # Awaiting human approval
-      - completed
+    # Alternative flows for different feature types
+    rapid_prototype_flow: [draft, in-development, completed]  # Skip planning/testing
+    experimental_flow: [draft, in-development, archived]  # Experiments can skip completion
+    with_review_flow: [draft, planning, in-development, testing, validating, pending-review, completed]  # Full review cycle
 
-    # Statuses that can be entered from any state
-    emergency_transitions:
-      - blocked           # Feature blocked (can happen anytime)
-      - on-hold           # Feature paused (can happen anytime)
-      - archived          # Feature archived (can happen anytime)
+    # Tag-to-flow mappings
+    flow_mappings:
+      - tags: [prototype, poc, spike]
+        flow: rapid_prototype_flow
+      - tags: [experiment, research]
+        flow: experimental_flow
 
-    # Terminal statuses (no progression from these)
-    terminal_statuses:
-      - completed
-      - archived
+    # Emergency transitions
+    emergency_transitions: [blocked, on-hold, archived]
+
+    # Terminal statuses
+    terminal_statuses: [completed, archived]
 
   tasks:
     # All valid task statuses (v2.0) - 11 total statuses
+    # Valid task statuses (defined by TaskStatus enum):
+    # backlog, pending, in-progress, in-review, changes-requested, testing,
+    # blocked, on-hold, completed, cancelled, deferred, deployed, ready-for-qa, investigating
     #
     # BACKLOG: Task in backlog awaiting prioritization and planning.
     #          Use when: Task identified but not yet scheduled or prioritized.
@@ -155,65 +141,36 @@ status_progression:
     # DEFERRED: Task postponed indefinitely; may be resumed in future release or sprint.
     #           Use when: Task delayed but not cancelled (low priority, resource constraints).
     #           Terminal status: No further progression (but can be "undeferred" by creating new task).
-    allowed_statuses:
-      - backlog
-      - pending
-      - in-progress
-      - in-review
-      - changes-requested
-      - testing
-      - blocked
-      - on-hold
-      - completed
-      - cancelled
-      - deferred
 
-    # Default task flow
-    default_flow:
-      - backlog            # Task in backlog, needs prioritization
-      - pending            # Task ready, waiting to start
-      - in-progress        # Actively being worked on
-      - testing            # Implementation complete, running tests
-      - completed          # Task complete
+    # Default flow for standard software development
+    default_flow: [backlog, pending, in-progress, testing, completed]
 
-    # Alternative flow with code review gate
-    with_review:
-      - backlog
-      - pending
-      - in-progress
-      - in-review          # Awaiting code review
-      - testing            # Review approved, testing
-      - completed
+    # Alternative flows for different task types
+    bug_fix_flow: [pending, in-progress, testing, completed]  # Skip backlog
+    documentation_flow: [pending, in-progress, in-review, completed]  # No testing
+    hotfix_flow: [in-progress, testing, completed]  # Emergency, skip backlog+pending
+    with_review_flow: [backlog, pending, in-progress, in-review, changes-requested, testing, completed]  # Full review cycle
 
-    # Flow with review iterations
-    with_review_iterations:
-      - backlog
-      - pending
-      - in-progress
-      - in-review          # Initial review
-      - changes-requested  # Changes needed
-      - in-progress        # Implementing changes
-      - in-review          # Re-review
-      - testing
-      - completed
+    # Tag-to-flow mappings (priority order matters - first match wins)
+    flow_mappings:
+      - tags: [bug, bugfix, fix]
+        flow: bug_fix_flow
+      - tags: [documentation, docs]
+        flow: documentation_flow
+      - tags: [hotfix, emergency, urgent]
+        flow: hotfix_flow
+    # If no tags match, default_flow is used
 
-    # Alternative flow with blocking status
-    with_blocking:
-      - backlog
-      - pending
-      - in-progress
-      - blocked            # Blocked by dependencies
-      - testing
-      - completed
+    # Statuses that can be entered from any state
+    emergency_transitions: [blocked, on-hold, cancelled, deferred]
 
     # Terminal statuses (no progression from these)
-    terminal_statuses:
-      - completed
-      - cancelled         # User cancelled the task
-      - deferred          # Task postponed, may resume later
+    terminal_statuses: [completed, cancelled, deferred]
 
   projects:
     # All valid project statuses (v2.0) - 6 total statuses
+    # Valid project statuses (defined by ProjectStatus enum):
+    # planning, in-development, on-hold, cancelled, completed, archived
     #
     # PLANNING: Defining project scope, features, timeline, and resource allocation.
     #           Use when: Project initiated and high-level planning underway.
@@ -240,31 +197,17 @@ status_progression:
     # ARCHIVED: Project archived for historical reference (completed long ago, obsolete, or replaced).
     #           Use when: Project no longer active but kept for documentation/reference purposes.
     #           Terminal status: No further progression.
-    allowed_statuses:
-      - planning
-      - in-development
-      - on-hold
-      - cancelled
-      - completed
-      - archived
 
     # Default project flow
-    default_flow:
-      - planning           # Define scope and features
-      - in-development     # Active development
-      - completed          # Project finished
-      - archived           # Archive for history
+    default_flow: [planning, in-development, completed, archived]
 
-    # Statuses that can be entered from any state
-    emergency_transitions:
-      - on-hold           # Project paused (can happen anytime)
-      - cancelled         # Project cancelled (can happen anytime)
+    # No alternative flows needed (projects are high-level)
+
+    # Emergency transitions
+    emergency_transitions: [on-hold, cancelled]
 
     # Terminal statuses
-    terminal_statuses:
-      - completed
-      - archived
-      - cancelled
+    terminal_statuses: [completed, archived, cancelled]
 
 # ============================================================================
 # STATUS VALIDATION RULES (✅ IMPLEMENTED)

@@ -45,14 +45,26 @@ DATABASE_PATH=data/tasks.db USE_FLYWAY=true MCP_DEBUG=true java -jar build/libs/
 # Build Docker image (from project root)
 docker build -t mcp-task-orchestrator:dev .
 
-# Run Docker container
+# Run Docker container (basic - database only)
 docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
+
+# Run with project mount (recommended - enables config reading)
+docker run --rm -i \
+  -v mcp-task-data:/app/data \
+  -v D:/Projects/task-orchestrator:/project \
+  -e AGENT_CONFIG_DIR=/project \
+  mcp-task-orchestrator:dev
 
 # Clean and rebuild Docker
 ./scripts/docker-clean-and-build.bat
 
 # Debug with logs
-docker run --rm -i -v mcp-task-data:/app/data -e MCP_DEBUG=true mcp-task-orchestrator:dev
+docker run --rm -i \
+  -v mcp-task-data:/app/data \
+  -v D:/Projects/task-orchestrator:/project \
+  -e AGENT_CONFIG_DIR=/project \
+  -e MCP_DEBUG=true \
+  mcp-task-orchestrator:dev
 ```
 
 ## Architecture
@@ -104,6 +116,75 @@ The codebase follows **Clean Architecture** with four distinct layers:
 5. **Template Method** - BaseToolDefinition provides structure for all tools
 6. **Result Pattern** - Type-safe error handling with `Result<T>` sealed class
 
+## Configuration Directory (AGENT_CONFIG_DIR)
+
+**CRITICAL:** All services that read configuration files from `.taskorchestrator/` MUST support the `AGENT_CONFIG_DIR` environment variable for Docker compatibility.
+
+### Why This Matters
+
+The MCP server runs in Docker with working directory `/app`, but configuration files (`.taskorchestrator/config.yaml`, `.taskorchestrator/agent-mapping.yaml`) are in the user's project directory. Without `AGENT_CONFIG_DIR`, services will look for config in `/app/.taskorchestrator/` (which doesn't exist) instead of the mounted volume.
+
+### Standard Pattern for Config Loading
+
+**DO THIS** (follows AgentDirectoryManager pattern):
+
+```kotlin
+private fun getConfigPath(): Path {
+    val projectRoot = Paths.get(
+        System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
+    )
+    return projectRoot.resolve(".taskorchestrator/config.yaml")
+}
+```
+
+**DON'T DO THIS** (will fail in Docker):
+
+```kotlin
+private fun getConfigPath(): Path {
+    return Paths.get(System.getProperty("user.dir"), ".taskorchestrator", "config.yaml")
+}
+```
+
+### Environment Variable Configuration
+
+- **`AGENT_CONFIG_DIR`** - Directory containing `.taskorchestrator/` folder (optional)
+  - Defaults to `System.getProperty("user.dir")` if not set
+  - In Docker: Set to project mount point (e.g., `-e AGENT_CONFIG_DIR=/project`)
+  - In local dev: Not needed (uses working directory)
+
+### Which Services Need This
+
+✅ **Services that read `.taskorchestrator/` files:**
+- `AgentDirectoryManager` - Reads `.taskorchestrator/agent-mapping.yaml` ✅ Already implemented
+- `StatusProgressionServiceImpl` - Reads `.taskorchestrator/config.yaml` ✅ Fixed in v2.0
+- Any future services accessing `.taskorchestrator/` configuration
+
+❌ **Services that DON'T need this:**
+- Database services (use `DATABASE_PATH` env var instead)
+- Template services (embedded resources)
+- Repository implementations (infrastructure layer)
+
+### Testing Checklist
+
+When creating a new service that reads from `.taskorchestrator/`:
+
+1. ✅ Use `AGENT_CONFIG_DIR` env var with fallback to `user.dir`
+2. ✅ Test locally (no env var set, should use working directory)
+3. ✅ Test in Docker (env var points to mounted volume)
+4. ✅ Add KDoc with configuration section (see `StatusProgressionServiceImpl` for example)
+5. ✅ Cache invalidation should check for directory changes (if caching)
+
+### Docker Configuration Example
+
+```bash
+# Mount project directory and set AGENT_CONFIG_DIR
+docker run --rm -i \
+  -v /host/project:/project \
+  -e AGENT_CONFIG_DIR=/project \
+  -e DATABASE_PATH=/app/data/tasks.db \
+  mcp-task-orchestrator:latest
+```
+
 ## Adding New Components
 
 ### Adding a New MCP Tool
@@ -140,6 +221,9 @@ See [database-migrations.md](docs/developer-guides/database-migrations.md) for p
 - `DATABASE_PATH` - SQLite database file path (default: `data/tasks.db`)
 - `USE_FLYWAY` - Enable Flyway migrations (default: `true` in Docker)
 - `MCP_DEBUG` - Enable debug logging
+- `AGENT_CONFIG_DIR` - Directory containing `.taskorchestrator/` config folder (default: current working directory)
+  - **Required in Docker** for config file reading (agent-mapping.yaml, config.yaml)
+  - Set to project mount point (e.g., `-e AGENT_CONFIG_DIR=/project`)
 
 **Schema Management:**
 - **Flyway** (Production) - Versioned SQL migrations with history tracking
@@ -281,6 +365,7 @@ Task Orchestrator v2.0 introduces **unified container-based tools** that reduce 
 - **Workflow Optimization Tools** (unchanged, NOT consolidated):
   - **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
   - **`get_blocked_tasks`** - Dependency blocking analysis
+  - **`get_next_status`** - Read-only status progression recommendations based on workflow configuration
   - These tools contain complex recommendation logic that cannot be replaced by simple query_container filters
 
 **Token Savings:** ~84k → ~36k characters (68% reduction) across all 56 → 18 tools
@@ -359,6 +444,55 @@ query_container(
    query_container(operation="get", containerType="feature", id="...", includeSections=true)
    ```
 
+### Status Progression Pattern (v2.0+)
+
+**get_next_status provides read-only workflow recommendations** for intelligent status transitions based on configuration-driven workflows.
+
+**When to Use:**
+- User asks: "What's next?" / "Can I complete this task?"
+- User asks: "What status should this be?"
+- Before applying status changes (validation)
+- Status Progression Skill uses this for recommendations
+
+**How It Works:**
+```javascript
+// Get recommendation
+recommendation = get_next_status(
+  containerId="task-uuid",
+  containerType="task"
+)
+// Returns: Ready, Blocked, or Terminal with flow context
+
+// If Ready, apply the recommended status
+manage_container(
+  operation="setStatus",
+  containerType="task",
+  id="task-uuid",
+  status=recommendation.recommendedStatus
+)
+```
+
+**Key Features:**
+- **Read-only**: Only suggests, never changes status
+- **Flow-aware**: Analyzes tags to determine workflow (bug_fix_flow, documentation_flow, default_flow)
+- **Prerequisite checking**: Validates completion requirements (summary length, task completion, dependencies)
+- **Terminal detection**: Recognizes when entity cannot progress further
+- **What-if analysis**: Optional currentStatus and tags parameters enable scenario testing
+
+**Recommendation Types:**
+- **Ready**: Entity can progress → includes recommendedStatus
+- **Blocked**: Prerequisites not met → includes list of blockers
+- **Terminal**: At final status (completed, cancelled) → no further progression
+
+**Integration with Status Progression Skill:**
+The Status Progression Skill calls get_next_status to:
+1. Check if entity is ready for status change
+2. Identify blocking prerequisites
+3. Suggest next status in configured workflow
+4. Interpret config and provide actionable guidance
+
+See: [status-progression.md](docs/status-progression.md) for comprehensive examples
+
 ## Documentation
 
 **Developer Guides:** `docs/developer-guides/`
@@ -369,6 +503,7 @@ query_container(
 - [quick-start.md](docs/quick-start.md) - Getting started
 - [ai-guidelines.md](docs/ai-guidelines.md) - How AI uses Task Orchestrator
 - [api-reference.md](docs/api-reference.md) - Complete MCP tools documentation
+- [status-progression.md](docs/status-progression.md) - Status workflow guide with examples
 - [templates.md](docs/templates.md) - Template system guide
 - [workflow-prompts.md](docs/workflow-prompts.md) - Workflow automation
 

@@ -81,6 +81,7 @@ class StatusValidator {
      * @param containerType The container type ("project", "feature", or "task")
      * @param containerId Optional container ID for prerequisite validation (if null, skips prerequisite checks)
      * @param context Optional execution context for prerequisite validation (required if containerId provided)
+     * @param tags Entity tags for determining active flow in v2.0 mode
      * @return ValidationResult indicating validity with optional error message and suggestions
      */
     suspend fun validateTransition(
@@ -101,7 +102,7 @@ class StatusValidator {
 
         // Basic transition validation (config-based or v1.0 mode)
         val transitionResult = if (config != null) {
-            validateTransitionV2(currentStatus, newStatus, containerType, config)
+            validateTransitionV2(currentStatus, newStatus, containerType, config, tags)
         } else {
             // v1.0 mode: all transitions allowed (no config-based rules)
             ValidationResult.Valid
@@ -424,7 +425,8 @@ class StatusValidator {
         currentStatus: String,
         newStatus: String,
         containerType: String,
-        config: Map<String, Any?>
+        config: Map<String, Any?>,
+        tags: List<String> = emptyList()
     ): ValidationResult {
         val normalizedCurrent = normalizeStatus(currentStatus)
         val normalizedNew = normalizeStatus(newStatus)
@@ -456,11 +458,12 @@ class StatusValidator {
         val allowBackward = validationConfig["allow_backward"] as? Boolean ?: true
         val enforceSequential = validationConfig["enforce_sequential"] as? Boolean ?: true
 
-        val defaultFlow = getDefaultFlow(containerType, statusProgression)
-        val currentIndex = defaultFlow.indexOf(normalizedCurrent)
-        val newIndex = defaultFlow.indexOf(normalizedNew)
+        // Get active flow based on entity tags
+        val activeFlow = getActiveFlow(containerType, statusProgression, tags)
+        val currentIndex = activeFlow.indexOf(normalizedCurrent)
+        val newIndex = activeFlow.indexOf(normalizedNew)
 
-        // If either status not in default flow, allow transition (might be in alternative flow)
+        // If either status not in active flow, allow transition (might be in another flow or emergency)
         if (currentIndex == -1 || newIndex == -1) {
             return ValidationResult.Valid
         }
@@ -479,20 +482,42 @@ class StatusValidator {
 
         // Check if skipping statuses (sequential enforcement)
         if (enforceSequential && newIndex > currentIndex + 1) {
-            val skippedStatuses = defaultFlow.subList(currentIndex + 1, newIndex)
+            val skippedStatuses = activeFlow.subList(currentIndex + 1, newIndex)
             return ValidationResult.Invalid(
                 "Cannot skip statuses. Must transition through: ${skippedStatuses.joinToString(" → ")}",
-                listOf(defaultFlow[currentIndex + 1])
+                listOf(activeFlow[currentIndex + 1])
             )
         }
 
         return ValidationResult.Valid
     }
 
+    /**
+     * Derives allowed statuses from configured flows, emergency transitions, and terminal statuses.
+     * This eliminates redundancy - flows naturally define reachable statuses.
+     */
     private fun getAllowedStatusesV2(containerType: String, config: Map<String, Any?>): List<String> {
         val statusProgression = getStatusProgressionConfig(containerType, config)
+        val allowedStatuses = mutableSetOf<String>()
+
+        // Add all statuses from all defined flows
         @Suppress("UNCHECKED_CAST")
-        return statusProgression["allowed_statuses"] as? List<String> ?: emptyList()
+        val allFlows = statusProgression.filterKeys { it.endsWith("_flow") }
+        allFlows.values.forEach { flowValue ->
+            if (flowValue is List<*>) {
+                flowValue.filterIsInstance<String>().forEach { allowedStatuses.add(it) }
+            }
+        }
+
+        // Add emergency transitions
+        val emergencyStatuses = getEmergencyStatuses(containerType, statusProgression)
+        allowedStatuses.addAll(emergencyStatuses)
+
+        // Add terminal statuses
+        val terminalStatuses = getTerminalStatuses(containerType, statusProgression)
+        allowedStatuses.addAll(terminalStatuses)
+
+        return allowedStatuses.toList()
     }
 
     // ========== V1.0 ENUM-BASED VALIDATION (FALLBACK) ==========
@@ -601,6 +626,111 @@ class StatusValidator {
     @Suppress("UNCHECKED_CAST")
     private fun getEmergencyStatuses(containerType: String, statusProgression: Map<String, Any?>): List<String> {
         return statusProgression["emergency_transitions"] as? List<String> ?: emptyList()
+    }
+
+    /**
+     * Determines the active flow based on entity tags and flow_mappings configuration.
+     *
+     * Flow selection algorithm:
+     * 1. Check flow_mappings in priority order (first match wins)
+     * 2. For each mapping, check if ANY entity tag matches ANY mapping tag
+     * 3. If match found, return the mapped flow
+     * 4. If no match, return default_flow
+     *
+     * @param containerType Entity type ("project", "feature", "task")
+     * @param statusProgression Configuration map for the container type
+     * @param tags Entity tags to match against flow_mappings
+     * @return The active flow list (e.g., ["backlog", "pending", "in-progress", "completed"])
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun getActiveFlow(
+        containerType: String,
+        statusProgression: Map<String, Any?>,
+        tags: List<String>
+    ): List<String> {
+        // Get default flow as fallback
+        val defaultFlow = getDefaultFlow(containerType, statusProgression)
+
+        // If no tags provided, use default flow
+        if (tags.isEmpty()) {
+            return defaultFlow
+        }
+
+        // Get flow_mappings configuration
+        val flowMappings = statusProgression["flow_mappings"] as? List<Map<String, Any?>> ?: return defaultFlow
+
+        // Normalize tags for case-insensitive matching
+        val normalizedTags = tags.map { it.lowercase() }
+
+        // Iterate through mappings in priority order (first match wins)
+        for (mapping in flowMappings) {
+            val mappingTags = (mapping["tags"] as? List<String>)?.map { it.lowercase() } ?: continue
+            val flowName = mapping["flow"] as? String ?: continue
+
+            // Check if any entity tag matches any mapping tag
+            if (normalizedTags.any { entityTag -> mappingTags.contains(entityTag) }) {
+                // Found match - retrieve the flow by name
+                val flow = statusProgression[flowName] as? List<String>
+                if (flow != null) {
+                    logger.debug("Active flow for $containerType with tags $tags: $flowName")
+                    return flow
+                }
+            }
+        }
+
+        // No match found - use default flow
+        logger.debug("No flow mapping matched for $containerType with tags $tags, using default_flow")
+        return defaultFlow
+    }
+
+    /**
+     * Finds which tags from the entity matched flow mappings.
+     * Used for diagnostic and debugging purposes.
+     *
+     * @param containerType Entity type ("project", "feature", "task")
+     * @param statusProgression Configuration map for the container type
+     * @param tags Entity tags to check
+     * @return List of tags that matched a flow mapping
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun findMatchedTags(
+        containerType: String,
+        statusProgression: Map<String, Any?>,
+        tags: List<String>
+    ): List<String> {
+        if (tags.isEmpty()) {
+            return emptyList()
+        }
+
+        val flowMappings = statusProgression["flow_mappings"] as? List<Map<String, Any?>> ?: return emptyList()
+        val normalizedTags = tags.map { it.lowercase() }
+        val matchedTags = mutableListOf<String>()
+
+        for (mapping in flowMappings) {
+            val mappingTags = (mapping["tags"] as? List<String>)?.map { it.lowercase() } ?: continue
+
+            // Collect entity tags that match this mapping
+            val matches = normalizedTags.filter { entityTag -> mappingTags.contains(entityTag) }
+            matchedTags.addAll(matches)
+        }
+
+        return matchedTags.distinct()
+    }
+
+    /**
+     * Gets terminal statuses for a container type from status progression config.
+     * Terminal statuses are states from which no further transitions are allowed.
+     *
+     * @param containerType Entity type ("project", "feature", "task")
+     * @param statusProgression Configuration map for the container type
+     * @return List of terminal status strings (e.g., ["completed", "cancelled", "deferred"])
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun getTerminalStatusesFromConfig(
+        containerType: String,
+        statusProgression: Map<String, Any?>
+    ): List<String> {
+        return statusProgression["terminal_statuses"] as? List<String> ?: emptyList()
     }
 
     // ========== UTILITY METHODS ==========

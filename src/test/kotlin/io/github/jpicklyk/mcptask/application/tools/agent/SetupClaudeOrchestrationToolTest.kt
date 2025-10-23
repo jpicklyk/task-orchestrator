@@ -391,11 +391,13 @@ class SetupClaudeOrchestrationToolTest {
         assertTrue(Files.exists(configFile), "config.yaml should exist after execution")
         assertTrue(Files.size(configFile) > 0, "config.yaml should not be empty")
 
-        // Verify config.yaml contains expected content
+        // Verify config.yaml contains expected content (v2.0 schema)
         val configContent = Files.readString(configFile)
         assertTrue(configContent.contains("version: \"2.0.0\""), "Config should have version 2.0.0")
         assertTrue(configContent.contains("status_progression:"), "Config should have status_progression section")
-        assertTrue(configContent.contains("allowed_statuses:"), "Config should have allowed_statuses")
+        assertTrue(configContent.contains("default_flow:"), "Config should have default_flow (v2.0 schema)")
+        assertTrue(configContent.contains("emergency_transitions:"), "Config should have emergency_transitions")
+        assertTrue(configContent.contains("terminal_statuses:"), "Config should have terminal_statuses")
         assertTrue(configContent.contains("cancelled"), "Config should include cancelled status")
         assertTrue(configContent.contains("deferred"), "Config should include deferred status")
 
