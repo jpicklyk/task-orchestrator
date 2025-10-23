@@ -14,14 +14,6 @@
 #   - context: Background information
 #   - documentation: User-facing docs
 
-# Map workflow activities to agents
-# Agent names must match Claude Code subagent_type format (Proper Case with spaces)
-workflowPhases:
-  feature-authoring: Feature Architect
-  bug-triage: Bug Triage Specialist
-  task-breakdown: Planning Specialist
-  documentation: Technical Writer
-  review: Technical Writer
 
 # ============================================================================
 # TAG MAPPING MAINTENANCE GUIDE
@@ -113,18 +105,6 @@ tagPriority:
   - testing
   - documentation
   - planning
-
-# Entity type specific mappings
-entityTypes:
-  FEATURE:
-    # Feature creation and structuring
-    authoring: Feature Architect
-    # Task breakdown from feature
-    breakdown: Planning Specialist
-
-  TASK:
-    # Tasks use tag-based selection during implementation
-    # No specific agent for general tasks (uses main Claude Code instance)
 
 # ============================================================================
 # FALLBACK CONFIGURATION

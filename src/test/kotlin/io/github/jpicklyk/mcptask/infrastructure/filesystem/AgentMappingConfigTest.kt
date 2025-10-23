@@ -21,11 +21,11 @@ class AgentMappingConfigTest {
         val config = yaml.load<Map<String, Any>>(resourceStream)
         assertNotNull(config, "agent-mapping.yaml should be valid YAML")
 
-        // Verify main sections exist
-        assertTrue(config.containsKey("workflowPhases"), "Should have workflowPhases section")
+        // Verify main sections exist (workflowPhases and entityTypes removed in v2.0 architecture streamlining)
         assertTrue(config.containsKey("tagMappings"), "Should have tagMappings section")
         assertTrue(config.containsKey("tagPriority"), "Should have tagPriority section")
-        assertTrue(config.containsKey("entityTypes"), "Should have entityTypes section")
+        assertTrue(config.containsKey("default_specialist"), "Should have default_specialist field")
+        assertTrue(config.containsKey("fallback_behavior"), "Should have fallback_behavior field")
     }
 
     @Test
@@ -158,7 +158,8 @@ class AgentMappingConfigTest {
     }
 
     @Test
-    fun `workflow phases should map to valid agents`() {
+    fun `all tag mappings reference valid agent definition files`() {
+        // Verify that all agents referenced in tagMappings have corresponding .md files
         val resourceStream = javaClass.getResourceAsStream("/agents/agent-mapping.yaml")
         assertNotNull(resourceStream)
 
@@ -166,27 +167,27 @@ class AgentMappingConfigTest {
         val config = yaml.load<Map<String, Any>>(resourceStream)
 
         @Suppress("UNCHECKED_CAST")
-        val workflowPhases = config["workflowPhases"] as? Map<String, String>
-        assertNotNull(workflowPhases, "workflowPhases should be a map")
+        val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
+        assertNotNull(tagMappings, "tagMappings should be a list")
 
-        // All agents (including coordination agents like Task Manager and Feature Manager)
+        // v2.0 architecture: Direct specialist pattern (no Task Manager or Feature Manager)
         val validAgents = setOf(
             "Backend Engineer",
             "Bug Triage Specialist",
             "Database Engineer",
             "Feature Architect",
-            "Feature Manager",
             "Frontend Developer",
             "Planning Specialist",
-            "Task Manager",
             "Technical Writer",
             "Test Engineer"
         )
 
-        workflowPhases.forEach { (phase, agent) ->
+        tagMappings.forEach { mapping ->
+            val agent = mapping["agent"] as? String
+            assertNotNull(agent, "Each tag mapping should have an agent")
             assertTrue(
                 validAgents.contains(agent),
-                "Workflow phase '$phase' maps to invalid agent '$agent'"
+                "Tag mapping references invalid agent '$agent'. Valid agents: ${validAgents.joinToString(", ")}"
             )
         }
     }
