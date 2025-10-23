@@ -54,19 +54,19 @@ Parameters:
 | Field | Type | Required | Description |
 | operation | enum | Yes | add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete |
 | id | UUID | Varies | Section ID (required for: update, updateText, updateMetadata, delete) |
-| ids | array | No | Section IDs (required for: bulkDelete) |
+| ids | array | Varies | Section IDs (required for: bulkDelete) |
 | entityType | enum | Varies | PROJECT, TASK, FEATURE (required for: add, reorder) |
 | entityId | UUID | Varies | Parent entity ID (required for: add, reorder) |
-| title | string | No | Section title |
-| usageDescription | string | No | Usage description |
-| content | string | No | Section content |
+| title | string | Varies | Section title (required for: add, bulkCreate) |
+| usageDescription | string | Varies | Usage description (required for: add, bulkCreate) |
+| content | string | Varies | Section content (required for: add, bulkCreate) |
 | contentFormat | enum | No | MARKDOWN, PLAIN_TEXT, JSON, CODE |
-| ordinal | integer | No | Display order (0-based) |
+| ordinal | integer | Varies | Display order 0-based (required for: add, bulkCreate) |
 | tags | string | No | Comma-separated tags |
-| oldText | string | No | Text to replace (updateText only) |
-| newText | string | No | Replacement text (updateText only) |
-| sectionOrder | string | No | Comma-separated section IDs (reorder only) |
-| sections | array | No | Section objects (bulkCreate, bulkUpdate) |
+| oldText | string | Varies | Text to replace (required for: updateText) |
+| newText | string | Varies | Replacement text (required for: updateText) |
+| sectionOrder | string | Varies | Comma-separated section IDs (required for: reorder) |
+| sections | array | Varies | Section objects (required for: bulkCreate, bulkUpdate) |
 
 Usage: Consolidates all section write operations.
 Related: get_sections
