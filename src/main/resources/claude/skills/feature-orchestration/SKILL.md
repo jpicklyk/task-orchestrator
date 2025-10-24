@@ -98,22 +98,53 @@ For more detection examples, see [examples.md](examples.md)
 4. Use Status Progression Skill to move feature: draft → planning
 
 **For COMPLEX features:**
-- Recommend launching Feature Architect subagent for detailed planning
-- Feature Architect will formalize requirements, discover templates, create structure
-- Then Planning Specialist breaks into domain-isolated tasks
+1. **Launch Feature Architect subagent** for detailed planning:
+   ```
+   Use Task tool with subagent_type="Feature Architect" and prompt:
+   "Create a feature for [user's request].
+   - Read context from [file path if provided]
+   - Formalize requirements
+   - Discover and apply appropriate templates
+   - Create comprehensive feature structure with sections"
+   ```
+2. Feature Architect will create feature with templates and sections
+3. **Then launch Planning Specialist** for task breakdown:
+   ```
+   Use Task tool with subagent_type="Planning Specialist" and prompt:
+   "Break down feature [feature-id] into domain-isolated tasks with dependencies.
+   Create execution graph with parallel batches."
+   ```
+
+**CRITICAL:** For complex features (8+ tasks from the testing prompt), ALWAYS launch Feature Architect first, then Planning Specialist. DO NOT create features and tasks directly.
 
 See [examples.md](examples.md) for detailed scenarios.
 
 ### 2. Task Breakdown Coordination
 
 **After feature creation:**
-- Simple (< 5 tasks): Create tasks directly with templates
-- Complex (5+ tasks, multiple domains): Launch Planning Specialist subagent
 
-Planning Specialist creates:
-- Domain-isolated tasks (database, backend, frontend, testing, docs)
-- Dependencies between tasks
-- Execution graph with batches
+**For SIMPLE breakdown (< 5 tasks):**
+- Create tasks directly with templates
+- Discover task templates: `query_templates(operation="list", targetEntityType="TASK", isEnabled=true)`
+- Create 2-4 tasks in "backlog" status
+
+**For COMPLEX breakdown (5+ tasks, multiple domains):**
+1. **Launch Planning Specialist subagent** (MANDATORY):
+   ```
+   Use Task tool with subagent_type="Planning Specialist" and prompt:
+   "Break down feature [feature-id or name] into domain-isolated tasks.
+   Feature: [brief description]
+
+   Create:
+   - Domain-isolated tasks (database, backend, frontend, testing, docs)
+   - BLOCKS dependencies between tasks
+   - Execution graph with parallel batches
+   - Provide execution order recommendation"
+   ```
+2. Planning Specialist will create all tasks with dependencies automatically
+3. Planning Specialist returns execution graph showing batch order
+
+**CRITICAL:** For the testing prompt (8 features with varying task counts), use Planning Specialist for features with 4+ tasks. DO NOT create tasks manually for complex features.
 
 ### 3. Feature Progress Tracking
 

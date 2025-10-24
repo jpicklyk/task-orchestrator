@@ -57,13 +57,106 @@ This feature requires detailed planning:
 - Cross-cutting concerns (RBAC, audit)
 - Estimated 8+ tasks
 
-Recommendation: Launch Feature Architect subagent
-The Feature Architect will:
-1. Formalize requirements
-2. Apply security and API design templates
-3. Create comprehensive feature structure
-4. Hand off to Planning Specialist for task breakdown
+**Decision: COMPLEX feature → Launch Feature Architect**
+
+**Execution Pattern:**
+```javascript
+// Step 1: Launch Feature Architect subagent
+Use Task tool with:
+- subagent_type: "Feature Architect"
+- description: "Create OAuth integration feature"
+- prompt: `Create a feature for comprehensive OAuth integration system.
+
+Requirements:
+- Support Google, GitHub, and Microsoft authentication
+- JWT token management
+- Refresh token handling
+- Secure session storage
+- Role-based access control
+- Audit logging
+
+Steps:
+1. Formalize requirements and create feature structure
+2. Discover and apply appropriate templates (security, API design)
+3. Create comprehensive sections
+4. Return feature ID for task breakdown`
+
+// Step 2: After Feature Architect completes, launch Planning Specialist
+Use Task tool with:
+- subagent_type: "Planning Specialist"
+- description: "Break down OAuth feature into tasks"
+- prompt: `Break down feature [feature-id-from-architect] into domain-isolated tasks.
+
+Feature: OAuth integration system with multi-provider support
+
+Create:
+- Domain-isolated tasks (database, backend, frontend, security, testing, docs)
+- BLOCKS dependencies showing execution order
+- Execution graph with parallel batches`
 ```
+
+---
+
+## Example 2B: Multi-Feature Creation from Testing Plan
+
+**User Request:**
+> "Create a test project to validate our v2.0 event-driven feature and task orchestration workflows. Please read the testing plan at D:\Projects\task-orchestrator\tests\workflow-testing-plan.md"
+
+**Skill Assessment:**
+- Request involves: Creating 8 features with varying complexity
+- Features range from 2 tasks to 8+ tasks
+- Multiple workflow patterns to test
+- File reference provided
+- Complexity: VERY COMPLEX
+
+**CRITICAL Decision: This requires Feature Architect for EACH complex feature**
+
+**Execution Pattern:**
+```javascript
+// For EACH feature in the testing plan:
+
+// Feature 1: Simple User Profile (2-3 tasks) → CREATE DIRECTLY
+manage_container(operation="create", containerType="feature", name="User Profile Management", ...)
+// Create 2-3 tasks directly
+
+// Feature 2: Complex Payment System (8+ tasks) → LAUNCH FEATURE ARCHITECT
+Use Task tool with:
+- subagent_type: "Feature Architect"
+- prompt: `Create feature: Payment Processing System
+  Read requirements from: D:\Projects\task-orchestrator\tests\workflow-testing-plan.md
+  Feature details in Test 2.2
+  Expected: 8+ tasks, complex workflow
+  Return feature ID when complete`
+
+// After Feature Architect returns:
+Use Task tool with:
+- subagent_type: "Planning Specialist"
+- prompt: `Break down feature [feature-id] into tasks per testing plan Test 2.2`
+
+// Feature 3: Product Catalog (4 parallel tasks) → LAUNCH PLANNING SPECIALIST
+manage_container(operation="create", containerType="feature", name="Product Catalog", ...)
+Use Task tool with:
+- subagent_type: "Planning Specialist"
+- prompt: `Break down Product Catalog feature into 4 independent tasks (Test 3.1)`
+
+// ... Repeat pattern for all 8 features
+```
+
+**Rules for Testing Plan:**
+- Simple features (< 4 tasks): Create directly + create tasks directly
+- Complex features (4-7 tasks): Create directly + **launch Planning Specialist**
+- Very complex features (8+ tasks): **Launch Feature Architect + Planning Specialist**
+
+**DO NOT:**
+- ❌ Create all features and tasks manually (defeats the purpose of testing orchestration)
+- ❌ Skip Planning Specialist for features with dependencies
+- ❌ Skip Feature Architect for features with 8+ tasks
+
+**Expected Workflow:**
+1. Read testing plan file
+2. For each feature, assess complexity
+3. Route appropriately (direct, Planning Specialist, or Feature Architect → Planning Specialist)
+4. Verify orchestration works correctly
 
 ---
 
