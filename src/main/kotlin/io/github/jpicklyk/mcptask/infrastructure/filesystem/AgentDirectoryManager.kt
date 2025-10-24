@@ -34,7 +34,7 @@ class AgentDirectoryManager(
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
         const val AGENTS_DIR = "agents"
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
-        const val RESOURCE_PATH_PREFIX = "/agents"
+        const val RESOURCE_PATH_PREFIX = "/claude/configuration"
 
         // Default agent template files
         val DEFAULT_AGENT_FILES = listOf(

@@ -298,103 +298,80 @@ After creating all dependencies, verify which tasks can start immediately:
 - Missed parallel opportunities = slower feature completion
 - Graph quality target: 95%+ accuracy (catch all parallel opportunities)
 
-### Step 6: Add Task Sections (OPTIONAL - Only for Complex Tasks)
+### Step 6: Skip Task Sections (DEFAULT - Only Add for Complexity 8+)
 
-**When to SKIP this step** (most common):
-- Simple tasks (complexity ≤5) → Templates provide enough structure
-- Task description is detailed → No additional context needed
-- Single specialist, straightforward work → Specialist has everything they need
+**DEFAULT BEHAVIOR: DO NOT ADD SECTIONS**
 
-**When to ADD custom sections** (rare, only for complexity 7+):
-- Multiple acceptance criteria that don't fit in description
-- Architectural decisions needed
-- API contracts between specialists
-- Security/performance requirements
+Templates provide sufficient structure for 95% of tasks. Task descriptions (200-600 chars) combined with templates give specialists everything they need.
 
-**If adding sections, use specialist routing tags (Optimization #4)**:
+**CRITICAL: NEVER add generic template sections with placeholders like `[Component 1]`, `[Library Name]`, `[Phase Name]`. This wastes tokens (~500-1,500 per task) and provides zero value.**
 
+**When to SKIP this step** (95% of tasks):
+- ✅ Task complexity ≤ 7 → Templates are sufficient
+- ✅ Task description is detailed (200-600 chars) → Specialist has requirements
+- ✅ Single specialist domain → No cross-specialist coordination needed
+- ✅ Straightforward implementation → No architectural decisions required
+
+**When to ADD custom sections** (5% of tasks, complexity 8+ only):
+- ⚠️ Complexity 8+ with multiple acceptance criteria that don't fit in description
+- ⚠️ API contracts between specialists requiring formal specification
+- ⚠️ Architectural decisions requiring documentation for future reference
+- ⚠️ Complex security/performance requirements needing detailed explanation
+
+**If you absolutely must add sections (complexity 8+ only), follow these rules**:
+
+**1. EVERY section must be FULLY customized** - No placeholders allowed
+**2. Content must be task-specific** - Not generic templates
+**3. Minimum 200 characters** - No stub sections
+**4. Use specialist routing tags** - For efficient reading
+
+**Example - Fully Customized Section** (complexity 8+ only):
 ```
 manage_sections(
-  operation="bulkCreate",
-  sections=[
-    {
-      entityType: "TASK",
-      entityId: "[task-id]",
-      title: "Implementation Notes",
-      usageDescription: "Specific implementation guidance for this task",
-      content: "[Extracted from feature sections + task-specific details]",
-      contentFormat: "MARKDOWN",
-      ordinal: 0,
-      tags: "implementation,technical,backend-engineer,database-engineer"
-    },
-    {
-      entityType: "TASK",
-      entityId: "[task-id]",
-      title: "Acceptance Criteria",
-      usageDescription: "How to verify this task is complete",
-      content: "[Task-specific criteria]",
-      contentFormat: "MARKDOWN",
-      ordinal: 1,
-      tags: "requirements,testing,test-engineer"
-    },
-    {
-      entityType: "TASK",
-      entityId: "[task-id]",
-      title: "API Design",
-      usageDescription: "API endpoint specifications and contracts",
-      content: "[API specs]",
-      contentFormat: "MARKDOWN",
-      ordinal: 2,
-      tags: "api,backend-engineer,technical-writer"
-    }
-  ]
+  operation="add",
+  entityType="TASK",
+  entityId="[task-id]",
+  title="API Contract Specification",
+  usageDescription="Formal API contract between backend and frontend teams",
+  content="POST /api/auth/login
+Request: { email: string, password: string }
+Response: { token: string, userId: UUID, expiresAt: timestamp }
+Errors: 401 (invalid credentials), 429 (rate limited), 500 (server error)
+
+GET /api/auth/refresh
+Headers: Authorization: Bearer {token}
+Response: { token: string, expiresAt: timestamp }
+Errors: 401 (invalid/expired token), 500 (server error)
+
+Rate Limiting: 5 attempts per minute per IP address
+Token Expiry: 24 hours for access tokens, 7 days for refresh tokens",
+  contentFormat="MARKDOWN",
+  ordinal=0,
+  tags="api,backend-engineer,frontend-developer,technical-writer"
 )
 ```
 
-**Section Tagging Strategy (OPTIMIZATION 4)**:
+**Notice**: Section is completely customized with specific endpoints, request/response formats, error codes, and rate limits. NO placeholder text.
 
-**Content type tags** (what information this is):
-- `requirements`, `technical`, `implementation`, `testing`, `documentation`
-- `architecture`, `api`, `database`, `frontend`, `backend`
+**Section Quality Checklist** (MANDATORY if adding sections):
+```
+For EVERY section you add:
+  ✓ Content length ≥ 200 characters (no stubs)
+  ✓ NO placeholder text with brackets: [Component], [Library], [Phase]
+  ✓ Task-specific content (not generic copy-paste)
+  ✓ Provides value beyond task description (not redundant)
+  ✓ Uses specialist routing tags (who needs to read this)
+```
 
-**Specialist routing tags** (who needs to read this):
+**Specialist routing tags** (for efficient reading):
 - `backend-engineer` - Backend implementation details
 - `frontend-developer` - UI/UX implementation details
 - `database-engineer` - Schema/migration details
 - `test-engineer` - Testing requirements, test data
 - `technical-writer` - Documentation requirements, API specs
+- Combine with commas for multi-specialist sections: `backend-engineer,frontend-developer`
 
-**Multi-specialist tags** (multiple specialists need this):
-- `backend-engineer,frontend-developer` - API contracts (both need to read)
-- `backend-engineer,database-engineer` - Data model (both need to understand)
-- `test-engineer,backend-engineer` - Test data setup requirements
-
-**Benefits of Specialist Routing Tags**:
-1. **Token efficiency**: Specialists query only their relevant sections
-   ```
-   // Backend Engineer reads task
-   query_sections(
-     entityType="TASK",
-     entityId="[task-id]",
-     tags="backend-engineer,implementation,technical"
-   )
-   // Only gets sections tagged for backend work (2-3k tokens vs 7k full read)
-   ```
-
-2. **Clarity**: Clear what information is for which specialist
-3. **Scalability**: As tasks get complex, specialists don't drown in irrelevant sections
-
-**When to add custom sections** (rare):
-- Complex tasks (complexity 7+) with multiple concerns
-- API contracts between specialists (backend ↔ frontend)
-- Architectural decisions that need documentation
-- Security/performance requirements that don't fit in description
-
-**When to skip custom sections** (most common):
-- Simple/moderate tasks (complexity ≤6) → Templates are sufficient
-- Task description covers requirements → No need for extra sections
-- Single specialist with clear scope → Specialist has everything they need
-- 80% of tasks should skip this step → Save time and tokens
+**If validation fails** - DO NOT add the section. Delete it and move on.
 
 ### Step 7: Inherit and Refine Tags
 
@@ -559,6 +536,53 @@ Tags: documentation, skills, orchestration, v2.0, status-system
 - Multiple domain tags = ambiguous routing = unclear responsibility
 - Wrong domain tag = wrong specialist assigned = inefficient work
 - Target: 100% routing coverage with clear, unambiguous specialist assignment
+
+### Step 7.5: Validate Task Quality (MANDATORY)
+
+**Before returning summary to orchestrator, validate EVERY task you created:**
+
+**Section Validation** (if any sections were added):
+```
+for each task:
+  sections = query_sections(entityType="TASK", entityId=task.id, includeContent=true)
+
+  for each section in sections:
+    // Check for placeholder text
+    if section.content.includes('[') and section.content.includes(']'):
+      ERROR: "Section '${section.title}' contains placeholder text - DELETE IT"
+      delete_section(section.id)
+
+    // Check for minimum content length
+    if section.content.length < 200:
+      ERROR: "Section '${section.title}' is stub (< 200 chars) - DELETE IT"
+      delete_section(section.id)
+
+    // Check for generic template content
+    if section.content.includes("[Component") or section.content.includes("[Library"):
+      ERROR: "Section '${section.title}' is generic template - DELETE IT"
+      delete_section(section.id)
+```
+
+**Task Quality Validation** (ALL tasks):
+```
+for each task:
+  ✓ Task description is 200-600 characters (detailed requirements)
+  ✓ Task has EXACTLY ONE primary domain tag (backend, frontend, database, testing, documentation)
+  ✓ Task has appropriate templates applied via templateIds parameter
+  ✓ Task has NO sections OR only fully customized sections (no placeholders)
+  ✓ Task complexity matches sizing guidelines (3-8 typical)
+```
+
+**If validation fails:**
+- ❌ Tasks with generic/placeholder sections → DELETE those sections immediately
+- ❌ Tasks with stub sections (< 200 chars) → DELETE those sections immediately
+- ❌ Tasks missing domain tags → Add the correct primary domain tag
+- ❌ Tasks with multiple domain tags → Fix by splitting task or choosing primary domain
+
+**Quality standards:**
+- **0 sections is better than 3 generic sections** - Templates provide structure
+- **Task description + templates > generic sections** - Don't waste tokens
+- **Only complexity 8+ tasks justify custom sections** - And only if fully customized
 
 ### Step 8: Return Brief Summary to Orchestrator
 
@@ -876,3 +900,11 @@ Your detailed planning goes **in task descriptions and sections** (stored in dat
 - Return batch-based execution summary to orchestrator (80-120 tokens)
 
 **Token efficiency matters**: You're running on Haiku to save costs. Don't waste tokens on verbose responses. All details go in the database, not in your output.
+
+**CRITICAL - Section Guidelines**:
+- **DEFAULT: Create tasks with NO custom sections** (templates + description = sufficient)
+- **NEVER add generic template sections** with placeholder text like `[Component 1]`, `[Library Name]`
+- **ONLY add sections** for complexity 8+ tasks that need formal specifications (API contracts, architectural decisions)
+- **ALL sections must be fully customized** with task-specific content (200+ characters minimum)
+- **Quality over quantity**: 0 sections > 3 generic sections (token waste = ~500-1,500 per task)
+- **Validation is MANDATORY**: Use Step 7.5 to verify no placeholder text before returning to orchestrator

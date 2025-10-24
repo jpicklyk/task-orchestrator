@@ -30,16 +30,12 @@ class AgentMappingConfigTest {
 
     @Test
     fun `all specialist agent types should have tag mappings`() {
-        // Only specialist agents need tag mappings (not coordination agents like Task Manager and Feature Manager)
+        // v2.0 architecture: Implementation Specialist with Skills + specialized agents
         val expectedAgents = setOf(
-            "Backend Engineer",
-            "Bug Triage Specialist",
-            "Database Engineer",
-            "Feature Architect",
-            "Frontend Developer",
-            "Planning Specialist",
-            "Technical Writer",
-            "Test Engineer"
+            "Implementation Specialist",  // Haiku with domain Skills
+            "Senior Engineer",            // Sonnet for bugs/blockers/complex
+            "Feature Architect",          // Opus for feature design
+            "Planning Specialist"         // Sonnet for task breakdown
         )
 
         val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
@@ -170,16 +166,12 @@ class AgentMappingConfigTest {
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
         assertNotNull(tagMappings, "tagMappings should be a list")
 
-        // v2.0 architecture: Direct specialist pattern (no Task Manager or Feature Manager)
+        // v2.0 architecture: Implementation Specialist with Skills + specialized agents
         val validAgents = setOf(
-            "Backend Engineer",
-            "Bug Triage Specialist",
-            "Database Engineer",
-            "Feature Architect",
-            "Frontend Developer",
-            "Planning Specialist",
-            "Technical Writer",
-            "Test Engineer"
+            "Implementation Specialist",  // Haiku with domain Skills
+            "Senior Engineer",            // Sonnet for bugs/blockers/complex
+            "Feature Architect",          // Opus for feature design
+            "Planning Specialist"         // Sonnet for task breakdown
         )
 
         tagMappings.forEach { mapping ->
@@ -234,36 +226,32 @@ class AgentMappingConfigTest {
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
         assertNotNull(tagMappings)
 
-        // Test Backend Engineer has expected task tags
-        val backendMapping = tagMappings.find { it["agent"] == "Backend Engineer" }
-        assertNotNull(backendMapping, "Backend Engineer mapping should exist")
+        // Test Implementation Specialist has all standard implementation tags
+        val implementationMapping = tagMappings.find { it["agent"] == "Implementation Specialist" }
+        assertNotNull(implementationMapping, "Implementation Specialist mapping should exist")
         @Suppress("UNCHECKED_CAST")
-        val backendTags = backendMapping["task_tags"] as List<String>
-        assertTrue(backendTags.contains("backend") || backendTags.contains("api"),
-            "Backend Engineer should have 'backend' or 'api' tags")
+        val implementationTags = implementationMapping["task_tags"] as List<String>
+        assertTrue(implementationTags.contains("backend") || implementationTags.contains("api"),
+            "Implementation Specialist should have 'backend' or 'api' tags")
+        assertTrue(implementationTags.contains("testing") || implementationTags.contains("test"),
+            "Implementation Specialist should have 'testing' or 'test' tags")
+        assertTrue(implementationTags.contains("documentation") || implementationTags.contains("docs"),
+            "Implementation Specialist should have 'documentation' or 'docs' tags")
 
-        // Test Test Engineer has expected task tags
-        val testMapping = tagMappings.find { it["agent"] == "Test Engineer" }
-        assertNotNull(testMapping, "Test Engineer mapping should exist")
+        // Test Senior Engineer has bug/blocker tags
+        val seniorMapping = tagMappings.find { it["agent"] == "Senior Engineer" }
+        assertNotNull(seniorMapping, "Senior Engineer mapping should exist")
         @Suppress("UNCHECKED_CAST")
-        val testTags = testMapping["task_tags"] as List<String>
-        assertTrue(testTags.contains("testing") || testTags.contains("test"),
-            "Test Engineer should have 'testing' or 'test' tags")
-
-        // Test Technical Writer has expected task tags
-        val writerMapping = tagMappings.find { it["agent"] == "Technical Writer" }
-        assertNotNull(writerMapping, "Technical Writer mapping should exist")
-        @Suppress("UNCHECKED_CAST")
-        val writerTags = writerMapping["task_tags"] as List<String>
-        assertTrue(writerTags.contains("documentation") || writerTags.contains("docs"),
-            "Technical Writer should have 'documentation' or 'docs' tags")
+        val seniorTags = seniorMapping["task_tags"] as List<String>
+        assertTrue(seniorTags.contains("bug") || seniorTags.contains("blocker") || seniorTags.contains("complex"),
+            "Senior Engineer should have 'bug', 'blocker', or 'complex' tags")
 
         // Test Planning Specialist has expected task tags
         val planningMapping = tagMappings.find { it["agent"] == "Planning Specialist" }
         assertNotNull(planningMapping, "Planning Specialist mapping should exist")
         @Suppress("UNCHECKED_CAST")
         val planningTags = planningMapping["task_tags"] as List<String>
-        assertTrue(planningTags.contains("planning") || planningTags.contains("requirements"),
-            "Planning Specialist should have 'planning' or 'requirements' tags")
+        assertTrue(planningTags.contains("planning") || planningTags.contains("task-breakdown"),
+            "Planning Specialist should have 'planning' or 'task-breakdown' tags")
     }
 }

@@ -340,6 +340,140 @@ if (section.title == "Implementation" && containsObvious(section.content)) {
 }
 ```
 
+### Pattern 6: Uncustomized Template Sections
+
+**Issue**: Generic template sections with placeholder text that provide zero value
+
+**Detection**:
+```javascript
+placeholderPatterns = [
+  /\[Component\s*\d*\]/i,
+  /\[Library\s*Name\]/i,
+  /\[Phase\s*Name\]/i,
+  /\[Library\]/i,
+  /\[Version\]/i,
+  /\[What it does\]/i,
+  /\[Why chosen\]/i,
+  /\[Goal\]:/i,
+  /\[Deliverables\]:/i
+]
+
+for (section in task.sections) {
+  // Check for placeholder patterns
+  hasPlaceholder = placeholderPatterns.some(pattern => pattern.test(section.content))
+
+  // Check for generic template titles with minimal content
+  genericTitles = ["Architecture Overview", "Key Dependencies", "Implementation Strategy"]
+  isGenericTitle = genericTitles.includes(section.title)
+  hasMinimalCustomization = section.content.length < 300 || section.content.includes('[')
+
+  if (hasPlaceholder || (isGenericTitle && hasMinimalCustomization)) {
+    return {
+      pattern: "Uncustomized template section",
+      severity: "WARN",  // High priority - significant token waste
+      found: `Section "${section.title}" contains placeholder text or generic template`,
+      expected: "Task-specific content ≥200 chars, OR delete section entirely",
+      recommendation: "DELETE section using manage_sections(operation='delete', id='${section.id}') - Templates provide sufficient structure",
+      savings: `~${estimateTokens(section.content)} tokens`,
+      sectionId: section.id,
+      action: "DELETE"  // Explicit action to take
+    }
+  }
+}
+```
+
+**Common Placeholder Patterns**:
+- `[Component 1]`, `[Component 2]` - Generic component names
+- `[Library Name]`, `[Version]` - Dependency table placeholders
+- `[Phase Name]`, `[Goal]:`, `[Deliverables]:` - Implementation strategy placeholders
+- `[What it does]`, `[Why chosen]` - Generic explanations
+
+**Examples of Violations**:
+
+**Bad Example 1 - Architecture Overview with placeholders**:
+```markdown
+Title: Architecture Overview
+Content:
+This task involves the following components:
+- [Component 1]: [What it does]
+- [Component 2]: [What it does]
+
+Technical approach:
+- [Library Name] for [functionality]
+- [Library Name] for [functionality]
+
+(72 tokens of waste - DELETE this section)
+```
+
+**Bad Example 2 - Key Dependencies with placeholders**:
+```markdown
+Title: Key Dependencies
+Content:
+| Library | Version | Purpose |
+|---------|---------|---------|
+| [Library Name] | [Version] | [What it does] |
+| [Library Name] | [Version] | [What it does] |
+
+Rationale:
+- [Library]: [Why chosen]
+
+(85 tokens of waste - DELETE this section)
+```
+
+**Bad Example 3 - Implementation Strategy with placeholders**:
+```markdown
+Title: Implementation Strategy
+Content:
+Phase 1: [Phase Name]
+- Goal: [Goal]
+- Deliverables: [Deliverables]
+
+Phase 2: [Phase Name]
+- Goal: [Goal]
+- Deliverables: [Deliverables]
+
+(98 tokens of waste - DELETE this section)
+```
+
+**Proper Response When Detected**:
+```markdown
+⚠️ WARN - Uncustomized Template Sections (Pattern 6)
+
+**Found**: 3 task sections contain placeholder text, wasting ~255 tokens
+
+**Violations**:
+1. Task [ID] - Section "Architecture Overview" (72 tokens)
+   - Placeholder patterns: `[Component 1]`, `[What it does]`
+   - **Action**: DELETE section (ID: xxx)
+   - **Reason**: Templates provide sufficient structure
+
+2. Task [ID] - Section "Key Dependencies" (85 tokens)
+   - Placeholder patterns: `[Library Name]`, `[Version]`, `[Why chosen]`
+   - **Action**: DELETE section (ID: yyy)
+   - **Reason**: Generic table with no actual dependencies
+
+3. Task [ID] - Section "Implementation Strategy" (98 tokens)
+   - Placeholder patterns: `[Phase Name]`, `[Goal]:`, `[Deliverables]:`
+   - **Action**: DELETE section (ID: zzz)
+   - **Reason**: Uncustomized phases with no specific strategy
+
+**Expected**: Task-specific content ≥200 chars with NO placeholder text, OR delete section entirely
+
+**Recommendation**:
+- Planning Specialist must customize ALL sections before returning to orchestrator (Step 7.5 validation)
+- Implementation Specialists must DELETE any placeholder sections during Step 4
+- Templates provide sufficient structure for 95% of tasks (complexity ≤7)
+
+**Root Cause**: Planning Specialist's bulkCreate operation included generic template sections without customization
+
+**Prevention**:
+1. Planning Specialist Step 7.5 (Validate Task Quality) must detect and delete placeholder sections
+2. Implementation Specialists Step 4 must check for and delete placeholder sections
+3. Orchestration QA Skill now detects this pattern automatically
+
+**Token Savings**: ~255 tokens (current waste) → 0 tokens (after deletion)
+```
+
 ## Analysis Workflow
 
 ### Step 1: Capture Baseline
