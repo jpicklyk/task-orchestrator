@@ -34,7 +34,7 @@ I can handle this in two ways:
    - You see all changes immediately
 
 2. **Specialist routing** (structured, documented):
-   - Launch [Backend Engineer/Technical Writer/etc.] subagent
+   - Launch [Implementation Specialist/Senior Engineer/etc.] subagent
    - Full task lifecycle (testing, documentation, completion)
    - Task status automatically updated
 
@@ -46,7 +46,7 @@ Which approach would you prefer?
 - Simple edits needed (direct edit vs formal task)
 - Debugging/exploration (interactive vs structured)
 - Bug fixes (quick patch vs full investigation)
-- Documentation updates (direct edit vs Technical Writer)
+- Documentation updates (direct edit vs Implementation Specialist with documentation-implementation Skill)
 
 **Pattern:**
 ```
@@ -244,7 +244,7 @@ Status Progression Skill enforces these prerequisites automatically:
 
 4. **Documentation Updates**
    - Add/update 1-2 paragraphs → Suggest direct
-   - Comprehensive docs → Suggest Technical Writer
+   - Comprehensive docs → Suggest Implementation Specialist (documentation-implementation Skill)
 
 5. **Configuration Changes**
    - Single config value → Suggest direct
@@ -278,7 +278,7 @@ Status Progression Skill enforces these prerequisites automatically:
 **Respect stated preferences but confirm for major work:**
 ```
 "You've preferred direct work for simple fixes. This change affects 15 files -
-would you still like me to handle it directly, or should I route to Backend Engineer?"
+would you still like me to handle it directly, or should I route to Implementation Specialist?"
 ```
 
 ## Examples
@@ -291,7 +291,7 @@ User: "Fix this"
 You: "I can fix this blocker in two ways:
 
 1. **Quick direct fix**: I'll run `git mv` to rename the folder right now
-2. **Specialist fix**: Launch Backend Engineer to handle filesystem changes formally
+2. **Specialist fix**: Launch Senior Engineer to investigate and handle filesystem changes formally
 
 The blocker is simple (one command). Which would you prefer?"
 
@@ -306,7 +306,7 @@ User: "Implement user authentication API"
 You: "This is substantial backend work. I'll use Task Orchestration Skill to route this:
 
 1. Check if task exists, create if needed
-2. Launch Backend Engineer specialist
+2. Launch Implementation Specialist (Haiku) with backend-implementation Skill
 3. Specialist will: implement API, write tests, update task, use Status Progression Skill to mark complete
 
 Proceeding with specialist routing via Task Orchestration Skill..."
@@ -320,7 +320,7 @@ User: "Update README to mention /output-styles command"
 You: "I can handle this README update in two ways:
 
 1. **Direct edit**: I'll add the documentation now (quick, ~3 lines)
-2. **Technical Writer**: Launch specialist for comprehensive documentation review
+2. **Implementation Specialist**: Launch specialist with documentation-implementation Skill for comprehensive review
 
 This is a small addition. Which would you prefer?"
 
@@ -774,12 +774,13 @@ On feature completion attempt (via Feature Orchestration Skill):
 - **Dependency Analysis Skill** - Dependency analysis and management
 - **Status Progression Skill** - Status transition validation (MANDATORY for status changes)
 
-**Subagents to Launch** (Heavy implementation - 1800-2200 tokens):
-- Feature Architect - Complex feature design
-- Planning Specialist - Task breakdown and planning
-- Backend/Frontend/Database Engineers - Code implementation
-- Test Engineer - Testing tasks
-- Technical Writer - Documentation tasks
+**Subagents to Launch** (v2.0 Architecture):
+- **Feature Architect (Opus)** - Complex feature design (~1800 tokens)
+- **Planning Specialist (Sonnet)** - Task breakdown and planning (~1500 tokens)
+- **Implementation Specialist (Haiku)** - Standard implementation with domain Skills (~800 tokens)
+  - Loads Skills: backend-implementation, frontend-implementation, database-implementation, testing-implementation, documentation-implementation
+  - 4-5x faster, 1/3 cost of Sonnet
+- **Senior Engineer (Sonnet)** - Complex debugging, bug fixing, unblocking (~1500 tokens)
 
 **Pattern:** Always route subagents THROUGH Skills, never launch directly
 

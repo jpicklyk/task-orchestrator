@@ -33,6 +33,29 @@ Intelligent task execution management with parallel processing, dependency-aware
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Update task sections
 
+## Specialist Architecture (v2.0)
+
+**Implementation Specialist (Haiku)** - Standard implementation work (70-80% of tasks)
+- Fast execution (4-5x faster than Sonnet)
+- Cost-effective (1/3 cost of Sonnet)
+- Loads domain Skills on-demand: backend-implementation, frontend-implementation, database-implementation, testing-implementation, documentation-implementation
+- Escalates to Senior Engineer when blocked
+
+**Senior Engineer (Sonnet)** - Complex problem solving (10-20% of tasks)
+- Debugging, bug investigation, unblocking
+- Performance optimization, refactoring
+- Tactical architecture decisions
+- Better reasoning for ambiguous problems
+
+**Feature Architect (Opus)** - Feature design from ambiguous requirements
+- Transforms concepts into structured features
+- PRD creation, strategic architecture
+- Template discovery and application
+
+**Planning Specialist (Sonnet)** - Task decomposition with execution graphs
+- Domain-isolated task breakdown
+- Execution graph creation, dependency management
+
 ## Core Workflows
 
 ### 1. Dependency-Aware Batching
@@ -83,14 +106,16 @@ Given 4 tasks with dependencies:
           "id": "uuid-1",
           "title": "Create database schema",
           "complexity": 5,
-          "specialist": "Database Engineer",
+          "specialist": "Implementation Specialist",
+          "skills_loaded": ["database-implementation"],
           "dependencies": []
         },
         {
           "id": "uuid-3",
           "title": "Create UI components",
           "complexity": 6,
-          "specialist": "Frontend Developer",
+          "specialist": "Implementation Specialist",
+          "skills_loaded": ["frontend-implementation"],
           "dependencies": []
         }
       ]
@@ -104,7 +129,8 @@ Given 4 tasks with dependencies:
           "id": "uuid-2",
           "title": "Implement API endpoints",
           "complexity": 7,
-          "specialist": "Backend Engineer",
+          "specialist": "Implementation Specialist",
+          "skills_loaded": ["backend-implementation"],
           "dependencies": ["uuid-1"]
         }
       ]
@@ -140,13 +166,15 @@ Step 3: Orchestrator launches specialists in parallel
 ```markdown
 Launch the following specialists in PARALLEL (Batch 1):
 
-1. **Database Engineer**
+1. **Implementation Specialist (Haiku)**
    - Task: Create database schema (uuid-1)
    - Complexity: 5
+   - Skills: database-implementation
 
-2. **Frontend Developer**
+2. **Implementation Specialist (Haiku)**
    - Task: Create UI components (uuid-3)
    - Complexity: 6
+   - Skills: frontend-implementation
 
 Wait for both to complete before proceeding to Batch 2.
 ```
@@ -220,16 +248,22 @@ recommend_agent(taskId="task-uuid")
 Returns:
 {
   "recommended": true/false,
-  "agent": "Backend Engineer",
-  "reason": "Task tags match backend patterns",
-  "matchedTags": ["backend", "api"]
+  "agent": "Implementation Specialist",
+  "reason": "Task tags match implementation patterns",
+  "matchedTags": ["backend", "api"],
+  "sectionTags": ["requirements", "technical-approach"],
+  "nextAction": {
+    "tool": "Task",
+    "subagent_type": "Implementation Specialist",
+    "skills_loaded": ["backend-implementation"]
+  }
 }
 
 Step 2: If recommendation provided, use it
 Launch recommended specialist
 
 Step 3: If no recommendation, use fallback
-Default to general specialist or ask user for guidance
+Default to Implementation Specialist (Haiku) or ask user for guidance
 
 Note: Configuration loading is NOT available via MCP tools.
 Configuration should be documented statically in skill files or CLAUDE.md.
@@ -327,7 +361,11 @@ Respect resource constraints while maximizing parallelism.
 
 **Specialist Routing:**
 - Always use `recommend_agent` tool as primary routing method
-- If no recommendation, default to Backend Engineer or ask user
+- Tags [backend, frontend, database, testing, documentation] → Implementation Specialist (Haiku)
+- Tags [bug, error, blocker, complex] → Senior Engineer (Sonnet)
+- Tags [feature-creation] → Feature Architect (Opus)
+- Tags [planning, task-breakdown] → Planning Specialist (Sonnet)
+- If no recommendation, default to Implementation Specialist (Haiku) or ask user
 - Never guess or hardcode specialist assignments
 
 **Best Practices:**
@@ -353,8 +391,8 @@ Respect resource constraints while maximizing parallelism.
 
 4. Return: "Execution plan created with 3 batches.
    Ready to launch Batch 1 with 2 parallel tasks:
-   - Database Engineer: Create schema
-   - Frontend Developer: Create UI components"
+   - Implementation Specialist (Haiku): Create schema (loads database-implementation Skill)
+   - Implementation Specialist (Haiku): Create UI components (loads frontend-implementation Skill)"
 ```
 
 ### Example 2: Launch Parallel Batch
@@ -368,8 +406,10 @@ Respect resource constraints while maximizing parallelism.
    - recommend_agent(task_id)
 3. Return: "Launching Batch 1 in PARALLEL:
 
-   1. Database Engineer - Create database schema
-   2. Frontend Developer - Create UI components
+   1. Implementation Specialist (Haiku) - Create database schema
+      - Skills loaded: database-implementation
+   2. Implementation Specialist (Haiku) - Create UI components
+      - Skills loaded: frontend-implementation
 
    Both tasks can run simultaneously."
 ```
@@ -401,7 +441,8 @@ Respect resource constraints while maximizing parallelism.
 4. Return: "Task completed. Batch 1 complete (2/2).
 
    Ready to launch Batch 2:
-   - Backend Engineer: Implement API endpoints"
+   - Implementation Specialist (Haiku): Implement API endpoints
+     - Skills loaded: backend-implementation"
 ```
 
 ### Example 5: Circular Dependency Detection

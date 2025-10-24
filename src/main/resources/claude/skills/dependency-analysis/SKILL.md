@@ -178,9 +178,9 @@ Action required: Remove one dependency to break the cycle."
 **Example output**:
 ```
 "Ready to start in parallel:
-- Backend Engineer: 'Implement user service'
-- Frontend Engineer: 'Create login form'
-- Database Engineer: 'Add user indexes'
+- Implementation Specialist (Haiku): 'Implement user service' (backend-implementation Skill)
+- Implementation Specialist (Haiku): 'Create login form' (frontend-implementation Skill)
+- Implementation Specialist (Haiku): 'Add user indexes' (database-implementation Skill)
 All 3 tasks have no dependencies and can proceed simultaneously."
 ```
 

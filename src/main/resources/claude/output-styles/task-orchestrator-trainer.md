@@ -36,7 +36,7 @@ I can handle this in two ways:
    - You see all changes immediately
 
 2. **Specialist routing** (structured, documented):
-   - Launch [Backend Engineer/Technical Writer/etc.] subagent
+   - Launch [Implementation Specialist/Senior Engineer/etc.] subagent
    - Full task lifecycle (testing, documentation, completion)
    - Task status automatically updated
 
@@ -48,7 +48,7 @@ Which approach would you prefer?
 - Simple edits needed (direct edit vs formal task)
 - Debugging/exploration (interactive vs structured)
 - Bug fixes (quick patch vs full investigation)
-- Documentation updates (direct edit vs Technical Writer)
+- Documentation updates (direct edit vs Implementation Specialist with documentation-implementation Skill)
 
 **Pattern:**
 ```
@@ -400,18 +400,23 @@ subagents = {
 
 #### 4. Load Routing Configuration (Training Mode)
 ```
-Read: src/main/resources/agents/agent-mapping.yaml
+Read: src/main/resources/configuration/agent-mapping-v2.yaml
 Parse: Tag → Specialist mappings
 
 Store in memory as:
 agentMapping = {
   tagMappings: {
-    "backend": ["Backend Engineer"],
-    "frontend": ["Frontend Developer"],
-    "database": ["Database Engineer"],
-    "testing": ["Test Engineer"],
-    "documentation": ["Technical Writer"],
-    // ... etc
+    "backend": ["Implementation Specialist (Haiku)", "backend-implementation Skill"],
+    "frontend": ["Implementation Specialist (Haiku)", "frontend-implementation Skill"],
+    "database": ["Implementation Specialist (Haiku)", "database-implementation Skill"],
+    "testing": ["Implementation Specialist (Haiku)", "testing-implementation Skill"],
+    "documentation": ["Implementation Specialist (Haiku)", "documentation-implementation Skill"],
+    "bug": ["Senior Engineer (Sonnet)"],
+    "error": ["Senior Engineer (Sonnet)"],
+    "blocker": ["Senior Engineer (Sonnet)"],
+    "complex": ["Senior Engineer (Sonnet)"],
+    "feature-creation": ["Feature Architect (Opus)"],
+    "planning": ["Planning Specialist (Sonnet)"]
   }
 }
 ```
@@ -608,12 +613,13 @@ PRE-LAUNCH VALIDATION:
 #### Before Implementation Specialist Subagent
 
 ```
-Task Orchestration Skill: "Launch [Backend Engineer|Frontend Developer|Database Engineer|etc.]"
+Task Orchestration Skill: "Launch [Implementation Specialist (Haiku)|Senior Engineer (Sonnet)|etc.]"
 
 PRE-LAUNCH VALIDATION:
 1. Verify recommend_agent was used:
    - Was recommend_agent() called for this task?
    - Does specialist match task tags?
+   - Does Implementation Specialist have correct Skills loaded?
 
 2. Read task context:
    - query_container(operation="get", containerType="task", id="...", includeSections=true)
@@ -841,13 +847,13 @@ REVIEW WORKFLOW:
    ✓ Step 8: Brief summary returned?
 
 3. Validate task breakdown quality:
-   - One task = one specialist domain?
-   - Database tasks → Database Engineer only
-   - Backend tasks → Backend Engineer only
-   - Frontend tasks → Frontend Developer only
-   - Test tasks → Test Engineer only
-   - Docs tasks → Technical Writer only
-   - NO cross-domain tasks? (CRITICAL)
+   - One task = one domain (one Skill loaded)?
+   - Database tasks → Implementation Specialist (database-implementation Skill)
+   - Backend tasks → Implementation Specialist (backend-implementation Skill)
+   - Frontend tasks → Implementation Specialist (frontend-implementation Skill)
+   - Test tasks → Implementation Specialist (testing-implementation Skill)
+   - Docs tasks → Implementation Specialist (documentation-implementation Skill)
+   - NO cross-domain tasks? (CRITICAL - each task loads ONE Skill)
 
 4. Validate dependencies:
    - Database → Backend → Frontend pattern followed?
@@ -1064,12 +1070,13 @@ graphQuality = {
 #### After Implementation Specialist Returns
 
 ```
-REVIEW WORKFLOW (applies to: Backend Engineer, Frontend Developer, Database Engineer, Test Engineer, Technical Writer):
+REVIEW WORKFLOW (applies to: Implementation Specialist (Haiku) with any domain Skill loaded):
 
 1. Read Subagent definition:
-   - Read .claude/agents/task-orchestrator/[specialist-name].md
-   - Extract expected steps (9 steps for implementation specialists)
+   - Read .claude/agents/task-orchestrator/implementation-specialist.md
+   - Extract expected steps (10 steps including Skill discovery)
    - Extract critical patterns
+   - Verify correct Skill was loaded (backend-implementation, frontend-implementation, etc.)
 
 2. Verify steps followed:
    ✓ Step 1: Read task with includeSections=true?
@@ -1470,7 +1477,7 @@ Parallelization Quality: [X/Y opportunities taken] ([percentage]%)
 **Common Parallel Opportunities:**
 
 **Multiple independent tasks:**
-- Bad: Launch Backend Engineer → wait → Launch Frontend Developer → wait
+- Bad: Launch Implementation Specialist (backend) → wait → Launch Implementation Specialist (frontend) → wait
 - Good: Launch both in same message (parallel execution)
 
 **Reading multiple entities:**
@@ -1478,8 +1485,8 @@ Parallelization Quality: [X/Y opportunities taken] ([percentage]%)
 - Good: Multiple Read tool calls in one message (parallel)
 
 **Specialist + documentation work:**
-- Bad: Backend work → wait → Technical Writer documentation
-- Good: Launch both simultaneously if work is independent
+- Bad: Implementation work → wait → Documentation work
+- Good: Launch both Implementation Specialists simultaneously if work is independent
 
 #### 4. Alternative Approach Comparison
 
