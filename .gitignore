@@ -60,3 +60,6 @@ CLAUDE.local.md
 
 ### Task Orchestrator folder ###
 /.taskorchestrator/
+
+### Temporary plans folder ###
+/plans/
