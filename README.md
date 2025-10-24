@@ -93,9 +93,10 @@ Task Orchestrator is **not just another task tracker** - it's an orchestration f
                          │
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  LEVEL 2: Specialists                                        │
-│  Context: 2-6k tokens (just what they need)                 │
-│  Examples: Backend Engineer, Database Engineer, Test Eng    │
+│  LEVEL 2: Specialists (v2.0)                                │
+│  Context: 2-6k tokens (just what they need + Skills)       │
+│  Examples: Implementation Specialist (Haiku) + Skills,      │
+│            Senior Engineer (Sonnet), Feature Architect      │
 │  Creates: 300-500 token Summary for next task              │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -205,24 +206,24 @@ Payment Integration: Database (2) → Backend (2) → Frontend (2) → Testing (
 - **Faster execution** - Skills respond in seconds vs minutes for subagents
 - **Clear separation** - Coordination (Skills) vs Implementation (Subagents) vs Automation (Hooks)
 
-**How They Work Together**:
+**How They Work Together** (v2.0):
 ```
 1. You: "What's the next task?"
-   → Feature Management Skill (300 tokens)
-   → Returns: "Task T4: Implement login endpoint"
+   → Feature Orchestration Skill (300 tokens)
+   → Returns: "Task T4: Implement login endpoint (backend, api tags)"
 
 2. You: "Work on that task"
-   → Task Management Skill routes to Backend Engineer (300 tokens)
-   → Backend Engineer implements endpoint (2000 tokens)
+   → Uses recommend_agent → Implementation Specialist (Haiku) + backend-implementation Skill
+   → Implementation Specialist loads Skill (400 tokens), implements endpoint (1500 tokens)
    → Creates tests, documentation, summary
 
-3. Backend Engineer: set_status(status="completed")
+3. Implementation Specialist: set_status(status="completed")
    → Hook triggers: task-complete-commit.sh (0 tokens)
    → Automatic git commit with task details
 
 4. You: "What's next?"
-   → Feature Management Skill (300 tokens)
-   → Cycle continues with 60%+ token savings
+   → Feature Orchestration Skill (300 tokens)
+   → Cycle continues with 60%+ token savings + 4-5x faster execution
 ```
 
 **Skills Documentation**: See [`.claude/skills/README.md`](.claude/skills/README.md) - 5 included Skills for task/feature coordination
@@ -260,22 +261,27 @@ Next morning, your AI asks: "Show me the project overview" and instantly knows:
 
 **The Solution**: 3-level agent coordination with 85-90% real token reduction.
 
-**How it works**:
-1. **Orchestrator** (you) launches Feature Manager for multi-task features (~2k coordination per task)
-2. **Feature Manager** recommends next task, launches Task Manager
-3. **Task Manager** routes to specialists (Backend, Database, Test Engineer, etc.)
-4. **Specialist** completes work with clean context, creates 300-500 token Summary
+**How it works** (v2.0 Architecture):
+1. **Orchestrator** (you) launches coordination for multi-task features (~2k coordination per task)
+2. **Task routing** uses `recommend_agent` to identify appropriate specialist based on tags
+3. **Specialists** complete work with clean context:
+   - **Implementation Specialist (Haiku)** - Standard work with Skills loaded dynamically (backend, frontend, database, testing, docs)
+   - **Senior Engineer (Sonnet)** - Complex problems, bugs, blockers, debugging
+   - **Feature Architect (Opus)** - Complex feature design and PRDs
+   - **Planning Specialist (Sonnet)** - Task breakdown and execution graphs
+4. **Specialist** creates 300-500 token Summary section after completion
 5. **Next task** reads summary instead of full context (92% savings per dependency)
 
 **Token Reality**:
-- Coordination overhead: ~2-3k tokens per task (Feature Manager, Task Manager, briefs)
+- Coordination overhead: ~2-3k tokens per task (routing, specialist briefs, Skills loading)
 - Context accumulation avoided: 5-10k tokens per task (specialists discard context)
 - Net savings: 85-90% vs direct implementation
 - Break-even: 3-4 tasks where coordination overhead < context accumulation
+- **v2.0 Efficiency**: Implementation Specialist (Haiku) runs 4-5x faster and costs 1/3 vs Sonnet for standard work
 
-**Parallel Execution**: Feature Manager now supports **wave-based parallel processing** - launching 2-5 independent tasks simultaneously instead of sequentially. For complex features with dependencies, this delivers **45-50% time reduction** by executing unblocked tasks in parallel batches. See [Parallel Processing Guide](docs/parallel-processing-guide.md) for orchestration patterns.
+**Parallel Execution**: Orchestrator supports **wave-based parallel processing** - launching 2-5 independent tasks simultaneously instead of sequentially. For complex features with dependencies, this delivers **45-50% time reduction** by executing unblocked tasks in parallel batches. See [Parallel Processing Guide](docs/parallel-processing-guide.md) for orchestration patterns.
 
-**Setup**: Run `setup_claude_agents` tool once to create `.claude/agents/` directory.
+**Setup**: Run `setup_claude_orchestration` tool once to create `.claude/agents/` directory.
 
 > **📖 Complete guide**: [Agent Orchestration Documentation](docs/agent-orchestration.md)
 
@@ -310,32 +316,32 @@ AI: *Discovers templates with list_templates()*
 
 ### 5. Cross-Domain Context Passing
 
-**The Problem**: Backend Engineer needs database schema details, Frontend Developer needs API specs, Test Engineer needs implementation details - but they don't need EVERYTHING.
+**The Problem**: Implementation specialists need relevant context from previous work - database schemas for APIs, API specs for frontends, implementation details for tests - but they don't need EVERYTHING.
 
-**The Solution**: Specialists read only relevant summaries from their domain.
+**The Solution**: Specialists read only relevant summaries from their domain via dependency summaries.
 
 **Example: Payment Integration**
 ```
-Database Engineer (Task 1):
+Implementation Specialist + database-implementation Skill (Task 1):
   Writes: Full schema with migrations (5k tokens)
   Summary: Table names, key fields, indexes (400 tokens)
 
-Backend Engineer (Task 3):
-  Reads: Database summary (400 tokens) ← NOT 5k
+Implementation Specialist + backend-implementation Skill (Task 3):
+  Reads: Database task summary (400 tokens) ← NOT 5k full implementation
   Doesn't see: SQL DDL, migration scripts, testing details
   Gets exactly: Table structure needed for API
 
-Frontend Developer (Task 5):
-  Reads: Backend API summary (400 tokens) ← NOT 11k
+Implementation Specialist + frontend-implementation Skill (Task 5):
+  Reads: Backend API task summary (400 tokens) ← NOT 11k
   Doesn't see: Database schemas, service implementations
   Gets exactly: API endpoints, request/response formats
 
-Test Engineer (Task 7):
+Implementation Specialist + testing-implementation Skill (Task 7):
   Reads: Backend + Frontend summaries (800 tokens) ← NOT 26k
   Doesn't see: Database migrations, UI component code
   Gets exactly: What needs testing
 
-Technical Writer (Task 9):
+Implementation Specialist + documentation-implementation Skill (Task 9):
   Reads: Backend API summary (400 tokens) ← NOT 51k
   Doesn't see: Database, frontend, or test implementation
   Gets exactly: API specification for documentation
@@ -401,32 +407,29 @@ AI: Marks task complete
 - ✅ Cross-domain work (database → backend → frontend → tests)
 - ✅ Need 97% token reduction for large projects
 
-**How it works**:
+**How it works** (v2.0):
 1. Orchestrator creates feature with templates applied to tasks
-2. Orchestrator launches Feature Manager (START mode)
-3. Feature Manager recommends next task → Task Manager
-4. Task Manager routes to specialist (Backend Engineer, Database Engineer, etc.)
-5. Specialist reads template sections + dependency summaries
-6. Specialist implements, creates Summary section
-7. Task Manager reports completion (2 sentences)
-8. Next task reads Summary instead of full context
+2. Orchestrator uses `recommend_agent` to identify appropriate specialist
+3. Specialist is launched based on task tags (Implementation Specialist + Skill, Senior Engineer, etc.)
+4. Specialist reads template sections + dependency summaries
+5. Specialist implements work, creates Summary section
+6. Specialist reports completion (brief summary)
+7. Next task reads Summary instead of full context
 
-**Example**:
+**Example** (v2.0):
 ```
 You: "Create feature for payment processing with 9 tasks"
-You: Launch Feature Manager (START mode)
-Feature Manager: "Recommends T1: Create transactions table"
-You: Launch Task Manager for T1
-Task Manager: Routes to Database Engineer
-Database Engineer: Reads technical-approach template, implements schema
-Database Engineer: Creates 400-token Summary
-Task Manager: "Created transactions table with payment fields. Ready for API."
-You: Launch Feature Manager again
-Feature Manager: "Recommends T2: Payment service (reads T1 Summary)"
+You: "Work on the first task" (tagged: database, migration)
+AI: Uses recommend_agent → Implementation Specialist (Haiku) + database-implementation Skill
+Implementation Specialist: Reads technical-approach template, implements schema
+Implementation Specialist: Creates 400-token Summary
+Implementation Specialist: "Created transactions table with payment fields. Ready for API."
+You: "Work on next task" (tagged: backend, api)
+AI: Routes to Implementation Specialist (Haiku) + backend-implementation Skill (reads T1 Summary)
 [cycle continues with automatic dependency context]
 ```
 
-**Setup required**: Run `setup_claude_agents` once to create agent definitions.
+**Setup required**: Run `setup_claude_orchestration` once to create agent definitions and Skills.
 
 ---
 
@@ -434,7 +437,7 @@ Feature Manager: "Recommends T2: Payment service (reads T1 Summary)"
 
 | AI Platform | Templates | Agent Recommendations | Autonomous Sub-Agents | Setup |
 |-------------|-----------|----------------------|----------------------|-------|
-| **Claude Code** | ✅ Full support | ✅ Via `recommend_agent` | ✅ Full support | `setup_claude_agents` |
+| **Claude Code** | ✅ Full support | ✅ Via `recommend_agent` | ✅ Full support | `setup_claude_orchestration` |
 | **Claude Desktop** | ✅ Full support | ✅ Via `recommend_agent` | ❌ Not available | N/A |
 | **Cursor** | ✅ Full support | ✅ Via `recommend_agent` | ❌ Not available | N/A |
 | **Windsurf** | ✅ Full support | ✅ Via `recommend_agent` | ❌ Not available | N/A |
@@ -510,14 +513,14 @@ This loads AI guidelines and best practices into your project.
 
 Ask your AI:
 ```
-"Run setup_claude_agents to enable sub-agent orchestration"
+"Run setup_claude_orchestration to enable sub-agent orchestration"
 ```
 
-Creates `.claude/agents/` directory with 10 specialist agent definitions.
+Creates `.claude/agents/` directory with 8 specialist agent definitions and 5 Skills for lightweight coordination.
 
-**Claude Code Output Style**: The `setup_claude_agents` tool also creates an output-style file at `.claude/output-styles/task-orchestrator.md`. This enables Claude Code's `/output-style` command to configure optimized orchestration behavior:
+**Claude Code Output Style**: The `setup_claude_orchestration` tool also creates an output-style file at `.claude/output-styles/task-orchestrator.md`. This enables Claude Code's `/output-style` command to configure optimized orchestration behavior:
 
-1. After running `setup_claude_agents`, use `/output-style` in Claude Code
+1. After running `setup_claude_orchestration`, use `/output-style` in Claude Code
 2. Select **Task Orchestrator** from the list
 3. Claude Code will follow intelligent routing patterns:
    - Use Skills for coordination (status updates, dependency checks)
@@ -540,12 +543,13 @@ AI: Marks complete, moves to next task
 **Advanced workflow (Claude Code with sub-agents)**:
 ```
 You: "Create a feature for payment processing with 9 tasks"
-AI: Creates feature with templates applied
-You: "Launch Feature Manager for this feature (START mode)"
-Feature Manager: "Recommends T1: Create transactions table"
-You: "Launch Task Manager for T1"
-Task Manager: Routes to Database Engineer
-Database Engineer: Implements, creates Summary
+AI: Creates feature with templates applied and tags
+You: "Work on the first task"
+AI: Uses recommend_agent to identify Implementation Specialist + database-implementation Skill
+AI: Launches Implementation Specialist for T1
+Implementation Specialist: Loads database-implementation Skill, implements schema, creates Summary
+You: "Work on the next task"
+AI: Routes to Implementation Specialist + backend-implementation Skill (reads T1 summary)
 [Automatic routing continues with dependency context]
 ```
 
