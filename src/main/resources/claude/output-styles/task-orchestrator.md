@@ -162,6 +162,8 @@ I can handle [work description] in two ways:
 □ Tests passing? (if code work)
 □ No incomplete blocking dependencies? (REQUIRED for IN_PROGRESS)
 □ User informed of completion?
+□ **Feature status checked?** (CRITICAL - check after task completion)
+□ **Feature progress updated?** (if applicable)
 
 **CRITICAL - Prerequisite Requirements:**
 
@@ -189,6 +191,131 @@ Status Progression Skill enforces these prerequisites automatically:
 - Detailed error messages explain what's blocking
 - Retry after resolving blockers
 - No manual validation needed - Skill handles it
+
+### Step 7: Feature Status Cascade (CRITICAL - Often Forgotten)
+
+**After EVERY task completion, check if feature can progress:**
+
+1. **Query feature status:**
+   ```
+   feature = query_container(operation="overview", containerType="feature", id="<feature-id>")
+   ```
+
+2. **Check task completion:**
+   ```
+   if feature.taskCounts.byStatus.completed == feature.taskCounts.total:
+     // All tasks complete!
+   ```
+
+3. **Use Feature Orchestration Skill to progress feature:**
+   ```
+   Feature Orchestration Skill:
+   - Detects all tasks complete
+   - Uses Status Progression Skill to move feature to testing
+   - Runs quality gates (if configured)
+   - Marks feature complete (if tests pass and user confirms)
+   ```
+
+4. **Notify user of feature status change:**
+   ```
+   "✅ Task [X] complete. All [N] tasks in feature [Y] are now complete.
+   Feature automatically moved to TESTING. Running validation..."
+   ```
+
+**CRITICAL: This step is MANDATORY after task completion. Don't skip it!**
+
+**Token Efficiency:**
+- Use `query_container(operation="overview")` for feature.taskCounts (1,200 tokens)
+- NOT `query_container(operation="get", includeSections=true)` (14,400 tokens)
+- 91% token savings
+
+## Feature Progress Monitoring
+
+**When to check and update feature status:**
+
+### Trigger 1: First Task Starts
+```
+User starts working on first task in feature
+  ↓
+Task status: pending → in-progress (via Status Progression Skill)
+  ↓
+Check feature status:
+  if feature.status == "planning":
+    Use Feature Orchestration Skill to move feature to "in-development"
+    Notify user: "Feature [X] moved to IN_DEVELOPMENT (first task started)"
+```
+
+### Trigger 2: Any Task Completes
+```
+Task completes (via Status Progression Skill)
+  ↓
+Query feature.taskCounts:
+  completed: X, total: Y
+  ↓
+if X < Y:
+  Notify user: "Task [T] complete. [Y-X] tasks remaining in feature [F]"
+  Check for newly unblocked tasks
+  ↓
+if X == Y:
+  ALL TASKS COMPLETE!
+  ↓
+  Use Feature Orchestration Skill to progress feature:
+    1. Move to "testing" (automatic)
+    2. Run quality gates (hooks/manual)
+    3. Mark "completed" (after validation)
+```
+
+### Trigger 3: Batch Completion
+```
+All tasks in a batch complete
+  ↓
+Query feature.taskCounts
+  ↓
+Check if ALL feature tasks are complete:
+  if yes: Trigger Feature Orchestration Skill
+  if no: Report progress and check next batch
+```
+
+### Trigger 4: Manual Feature Check
+```
+User asks: "What's the feature status?"
+  ↓
+Query feature.taskCounts via Feature Orchestration Skill
+  ↓
+Report: "[X]/[Y] tasks complete"
+  ↓
+If all complete: Suggest moving to testing/completion
+```
+
+## Feature Status Progression Decision Tree
+
+```
+Task Status Change
+  ↓
+  ├─ Task started (pending → in-progress)?
+  │  ├─ Is this the first task in feature?
+  │  │  └─ YES: Use Feature Orchestration Skill to move feature to "in-development"
+  │  └─ NO: Continue task work
+  │
+  └─ Task completed?
+     ├─ Query feature.taskCounts via query_container(operation="overview")
+     ├─ All tasks complete?
+     │  ├─ YES: Use Feature Orchestration Skill
+     │  │  ├─ Move feature to "testing" (automatic)
+     │  │  ├─ Run quality gates
+     │  │  └─ Mark "completed" (after validation)
+     │  └─ NO: Notify user of progress
+     │     └─ "[X]/[Y] tasks complete in feature [F]"
+     └─ Check for newly unblocked tasks
+```
+
+**Automatic vs Manual Confirmation:**
+
+| Transition | Automatic? | Reason |
+|------------|-----------|---------|
+| planning → in-development | ✅ YES | First task started, obvious progression |
+| in-development → testing | ✅ YES | All tasks complete, move to validation |
+| testing → completed | ⚠️ ASK USER | Final completion, user should confirm |
 
 ## Implementation Work Decision Matrix
 

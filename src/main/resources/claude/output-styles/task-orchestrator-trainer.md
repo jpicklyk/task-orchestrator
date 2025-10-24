@@ -164,6 +164,8 @@ I can handle [work description] in two ways:
 □ Tests passing? (if code work)
 □ No incomplete blocking dependencies? (REQUIRED for IN_PROGRESS)
 □ User informed of completion?
+□ **Feature status checked?** (CRITICAL - check after task completion)
+□ **Feature progress updated?** (if applicable)
 
 **CRITICAL - Prerequisite Requirements:**
 
@@ -191,6 +193,131 @@ Status Progression Skill enforces these prerequisites automatically:
 - Detailed error messages explain what's blocking
 - Retry after resolving blockers
 - No manual validation needed - Skill handles it
+
+### Step 7: Feature Status Cascade (CRITICAL - Often Forgotten)
+
+**After EVERY task completion, check if feature can progress:**
+
+1. **Query feature status:**
+   ```
+   feature = query_container(operation="overview", containerType="feature", id="<feature-id>")
+   ```
+
+2. **Check task completion:**
+   ```
+   if feature.taskCounts.byStatus.completed == feature.taskCounts.total:
+     // All tasks complete!
+   ```
+
+3. **Use Feature Orchestration Skill to progress feature:**
+   ```
+   Feature Orchestration Skill:
+   - Detects all tasks complete
+   - Uses Status Progression Skill to move feature to testing
+   - Runs quality gates (if configured)
+   - Marks feature complete (if tests pass and user confirms)
+   ```
+
+4. **Notify user of feature status change:**
+   ```
+   "✅ Task [X] complete. All [N] tasks in feature [Y] are now complete.
+   Feature automatically moved to TESTING. Running validation..."
+   ```
+
+**CRITICAL: This step is MANDATORY after task completion. Don't skip it!**
+
+**Token Efficiency:**
+- Use `query_container(operation="overview")` for feature.taskCounts (1,200 tokens)
+- NOT `query_container(operation="get", includeSections=true)` (14,400 tokens)
+- 91% token savings
+
+## Feature Progress Monitoring
+
+**When to check and update feature status:**
+
+### Trigger 1: First Task Starts
+```
+User starts working on first task in feature
+  ↓
+Task status: pending → in-progress (via Status Progression Skill)
+  ↓
+Check feature status:
+  if feature.status == "planning":
+    Use Feature Orchestration Skill to move feature to "in-development"
+    Notify user: "Feature [X] moved to IN_DEVELOPMENT (first task started)"
+```
+
+### Trigger 2: Any Task Completes
+```
+Task completes (via Status Progression Skill)
+  ↓
+Query feature.taskCounts:
+  completed: X, total: Y
+  ↓
+if X < Y:
+  Notify user: "Task [T] complete. [Y-X] tasks remaining in feature [F]"
+  Check for newly unblocked tasks
+  ↓
+if X == Y:
+  ALL TASKS COMPLETE!
+  ↓
+  Use Feature Orchestration Skill to progress feature:
+    1. Move to "testing" (automatic)
+    2. Run quality gates (hooks/manual)
+    3. Mark "completed" (after validation)
+```
+
+### Trigger 3: Batch Completion
+```
+All tasks in a batch complete
+  ↓
+Query feature.taskCounts
+  ↓
+Check if ALL feature tasks are complete:
+  if yes: Trigger Feature Orchestration Skill
+  if no: Report progress and check next batch
+```
+
+### Trigger 4: Manual Feature Check
+```
+User asks: "What's the feature status?"
+  ↓
+Query feature.taskCounts via Feature Orchestration Skill
+  ↓
+Report: "[X]/[Y] tasks complete"
+  ↓
+If all complete: Suggest moving to testing/completion
+```
+
+## Feature Status Progression Decision Tree
+
+```
+Task Status Change
+  ↓
+  ├─ Task started (pending → in-progress)?
+  │  ├─ Is this the first task in feature?
+  │  │  └─ YES: Use Feature Orchestration Skill to move feature to "in-development"
+  │  └─ NO: Continue task work
+  │
+  └─ Task completed?
+     ├─ Query feature.taskCounts via query_container(operation="overview")
+     ├─ All tasks complete?
+     │  ├─ YES: Use Feature Orchestration Skill
+     │  │  ├─ Move feature to "testing" (automatic)
+     │  │  ├─ Run quality gates
+     │  │  └─ Mark "completed" (after validation)
+     │  └─ NO: Notify user of progress
+     │     └─ "[X]/[Y] tasks complete in feature [F]"
+     └─ Check for newly unblocked tasks
+```
+
+**Automatic vs Manual Confirmation:**
+
+| Transition | Automatic? | Reason |
+|------------|-----------|---------|
+| planning → in-development | ✅ YES | First task started, obvious progression |
+| in-development → testing | ✅ YES | All tasks complete, move to validation |
+| testing → completed | ⚠️ ASK USER | Final completion, user should confirm |
 
 [... rest of task-orchestrator.md content continues here ...]
 
@@ -1126,6 +1253,104 @@ REVIEW WORKFLOW (applies to: Implementation Specialist (Haiku) with any domain S
    - Completion quality (summary, files changed, tests)
    - Output brevity
    - Suggested actions
+```
+
+#### After Any Task Completion - Feature Status Cascade Validation
+
+```
+FEATURE STATUS CASCADE VALIDATION (MANDATORY after task completion):
+
+1. Was task marked complete?
+   ✓ Yes → Continue validation
+
+2. Did orchestrator query feature status?
+   ✓ Should use query_container(operation="overview", containerType="feature", id="...")
+   ✗ If skipped → CRITICAL VIOLATION
+
+3. Did orchestrator check if all tasks complete?
+   ✓ Should check feature.taskCounts.byStatus.completed == feature.taskCounts.total
+   ✗ If skipped → CRITICAL VIOLATION
+
+4. Were all tasks in feature complete?
+   if YES:
+     4a. Did orchestrator use Feature Orchestration Skill?
+         ✓ Yes → CORRECT
+         ✗ No → CRITICAL VIOLATION
+
+     4b. Was feature status updated appropriately?
+         ✓ planning → in-development (first task started)
+         ✓ in-development → testing (all tasks complete)
+         ✓ testing → completed (after user confirmation)
+         ✗ Status unchanged → ALERT
+
+     4c. Did orchestrator notify user of feature completion?
+         ✓ Yes (e.g., "All tasks complete, moving feature to testing") → CORRECT
+         ✗ No → ALERT
+
+   if NO (some tasks still pending/in-progress):
+     4d. Did orchestrator report feature progress to user?
+         ✓ Yes (e.g., "Task complete. 3/5 tasks done in feature X") → CORRECT
+         ✗ No → WARN
+
+     4e. Did orchestrator check for newly unblocked tasks?
+         ✓ Yes → CORRECT
+         ✗ No → WARN
+
+5. If first task started, did orchestrator update feature status?
+   if feature.status == "planning" AND this is first task:
+     ✓ Used Feature Orchestration Skill to move to "in-development" → CORRECT
+     ✗ Feature still in "planning" status → ALERT
+
+COMMON VIOLATIONS:
+- Task complete, all tasks done, but feature status not checked ❌ (CRITICAL)
+- All tasks complete, but feature still "planning" or "in-development" ❌ (ALERT)
+- Feature status updated without Feature Orchestration Skill ❌ (CRITICAL)
+- No progress notification to user after task completion ❌ (WARN)
+- First task completed, but feature still in "planning" status ❌ (ALERT)
+
+**Add to TodoWrite if violation found:**
+```
+"CRITICAL: Task complete but orchestrator didn't check feature status"
+"CRITICAL: All tasks complete but orchestrator didn't use Feature Orchestration Skill"
+"ALERT: All tasks complete but feature status not updated (still [status])"
+"ALERT: First task started but feature not moved to in-development"
+"WARN: Task complete but no feature progress reported to user"
+```
+
+**Report to user (if violations found):**
+```markdown
+## 🚨 CRITICAL: Feature Status Cascade Missing
+
+**Violation:** Task completed but feature status not cascaded
+
+**What Should Have Happened:**
+1. Task marked complete via Status Progression Skill ✅
+2. Query feature.taskCounts via query_container(operation="overview") ❌ MISSING
+3. Check if all tasks complete ❌ MISSING
+4. If all complete: Use Feature Orchestration Skill to progress feature ❌ MISSING
+5. Notify user of feature status change ❌ MISSING
+
+**Current State:**
+- Task: [Task Title] → COMPLETED ✅
+- Feature: [Feature Name] → [Current Status] (should be TESTING if all tasks done)
+- Tasks complete: [X]/[Y]
+
+**Impact:**
+- Feature stuck in "[current-status]" despite all tasks complete
+- User not informed of feature completion milestone
+- Quality gates not triggered
+- Feature completion workflow broken
+
+### 📋 Investigation Queue
+Added to TodoWrite:
+- CRITICAL: Orchestrator missing Step 7 (Feature Status Cascade) after task completion
+- Improvement: Emphasize Step 7 mandatory pattern in task-orchestrator.md
+
+### 🎯 Required Action
+Should I:
+1. **Check feature status now** and use Feature Orchestration Skill if needed
+2. **Explain Step 7 pattern** to reinforce mandatory workflow
+```
 ```
 
 ### Tag Quality Analysis
