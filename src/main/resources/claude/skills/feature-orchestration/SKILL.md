@@ -33,546 +33,176 @@ Comprehensive feature lifecycle management from creation through completion, wit
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Create feature documentation
 
+## Status Progression Trigger Points
+
+**CRITICAL:** Never directly change feature status. Always use Status Progression Skill for ALL status changes.
+
+These are universal events that trigger status progression checks, regardless of the user's configured status flow:
+
+| Event | When to Check | Detection Pattern | Condition | Action |
+|-------|---------------|-------------------|-----------|--------|
+| **first_task_started** | After any task status changes to execution phase | `query_container(operation="overview", containerType="feature", id=task.featureId)` | `taskCounts.byStatus["in-progress"] == 1` | Use Status Progression Skill to progress feature |
+| **all_tasks_complete** | After any task marked completed/cancelled | `query_container(operation="overview", containerType="feature", id=task.featureId)` | `taskCounts.byStatus.pending == 0 && taskCounts.byStatus["in-progress"] == 0` | Use Status Progression Skill to progress feature |
+| **tests_passed** | After test execution completes | External test hook or manual trigger | `testResults.allPassed == true` | Use Status Progression Skill with context: `{testsPass: true, totalTests: N}` |
+| **tests_failed** | After test execution completes | External test hook or manual trigger | `testResults.anyFailed == true` | Use Status Progression Skill with context: `{testsFailed: true, failures: [...]}` |
+| **review_approved** | After human review | User/external signal | Review completed with approval | Use Status Progression Skill |
+| **changes_requested** | After human review | User/external signal | Review rejected, rework needed | Use Status Progression Skill (may move backward) |
+| **completion_requested** | User asks to complete feature | Direct user request | User says "complete feature" | Use Status Progression Skill, ask user to confirm if prerequisites met |
+
+### Detection Example: All Tasks Complete
+
+```javascript
+// After a task is marked complete, check feature progress
+task = query_container(operation="get", containerType="task", id=taskId)
+
+if (task.featureId) {
+  // Query feature to check all task statuses
+  feature = query_container(
+    operation="overview",
+    containerType="feature",
+    id=task.featureId
+  )
+
+  // Detect event: all tasks complete
+  pending = feature.taskCounts.byStatus.pending || 0
+  inProgress = feature.taskCounts.byStatus["in-progress"] || 0
+
+  if (pending == 0 && inProgress == 0) {
+    // EVENT DETECTED: all_tasks_complete
+    // Delegate to Status Progression Skill
+
+    "Use Status Progression Skill to progress feature status.
+    Context: All ${feature.taskCounts.total} tasks complete
+    (${feature.taskCounts.byStatus.completed} completed,
+    ${feature.taskCounts.byStatus.cancelled || 0} cancelled)."
+
+    // Status Progression Skill determines next status based on config
+  }
+}
+```
+
+For more detection examples, see [examples.md](examples.md)
+
 ## Core Workflows
 
 ### 1. Smart Feature Creation
 
 **Assess complexity first:**
-
-```javascript
-// Indicators for SIMPLE features:
-- User request < 200 characters
-- Clear single purpose
-- No complex integrations
-- Expected tasks < 3
-- No technical jargon
-
-// Indicators for COMPLEX features:
-- Multiple components
-- Integration requirements
-- Unclear scope
-- Expected tasks ≥ 5
-- Cross-domain work
-```
+- Simple: Request < 200 chars, clear purpose, expected tasks < 3
+- Complex: Multiple components, integration requirements, expected tasks ≥ 5
 
 **For SIMPLE features:**
-```javascript
-1. query_templates(operation="list", targetEntityType="FEATURE", isEnabled=true)
-2. manage_container(
-     operation="create",
-     containerType="feature",
-     name="Clear feature name",
-     description="What needs to be built",
-     status="planning",
-     priority="medium",
-     tags="domain,functional-area",
-     templateIds=["basic-template-uuid"]
-   )
-3. Create 2-3 tasks directly with manage_container
-4. Return feature ID to orchestrator
-```
+1. Discover templates: `query_templates(operation="list", targetEntityType="FEATURE", isEnabled=true)`
+2. Create feature with templates: `manage_container(operation="create", containerType="feature", status="draft", ...)`
+3. Create 2-3 tasks directly (tasks start in "backlog" status)
+4. Use Status Progression Skill to move feature: draft → planning
 
 **For COMPLEX features:**
-```javascript
-Return recommendation:
-"This feature requires detailed planning. Launch Feature Architect subagent
-with the user's request for proper formalization and template application."
-```
+- Recommend launching Feature Architect subagent for detailed planning
+- Feature Architect will formalize requirements, discover templates, create structure
+- Then Planning Specialist breaks into domain-isolated tasks
+
+See [examples.md](examples.md) for detailed scenarios.
 
 ### 2. Task Breakdown Coordination
 
-**After feature creation, assess breakdown needs:**
+**After feature creation:**
+- Simple (< 5 tasks): Create tasks directly with templates
+- Complex (5+ tasks, multiple domains): Launch Planning Specialist subagent
 
+Planning Specialist creates:
+- Domain-isolated tasks (database, backend, frontend, testing, docs)
+- Dependencies between tasks
+- Execution graph with batches
+
+### 3. Feature Progress Tracking
+
+**Check feature status:**
 ```javascript
-// Check feature complexity
-feature = query_container(operation="get", containerType="feature", id="...")
+feature = query_container(operation="overview", containerType="feature", id="...")
 
-// Decision logic:
-if (feature.tags includes database, backend, frontend, testing) {
-  // Multiple domains = complex
-  return "Launch Planning Specialist for detailed breakdown"
-}
-
-if (estimated_tasks < 5) {
-  // Simple breakdown - create tasks directly
-  create_simple_tasks(feature)
-} else {
-  // Complex breakdown
-  return "Launch Planning Specialist"
-}
-```
-
-**Simple task creation pattern:**
-```javascript
-// Example: Simple CRUD feature
-tasks = [
-  {
-    title: "Create database schema",
-    description: "Add tables for X with fields Y, Z",
-    tags: "database,schema",
-    complexity: 4,
-    templateIds: ["technical-approach"]
-  },
-  {
-    title: "Implement API endpoints",
-    description: "Create GET/POST/PUT/DELETE for X",
-    tags: "backend,api",
-    complexity: 6,
-    templateIds: ["technical-approach", "testing-strategy"]
-  },
-  {
-    title: "Add UI components",
-    description: "Create list and detail views",
-    tags: "frontend,ui",
-    complexity: 5,
-    templateIds: ["technical-approach"]
-  }
-]
-
-// Create tasks with dependencies
-for each task in tasks {
-  manage_container(operation="create", containerType="task", ...)
-}
-```
-
-### 3. Parallel Execution Planning
-
-**Analyze dependencies and create execution batches:**
-
-```javascript
-// Get all feature tasks
-tasks = query_container(
-  operation="search",
-  containerType="task",
-  featureId="...",
-  status="pending"
-)
-
-// Group by dependencies
-batches = analyze_dependencies(tasks)
-
-// Example output:
-{
-  "execution_plan": {
-    "batch_1": {
-      "parallel": true,
-      "tasks": ["T1_Database", "T3_Frontend_Components"]
-    },
-    "batch_2": {
-      "parallel": false,
-      "tasks": ["T2_Backend_API"]  // Depends on T1
-    },
-    "batch_3": {
-      "parallel": false,
-      "tasks": ["T4_Integration_Tests"]  // Depends on T2, T3
-    }
-  },
-  "estimated_time_savings": "40%"
-}
-```
-
-### 4. Feature Progress Tracking
-
-**Check feature status and suggest next actions:**
-
-```javascript
-// Get feature with tasks
-feature = query_container(
-  operation="overview",
-  containerType="feature",
-  id="..."
-)
-
-// Analyze task status
-analysis = {
-  total_tasks: feature.taskCounts.total,
-  completed: feature.taskCounts.byStatus.completed,
-  in_progress: feature.taskCounts.byStatus['in-progress'],
-  blocked: feature.taskCounts.byStatus.blocked,
-  pending: feature.taskCounts.byStatus.pending
-}
-
-// Determine status
+// Analyze task counts
 if (all tasks completed) {
-  return "Ready for testing and completion"
+  // Use Status Progression Skill to move to testing/completion
 } else if (has blocked tasks) {
-  return "Address blockers first" + blocked_task_details
+  // Address blockers first
 } else if (has pending tasks) {
-  return "Launch next batch" + parallel_opportunities
+  // Launch next batch
 }
 ```
 
-### 5. Quality Gate Validation
+### 4. Quality Gate Validation
 
-**Automatic Prerequisite Validation:**
+**Prerequisites Enforced Automatically:**
 
-The system automatically validates prerequisites when changing feature status. You don't need to manually check these conditions - the validation happens when you call `manage_container` with `operation="setStatus"`.
+Status Progression Skill validates prerequisites when changing status. You don't manually check these - just attempt the status change and handle validation errors.
 
-**Prerequisites Enforced by System:**
+| Transition | Prerequisites | Enforced By |
+|------------|---------------|-------------|
+| planning → in-development | ≥1 task created | StatusValidator |
+| in-development → testing | All tasks completed/cancelled | StatusValidator |
+| testing/validating → completed | All tasks completed/cancelled | StatusValidator |
 
-```javascript
-// PLANNING → IN_DEVELOPMENT:
-- Feature must have at least 1 task created
-- Error if 0 tasks: "Feature must have at least 1 task before transitioning to IN_DEVELOPMENT"
-- Rationale: A feature without tasks cannot be developed
+**Validation Pattern:**
+1. Use Status Progression Skill to change status
+2. If validation fails → Skill returns detailed error
+3. Resolve blocker (create tasks, complete dependencies, etc.)
+4. Retry via Status Progression Skill
 
-// IN_DEVELOPMENT → TESTING:
-- All feature tasks must be completed or cancelled
-- Error if incomplete: "Cannot transition to TESTING: 2 task(s) not completed.
-  Incomplete tasks: \"Implement API endpoints\", \"Add UI components\""
-- Rationale: Cannot test incomplete implementation
+For common validation errors and solutions, see [troubleshooting.md](troubleshooting.md)
 
-// TESTING/VALIDATING → COMPLETED:
-- All feature tasks must be completed or cancelled
-- Error if incomplete: "Cannot transition to COMPLETED: 3 task(s) not completed.
-  Incomplete tasks: \"Database schema\", \"API endpoints\", \"UI components\""
-- Rationale: Cannot complete feature with unfinished work
-
-// Task Prerequisite Validation:
-- Tasks must have a summary before marking complete
-- Error if missing: "Cannot transition to COMPLETED: Task summary is required before completion"
-- Rationale: Summary captures what was accomplished for future reference
-```
-
-**Status Transition Validation Matrix:**
-
-| From Status | To Status | Prerequisites | Validation |
-|------------|-----------|---------------|------------|
-| planning | in-development | ≥1 task created | Automatic |
-| in-development | testing | All tasks completed/cancelled | Automatic |
-| testing | validating | All tasks completed/cancelled | Automatic |
-| validating | completed | All tasks completed/cancelled | Automatic |
-| * | cancelled | None | No validation |
-
-**Validation is Config-Driven:**
-
-The validation can be toggled in `.taskorchestrator/config.yaml`:
-
-```yaml
-status_validation:
-  validate_prerequisites: true  # Default: true
-  # When false, status transitions proceed without checking prerequisites
-  # Useful for testing or manual workflow management
-```
-
-When `validate_prerequisites: false`, status transitions proceed without checking task completion or summary requirements.
+### 5. Feature Completion
 
 **Tool Orchestration Pattern:**
-
 ```javascript
-// Step 1: Check feature status (to see what tasks remain)
+// Step 1: Check all tasks complete
 overview = query_container(operation="overview", containerType="feature", id="...")
-// Review taskCounts.byStatus to see incomplete tasks
 
-// Step 2: Use Status Progression Skill to change status
-// The skill validates prerequisites, reads config.yaml, and provides detailed error messages
-"Use Status Progression Skill to move feature to 'testing' or 'completed' status"
+// Step 2: Create feature summary section (optional but recommended)
+manage_sections(operation="add", entityType="FEATURE", ...)
 
-// Step 3: Status Progression Skill handles validation automatically
-// If validation passes: Status changes successfully
-// If validation fails: Skill returns detailed error explaining what's missing
-//   Example: "Cannot transition to TESTING: 2 task(s) not completed..."
-//   Address the issues, then retry via Status Progression Skill
-```
-
-**What You Should Check Manually:**
-
-These items are NOT automatically validated by the system:
-
-1. **Documentation completeness**: Use `query_sections()` to verify required sections exist
-2. **Test results**: Testing hooks are external to MCP and must be verified separately
-3. **Code review status**: Check if reviews are required and completed
-4. **Quality standards**: Ensure code quality, test coverage, and standards are met
-5. **Feature summary**: System doesn't auto-validate feature-level summary (only task summaries)
-
-**Validation Failure Handling:**
-
-```javascript
-// If status transition fails, the error message tells you exactly what's wrong:
-{
-  "success": false,
-  "error": "Cannot transition to COMPLETED: 2 task(s) not completed.
-           Incomplete tasks: \"Implement API\", \"Write tests\""
-}
-
-// To resolve:
-1. Check task status: query_container(operation="search", containerType="task", featureId="...")
-2. Complete remaining tasks OR cancel tasks that are no longer needed
-3. Retry status transition
-
-// For task summary validation failure:
-{
-  "success": false,
-  "error": "Cannot transition to COMPLETED: Task summary is required before completion"
-}
-
-// To resolve:
-1. Update task with summary: manage_container(
-     operation="update",
-     containerType="task",
-     id="...",
-     summary="Brief description of what was accomplished (300-500 chars)"
-   )
-2. Retry marking task complete
-```
-
-### 6. Feature Completion
-
-**Prerequisites are automatically validated when marking complete.**
-
-**Tool Orchestration Pattern:**
-
-```javascript
-// Step 1: Gather feature information
-overview = query_container(operation="overview", containerType="feature", id="...")
-// Get task counts and feature metadata
-
-// Step 2: Verify all tasks are complete
-if (overview.taskCounts.byStatus.pending > 0 ||
-    overview.taskCounts.byStatus['in-progress'] > 0) {
-  // Complete or cancel remaining tasks first
-  // The system will block completion until tasks are done
-}
-
-// Step 3: Create feature summary section (optional but recommended)
-manage_sections(
-  operation="add",
-  entityType="FEATURE",
-  entityId="...",
-  title="Feature Summary",
-  usageDescription="What was accomplished",
-  content="[Manually composed summary based on task review]",
-  contentFormat="MARKDOWN",
-  ordinal=999,
-  tags="summary,completion"
-)
-
-// Step 4: Use Status Progression Skill to mark feature complete
-// The skill validates prerequisites automatically (all tasks completed/cancelled)
+// Step 3: Use Status Progression Skill to mark complete
 "Use Status Progression Skill to mark feature as completed"
 
-// If validation fails, Skill returns detailed error explaining what's missing:
-// "Cannot transition to COMPLETED: 2 task(s) not completed.
-//  Incomplete tasks: \"Implement API\", \"Write tests\""
+// Skill validates prerequisites automatically
+// If validation fails, returns detailed error with what's missing
 ```
 
-**Automatic Validation on Completion:**
+## Status Progression Flow (Config-Driven)
 
-When you attempt to mark a feature as `completed`, the system automatically checks:
+**The actual status flow depends on the user's `.taskorchestrator/config.yaml` and feature tags.**
 
-1. **All tasks completed or cancelled** - Features cannot complete with pending/in-progress tasks
-2. **Validation is enabled** - Controlled by `status_validation.validate_prerequisites` config flag
+**Common flows:**
+- **default_flow**: draft → planning → in-development → testing → validating → completed
+- **rapid_prototype_flow**: draft → in-development → completed (skip testing)
+- **with_review_flow**: ... → validating → pending-review → completed
 
-If validation fails, you'll receive a detailed error message listing the incomplete tasks.
+**How flow is determined:**
+1. Status Progression Skill calls `get_next_status(featureId)`
+2. Tool reads `.taskorchestrator/config.yaml`
+3. Tool matches feature tags against `flow_mappings`
+4. Tool recommends next status from matched flow
+5. StatusValidator validates prerequisites at write-time
 
-**Note**: Summary generation requires manual review of task sections. There is no automatic aggregation function in MCP tools.
+**Your role:** Detect events (table above), delegate to Status Progression Skill, let config determine actual statuses.
 
-## Status Progression Flow
-
-```
-planning
-  ↓ (tasks created)
-in-development
-  ↓ (tasks in progress)
-testing
-  ↓ (all tasks complete, tests triggered)
-validating
-  ↓ (tests passed)
-pending-review (optional)
-  ↓ (review approved or skipped)
-completed
-```
-
-## Complexity Assessment Algorithm
-
-```python
-def assess_feature_complexity(user_request, context):
-    score = 0
-
-    # Length indicators
-    if len(user_request) > 200:
-        score += 2
-
-    # Technical complexity
-    if has_integration_keywords(user_request):
-        score += 3
-    if has_multiple_domains(user_request):
-        score += 2
-
-    # Scope clarity
-    if is_vague_or_unclear(user_request):
-        score += 2
-
-    # Expected task count
-    estimated_tasks = estimate_task_count(user_request)
-    if estimated_tasks >= 5:
-        score += 3
-    elif estimated_tasks >= 3:
-        score += 1
-
-    # Decision
-    if score <= 3:
-        return "simple"  # Create directly
-    else:
-        return "complex"  # Launch Feature Architect
-```
-
-## Configuration Integration
-
-**Load settings from `.taskorchestrator/config.yaml`:**
-
-```yaml
-# Feature-related configuration
-automation:
-  auto_create_tasks: true
-  auto_progress_status: true
-  auto_complete_features: false  # Manual confirmation
-
-quality_gates:
-  testing:
-    enabled: true
-    blocking: true
-  review:
-    enabled: false
-    blocking: false
-
-status_progression:
-  features:
-    default_flow:
-      - planning
-      - in-development
-      - testing
-      - validating
-      - completed
-```
+For flow details and examples, see [config-reference.md](config-reference.md)
 
 ## Token Efficiency
 
-**Keep responses concise:**
-- Use `operation="overview"` for status checks (90% token reduction)
+- Use `operation="overview"` for status checks (90% token reduction vs full get)
 - Batch operations where possible
 - Return brief status updates, not full context
 - Delegate complex work to subagents
 - Query only necessary task fields
 
-**Example efficient query:**
+**Example:**
 ```javascript
-// Instead of getting all tasks with full sections (18k tokens)
-query_container(operation="get", containerType="feature", includeSections=true)
-
-// Use overview for status checks (1.2k tokens)
+// Efficient: 1.2k tokens
 query_container(operation="overview", containerType="feature", id="...")
-```
 
-## Examples
-
-### Example 1: Simple Feature Creation
-
-**User:** "Create a user profile feature"
-
-**Assessment:** Simple
-- Clear purpose (user profile)
-- Single domain (likely 2-3 tasks)
-- No complex integrations
-- < 50 characters
-
-**Actions:**
-```javascript
-1. query_templates(targetEntityType="FEATURE")
-2. create feature with basic template
-3. create 3 tasks:
-   - "Create user profile database schema" (database)
-   - "Implement profile API endpoints" (backend)
-   - "Build profile UI component" (frontend)
-4. Return: "Feature created with 3 tasks. Ready for execution."
-```
-
-### Example 2: Complex Feature Creation
-
-**User:** "Build an OAuth integration system that supports Google, GitHub, and Microsoft authentication with JWT token management, refresh token handling, and role-based access control"
-
-**Assessment:** Complex
-- Multiple integration points (3 providers)
-- Complex domain (auth, security)
-- Multiple technical concepts (OAuth, JWT, RBAC)
-- > 200 characters
-- Estimated 8+ tasks
-
-**Action:**
-```javascript
-Return: "This is a complex feature requiring detailed planning.
-Recommend launching Feature Architect subagent to:
-- Formalize requirements
-- Apply appropriate templates (Security, API Design)
-- Create comprehensive feature structure
-Then Planning Specialist will break it into domain-isolated tasks."
-```
-
-### Example 3: Feature Progress Check
-
-**User:** "What's the status of feature X?"
-
-**Actions:**
-```javascript
-1. query_container(operation="overview", containerType="feature", id="X")
-2. Analyze task status:
-   - 5 tasks total
-   - 3 completed
-   - 1 in-progress
-   - 1 pending (not blocked)
-3. Return: "Feature X is 60% complete (3/5 tasks done).
-   Currently in-progress: API implementation
-   Next up: UI integration (can start in parallel)"
-```
-
-### Example 4: Feature Completion
-
-**User:** "Complete feature Y"
-
-**Actions:**
-```javascript
-1. Check feature status and validate prerequisites:
-   overview = query_container(operation="overview", containerType="feature", id="Y")
-
-   // Check prerequisite conditions:
-   ✓ All tasks completed (taskCounts.byStatus.completed = 8)
-   ✓ No pending tasks (taskCounts.byStatus.pending = 0)
-   ✓ No in-progress tasks (taskCounts.byStatus['in-progress'] = 0)
-   ✓ No blocked tasks
-   ✓ Tests passing (triggered hook - external validation)
-   ✓ Documentation present (manual check via query_sections)
-
-2. Create summary section (optional but recommended):
-   manage_sections(
-     operation="add",
-     entityType="FEATURE",
-     entityId="Y",
-     title="Feature Summary",
-     content="Implemented complete user authentication system...",
-     tags="summary,completion"
-   )
-
-3. Use Status Progression Skill to mark complete (automatic prerequisite validation):
-   "Use Status Progression Skill to mark feature Y as completed"
-   // Skill automatically validates: all tasks completed/cancelled
-   // If validation fails, Skill returns error with details
-
-4. Return: "Feature Y completed successfully.
-   8 tasks completed, all tests passing."
-```
-
-**If validation fails:**
-```javascript
-// Error response:
-{
-  "success": false,
-  "error": "Cannot transition to COMPLETED: 2 task(s) not completed.
-           Incomplete tasks: \"Add password reset\", \"Write integration tests\""
-}
-
-// Resolution:
-1. Complete or cancel the 2 incomplete tasks
-2. Retry feature completion
+// Inefficient: 18k tokens
+query_container(operation="get", containerType="feature", id="...", includeSections=true)
 ```
 
 ## Integration with Other Skills
@@ -580,204 +210,22 @@ Then Planning Specialist will break it into domain-isolated tasks."
 **Works alongside:**
 - **Task Orchestration Skill** - Delegates task execution
 - **Dependency Orchestration Skill** - For complex dependency analysis
-- **Status Progression Skill** - For status management
+- **Status Progression Skill** - For status management (ALWAYS use this for status changes)
 
 **Launches subagents:**
 - **Feature Architect** - Complex feature formalization
 - **Planning Specialist** - Complex task breakdown
 
-## Error Handling
-
-**Common scenarios:**
-
-1. **No templates found:**
-   ```javascript
-   Warning: No templates available for FEATURE type.
-   Creating feature without templates (less structure).
-   Consider running setup_claude_orchestration to install templates.
-   ```
-
-2. **Quality gates fail:**
-   ```javascript
-   Cannot complete feature: Tests failing
-   - 3 test failures in authentication module
-   Suggest: Launch Test Engineer to fix failing tests
-   ```
-
-3. **Circular dependencies detected:**
-   ```javascript
-   Error: Cannot create execution plan - circular dependencies
-   Tasks: T2 → T5 → T7 → T2
-   Suggest: Use Dependency Orchestration Skill to resolve
-   ```
-
-## Troubleshooting Common Validation Errors
-
-### Error: "Feature must have at least 1 task before transitioning to IN_DEVELOPMENT"
-
-**Cause:** Attempting to move feature from `planning` to `in-development` without creating any tasks.
-
-**Solution:**
-```javascript
-// 1. Create at least one task for the feature
-manage_container(
-  operation="create",
-  containerType="task",
-  title="Initial implementation task",
-  description="First task to start development",
-  featureId="feature-uuid",
-  priority="high",
-  complexity=5
-)
-
-// 2. Now use Status Progression Skill to transition status
-"Use Status Progression Skill to move feature to in-development"
-```
-
-**Prevention:** Always create tasks before moving features into development. Use Feature Architect or Planning Specialist for task breakdown.
-
----
-
-### Error: "Cannot transition to TESTING: X task(s) not completed"
-
-**Cause:** Attempting to move feature to `testing` while tasks are still pending or in-progress.
-
-**Solution:**
-```javascript
-// 1. Check which tasks are incomplete
-overview = query_container(operation="overview", containerType="feature", id="...")
-// Review: overview.taskCounts.byStatus
-
-// 2. Complete remaining tasks OR cancel unnecessary tasks
-// Option A: Complete tasks (use Status Progression Skill)
-"Use Status Progression Skill to mark task as completed"
-
-// Option B: Cancel tasks that are no longer needed (use Status Progression Skill)
-"Use Status Progression Skill to mark task as cancelled"
-
-// 3. Retry feature status transition via Status Progression Skill
-"Use Status Progression Skill to move feature to testing"
-```
-
-**Prevention:** Track task progress regularly. Use `query_container(operation="overview")` to monitor completion status before attempting status changes.
-
----
-
-### Error: "Cannot transition to COMPLETED: X task(s) not completed"
-
-**Cause:** Attempting to complete feature with pending/in-progress tasks.
-
-**Solution:**
-```javascript
-// 1. Identify incomplete tasks
-tasks = query_container(
-  operation="search",
-  containerType="task",
-  featureId="...",
-  status="pending,in-progress"
-)
-
-// 2. For each incomplete task, decide:
-// Option A: Complete the task (if work is done, use Status Progression Skill)
-"Use Status Progression Skill to mark task as completed"
-
-// Option B: Cancel the task (if no longer needed, use Status Progression Skill)
-"Use Status Progression Skill to mark task as cancelled"
-
-// 3. Verify all tasks are resolved
-overview = query_container(operation="overview", containerType="feature", id="...")
-// Check: overview.taskCounts.byStatus.pending === 0
-// Check: overview.taskCounts.byStatus['in-progress'] === 0
-
-// 4. Retry feature completion via Status Progression Skill
-"Use Status Progression Skill to mark feature as completed"
-```
-
-**Prevention:** Regularly review task status. Cancel tasks early if scope changes. Don't leave tasks in limbo.
-
----
-
-### Error: "Task summary is required before completion"
-
-**Cause:** Attempting to mark task as complete without setting the summary field.
-
-**Solution:**
-```javascript
-// 1. Add summary to task (300-500 characters recommended)
-manage_container(
-  operation="update",
-  containerType="task",
-  id="task-uuid",
-  summary="Implemented user authentication with JWT tokens. Added login/logout endpoints, password hashing with bcrypt, and refresh token rotation. All tests passing."
-)
-
-// 2. Now use Status Progression Skill to mark task complete
-"Use Status Progression Skill to mark task as completed"
-```
-
-**Prevention:** Add summaries as you complete work. Summaries help future reference and provide context for downstream tasks.
-
----
-
-### Bypassing Validation (Development/Testing Only)
-
-**When validation is too strict during development:**
-
-```yaml
-# Edit .taskorchestrator/config.yaml
-status_validation:
-  validate_prerequisites: false  # Temporarily disable validation
-```
-
-**Warning:** Only disable validation for:
-- Development/testing workflows
-- Prototyping and experimentation
-- Fixing broken states
-
-**Re-enable validation for production workflows:**
-```yaml
-status_validation:
-  validate_prerequisites: true  # Default production setting
-```
-
----
-
-### Debugging Validation Issues
-
-**Check current validation settings:**
-```javascript
-// Validation is config-driven - check .taskorchestrator/config.yaml
-// Default: validate_prerequisites: true
-```
-
-**View detailed error messages:**
-```javascript
-result = manage_container(operation="setStatus", ...)
-if (!result.success) {
-  console.log("Error:", result.error)
-  // Error message includes:
-  // - What validation failed
-  // - How many tasks are incomplete
-  // - Names of incomplete tasks
-}
-```
-
-**Common validation failure patterns:**
-1. **Task count = 0** → Create tasks before starting development
-2. **Incomplete tasks** → Complete or cancel tasks before progressing
-3. **Missing summary** → Add task summary before marking complete
-4. **Status transition invalid** → Check status progression flow (planning → in-development → testing → completed)
-
 ## Best Practices
 
-1. **Always assess complexity** before taking action
-2. **Always discover templates** before creating features
-3. **Use overview operations** for status checks
+1. **Always assess complexity** before creating features
+2. **Always discover templates** via `query_templates` before creation
+3. **Use overview operations** for status checks (token efficiency)
 4. **Batch task creation** when creating multiple tasks
-5. **Validate quality gates** before completion
+5. **Delegate to Status Progression Skill** for ALL status changes
 6. **Return concise summaries** to orchestrator
 7. **Delegate to subagents** when complexity exceeds threshold
-8. **Monitor parallel execution** opportunities
+8. **Monitor feature progress** after task completions
 
 ## Success Metrics
 
@@ -786,3 +234,9 @@ if (!result.success) {
 - 60% token reduction vs old Feature Management skill
 - 95% successful quality gate validation
 - Zero manual intervention for standard workflows
+
+## Additional Resources
+
+- **Detailed Examples**: See [examples.md](examples.md) for complete walkthroughs
+- **Error Handling**: See [troubleshooting.md](troubleshooting.md) for validation errors
+- **Configuration**: See [config-reference.md](config-reference.md) for flow customization

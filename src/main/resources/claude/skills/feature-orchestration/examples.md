@@ -317,3 +317,144 @@ User: "Progress feature through workflow"
 3. Feature Orchestration: Enforces quality gates
 4. Status Progression: Updates status
 ```
+
+---
+
+## Event Detection Examples
+
+### Detection: First Task Started
+
+```javascript
+// Triggered when ANY task changes to execution phase
+function onTaskStatusChange(taskId, oldStatus, newStatus) {
+  // Check if transitioned into execution
+  if (isExecutionPhase(newStatus) && !isExecutionPhase(oldStatus)) {
+
+    task = query_container(operation="get", containerType="task", id=taskId)
+
+    if (task.featureId) {
+      // Query feature to check task counts
+      feature = query_container(
+        operation="overview",
+        containerType="feature",
+        id=task.featureId
+      )
+
+      // Count how many tasks in execution
+      inProgressCount = feature.taskCounts.byStatus["in-progress"] || 0
+
+      if (inProgressCount == 1) {
+        // This is the FIRST task to start work!
+        // EVENT DETECTED: first_task_started
+
+        "Use Status Progression Skill to progress feature status.
+        Context: First task started - ${task.title}"
+
+        // Possible outcomes based on user's config:
+        // - default_flow: planning → in-development
+        // - rapid_prototype_flow: draft → in-development
+      }
+    }
+  }
+}
+```
+
+### Detection: Tests Passed
+
+```javascript
+// Triggered by external test hook or manual trigger
+function onTestsComplete(featureId, testResults) {
+  if (testResults.allPassed) {
+    // EVENT DETECTED: tests_passed
+
+    "Use Status Progression Skill to progress feature status.
+    Context: Tests passed - ${testResults.total} tests successful"
+
+    // Possible outcomes:
+    // - default_flow: testing → validating
+    // - with_review_flow: testing → validating → pending-review
+    // - rapid_prototype_flow: (no testing, wouldn't get here)
+  }
+}
+```
+
+### Detection: Review Completed
+
+```javascript
+// Triggered by user or external review system
+function onReviewComplete(featureId, reviewResult) {
+  if (reviewResult.approved) {
+    // EVENT DETECTED: review_approved
+
+    "Use Status Progression Skill to progress feature status.
+    Context: Review approved by ${reviewResult.reviewer}"
+
+    // Possible outcome:
+    // - with_review_flow: pending-review → completed
+
+  } else {
+    // EVENT DETECTED: changes_requested
+
+    "Use Status Progression Skill to move feature back for rework.
+    Context: Changes requested - ${reviewResult.changesRequested}"
+
+    // Backward movement (if allow_backward: true):
+    // - pending-review → in-development
+  }
+}
+```
+
+---
+
+## Complexity Assessment Algorithm
+
+```python
+def assess_feature_complexity(user_request, context):
+    score = 0
+
+    # Length indicators
+    if len(user_request) > 200:
+        score += 2  # Long description suggests complexity
+
+    # Technical complexity keywords
+    integration_keywords = ["oauth", "api", "integration", "authentication",
+                           "third-party", "external", "webhook"]
+    if has_keywords(user_request, integration_keywords):
+        score += 3  # Integrations add complexity
+
+    # Domain indicators
+    domains = count_domains(user_request)  # database, backend, frontend, etc.
+    if domains >= 3:
+        score += 2  # Multiple domains = complex
+
+    # Scope clarity
+    unclear_keywords = ["might", "maybe", "possibly", "unclear", "TBD"]
+    if has_keywords(user_request, unclear_keywords):
+        score += 2  # Unclear scope needs exploration
+
+    # Expected task count
+    estimated_tasks = estimate_task_count(user_request)
+    if estimated_tasks >= 8:
+        score += 3  # Many tasks = complex
+    elif estimated_tasks >= 5:
+        score += 2  # Medium tasks = moderate
+    elif estimated_tasks >= 3:
+        score += 1  # Few tasks = simple
+
+    # Decision thresholds
+    if score <= 3:
+        return "simple"   # Create directly with Feature Orchestration
+    elif score <= 6:
+        return "moderate" # Could go either way
+    else:
+        return "complex"  # Launch Feature Architect subagent
+```
+
+**Example Assessments:**
+
+| Request | Length | Integration | Domains | Tasks | Score | Result |
+|---------|--------|-------------|---------|-------|-------|--------|
+| "User profile feature" | 0 | 0 | 1 | 1 | 1 | Simple |
+| "API for user management with CRUD operations" | 0 | 0 | 2 | 1 | 1 | Simple |
+| "OAuth integration for Google and GitHub" | 0 | 3 | 2 | 2 | 7 | Complex |
+| "Build comprehensive reporting system with analytics, dashboards, PDF export, scheduled emails, and data warehouse integration" | 2 | 3 | 3 | 3 | 13 | Complex |

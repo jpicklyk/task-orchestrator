@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Orchestration Skill Flow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .diagram-container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 1400px;
+        }
+        .instructions {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            max-width: 1400px;
+            width: 100%;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .instructions ul {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions">
+        <h3>📋 About This Diagram (v2.0 - Event-Driven)</h3>
+        <p><strong>Key Updates:</strong> This diagram shows dependency-aware batching with event detection. The skill detects universal events (implementation_complete, task_completed, batch_complete) and delegates to Status Progression Skill for task status changes. Specialists execute tasks autonomously (update sections, mark complete via Status Progression Skill). The skill focuses on batching, routing, cascade detection, and progress monitoring.</p>
+        <h3>📸 How to Save as PNG</h3>
+        <ul>
+            <li><strong>Windows:</strong> Windows Key + Shift + S (Snipping Tool) or right-click diagram → "Save image as"</li>
+            <li><strong>Mac:</strong> Cmd + Shift + 4 (screenshot selection)</li>
+            <li><strong>Browser:</strong> Right-click on the diagram → "Save image as" or use browser DevTools to export</li>
+        </ul>
+    </div>
+
+    <h1>Task Orchestration Skill Flow (Event-Driven v2.0)</h1>
+
+    <div class="diagram-container">
+        <div class="mermaid">
+flowchart TD
+    Start([User Request:<br/>Execute Tasks]) --> GetTasks[Query Pending Tasks<br/>query_container search]
+
+    GetTasks --> AnalyzeDeps[Analyze Dependencies<br/>query_dependencies]
+
+    AnalyzeDeps --> CreateBatches[Create Execution Batches<br/>by Dependency Level]
+
+    CreateBatches --> CheckCircular{Circular<br/>Dependencies?}
+
+    CheckCircular -->|Yes| ReportCircular[Report Circular Deps<br/>Use Dependency Orchestration<br/>to Resolve]
+    CheckCircular -->|No| Batch1{Batch 1<br/>Parallel?}
+
+    Batch1 -->|Yes| RouteParallel[Route Each Task<br/>recommend_agent]
+    Batch1 -->|No| RouteSequential[Route Single Task<br/>recommend_agent]
+
+    RouteParallel --> LaunchParallel[Return: Launch<br/>Multiple Specialists<br/>in Parallel]
+    RouteSequential --> LaunchSequential[Return: Launch<br/>Single Specialist]
+
+    LaunchParallel --> SpecialistsWork[Specialists Execute<br/>Update Sections<br/>Delegate to Status Progression]
+    LaunchSequential --> SpecialistsWork
+
+    SpecialistsWork --> MonitorEvents{Monitor for<br/>Events}
+
+    MonitorEvents -->|Event:<br/>implementation_complete| DetectImplComplete[Detect: Summary populated<br/>Sections updated<br/>300-500 chars]
+    MonitorEvents -->|Event:<br/>task_completed| DetectTaskComplete[Detect: Task marked<br/>complete by specialist]
+    MonitorEvents -->|Event:<br/>batch_complete| DetectBatchComplete[Detect: All tasks in<br/>batch done/cancelled]
+
+    DetectImplComplete --> DelegateTaskStatus[Delegate to<br/>Status Progression Skill<br/>Context: Implementation complete]
+    DetectTaskComplete --> CheckCascade[Check Cascade<br/>query_dependencies<br/>outgoing]
+    DetectBatchComplete --> CheckMoreBatches{More<br/>Batches?}
+
+    DelegateTaskStatus --> MonitorEvents
+
+    CheckCascade --> HasDependents{Task Blocks<br/>Other Tasks?}
+
+    HasDependents -->|Yes| CheckUnblocked[For each dependent:<br/>Check if ALL blockers<br/>complete]
+    HasDependents -->|No| MonitorEvents
+
+    CheckUnblocked --> ReportUnblocked[Report: Tasks now<br/>unblocked and ready]
+    ReportUnblocked --> MonitorEvents
+
+    CheckMoreBatches -->|Yes| NextBatch[Launch Next Batch]
+    CheckMoreBatches -->|No| CheckFeatureProgress[Check if Feature<br/>Can Progress<br/>query_container overview]
+
+    NextBatch --> Batch1
+
+    CheckFeatureProgress --> FeatureEvent{All Feature<br/>Tasks Complete?}
+
+    FeatureEvent -->|Yes| TriggerFeature[Trigger Feature<br/>Orchestration Skill<br/>Event: all_tasks_complete]
+    FeatureEvent -->|No| End1([Task Execution<br/>In Progress])
+
+    TriggerFeature --> End2([Task Execution<br/>Complete])
+
+    ReportCircular --> End3([Error State])
+
+    style RouteParallel fill:#e1f5e1
+    style RouteSequential fill:#e1f5e1
+    style LaunchParallel fill:#e1f5e1
+    style LaunchSequential fill:#e1f5e1
+    style DetectImplComplete fill:#fff3cd
+    style DetectTaskComplete fill:#fff3cd
+    style DetectBatchComplete fill:#fff3cd
+    style DelegateTaskStatus fill:#ffe1a8
+    style CheckCascade fill:#ffe1a8
+    style TriggerFeature fill:#e1e5f5
+    style ReportCircular fill:#ffcccc
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                curve: 'basis',
+                padding: 20
+            }
+        });
+    </script>
+</body>
+</html>

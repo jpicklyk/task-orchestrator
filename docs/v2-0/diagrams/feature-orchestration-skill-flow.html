@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feature Orchestration Skill Flow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .diagram-container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 1400px;
+        }
+        .instructions {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            max-width: 1400px;
+            width: 100%;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .instructions ul {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions">
+        <h3>📋 About This Diagram (v2.0 - Event-Driven)</h3>
+        <p><strong>Key Updates:</strong> This diagram shows the event-driven status progression pattern. The skill detects universal events (first_task_started, all_tasks_complete, tests_passed, etc.) and delegates to Status Progression Skill for ALL status changes. The Status Progression Skill reads the user's config.yaml to determine the next status based on their configured flow (default_flow, rapid_prototype_flow, with_review_flow, etc.).</p>
+        <h3>📸 How to Save as PNG</h3>
+        <ul>
+            <li><strong>Windows:</strong> Windows Key + Shift + S (Snipping Tool) or right-click diagram → "Save image as"</li>
+            <li><strong>Mac:</strong> Cmd + Shift + 4 (screenshot selection)</li>
+            <li><strong>Browser:</strong> Right-click on the diagram → "Save image as" or use browser DevTools to export</li>
+        </ul>
+    </div>
+
+    <h1>Feature Orchestration Skill Flow (Event-Driven v2.0)</h1>
+
+    <div class="diagram-container">
+        <div class="mermaid">
+flowchart TD
+    Start([User Request:<br/>Feature Work]) --> AssessComplexity{Assess<br/>Complexity}
+
+    AssessComplexity -->|Simple<br/>&lt; 200 chars<br/>&lt; 3 expected tasks| DiscoverTemplates[Discover Templates<br/>query_templates]
+    AssessComplexity -->|Complex<br/>&gt; 200 chars<br/>&gt; 5 expected tasks| LaunchArchitect[Recommend:<br/>Launch Feature Architect<br/>Opus]
+
+    DiscoverTemplates --> CreateDirect[Create Feature<br/>+ 2-3 Tasks<br/>status: draft]
+    CreateDirect --> ProgressDraft[Delegate to<br/>Status Progression Skill<br/>draft → planning]
+
+    LaunchArchitect --> ArchitectComplete[Architect Creates<br/>Structured Feature<br/>+ Templates + Tasks]
+    ArchitectComplete --> ProgressDraft
+
+    ProgressDraft --> MonitorEvents{Monitor for<br/>Events}
+
+    MonitorEvents -->|Event:<br/>first_task_started| DetectFirstTask[Detect: 1st task<br/>in-progress<br/>taskCounts check]
+    MonitorEvents -->|Event:<br/>all_tasks_complete| DetectAllComplete[Detect: All tasks<br/>done/cancelled<br/>taskCounts check]
+    MonitorEvents -->|Event:<br/>tests_passed| DetectTestsPass[Detect: Tests<br/>successful<br/>external signal]
+    MonitorEvents -->|Event:<br/>completion_requested| DetectUserRequest[User asks to<br/>complete feature]
+
+    DetectFirstTask --> DelegateProgress1[Delegate to<br/>Status Progression Skill<br/>Context: First task started]
+    DetectAllComplete --> DelegateProgress2[Delegate to<br/>Status Progression Skill<br/>Context: All tasks complete]
+    DetectTestsPass --> DelegateProgress3[Delegate to<br/>Status Progression Skill<br/>Context: Tests passed]
+    DetectUserRequest --> DelegateProgress4[Delegate to<br/>Status Progression Skill<br/>Context: User requested]
+
+    DelegateProgress1 --> StatusSkill1[Status Progression Skill<br/>calls get_next_status<br/>reads config.yaml<br/>recommends next status]
+    DelegateProgress2 --> StatusSkill2[Status Progression Skill<br/>validates prerequisites<br/>recommends next status]
+    DelegateProgress3 --> StatusSkill3[Status Progression Skill<br/>determines flow<br/>recommends next status]
+    DelegateProgress4 --> StatusSkill4[Status Progression Skill<br/>validates prerequisites<br/>recommends completion]
+
+    StatusSkill1 --> MonitorEvents
+    StatusSkill2 --> MonitorEvents
+    StatusSkill3 --> MonitorEvents
+    StatusSkill4 --> CheckComplete{Feature<br/>Completed?}
+
+    CheckComplete -->|Yes| End([Feature Complete])
+    CheckComplete -->|No| MonitorEvents
+
+    style CreateDirect fill:#e1f5e1
+    style LaunchArchitect fill:#e1e5f5
+    style DetectFirstTask fill:#fff3cd
+    style DetectAllComplete fill:#fff3cd
+    style DetectTestsPass fill:#fff3cd
+    style DetectUserRequest fill:#fff3cd
+    style DelegateProgress1 fill:#ffe1a8
+    style DelegateProgress2 fill:#ffe1a8
+    style DelegateProgress3 fill:#ffe1a8
+    style DelegateProgress4 fill:#ffe1a8
+    style StatusSkill1 fill:#e1e5f5
+    style StatusSkill2 fill:#e1e5f5
+    style StatusSkill3 fill:#e1e5f5
+    style StatusSkill4 fill:#e1e5f5
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                curve: 'basis',
+                padding: 20
+            }
+        });
+    </script>
+</body>
+</html>

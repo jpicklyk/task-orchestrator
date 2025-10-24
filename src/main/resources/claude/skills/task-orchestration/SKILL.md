@@ -33,531 +33,218 @@ Intelligent task execution management with parallel processing, dependency-aware
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Update task sections
 
+## Status Progression Trigger Points
+
+**CRITICAL:** Never directly change task status. Always use Status Progression Skill for ALL status changes.
+
+These are universal events that trigger status progression checks, regardless of the user's configured status flow:
+
+| Event | When to Check | Detection Pattern | Condition | Action |
+|-------|---------------|-------------------|-----------|--------|
+| **work_started** | Specialist begins task implementation | Before specialist starts work | Task is in backlog/pending | Use Status Progression Skill to move to in-progress |
+| **implementation_complete** | Code + tests written, sections updated | After specialist finishes coding | Summary populated (300-500 chars), sections updated | Use Status Progression Skill to move to next validation status |
+| **tests_running** | Test execution begins | After triggering tests | Tests initiated | Use Status Progression Skill if needed |
+| **tests_passed** | All tests successful | After test execution | `testResults.allPassed == true` | Use Status Progression Skill to move toward completion |
+| **tests_failed** | Any tests failed | After test execution | `testResults.anyFailed == true` | Use Status Progression Skill (may move backward to in-progress) |
+| **review_submitted** | Code submitted for review | After implementation complete | Code ready for review | Use Status Progression Skill to move to in-review |
+| **review_approved** | Code review passed | After reviewer approval | Review completed with approval | Use Status Progression Skill to move forward (testing or completion) |
+| **changes_requested** | Review rejected, needs rework | After reviewer rejection | Changes needed | Use Status Progression Skill (move backward to in-progress) |
+| **blocker_detected** | Cannot proceed with work | When specialist encounters issue | External dependency or technical blocker | Use Status Progression Skill to move to blocked status |
+| **task_cancelled** | Work no longer needed | User decides to cancel | Scope change | Use Status Progression Skill to move to cancelled |
+
+### Detection Example: Implementation Complete
+
+```javascript
+// After specialist finishes code + tests
+task = query_container(operation="get", containerType="task", id=taskId)
+
+// Check implementation is complete
+sectionsUpdated = true  // Specialist updated Implementation Details section
+filesChanged = true     // Specialist created Files Changed section
+summaryLength = task.summary?.length || 0
+
+if (sectionsUpdated && filesChanged && summaryLength >= 300 && summaryLength <= 500) {
+  // EVENT DETECTED: implementation_complete
+  // Delegate to Status Progression Skill
+
+  "Use Status Progression Skill to progress task status.
+  Context: Implementation complete, summary populated (${summaryLength} chars)."
+
+  // Status Progression Skill will:
+  // 1. Call get_next_status(taskId, event="implementation_complete")
+  // 2. get_next_status reads user's config.yaml
+  // 3. Determines active flow based on task tags
+  // 4. Recommends next status based on that flow
+  // 5. Validates prerequisites
+  // 6. Returns recommendation
+
+  // Possible outcomes based on user's config:
+  // - default_flow: in-progress → testing
+  // - with_review: in-progress → in-review (code review first)
+  // - documentation_flow: in-progress → in-review (no testing for docs)
+  // - hotfix_flow: in-progress → completed (skip validation)
+  // - bug_fix_flow: in-progress → testing
+}
+```
+
+### Detection Example: Task Completion (Cascade Check)
+
+```javascript
+// After marking task complete, check for dependency cascade
+completedTask = query_container(operation="get", containerType="task", id=taskId)
+
+// Check if this unblocks other tasks
+outgoingDeps = query_dependencies(
+  taskId=taskId,
+  direction="outgoing",
+  includeTaskInfo=true
+)
+
+if (outgoingDeps.dependencies.length > 0) {
+  // This task blocks other tasks
+  // Check each dependent task to see if now unblocked
+
+  for (dep of outgoingDeps.dependencies) {
+    dependentTask = dep.toTask
+
+    // Check all incoming dependencies for the dependent task
+    incomingDeps = query_dependencies(
+      taskId=dependentTask.id,
+      direction="incoming",
+      includeTaskInfo=true
+    )
+
+    // Count incomplete blockers
+    incompleteBlockers = incomingDeps.dependencies.filter(d =>
+      d.fromTask.status != "completed" && d.fromTask.status != "cancelled"
+    ).length
+
+    if (incompleteBlockers == 0) {
+      // This task is now unblocked!
+      notify(`Task "${dependentTask.title}" is now unblocked and ready to start.`)
+
+      // Feature Orchestration Skill can now launch specialist for this task
+    }
+  }
+}
+
+// Also check if feature can progress (see Feature Orchestration Skill)
+if (completedTask.featureId) {
+  // Trigger Feature Orchestration Skill to check feature progress
+  // (see Feature Orchestration Skill event: all_tasks_complete)
+}
+```
+
 ## Specialist Architecture (v2.0)
 
-**Implementation Specialist (Haiku)** - Standard implementation work (70-80% of tasks)
-- Fast execution (4-5x faster than Sonnet)
-- Cost-effective (1/3 cost of Sonnet)
+**Implementation Specialist (Haiku)** - Standard implementation (70-80% of tasks)
+- Fast execution, cost-effective
 - Loads domain Skills on-demand: backend-implementation, frontend-implementation, database-implementation, testing-implementation, documentation-implementation
 - Escalates to Senior Engineer when blocked
 
-**Senior Engineer (Sonnet)** - Complex problem solving (10-20% of tasks)
+**Senior Engineer (Sonnet)** - Complex problem solving (10-20%)
 - Debugging, bug investigation, unblocking
-- Performance optimization, refactoring
-- Tactical architecture decisions
-- Better reasoning for ambiguous problems
+- Performance optimization, tactical architecture
 
 **Feature Architect (Opus)** - Feature design from ambiguous requirements
-- Transforms concepts into structured features
-- PRD creation, strategic architecture
-- Template discovery and application
-
 **Planning Specialist (Sonnet)** - Task decomposition with execution graphs
-- Domain-isolated task breakdown
-- Execution graph creation, dependency management
 
 ## Core Workflows
 
 ### 1. Dependency-Aware Batching
 
-**Identify which tasks can run in parallel using MCP tools:**
+**High-level steps:**
+1. Get all pending tasks: `query_container(operation="search", containerType="task", featureId="...", status="pending")`
+2. For each task, check dependencies: `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
+3. Group into batches:
+   - Batch 1: Tasks with NO incomplete blocking dependencies (parallel)
+   - Batch 2: Tasks blocked only by Batch 1 (sequential)
+   - Batch 3+: Continue until all tasks assigned
+4. Detect circular dependencies (task blocked by another task that's also blocked)
 
-**Tool Orchestration Pattern:**
-
-```
-Step 1: Get all pending tasks
-query_container(operation="search", containerType="task", featureId="...", status="pending")
-
-Step 2: For each task, check blocking dependencies
-query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
-
-Step 3: Group tasks by dependency level
-- Batch 1: Tasks with NO incomplete blocking dependencies (can start immediately)
-- Batch 2: Tasks blocked only by Batch 1 tasks
-- Batch 3: Tasks blocked by Batch 1 or 2 tasks
-- Continue until all tasks assigned to batches
-
-Step 4: If a task is blocked but all its blockers are also blocked, circular dependency detected
-```
-
-**Example Analysis:**
-
-Given 4 tasks with dependencies:
-- T1 (Database Schema) - no dependencies
-- T2 (API Implementation) - depends on T1
-- T3 (UI Components) - no dependencies
-- T4 (Integration Tests) - depends on T2 and T3
-
-**Result:**
-- Batch 1: T1, T3 (parallel - no dependencies)
-- Batch 2: T2 (sequential - depends on T1)
-- Batch 3: T4 (sequential - depends on T2, T3)
-
-**Output format:**
-```json
-{
-  "batches": [
-    {
-      "batch_number": 1,
-      "parallel": true,
-      "task_count": 2,
-      "tasks": [
-        {
-          "id": "uuid-1",
-          "title": "Create database schema",
-          "complexity": 5,
-          "specialist": "Implementation Specialist",
-          "skills_loaded": ["database-implementation"],
-          "dependencies": []
-        },
-        {
-          "id": "uuid-3",
-          "title": "Create UI components",
-          "complexity": 6,
-          "specialist": "Implementation Specialist",
-          "skills_loaded": ["frontend-implementation"],
-          "dependencies": []
-        }
-      ]
-    },
-    {
-      "batch_number": 2,
-      "parallel": false,
-      "task_count": 1,
-      "tasks": [
-        {
-          "id": "uuid-2",
-          "title": "Implement API endpoints",
-          "complexity": 7,
-          "specialist": "Implementation Specialist",
-          "skills_loaded": ["backend-implementation"],
-          "dependencies": ["uuid-1"]
-        }
-      ]
-    }
-  ],
-  "total_batches": 2,
-  "estimated_time_savings": "40%"
-}
-```
+See [examples.md](examples.md) for detailed batching examples and output format.
 
 ### 2. Parallel Specialist Launch
 
-**Launch multiple specialists concurrently using MCP tools:**
+**High-level steps:**
+1. For each task in parallel batch: `recommend_agent(taskId="...")`
+2. Prepare launch instructions for orchestrator
+3. Orchestrator launches specialists in parallel (using Task tool)
 
-**Tool Orchestration Pattern:**
+**Key:** Skill identifies WHICH specialists to launch; orchestrator does the actual launching.
 
-```
-For each task in parallel batch:
-
-Step 1: Get specialist recommendation
-recommend_agent(taskId="task-uuid")
-
-Step 2: Prepare launch instructions for orchestrator
-Return message: "Launch [Specialist Name] for task [Task Title] (ID: task-uuid)"
-
-Step 3: Orchestrator launches specialists in parallel
-(Uses Task tool with multiple concurrent invocations)
-```
-
-**Key Point:** The skill identifies WHICH specialists to launch and in what order. The actual subagent launching is done by the orchestrator, not by this skill.
-
-**Orchestrator instructions format:**
-```markdown
-Launch the following specialists in PARALLEL (Batch 1):
-
-1. **Implementation Specialist (Haiku)**
-   - Task: Create database schema (uuid-1)
-   - Complexity: 5
-   - Skills: database-implementation
-
-2. **Implementation Specialist (Haiku)**
-   - Task: Create UI components (uuid-3)
-   - Complexity: 6
-   - Skills: frontend-implementation
-
-Wait for both to complete before proceeding to Batch 2.
-```
+See [examples.md](examples.md) for orchestrator instruction format.
 
 ### 3. Progress Monitoring
 
-**Track parallel execution progress using MCP tools:**
-
-**Tool Orchestration Pattern:**
-
-```
-Step 1: Get current batch tasks (from earlier analysis)
-Keep list of task IDs currently being worked on
-
-Step 2: Check each task status
-query_container(operation="overview", containerType="task", id="task-uuid")
-(Repeat for each task in batch)
-
-Step 3: Analyze status distribution
-Count how many tasks are:
-- completed
-- in-progress
-- blocked
-- pending
-
-Step 4: Determine if batch is complete
-If all tasks in batch are "completed" or "cancelled", batch is done
-If any task is "blocked", identify blocker using query_dependencies
-
-Step 5: Report progress
-Return: "Batch X: Y/Z tasks complete (N%)"
-```
+**High-level steps:**
+1. Keep list of task IDs currently being worked on
+2. Check each task status: `query_container(operation="overview", containerType="task", id="...")`
+3. Analyze status distribution (completed, in-progress, blocked, pending)
+4. Determine if batch complete
+5. Report progress: "Batch X: Y/Z tasks complete (N%)"
 
 ### 4. Dependency Cascade
 
-**Automatically trigger next batch when current completes:**
+**High-level steps:**
+1. After task completes, check if it unblocks others: `query_dependencies(taskId="...", direction="outgoing", includeTaskInfo=true)`
+2. For each dependent task, check if ALL blockers complete
+3. Report newly available tasks
+4. Recommend launching next batch
 
-**Tool Orchestration Pattern:**
-
-```
-When a task completes:
-
-Step 1: Task is already marked complete by specialist
-(Specialists mark their own tasks complete)
-
-Step 2: Check if this unblocks other tasks
-query_dependencies(taskId="completed-task-id", direction="outgoing", includeTaskInfo=true)
-
-Step 3: For each previously blocked task, check if now unblocked
-For each outgoing dependency:
-  query_dependencies(taskId="dependent-task-id", direction="incoming", includeTaskInfo=true)
-  If all incoming dependencies are complete, task is now ready
-
-Step 4: Report newly available tasks
-"Task [X] complete. This unblocks [N] tasks: [list]"
-
-Step 5: Recommend next batch
-Identify newly unblocked tasks and recommend launching specialists
-```
+See [examples.md](examples.md) for cascade detection pattern.
 
 ### 5. Specialist Routing
 
-**Intelligent routing using MCP tools:**
+**High-level steps:**
+1. Get recommendation: `recommend_agent(taskId="...")`
+2. Use recommendation if provided
+3. If no recommendation, use fallback (Implementation Specialist or ask user)
 
-**Tool Orchestration Pattern:**
-
-```
-Step 1: Get specialist recommendation for task
-recommend_agent(taskId="task-uuid")
-
-Returns:
-{
-  "recommended": true/false,
-  "agent": "Implementation Specialist",
-  "reason": "Task tags match implementation patterns",
-  "matchedTags": ["backend", "api"],
-  "sectionTags": ["requirements", "technical-approach"],
-  "nextAction": {
-    "tool": "Task",
-    "subagent_type": "Implementation Specialist",
-    "skills_loaded": ["backend-implementation"]
-  }
-}
-
-Step 2: If recommendation provided, use it
-Launch recommended specialist
-
-Step 3: If no recommendation, use fallback
-Default to Implementation Specialist (Haiku) or ask user for guidance
-
-Note: Configuration loading is NOT available via MCP tools.
-Configuration should be documented statically in skill files or CLAUDE.md.
-```
+**Routing patterns:**
+- [backend, frontend, database, testing, documentation] → Implementation Specialist (Haiku)
+- [bug, error, blocker, complex] → Senior Engineer (Sonnet)
+- [feature-creation] → Feature Architect (Opus)
+- [planning, task-breakdown] → Planning Specialist (Sonnet)
 
 ### 6. Task Completion
 
-**Complete task with summary section using MCP tools:**
+**High-level steps:**
+1. Create task summary section (300-500 chars)
+2. Create files changed section
+3. Use Status Progression Skill to mark complete (validates prerequisites)
+4. Check for cascade (trigger next batch if available)
 
-**Tool Orchestration Pattern:**
-
-```
-Note: Specialists typically mark their own tasks complete.
-This pattern is for orchestrator-driven completion.
-
-Step 1: Create task summary section
-manage_sections(
-  operation="add",
-  entityType="TASK",
-  entityId="task-uuid",
-  title="Task Summary",
-  usageDescription="What was accomplished",
-  content="Summary content from specialist...",
-  contentFormat="MARKDOWN",
-  ordinal=998,
-  tags="summary,completion"
-)
-
-Step 2: Create files changed section
-manage_sections(
-  operation="add",
-  entityType="TASK",
-  entityId="task-uuid",
-  title="Files Changed",
-  usageDescription="Files modified during implementation",
-  content="- src/main/...\n- src/test/...",
-  contentFormat="MARKDOWN",
-  ordinal=999,
-  tags="files-changed,completion"
-)
-
-Step 3: Use Status Progression Skill to mark task complete
-"Use Status Progression Skill to mark task as completed"
-// The skill validates prerequisites (summary length, no blocking dependencies)
-// and reads config.yaml for workflow rules
-
-Step 4: Check for cascade (see Workflow 4)
-```
-
-## Execution Strategies
-
-### Strategy 1: Sequential Execution
-**When:** All tasks have dependencies on previous tasks
-```
-T1 → T2 → T3 → T4
-```
-Launch one at a time, wait for completion.
-
-### Strategy 2: Full Parallel Execution
-**When:** No dependencies between tasks
-```
-T1
-T2
-T3
-T4
-```
-Launch all simultaneously (respecting max_parallel_tasks limit).
-
-### Strategy 3: Hybrid Batched Execution
-**When:** Mix of dependencies and parallel opportunities
-```
-Batch 1: T1, T3 (parallel)
-Batch 2: T2 (depends on T1)
-Batch 3: T4 (depends on T2, T3)
-```
-Most common pattern - optimize for parallelism.
-
-### Strategy 4: Resource-Aware Execution
-**When:** Config specifies resource limits
-```
-max_parallel_tasks: 3
-Batch 1a: T1, T2, T3 (parallel)
-Batch 1b: T4, T5 (wait for slot)
-```
-Respect resource constraints while maximizing parallelism.
-
-## Configuration Guidance
-
-**Configuration patterns (documented, not dynamically loaded):**
-
-**Parallelism Strategy:**
-- Always use dependency-based batching for safety
-- Respect task dependencies to avoid blocking issues
-- Launch specialists concurrently when dependencies allow
-
-**Specialist Routing:**
-- Always use `recommend_agent` tool as primary routing method
-- Tags [backend, frontend, database, testing, documentation] → Implementation Specialist (Haiku)
-- Tags [bug, error, blocker, complex] → Senior Engineer (Sonnet)
-- Tags [feature-creation] → Feature Architect (Opus)
-- Tags [planning, task-breakdown] → Planning Specialist (Sonnet)
-- If no recommendation, default to Implementation Specialist (Haiku) or ask user
-- Never guess or hardcode specialist assignments
-
-**Best Practices:**
-- Maximum 3-5 parallel tasks for manageable monitoring
-- Always check dependencies before launching
-- Monitor task status after launching specialists
-- Report progress regularly to user
-
-## Examples
-
-### Example 1: Execute Feature Tasks
-
-**User:** "Execute tasks for authentication feature"
-
-**Actions:**
-```javascript
-1. Get feature ID
-2. create_execution_batches(feature_id)
-3. Result:
-   Batch 1 (Parallel): Database schema, UI components
-   Batch 2 (Sequential): Backend API
-   Batch 3 (Sequential): Integration tests
-
-4. Return: "Execution plan created with 3 batches.
-   Ready to launch Batch 1 with 2 parallel tasks:
-   - Implementation Specialist (Haiku): Create schema (loads database-implementation Skill)
-   - Implementation Specialist (Haiku): Create UI components (loads frontend-implementation Skill)"
-```
-
-### Example 2: Launch Parallel Batch
-
-**User:** "Launch next batch"
-
-**Actions:**
-```javascript
-1. Get next ready batch
-2. For each task in batch:
-   - recommend_agent(task_id)
-3. Return: "Launching Batch 1 in PARALLEL:
-
-   1. Implementation Specialist (Haiku) - Create database schema
-      - Skills loaded: database-implementation
-   2. Implementation Specialist (Haiku) - Create UI components
-      - Skills loaded: frontend-implementation
-
-   Both tasks can run simultaneously."
-```
-
-### Example 3: Monitor Progress
-
-**User:** "Show task progress"
-
-**Actions:**
-```javascript
-1. Get current batch
-2. monitor_parallel_execution(batch_id)
-3. Return: "Batch 1 Progress: 1/2 (50%)
-   ✓ Database schema - Completed
-   ⏳ UI components - In Progress
-
-   Waiting for UI components to complete before launching Batch 2."
-```
-
-### Example 4: Complete Task with Cascade
-
-**User:** "Complete UI components task"
-
-**Actions:**
-```javascript
-1. create_summary_section()
-2. mark_complete()
-3. handle_task_completion() detects batch complete
-4. Return: "Task completed. Batch 1 complete (2/2).
-
-   Ready to launch Batch 2:
-   - Implementation Specialist (Haiku): Implement API endpoints
-     - Skills loaded: backend-implementation"
-```
-
-### Example 5: Circular Dependency Detection
-
-**User:** "Execute feature tasks"
-
-**Actions:**
-```javascript
-1. create_execution_batches()
-2. Detect: T2 → T5 → T7 → T2
-3. Return: "Error: Circular dependencies detected
-   T2 → T5 → T7 → T2
-
-   Use Dependency Orchestration Skill to resolve:
-   - Remove unnecessary dependencies
-   - Reorder tasks
-   - Split circular task"
-```
+**Note:** Specialists typically mark their own tasks complete. This is for orchestrator-driven completion.
 
 ## Integration with Other Skills
 
 **Works alongside:**
 - **Feature Orchestration Skill** - Receives task execution requests
 - **Dependency Orchestration Skill** - For complex dependency analysis
-- **Status Progression Skill** - For status management
+- **Status Progression Skill** - For ALL status changes
 
 **Launches subagents:**
 - All specialist subagents based on recommend_agent results
 
-## Parallel Execution Patterns
-
-### Pattern 1: Domain Isolation
-```
-Database tasks  → Backend tasks
-Frontend tasks  ↗
-```
-Database and Frontend can run parallel (different domains).
-
-### Pattern 2: Layer Separation
-```
-Data Layer → Business Logic → Presentation Layer
-```
-Must be sequential (dependencies).
-
-### Pattern 3: Feature Isolation
-```
-Auth module    → Integration
-Reporting module ↗
-```
-Independent modules can run parallel.
-
-### Pattern 4: Test Parallelism
-```
-Unit tests      (parallel)
-Integration tests (parallel)
-E2E tests       (sequential after all)
-```
-Test types can often run concurrently.
-
 ## Token Efficiency
 
-**Optimization techniques:**
-- Use `overview` operations for batch status checks
+- Use `overview` operations for batch status checks (95% token reduction)
 - Batch specialist launches in single message
 - Return minimal progress reports
 - Query only necessary dependency information
-- Cache batch information
 
-**Token savings:**
-```
-Old approach: Get each task fully (2800 tokens × 10 tasks = 28k)
-New approach: Overview batch (1200 tokens total)
-Savings: 95% token reduction
-```
-
-## Error Handling
-
-**Common scenarios:**
-
-1. **Task blocked during execution:**
-   ```javascript
-   Detect: Task status changed to "blocked"
-   Action: Notify orchestrator, suggest unblocking actions
-   ```
-
-2. **Specialist fails task:**
-   ```javascript
-   Detect: Task marked failed
-   Action: Report failure, suggest remediation
-   Do not cascade to next batch
-   ```
-
-3. **Max parallel limit reached:**
-   ```javascript
-   Detect: 5 tasks already in progress
-   Action: Queue remaining tasks, wait for slot
-   ```
-
-4. **No specialist matched:**
-   ```javascript
-   Use fallback_behavior from config
-   If ask_user: Prompt for specialist choice
-   If use_default: Use default_specialist
-   ```
+**Savings:** Overview batch (1.2k tokens) vs Get each task fully (28k tokens for 10 tasks)
 
 ## Best Practices
 
 1. **Always analyze dependencies** before execution
-2. **Respect max_parallel_tasks** configuration
+2. **Use recommend_agent** for all routing (never guess)
 3. **Monitor parallel progress** actively
 4. **Handle failures gracefully** without cascade
-5. **Use recommend_agent** for all routing
-6. **Create meaningful summaries** on completion
-7. **Trigger cascades automatically** when batch completes
-8. **Report clear progress** to users
+5. **Trigger cascades automatically** when batch completes
+6. **Report clear progress** to users
+7. **Maximum 3-5 parallel tasks** for manageable monitoring
 
 ## Success Metrics
 
@@ -566,3 +253,8 @@ Savings: 95% token reduction
 - Zero circular dependencies in production
 - Automated cascade triggering (no manual intervention)
 - 500-900 token average per orchestration session
+
+## Additional Resources
+
+- **Detailed Examples**: See [examples.md](examples.md) for complete walkthroughs
+- **Execution Patterns**: See [patterns.md](patterns.md) for strategies, configuration, and error handling

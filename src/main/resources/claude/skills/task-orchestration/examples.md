@@ -420,3 +420,212 @@ tasks_overview = query_container(
 ```
 
 **Savings: 98% token reduction in routing**
+
+---
+
+## Detailed Batching Example with Output Format
+
+**Given 4 tasks with dependencies:**
+- T1 (Database Schema) - no dependencies
+- T2 (API Implementation) - depends on T1
+- T3 (UI Components) - no dependencies
+- T4 (Integration Tests) - depends on T2 and T3
+
+**Batching Result:**
+- Batch 1: T1, T3 (parallel - no dependencies)
+- Batch 2: T2 (sequential - depends on T1)
+- Batch 3: T4 (sequential - depends on T2, T3)
+
+**JSON Output Format:**
+```json
+{
+  "batches": [
+    {
+      "batch_number": 1,
+      "parallel": true,
+      "task_count": 2,
+      "tasks": [
+        {
+          "id": "uuid-1",
+          "title": "Create database schema",
+          "complexity": 5,
+          "specialist": "Implementation Specialist",
+          "skills_loaded": ["database-implementation"],
+          "dependencies": []
+        },
+        {
+          "id": "uuid-3",
+          "title": "Create UI components",
+          "complexity": 6,
+          "specialist": "Implementation Specialist",
+          "skills_loaded": ["frontend-implementation"],
+          "dependencies": []
+        }
+      ]
+    },
+    {
+      "batch_number": 2,
+      "parallel": false,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "uuid-2",
+          "title": "Implement API endpoints",
+          "complexity": 7,
+          "specialist": "Implementation Specialist",
+          "skills_loaded": ["backend-implementation"],
+          "dependencies": ["uuid-1"]
+        }
+      ]
+    }
+  ],
+  "total_batches": 2,
+  "estimated_time_savings": "40%"
+}
+```
+
+---
+
+## Orchestrator Launch Instruction Format
+
+**For parallel batch launch:**
+
+```markdown
+Launch the following specialists in PARALLEL (Batch 1):
+
+1. **Implementation Specialist (Haiku)**
+   - Task: Create database schema (uuid-1)
+   - Complexity: 5
+   - Skills: database-implementation
+
+2. **Implementation Specialist (Haiku)**
+   - Task: Create UI components (uuid-3)
+   - Complexity: 6
+   - Skills: frontend-implementation
+
+Wait for both to complete before proceeding to Batch 2.
+```
+
+**Key:** Orchestrator launches specialists using Task tool, not the skill itself.
+
+---
+
+## Parallel Execution Patterns
+
+### Pattern 1: Domain Isolation
+```
+Database tasks  → Backend tasks
+Frontend tasks  ↗
+```
+**Analysis:** Database and Frontend can run parallel (different domains, no shared dependencies).
+
+### Pattern 2: Layer Separation
+```
+Data Layer → Business Logic → Presentation Layer
+```
+**Analysis:** Must be sequential (dependencies between layers).
+
+### Pattern 3: Feature Isolation
+```
+Auth module    → Integration
+Reporting module ↗
+```
+**Analysis:** Independent modules can run parallel, integrate at the end.
+
+### Pattern 4: Test Parallelism
+```
+Unit tests      (parallel)
+Integration tests (parallel)
+E2E tests       (sequential after all)
+```
+**Analysis:** Test types can often run concurrently, E2E waits for all code complete.
+
+---
+
+## Cascade Detection Pattern
+
+**After task completes:**
+
+```javascript
+// Step 1: Get completed task
+completedTask = query_container(operation="get", containerType="task", id=taskId)
+
+// Step 2: Check if this task blocks other tasks
+outgoingDeps = query_dependencies(
+  taskId=taskId,
+  direction="outgoing",
+  includeTaskInfo=true
+)
+
+if (outgoingDeps.dependencies.length > 0) {
+  // Step 3: Check each dependent task to see if now unblocked
+  for (dep of outgoingDeps.dependencies) {
+    dependentTask = dep.toTask
+
+    // Step 4: Check ALL incoming dependencies for the dependent task
+    incomingDeps = query_dependencies(
+      taskId=dependentTask.id,
+      direction="incoming",
+      includeTaskInfo=true
+    )
+
+    // Step 5: Count incomplete blockers
+    incompleteBlockers = incomingDeps.dependencies.filter(d =>
+      d.fromTask.status != "completed" && d.fromTask.status != "cancelled"
+    ).length
+
+    // Step 6: If no incomplete blockers, task is unblocked!
+    if (incompleteBlockers == 0) {
+      notify(`Task "${dependentTask.title}" is now unblocked and ready to start.`)
+    }
+  }
+}
+
+// Step 7: Check if feature can progress
+if (completedTask.featureId) {
+  // Trigger Feature Orchestration Skill to check feature progress
+}
+```
+
+---
+
+## Event Detection Examples
+
+### Detection: Implementation Complete
+
+```javascript
+// After specialist finishes code + tests
+task = query_container(operation="get", containerType="task", id=taskId)
+
+// Check implementation is complete
+sectionsUpdated = true  // Specialist updated Implementation Details section
+filesChanged = true     // Specialist created Files Changed section
+summaryLength = task.summary?.length || 0
+
+if (sectionsUpdated && filesChanged && summaryLength >= 300 && summaryLength <= 500) {
+  // EVENT DETECTED: implementation_complete
+
+  "Use Status Progression Skill to progress task status.
+  Context: Implementation complete, summary populated (${summaryLength} chars)."
+
+  // Status Progression Skill determines next status based on config:
+  // - default_flow: in-progress → testing
+  // - with_review: in-progress → in-review
+  // - documentation_flow: in-progress → in-review (no testing)
+  // - hotfix_flow: in-progress → completed (skip validation)
+}
+```
+
+### Detection: Task Completion (Cascade Check)
+
+```javascript
+// After marking task complete, check for dependency cascade
+completedTask = query_container(operation="get", containerType="task", id=taskId)
+
+// Check if this unblocks other tasks (see Cascade Detection Pattern above)
+
+// Also check if feature can progress
+if (completedTask.featureId) {
+  // Trigger Feature Orchestration Skill to check all_tasks_complete event
+}
+```
