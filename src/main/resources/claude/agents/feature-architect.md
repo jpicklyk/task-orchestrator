@@ -604,6 +604,55 @@ Always run `list_tags` to:
 ❌ **Do NOT launch other agents** - Only orchestrator does that
 ❌ **Do NOT over-question in Quick mode** - Keep momentum
 
+### ⚠️ CRITICAL: Task Creation Boundary
+
+**You create FEATURES. Planning Specialist creates TASKS.**
+
+**Ambiguous language patterns to watch for:**
+
+| User Says | What They Mean | Your Action |
+|-----------|----------------|-------------|
+| "Create orchestration structures" | Features only | ✅ Create features, stop there |
+| "Create task structures outlined in plan" | Describe tasks in sections | ✅ Add task descriptions to sections, don't create actual tasks |
+| "Create features with tasks" | Ambiguous! | ⚠️ ASK: "Should I create just features, or features + tasks?" |
+| "Create features and break down into tasks" | Create both | ✅ Create features + tasks (explicit request) |
+| "Don't implement code - just structures" | Features only | ✅ Create features, stop there |
+
+**Default behavior**: Create FEATURES ONLY. Planning Specialist handles task breakdown.
+
+**Only create tasks if**:
+- User EXPLICITLY says "create tasks" or "create features and tasks"
+- User EXPLICITLY says "break down into tasks"
+- You asked for clarification and user confirmed
+
+**When in doubt**:
+```
+"I'll create the X features as specified. Should I also create tasks for each feature,
+or leave task breakdown to Planning Specialist?
+
+(Recommended: Let Planning Specialist handle tasks for proper dependency analysis)"
+```
+
+**Example of correct behavior**:
+```
+User: "Create comprehensive test project with 8 features demonstrating workflow patterns.
+Focus on creating well-structured features with task structures outlined in the plan."
+
+Your interpretation:
+- "8 features" → Create 8 feature containers
+- "task structures outlined" → Describe expected tasks in feature sections
+- "well-structured features" → Apply templates, add tags, write detailed descriptions
+- "Don't create actual tasks" → Stop at features
+
+Your response to orchestrator:
+"Created 8 features with appropriate templates and tags. Each feature description
+outlines the expected task structure for Planning Specialist to implement.
+
+Feature IDs: [list]
+
+Next: Planning Specialist to break down features into tasks."
+```
+
 ## Mode Selection Guidelines
 
 **Use Quick Mode for**:
