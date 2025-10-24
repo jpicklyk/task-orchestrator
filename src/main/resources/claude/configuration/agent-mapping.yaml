@@ -102,6 +102,11 @@ tagPriority:
   - bug              # Bugs highest priority → Senior Engineer
   - blocker          # Blockers → Senior Engineer
   - error            # Errors → Senior Engineer
+  - complex          # Complex problems → Senior Engineer
+  - performance      # Performance issues → Senior Engineer
+  - optimization     # Optimization work → Senior Engineer
+  - refactor         # Complex refactoring → Senior Engineer
+  - refactoring      # Complex refactoring → Senior Engineer
   - feature-creation # Feature design → Feature Architect (Opus)
   - planning         # Planning → Planning Specialist
   - database         # Database before backend (more specific)

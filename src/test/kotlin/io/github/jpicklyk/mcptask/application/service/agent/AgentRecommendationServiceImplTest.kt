@@ -49,7 +49,17 @@ class AgentRecommendationServiceImplTest {
             agent: database-engineer
             section_tags: [requirements, technical-approach, data-model]
 
+          - task_tags: [bug, error, complex, performance, optimization, refactor]
+            agent: senior-engineer
+            section_tags: [bug-report, reproduction, investigation, technical-approach]
+
         tagPriority:
+          - bug
+          - error
+          - complex
+          - performance
+          - optimization
+          - refactor
           - database
           - backend
           - frontend
@@ -131,6 +141,86 @@ class AgentRecommendationServiceImplTest {
             assertEquals("database-engineer", recommendation.agentName,
                 "Should prioritize database over backend based on tagPriority")
             assertTrue(recommendation.reason.contains("priority category: database"))
+        }
+
+        @Test
+        fun `should prioritize complex tag over backend tag`() {
+            // Arrange
+            val task = Task(
+                title = "Refactor auth architecture",
+                summary = "Complex refactoring of authentication system",
+                tags = listOf("complex", "refactor", "architecture", "backend")
+            )
+            every { agentDirectoryManager.readAgentMappingFile() } returns validAgentMappingYaml
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation)
+            assertEquals("senior-engineer", recommendation.agentName,
+                "Should prioritize complex over backend based on tagPriority")
+            assertTrue(recommendation.reason.contains("priority category: complex"))
+        }
+
+        @Test
+        fun `should prioritize bug tag over backend tag`() {
+            // Arrange
+            val task = Task(
+                title = "Fix NullPointerException in UserService",
+                summary = "Backend service throwing NPE",
+                tags = listOf("bug", "error", "backend")
+            )
+            every { agentDirectoryManager.readAgentMappingFile() } returns validAgentMappingYaml
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation)
+            assertEquals("senior-engineer", recommendation.agentName,
+                "Should prioritize bug over backend based on tagPriority")
+            assertTrue(recommendation.reason.contains("priority category: bug"))
+        }
+
+        @Test
+        fun `should prioritize performance tag over backend tag`() {
+            // Arrange
+            val task = Task(
+                title = "Optimize database query performance",
+                summary = "Backend API endpoints running slowly",
+                tags = listOf("performance", "optimization", "backend")
+            )
+            every { agentDirectoryManager.readAgentMappingFile() } returns validAgentMappingYaml
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation)
+            assertEquals("senior-engineer", recommendation.agentName,
+                "Should prioritize performance over backend based on tagPriority")
+            assertTrue(recommendation.reason.contains("priority category: performance"))
+        }
+
+        @Test
+        fun `should prioritize refactor tag over backend tag`() {
+            // Arrange
+            val task = Task(
+                title = "Refactor legacy code",
+                summary = "Clean up technical debt in backend services",
+                tags = listOf("refactor", "backend", "service")
+            )
+            every { agentDirectoryManager.readAgentMappingFile() } returns validAgentMappingYaml
+
+            // Act
+            val recommendation = service.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation)
+            assertEquals("senior-engineer", recommendation.agentName,
+                "Should prioritize refactor over backend based on tagPriority")
+            assertTrue(recommendation.reason.contains("priority category: refactor"))
         }
 
         @Test
@@ -660,11 +750,11 @@ class AgentRecommendationServiceImplTest {
 
             // Assert
             assertTrue(agents.isNotEmpty(), "Should load agents from real config file")
-            assertTrue(agents.contains("Backend Engineer"), "Should contain Backend Engineer")
-            assertTrue(agents.contains("Frontend Developer"), "Should contain Frontend Developer")
-            assertTrue(agents.contains("Database Engineer"), "Should contain Database Engineer")
-            assertTrue(agents.contains("Test Engineer"), "Should contain Test Engineer")
-            assertTrue(agents.contains("Technical Writer"), "Should contain Technical Writer")
+            // v2.0 architecture agents
+            assertTrue(agents.contains("Implementation Specialist"), "Should contain Implementation Specialist")
+            assertTrue(agents.contains("Senior Engineer"), "Should contain Senior Engineer")
+            assertTrue(agents.contains("Feature Architect"), "Should contain Feature Architect")
+            assertTrue(agents.contains("Planning Specialist"), "Should contain Planning Specialist")
         }
 
         @Test
@@ -685,8 +775,8 @@ class AgentRecommendationServiceImplTest {
 
             // Assert
             assertNotNull(recommendation, "Should return recommendation using default_specialist from config")
-            assertEquals("general-purpose", recommendation.agentName,
-                "default_specialist should be 'general-purpose' as configured in agent-mapping.yaml")
+            assertEquals("implementation-specialist", recommendation.agentName,
+                "default_specialist should be 'implementation-specialist' as configured in agent-mapping.yaml")
             assertEquals("No matching tags found. Using default specialist from configuration.",
                 recommendation.reason)
         }
@@ -718,7 +808,7 @@ class AgentRecommendationServiceImplTest {
             val realAgentDirectoryManager = AgentDirectoryManager()
             val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
 
-            // Test backend tag mapping
+            // Test backend tag mapping - v2.0 routes to Implementation Specialist
             val backendTask = Task(
                 title = "Backend task",
                 summary = "API work",
@@ -730,7 +820,7 @@ class AgentRecommendationServiceImplTest {
 
             // Assert
             assertNotNull(backendRecommendation, "Should match backend tags from config")
-            assertEquals("Backend Engineer", backendRecommendation.agentName)
+            assertEquals("Implementation Specialist", backendRecommendation.agentName)
             assertTrue(backendRecommendation.sectionTags.contains("requirements"),
                 "Should include section tags from config")
             assertTrue(backendRecommendation.sectionTags.contains("technical-approach"),
@@ -756,9 +846,35 @@ class AgentRecommendationServiceImplTest {
 
             // Assert
             assertNotNull(recommendation, "Should match tags from config")
-            assertEquals("Database Engineer", recommendation.agentName,
+            // v2.0: Database is still priority, but routes to Implementation Specialist
+            assertEquals("Implementation Specialist", recommendation.agentName,
                 "Should prioritize database over backend based on tagPriority in config")
             assertTrue(recommendation.reason.contains("priority category: database"),
+                "Reason should indicate priority-based selection")
+        }
+
+        @Test
+        fun `should load complex tag priority from actual config file`() {
+            // Arrange - Use real AgentDirectoryManager
+            val realAgentDirectoryManager = AgentDirectoryManager()
+            val realService = AgentRecommendationServiceImpl(realAgentDirectoryManager)
+
+            // Create task with complex and backend tags
+            // According to v2.0 tagPriority, complex should take precedence → Senior Engineer
+            val task = Task(
+                title = "Refactor auth architecture",
+                summary = "Complex refactoring of authentication system",
+                tags = listOf("complex", "refactor", "architecture", "backend")
+            )
+
+            // Act
+            val recommendation = realService.recommendAgent(task)
+
+            // Assert
+            assertNotNull(recommendation, "Should match tags from config")
+            assertEquals("Senior Engineer", recommendation.agentName,
+                "Should prioritize complex over backend based on tagPriority in config")
+            assertTrue(recommendation.reason.contains("priority category: complex"),
                 "Reason should indicate priority-based selection")
         }
 
@@ -798,21 +914,18 @@ class AgentRecommendationServiceImplTest {
             // Get all agents from config
             val agents = realService.listAvailableAgents()
 
-            // Act & Assert - Check section tags for main specialist agents
+            // Act & Assert - Check section tags for v2.0 agents
             val mainAgents = listOf(
-                "Backend Engineer",
-                "Frontend Developer",
-                "Database Engineer",
-                "Test Engineer",
-                "Technical Writer"
+                "Implementation Specialist",
+                "Senior Engineer",
+                "Feature Architect",
+                "Planning Specialist"
             )
 
             mainAgents.forEach { agentName ->
                 val sectionTags = realService.getSectionTagsForAgent(agentName)
                 assertTrue(sectionTags.isNotEmpty(),
                     "$agentName should have section tags defined in config")
-                assertTrue(sectionTags.contains("requirements"),
-                    "$agentName should include 'requirements' in section tags")
             }
         }
     }
