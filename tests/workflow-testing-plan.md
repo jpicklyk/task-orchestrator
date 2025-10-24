@@ -24,6 +24,39 @@ Test Project: "E-Commerce Platform Testing"
 
 ---
 
+## Quick Start with Feature Architect
+
+To rapidly create the test project structure, use this prompt with Feature Architect:
+
+```
+I need you to create a comprehensive test project to validate our v2.0 event-driven
+feature and task orchestration workflows. Please read the testing plan at
+D:\Projects\task-orchestrator\tests\workflow-testing-plan.md
+
+Create a new project called "E-Commerce Platform Testing" with 8 features that
+demonstrate different workflow patterns:
+
+1. Simple User Profile (simple workflow, no architect needed)
+2. Complex Payment System (complex workflow, should trigger architect recommendation)
+3. Product Catalog (parallel task execution, no dependencies)
+4. Order Processing (sequential tasks, full dependency chain)
+5. Shopping Cart (hybrid batched execution with mixed dependencies)
+6. Circular Dependency Test (error handling validation)
+7. Rapid Prototype Search (rapid_prototype_flow alternative workflow)
+8. Security Audit (with_review_flow alternative workflow)
+
+For each feature, create the feature container with appropriate tags and apply
+relevant templates from the testing plan. The goal is to have test data that
+exercises every decision path in both Feature Orchestration and Task Orchestration
+Skills.
+
+Focus on creating well-structured features with proper tags for flow routing,
+realistic descriptions, and the task structures outlined in the plan. Don't
+implement the actual code - just create the orchestration structures.
+```
+
+---
+
 ## Test Execution Guide
 
 ### Phase 1: Project Setup
