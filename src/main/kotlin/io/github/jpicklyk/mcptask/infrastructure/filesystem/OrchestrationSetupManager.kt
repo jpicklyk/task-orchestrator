@@ -66,15 +66,13 @@ class OrchestrationSetupManager(
         const val DECISION_GATES_MARKER = "## Decision Gates (Claude Code)"
 
         // Default Claude Code agent template files (Claude Code specific)
+        // v2.0 Architecture: Implementation Specialist (Haiku) + Skills, Senior Engineer (Sonnet),
+        // Feature Architect (Opus), Planning Specialist (Sonnet)
         val DEFAULT_AGENT_FILES = listOf(
-            "backend-engineer.md",
-            "bug-triage-specialist.md",
-            "database-engineer.md",
-            "feature-architect.md",
-            "frontend-developer.md",
-            "planning-specialist.md",
-            "technical-writer.md",
-            "test-engineer.md"
+            "implementation-specialist.md",  // v2.0: Haiku for standard work with Skills
+            "senior-engineer.md",            // v2.0: Sonnet for complex problems/bugs
+            "feature-architect.md",          // v2.0: Opus for feature design
+            "planning-specialist.md"         // v2.0: Sonnet for task breakdown
         )
 
         // Skill directories to copy (Claude Code specific)

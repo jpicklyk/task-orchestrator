@@ -28,19 +28,18 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
     override val description: String = """Initializes agent configuration system with subagents, skills, and orchestration config.
 
         What This Creates:
-        - `.claude/agents/task-orchestrator/` - 8 specialized subagent definitions
+        - `.claude/agents/task-orchestrator/` - 4 specialized subagent definitions (v2.0 architecture)
         - `.claude/skills/` - 6 Skills for lightweight coordination workflows
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
         - `.taskorchestrator/config.yaml` - Orchestration configuration (enables v2.0 features)
         - Decision gates in CLAUDE.md (if not present)
 
-        Subagents (Complex Implementation - Deep Work):
-        Specialized agents for complex code implementation and documentation work:
-        - Backend Engineer, Frontend Developer, Database Engineer (sonnet model)
-        - Test Engineer, Technical Writer (sonnet model)
-        - Feature Architect (opus model) - Feature design and architecture
-        - Planning Specialist (sonnet model) - Task breakdown and planning
-        - Bug Triage Specialist (sonnet model) - Bug analysis and triage
+        Subagents (v2.0 Architecture - Complex Implementation):
+        Specialized agents for complex reasoning and implementation work:
+        - Implementation Specialist (haiku model) - Standard work with Skills loaded dynamically
+        - Senior Engineer (sonnet model) - Complex problems, bugs, blockers, debugging
+        - Feature Architect (opus model) - Feature design and PRD creation
+        - Planning Specialist (sonnet model) - Task breakdown and execution graphs
 
         Skills (Lightweight Coordination - Quick Workflows):
         Lightweight patterns for quick coordination tasks (2-5 tool calls):

@@ -516,7 +516,7 @@ Ask your AI:
 "Run setup_claude_orchestration to enable sub-agent orchestration"
 ```
 
-Creates `.claude/agents/` directory with 8 specialist agent definitions and 5 Skills for lightweight coordination.
+Creates `.claude/agents/` directory with 4 specialist agent definitions (v2.0 architecture) and 6 Skills for lightweight coordination.
 
 **Claude Code Output Style**: The `setup_claude_orchestration` tool also creates an output-style file at `.claude/output-styles/task-orchestrator.md`. This enables Claude Code's `/output-style` command to configure optimized orchestration behavior:
 

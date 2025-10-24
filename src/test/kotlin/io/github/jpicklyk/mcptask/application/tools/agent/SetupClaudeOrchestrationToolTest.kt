@@ -126,7 +126,7 @@ class SetupClaudeOrchestrationToolTest {
         val data = responseObj["data"]?.jsonObject
 
         val totalAgents = data!!["totalAgents"]?.jsonPrimitive?.int
-        assertEquals(8, totalAgents, "Should report 8 total agent files")
+        assertEquals(4, totalAgents, "Should report 4 total agent files (v2.0 architecture)")
     }
 
     @Test
@@ -145,16 +145,12 @@ class SetupClaudeOrchestrationToolTest {
 
         assertTrue(Files.exists(agentsDir), ".claude/agents/task-orchestrator directory should exist after execution")
 
-        // Verify expected agent files exist
+        // Verify expected agent files exist (v2.0 architecture)
         val expectedFiles = listOf(
-            "backend-engineer.md",
-            "bug-triage-specialist.md",
-            "database-engineer.md",
-            "feature-architect.md",
-            "frontend-developer.md",
-            "planning-specialist.md",
-            "technical-writer.md",
-            "test-engineer.md"
+            "implementation-specialist.md",  // v2.0: Haiku for standard work with Skills
+            "senior-engineer.md",            // v2.0: Sonnet for complex problems/bugs
+            "feature-architect.md",          // v2.0: Opus for feature design
+            "planning-specialist.md"         // v2.0: Sonnet for task breakdown
         )
 
         expectedFiles.forEach { fileName ->
@@ -197,31 +193,31 @@ class SetupClaudeOrchestrationToolTest {
         val workingDir = Paths.get(System.getProperty("user.dir"))
         val agentsDir = workingDir.resolve(".claude/agents/task-orchestrator")
 
-        // Verify backend-engineer has model: sonnet (not claude-sonnet-4)
-        val backendFile = agentsDir.resolve("backend-engineer.md")
-        if (Files.exists(backendFile)) {
-            val backendContent = Files.readString(backendFile)
+        // Verify implementation-specialist has model: haiku (not claude-haiku-4)
+        val implementationFile = agentsDir.resolve("implementation-specialist.md")
+        if (Files.exists(implementationFile)) {
+            val implementationContent = Files.readString(implementationFile)
             assertTrue(
-                backendContent.contains("model:"),
-                "backend-engineer should have model field"
+                implementationContent.contains("model:"),
+                "implementation-specialist should have model field"
             )
             // Should have simple format, not full model name
             assertFalse(
-                backendContent.contains("model: claude-sonnet-4"),
+                implementationContent.contains("model: claude-haiku-4"),
                 "Should not contain full Claude model name format"
             )
         }
 
-        // Verify planning-specialist has model: opus (not claude-opus-4)
-        val planningFile = agentsDir.resolve("planning-specialist.md")
-        if (Files.exists(planningFile)) {
-            val planningContent = Files.readString(planningFile)
+        // Verify feature-architect has model: opus (not claude-opus-4)
+        val architectFile = agentsDir.resolve("feature-architect.md")
+        if (Files.exists(architectFile)) {
+            val architectContent = Files.readString(architectFile)
             assertTrue(
-                planningContent.contains("model:"),
-                "planning-specialist should have model field"
+                architectContent.contains("model:"),
+                "feature-architect should have model field"
             )
             assertFalse(
-                planningContent.contains("model: claude-opus-4"),
+                architectContent.contains("model: claude-opus-4"),
                 "Should not contain full Claude model name format"
             )
         }
