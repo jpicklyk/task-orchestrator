@@ -95,6 +95,8 @@ class SetupProjectToolTest {
         assertNotNull(data["workflowConfigCreated"], "Should have workflowConfigCreated field")
         assertNotNull(data["agentMappingCreated"], "Should have agentMappingCreated field")
         assertNotNull(data["directory"], "Should have directory field")
+        assertNotNull(data["orchestrationFilesCreated"], "Should have orchestrationFilesCreated field")
+        assertNotNull(data["orchestrationPath"], "Should have orchestrationPath field")
     }
 
     @Test
@@ -224,6 +226,48 @@ class SetupProjectToolTest {
         assertTrue(tool.description.contains("Task Orchestrator"), "Description should mention Task Orchestrator")
         assertTrue(tool.description.contains(".taskorchestrator"), "Description should mention .taskorchestrator directory")
         assertTrue(tool.description.contains("setup_claude_orchestration"), "Description should mention setup_claude_orchestration as related tool")
+    }
+
+    @Test
+    fun `execute should create orchestration workflow files`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        // Verify orchestration directory exists
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val orchestrationDir = workingDir.resolve(".taskorchestrator/orchestration")
+
+        assertTrue(Files.exists(orchestrationDir), "orchestration directory should exist after execution")
+
+        // Verify at least one orchestration file exists
+        val orchFiles = listOf(
+            "decision-trees.md",
+            "workflows.md",
+            "examples.md",
+            "optimizations.md",
+            "error-handling.md",
+            "activation-prompt.md",
+            "README.md"
+        )
+
+        var filesFound = 0
+        for (filename in orchFiles) {
+            val file = orchestrationDir.resolve(filename)
+            if (Files.exists(file)) {
+                filesFound++
+                assertTrue(Files.size(file) > 0, "$filename should not be empty")
+            }
+        }
+
+        assertTrue(filesFound > 0, "Should have created at least one orchestration file")
+
+        // Verify response includes orchestration file count
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data!!["orchestrationFilesCreated"], "Should have orchestrationFilesCreated field")
+        assertTrue(data["orchestrationFilesCreated"]?.jsonPrimitive?.int!! >= 1, "Should have created at least 1 orchestration file")
     }
 
     @Test

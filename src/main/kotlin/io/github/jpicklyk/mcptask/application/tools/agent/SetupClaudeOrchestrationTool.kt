@@ -269,6 +269,13 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             logger.info("Copying output-style file...")
             val outputStyleCopied = orchestrationSetupManager.copyOutputStyleFile()
 
+            // Step 8: Setup orchestration files (v2.0 progressive disclosure)
+            logger.info("Setting up orchestration workflow files...")
+            orchestrationSetupManager.createOrchestrationDirectory()
+            val orchestrationResults = orchestrationSetupManager.setupOrchestrationFiles()
+            val createdOrchestrationFiles = orchestrationResults.filter { it.value.first == "created" }
+            val outdatedOrchestrationFiles = orchestrationResults.filter { it.value.first == "outdated" }
+
             // Calculate skipped files
             val allAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
             val skippedAgentFiles = allAgentFiles.filter { it !in copiedAgentFiles }
@@ -278,7 +285,7 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             // Build response message
             val message = buildString {
                 append("Claude Code integration setup ")
-                if (directoryCreated || skillsDirectoryCreated || outputStyleDirectoryCreated) {
+                if (directoryCreated || skillsDirectoryCreated || outputStyleDirectoryCreated || createdOrchestrationFiles.isNotEmpty()) {
                     append("completed successfully. ")
                 } else {
                     append("verified. ")
@@ -304,10 +311,32 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     append("Output-style file already exists. ")
                 }
 
+                if (createdOrchestrationFiles.isNotEmpty()) {
+                    append("Created ${createdOrchestrationFiles.size} orchestration file(s). ")
+                }
+                if (orchestrationResults.filter { it.value.first == "skipped" }.isNotEmpty()) {
+                    append("${orchestrationResults.filter { it.value.first == "skipped" }.size} orchestration file(s) already present. ")
+                }
+
                 if (decisionGatesInjected) {
                     append("Injected decision gates into CLAUDE.md.")
                 } else {
                     append("Decision gates already present in CLAUDE.md.")
+                }
+
+                // Report outdated orchestration files
+                if (outdatedOrchestrationFiles.isNotEmpty()) {
+                    append("\n\n⚠️  Orchestration file updates available:\n")
+                    outdatedOrchestrationFiles.forEach { (filename, result) ->
+                        val (currentVersion, latestVersion) = result.second
+                        append("  - $filename: ")
+                        if (currentVersion != null) {
+                            append("v$currentVersion → v$latestVersion")
+                        } else {
+                            append("No version → v$latestVersion")
+                        }
+                        append("\n")
+                    }
                 }
             }
 
@@ -329,6 +358,20 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     put("outputStylePath", orchestrationSetupManager.getOutputStyleDir().resolve(
                         OrchestrationSetupManager.OUTPUT_STYLE_FILE
                     ).toString())
+                    put("orchestrationFilesCreated", createdOrchestrationFiles.size)
+                    put("orchestrationFilesOutdated", outdatedOrchestrationFiles.size)
+                    put("orchestrationPath", orchestrationSetupManager.getOrchestrationDir().toString())
+                    if (outdatedOrchestrationFiles.isNotEmpty()) {
+                        put("outdatedOrchestrationFiles", buildJsonArray {
+                            outdatedOrchestrationFiles.forEach { (filename, result) ->
+                                add(buildJsonObject {
+                                    put("filename", filename)
+                                    put("currentVersion", result.second.first ?: "unknown")
+                                    put("latestVersion", result.second.second)
+                                })
+                            }
+                        })
+                    }
                 },
                 message = message
             )

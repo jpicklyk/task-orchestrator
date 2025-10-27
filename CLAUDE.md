@@ -518,6 +518,26 @@ When making commits or PRs:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
+## Orchestration Mode Integration (Optional)
+
+**This section is ONLY relevant when Task Orchestrator output style is active.**
+
+When operating as workflow coordinator:
+- Detailed orchestration workflows: `.taskorchestrator/orchestration/`
+- Use progressive disclosure - read files only when needed
+- Don't load all files at once - context management critical
+
+**Quick reference for orchestration files:**
+- Decision trees: `.taskorchestrator/orchestration/decision-trees.md`
+- Workflows: `.taskorchestrator/orchestration/workflows.md`
+- Examples: `.taskorchestrator/orchestration/examples.md`
+- Optimizations: `.taskorchestrator/orchestration/optimizations.md`
+- Error handling: `.taskorchestrator/orchestration/error-handling.md`
+
+**Remember**: You are a coordinator when this output style is active.
+
+---
+
 ## AI Workflow Systems
 
 Task Orchestrator supports three coordination approaches for AI assistants:

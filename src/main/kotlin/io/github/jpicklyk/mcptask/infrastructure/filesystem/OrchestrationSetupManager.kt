@@ -52,11 +52,13 @@ class OrchestrationSetupManager(
         const val OUTPUT_STYLE_DIR = "output-styles"
         const val TASK_ORCHESTRATOR_SUBDIR = "task-orchestrator"
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
+        const val ORCHESTRATION_DIR = "orchestration"
 
         // Resource paths
         const val RESOURCE_PATH_PREFIX = "/claude/agents"
         const val SKILLS_RESOURCE_PATH = "/claude/skills"
         const val OUTPUT_STYLE_RESOURCE_PATH = "/claude/output-styles"
+        const val ORCHESTRATION_RESOURCE_PATH = "/orchestration"
 
         // Configuration files
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
@@ -68,6 +70,17 @@ class OrchestrationSetupManager(
 
         // Configuration version
         const val CURRENT_CONFIG_VERSION = "2.0.0"
+
+        // Orchestration files to copy (v2.0 progressive disclosure architecture)
+        val ORCHESTRATION_FILES = listOf(
+            "decision-trees.md",
+            "workflows.md",
+            "examples.md",
+            "optimizations.md",
+            "error-handling.md",
+            "activation-prompt.md",
+            "README.md"
+        )
 
         // Default Claude Code agent template files (Claude Code specific)
         // v2.0 Architecture: Implementation Specialist (Haiku) + Skills, Senior Engineer (Sonnet),
@@ -821,5 +834,111 @@ class OrchestrationSetupManager(
             WORKFLOW_CONFIG_FILE to checkConfigNeedsUpgrade(taskOrchestratorDir.resolve(WORKFLOW_CONFIG_FILE)),
             AGENT_MAPPING_FILE to checkConfigNeedsUpgrade(taskOrchestratorDir.resolve(AGENT_MAPPING_FILE))
         )
+    }
+
+    // ============================================================================
+    // ORCHESTRATION FILES SETUP (v2.0 Progressive Disclosure)
+    // ============================================================================
+
+    /**
+     * Get the orchestration directory path (.taskorchestrator/orchestration/)
+     */
+    fun getOrchestrationDir(): Path {
+        return getTaskOrchestratorDir().resolve(ORCHESTRATION_DIR)
+    }
+
+    /**
+     * Check if the orchestration directory exists
+     */
+    fun orchestrationDirExists(): Boolean {
+        return Files.exists(getOrchestrationDir())
+    }
+
+    /**
+     * Create the .taskorchestrator/orchestration/ directory structure
+     * Returns true if created, false if already exists
+     */
+    fun createOrchestrationDirectory(): Boolean {
+        val orchestrationDir = getOrchestrationDir()
+
+        if (!Files.exists(orchestrationDir)) {
+            Files.createDirectories(orchestrationDir)
+            logger.info("Created directory: $orchestrationDir")
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Copy orchestration files from embedded resources to .taskorchestrator/orchestration/
+     * Implements version checking - reports outdated files but does NOT auto-update them.
+     *
+     * Returns a map of orchestration file results:
+     * - key: filename
+     * - value: Triple of (status, currentVersion, latestVersion)
+     *   - status: "created", "skipped", or "outdated"
+     *
+     * Idempotent: Safe to run multiple times
+     */
+    fun setupOrchestrationFiles(): Map<String, Pair<String, Pair<String?, String?>>> {
+        val orchestrationDir = getOrchestrationDir()
+        val results = mutableMapOf<String, Pair<String, Pair<String?, String?>>>()
+
+        // Create directory if needed
+        if (!Files.exists(orchestrationDir)) {
+            Files.createDirectories(orchestrationDir)
+            logger.info("Created orchestration directory: $orchestrationDir")
+        }
+
+        // Process each orchestration file
+        for (filename in ORCHESTRATION_FILES) {
+            val targetFile = orchestrationDir.resolve(filename)
+
+            if (!Files.exists(targetFile)) {
+                // File doesn't exist - copy it
+                try {
+                    val sourceContent = loadResourceFile("$ORCHESTRATION_RESOURCE_PATH/$filename")
+                    targetFile.toFile().writeText(sourceContent)
+                    logger.info("Copied orchestration file: $filename")
+                    results[filename] = Pair("created", Pair(null, extractVersionFromYamlFrontmatter(sourceContent)))
+                } catch (e: Exception) {
+                    logger.warn("Could not copy orchestration file: $filename", e)
+                    results[filename] = Pair("error", Pair(null, null))
+                }
+            } else {
+                // File exists - check version
+                val currentVersion = extractVersionFromFile(targetFile)
+                val latestContent = try {
+                    loadResourceFile("$ORCHESTRATION_RESOURCE_PATH/$filename")
+                } catch (e: Exception) {
+                    logger.warn("Could not load source version for $filename", e)
+                    ""
+                }
+                val latestVersion = extractVersionFromYamlFrontmatter(latestContent)
+
+                // Compare versions
+                if (currentVersion == null || (latestVersion != null && compareVersions(currentVersion, latestVersion) < 0)) {
+                    logger.info("Orchestration file outdated: $filename (v$currentVersion → v$latestVersion)")
+                    results[filename] = Pair("outdated", Pair(currentVersion, latestVersion))
+                } else {
+                    logger.debug("Orchestration file up-to-date: $filename")
+                    results[filename] = Pair("skipped", Pair(currentVersion, latestVersion))
+                }
+            }
+        }
+
+        return results
+    }
+
+    /**
+     * Load a resource file as string
+     * Throws IllegalStateException if resource not found
+     */
+    private fun loadResourceFile(resourcePath: String): String {
+        val resourceStream = javaClass.getResourceAsStream(resourcePath)
+            ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
+
+        return resourceStream.bufferedReader().use { it.readText() }
     }
 }

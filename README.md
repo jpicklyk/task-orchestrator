@@ -456,6 +456,49 @@ AI: Routes to Implementation Specialist (Haiku) + backend-implementation Skill (
 
 ---
 
+## Orchestration Mode (Claude Code)
+
+Task Orchestrator includes a specialized output style for Claude Code that transforms Claude into a workflow coordinator:
+
+```bash
+# Enable orchestration mode
+/output-style Task Orchestrator
+
+# Disable orchestration mode
+/output-style default
+```
+
+**Features**:
+- **Immediate role activation**: Clear "ORCHESTRATION MODE ACTIVE" header guides every response
+- **Automatic routing**: Skills used for coordination tasks (feature management, status updates, dependency analysis)
+- **Progressive disclosure**: Workflow documentation loaded on-demand, not at session start
+- **87.5% context reduction**: 12,000 → 1,500 tokens always loaded (80-90% reduction per interaction)
+- **AI-agnostic design**: Works with other agents (Cursor, Windsurf) via `.taskorchestrator/orchestration/`
+
+**How it works**:
+1. You ask a coordination question ("What's next?", "Mark complete", "Show blockers")
+2. Claude uses appropriate Skill (Feature Orchestration, Task Orchestration, Status Progression, Dependency Analysis)
+3. Skill manages task lifecycle without implementation work
+4. For implementation requests, Claude offers specialist routing or direct collaboration
+5. Specialists create task summaries for dependency context
+
+**Setup**:
+1. Run `setup_project` to create `.taskorchestrator/` configuration
+2. Run `setup_claude_orchestration` to create output-style (Claude Code only)
+3. Enable: `/output-style Task Orchestrator` in Claude Code
+4. Start using: Ask coordination questions and Claude automatically uses Skills
+
+**Benefits**:
+- **Token efficiency**: 80-90% reduction in context overhead via progressive disclosure
+- **Faster execution**: Skills respond in seconds (vs minutes for sub-agents)
+- **Clear coordination**: Role activation prevents accidental implementation work
+- **Session awareness**: Orchestration files provide decision trees for complex scenarios
+- **Flexibility**: Works alongside direct implementation or specialist routing
+
+See **[migration guide](docs/migration/orchestration-mode-v2.0.md)** for detailed setup and troubleshooting.
+
+---
+
 ## Quick Start (5 Minutes)
 
 ### Step 1: Pull Docker Image
