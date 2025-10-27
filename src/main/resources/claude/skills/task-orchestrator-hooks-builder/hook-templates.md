@@ -768,6 +768,516 @@ exit 0
 }
 ```
 
+## Template 12: Cascade Event Responder (v2.0 - Opinionated)
+
+**Purpose**: Automatically progress features/projects when cascade events detected (OPINIONATED - auto-applies by default)
+
+```bash
+#!/bin/bash
+# Auto-progress workflow when cascade events occur
+# OPINIONATED: Auto-applies status changes when automatic=true
+# For manual confirmation, see Progressive Disclosure template
+
+INPUT=$(cat)
+
+# Extract cascade events from tool response
+CASCADE_EVENTS=$(echo "$INPUT" | jq -r '.tool_output.data.cascadeEvents // []')
+
+# Check if any cascade events detected
+if [ "$CASCADE_EVENTS" == "[]" ] || [ "$CASCADE_EVENTS" == "null" ]; then
+  exit 0
+fi
+
+# Process each cascade event
+echo "$CASCADE_EVENTS" | jq -c '.[]' | while read -r event; do
+  EVENT_TYPE=$(echo "$event" | jq -r '.event')
+  TARGET_TYPE=$(echo "$event" | jq -r '.targetType')
+  TARGET_ID=$(echo "$event" | jq -r '.targetId')
+  TARGET_NAME=$(echo "$event" | jq -r '.targetName')
+  CURRENT_STATUS=$(echo "$event" | jq -r '.currentStatus')
+  SUGGESTED_STATUS=$(echo "$event" | jq -r '.suggestedStatus')
+  AUTOMATIC=$(echo "$event" | jq -r '.automatic')
+  REASON=$(echo "$event" | jq -r '.reason')
+
+  echo "🔄 Cascade Event Detected"
+  echo "   Event: $EVENT_TYPE"
+  echo "   Target: $TARGET_NAME ($TARGET_TYPE)"
+  echo "   Status: $CURRENT_STATUS → $SUGGESTED_STATUS"
+  echo "   Reason: $REASON"
+
+  # OPINIONATED: Auto-apply if automatic=true (default behavior)
+  if [ "$AUTOMATIC" == "true" ]; then
+    echo "✅ Auto-applying status change (automatic=true)"
+
+    # Log the cascade event
+    LOG_DIR="$CLAUDE_PROJECT_DIR/.claude/metrics"
+    mkdir -p "$LOG_DIR"
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    echo "$TIMESTAMP,$EVENT_TYPE,$TARGET_TYPE,$TARGET_ID,$TARGET_NAME,$CURRENT_STATUS,$SUGGESTED_STATUS,auto" \
+      >> "$LOG_DIR/cascade-events.csv"
+
+    # TODO: Call manage_container to apply status
+    # This requires MCP client support for hook → tool communication
+    # For now, we log and rely on Skills to apply
+    echo "   ✓ Cascade event logged for auto-application by orchestrator"
+  else
+    # Manual confirmation required
+    echo "⚠️  Manual confirmation required (automatic=false)"
+    echo "   → Feature/Task Orchestration Skill will prompt user"
+
+    # Log as manual
+    LOG_DIR="$CLAUDE_PROJECT_DIR/.claude/metrics"
+    mkdir -p "$LOG_DIR"
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    echo "$TIMESTAMP,$EVENT_TYPE,$TARGET_TYPE,$TARGET_ID,$TARGET_NAME,$CURRENT_STATUS,$SUGGESTED_STATUS,manual" \
+      >> "$LOG_DIR/cascade-events.csv"
+  fi
+done
+
+exit 0
+```
+
+**Configuration**:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__manage_container",
+        "hooks": [
+          {
+            "type": "command",
+            "comment": "Auto-progress workflow on cascade events",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cascade-auto-progress.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**When NOT to use auto-apply:**
+- Critical production deployments (use Template 16: Progressive Disclosure)
+- Security/compliance workflows requiring human review
+- Learning/training environments where manual confirmation is educational
+- When you want full control over every status transition
+
+## Template 13: Flow-Aware Quality Gate (v2.0)
+
+**Purpose**: Adaptive quality gates based on workflow flow (default_flow, rapid_prototype_flow, with_review_flow)
+
+```bash
+#!/bin/bash
+# Flow-aware quality gate - different validation per workflow flow
+# OPINIONATED: Skips tests for prototypes, enforces for production
+
+INPUT=$(cat)
+
+# Extract operation and container type
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status')
+
+# Only run for feature status changes to testing/completed
+if [ "$OPERATION" != "setStatus" ] || [ "$CONTAINER_TYPE" != "feature" ]; then
+  exit 0
+fi
+
+if [ "$STATUS" != "testing" ] && [ "$STATUS" != "completed" ]; then
+  exit 0
+fi
+
+# Extract feature ID
+FEATURE_ID=$(echo "$INPUT" | jq -r '.tool_input.id')
+
+# Query feature tags to determine active flow
+DB_PATH="$CLAUDE_PROJECT_DIR/data/tasks.db"
+TAGS=$(sqlite3 "$DB_PATH" \
+  "SELECT tags FROM Features WHERE id='$FEATURE_ID'" 2>/dev/null)
+
+# Determine active flow from tags
+FLOW="default_flow"
+if echo "$TAGS" | grep -qE "prototype|spike|experiment"; then
+  FLOW="rapid_prototype_flow"
+elif echo "$TAGS" | grep -qE "security|compliance|audit"; then
+  FLOW="with_review_flow"
+fi
+
+echo "🔍 Detected workflow flow: $FLOW"
+
+# Flow-specific quality gates
+case "$FLOW" in
+  "rapid_prototype_flow")
+    # OPINIONATED: Skip tests for prototypes (fast iteration)
+    echo "⚡ Rapid prototype flow: skipping tests for fast iteration"
+    echo "   Tags: $TAGS"
+    exit 0
+    ;;
+
+  "with_review_flow")
+    # OPINIONATED: Strict validation for security/compliance
+    echo "🔒 Security/compliance flow: enforcing strict validation"
+    cd "$CLAUDE_PROJECT_DIR"
+
+    # Run full test suite
+    ./gradlew test || {
+      cat << EOF
+{
+  "decision": "block",
+  "reason": "Security flow requires all tests to pass. Please fix failing tests."
+}
+EOF
+      exit 0
+    }
+
+    # Check for security scan (if available)
+    if command -v trivy >/dev/null 2>&1; then
+      echo "   Running security scan..."
+      trivy fs . || {
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Security vulnerabilities detected. Please remediate before completion."
+}
+EOF
+        exit 0
+      }
+    fi
+
+    echo "   ✅ Security validation passed"
+    ;;
+
+  "default_flow")
+    # OPINIONATED: Standard test suite for default flow
+    echo "✓ Default flow: running standard test suite"
+    cd "$CLAUDE_PROJECT_DIR"
+    ./gradlew test || {
+      cat << EOF
+{
+  "decision": "block",
+  "reason": "Tests are failing. Please fix before completing feature."
+}
+EOF
+      exit 0
+    }
+    echo "   ✅ Tests passed"
+    ;;
+esac
+
+exit 0
+```
+
+**Configuration**:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__manage_container",
+        "hooks": [
+          {
+            "type": "command",
+            "comment": "Flow-aware quality gates",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/flow-aware-gate.sh",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Customization for Conservative Approach:**
+```bash
+# To require tests for ALL flows (not just default/security):
+case "$FLOW" in
+  "rapid_prototype_flow")
+    echo "⚡ Prototype flow: running quick smoke tests"
+    ./gradlew quickTest || { # Lightweight test suite
+      # Block on failure
+    }
+    ;;
+```
+
+## Template 14: Custom Event Handler (v2.0)
+
+**Purpose**: React to specific custom events defined in status-workflow-config.yaml
+
+```bash
+#!/bin/bash
+# Custom event handler for workflow-specific events
+# Example: tests_passed, review_approved, deployment_ready
+
+INPUT=$(cat)
+
+# Extract cascade events
+CASCADE_EVENTS=$(echo "$INPUT" | jq -r '.tool_output.data.cascadeEvents // []')
+
+if [ "$CASCADE_EVENTS" == "[]" ] || [ "$CASCADE_EVENTS" == "null" ]; then
+  exit 0
+fi
+
+# Look for specific event (customize EVENT_NAME)
+EVENT_NAME="tests_passed"  # Change to your custom event
+
+MATCHING_EVENT=$(echo "$CASCADE_EVENTS" | \
+  jq -r ".[] | select(.event==\"$EVENT_NAME\")")
+
+if [ -z "$MATCHING_EVENT" ] || [ "$MATCHING_EVENT" == "null" ]; then
+  exit 0
+fi
+
+# Extract event details
+TARGET_TYPE=$(echo "$MATCHING_EVENT" | jq -r '.targetType')
+TARGET_ID=$(echo "$MATCHING_EVENT" | jq -r '.targetId')
+TARGET_NAME=$(echo "$MATCHING_EVENT" | jq -r '.targetName')
+SUGGESTED_STATUS=$(echo "$MATCHING_EVENT" | jq -r '.suggestedStatus')
+
+echo "✅ Custom Event: $EVENT_NAME"
+echo "   Target: $TARGET_NAME ($TARGET_TYPE)"
+echo "   Suggested: $SUGGESTED_STATUS"
+
+# OPINIONATED: Execute custom logic based on event
+case "$EVENT_NAME" in
+  "tests_passed")
+    echo "   → Triggering deployment pipeline..."
+    # Call CI/CD webhook
+    # curl -X POST "$DEPLOY_WEBHOOK" -d "{\"id\":\"$TARGET_ID\"}"
+    ;;
+
+  "review_approved")
+    echo "   → Creating git tag for release..."
+    # cd "$CLAUDE_PROJECT_DIR"
+    # git tag -a "release-$(date +%Y%m%d)" -m "Release: $TARGET_NAME"
+    ;;
+
+  "deployment_ready")
+    echo "   → Notifying stakeholders..."
+    # Send notifications
+    ;;
+esac
+
+echo "✓ Custom event handler completed"
+exit 0
+```
+
+**Configuration**:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__manage_container",
+        "hooks": [
+          {
+            "type": "command",
+            "comment": "Custom event handlers",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/custom-event-handler.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Template 15: Cascade Event Logger (v2.0)
+
+**Purpose**: Log all cascade events for analytics and debugging
+
+```bash
+#!/bin/bash
+# Log all cascade events to CSV for analytics
+# Non-blocking, observation-only
+
+INPUT=$(cat)
+
+# Extract cascade events
+CASCADE_EVENTS=$(echo "$INPUT" | jq -r '.tool_output.data.cascadeEvents // []')
+
+if [ "$CASCADE_EVENTS" == "[]" ] || [ "$CASCADE_EVENTS" == "null" ]; then
+  exit 0
+fi
+
+# Create metrics directory
+LOG_DIR="$CLAUDE_PROJECT_DIR/.claude/metrics"
+mkdir -p "$LOG_DIR"
+
+# Define log files
+CASCADE_LOG="$LOG_DIR/cascade-events.csv"
+SUMMARY_LOG="$LOG_DIR/cascade-summary.json"
+
+# Create header if file doesn't exist
+if [ ! -f "$CASCADE_LOG" ]; then
+  echo "timestamp,event,target_type,target_id,target_name,current_status,suggested_status,flow,automatic,reason" \
+    > "$CASCADE_LOG"
+fi
+
+# Log each cascade event
+echo "$CASCADE_EVENTS" | jq -c '.[]' | while read -r event; do
+  TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  EVENT_TYPE=$(echo "$event" | jq -r '.event')
+  TARGET_TYPE=$(echo "$event" | jq -r '.targetType')
+  TARGET_ID=$(echo "$event" | jq -r '.targetId')
+  TARGET_NAME=$(echo "$event" | jq -r '.targetName')
+  CURRENT_STATUS=$(echo "$event" | jq -r '.currentStatus')
+  SUGGESTED_STATUS=$(echo "$event" | jq -r '.suggestedStatus')
+  FLOW=$(echo "$event" | jq -r '.flow')
+  AUTOMATIC=$(echo "$event" | jq -r '.automatic')
+  REASON=$(echo "$event" | jq -r '.reason')
+
+  # Append to CSV
+  echo "$TIMESTAMP,$EVENT_TYPE,$TARGET_TYPE,$TARGET_ID,\"$TARGET_NAME\",$CURRENT_STATUS,$SUGGESTED_STATUS,$FLOW,$AUTOMATIC,\"$REASON\"" \
+    >> "$CASCADE_LOG"
+
+  echo "📊 Logged cascade event: $EVENT_TYPE ($TARGET_TYPE)"
+done
+
+# Update summary statistics
+TOTAL_EVENTS=$(tail -n +2 "$CASCADE_LOG" | wc -l)
+AUTO_EVENTS=$(tail -n +2 "$CASCADE_LOG" | grep ",true," | wc -l)
+MANUAL_EVENTS=$(tail -n +2 "$CASCADE_LOG" | grep ",false," | wc -l)
+
+cat > "$SUMMARY_LOG" <<EOF
+{
+  "total_cascade_events": $TOTAL_EVENTS,
+  "automatic_events": $AUTO_EVENTS,
+  "manual_events": $MANUAL_EVENTS,
+  "last_updated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+
+echo "✓ Cascade event logged ($TOTAL_EVENTS total, $AUTO_EVENTS auto, $MANUAL_EVENTS manual)"
+exit 0
+```
+
+**Configuration**:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__manage_container",
+        "hooks": [
+          {
+            "type": "command",
+            "comment": "Log cascade events for analytics",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cascade-logger.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Analytics Queries:**
+```bash
+# Count cascade events by type
+cut -d',' -f2 .claude/metrics/cascade-events.csv | sort | uniq -c
+
+# Count auto vs manual events
+grep ",true," .claude/metrics/cascade-events.csv | wc -l  # Auto
+grep ",false," .claude/metrics/cascade-events.csv | wc -l # Manual
+
+# Events by flow
+cut -d',' -f8 .claude/metrics/cascade-events.csv | sort | uniq -c
+
+# Recent events (last 10)
+tail -10 .claude/metrics/cascade-events.csv
+```
+
+## Template 16: Progressive Disclosure Hook (v2.0 - Conservative)
+
+**Purpose**: Notify user of cascade events WITHOUT auto-applying (conservative alternative to Template 12)
+
+```bash
+#!/bin/bash
+# Progressive disclosure - show cascade suggestions without auto-applying
+# CONSERVATIVE: Always requires user confirmation
+# Use this when you want full control over status transitions
+
+INPUT=$(cat)
+
+# Extract cascade events
+CASCADE_EVENTS=$(echo "$INPUT" | jq -r '.tool_output.data.cascadeEvents // []')
+
+if [ "$CASCADE_EVENTS" == "[]" ] || [ "$CASCADE_EVENTS" == "null" ]; then
+  exit 0
+fi
+
+echo "════════════════════════════════════════════"
+echo "🔔 WORKFLOW CASCADE EVENTS DETECTED"
+echo "════════════════════════════════════════════"
+
+# Display each cascade event
+EVENT_COUNT=0
+echo "$CASCADE_EVENTS" | jq -c '.[]' | while read -r event; do
+  EVENT_COUNT=$((EVENT_COUNT + 1))
+  EVENT_TYPE=$(echo "$event" | jq -r '.event')
+  TARGET_TYPE=$(echo "$event" | jq -r '.targetType')
+  TARGET_NAME=$(echo "$event" | jq -r '.targetName')
+  CURRENT_STATUS=$(echo "$event" | jq -r '.currentStatus')
+  SUGGESTED_STATUS=$(echo "$event" | jq -r '.suggestedStatus')
+  REASON=$(echo "$event" | jq -r '.reason')
+
+  echo ""
+  echo "Event #$EVENT_COUNT: $EVENT_TYPE"
+  echo "  Target: $TARGET_NAME ($TARGET_TYPE)"
+  echo "  Current: $CURRENT_STATUS"
+  echo "  Suggested: $SUGGESTED_STATUS"
+  echo "  Reason: $REASON"
+  echo ""
+  echo "  💡 To apply: Ask AI to progress $TARGET_NAME to $SUGGESTED_STATUS"
+done
+
+echo "════════════════════════════════════════════"
+echo ""
+echo "ℹ️  These are workflow suggestions based on completion events."
+echo "   Review and apply manually using Feature/Task Orchestration Skills."
+echo ""
+
+# Log for reference (non-blocking)
+LOG_DIR="$CLAUDE_PROJECT_DIR/.claude/metrics"
+mkdir -p "$LOG_DIR"
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "$TIMESTAMP - Displayed $EVENT_COUNT cascade events to user" \
+  >> "$LOG_DIR/progressive-disclosure.log"
+
+exit 0
+```
+
+**Configuration**:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__task-orchestrator__manage_container",
+        "hooks": [
+          {
+            "type": "command",
+            "comment": "Show cascade suggestions (no auto-apply)",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/progressive-disclosure.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**When to use Progressive Disclosure instead of Auto-Apply:**
+- ✅ Learning environments (understand workflow before automating)
+- ✅ Critical systems (review every decision)
+- ✅ Complex approval workflows (manual gates required)
+- ✅ First-time setup (observe patterns before automating)
+
+**Migration path:**
+Start with Progressive Disclosure → Observe patterns → Switch to Auto-Apply for trusted flows
+
 ## Usage Tips
 
 1. **Start with templates** - Copy and customize rather than writing from scratch
@@ -777,6 +1287,7 @@ exit 0
 5. **Log for debugging** - Add echo statements to understand execution
 6. **Keep hooks fast** - Long-running hooks slow down Claude
 7. **Document your hooks** - Future you will thank present you
+8. **Choose opinionated vs conservative** - Auto-apply for trust, Progressive Disclosure for control
 
 ## Debugging Commands
 

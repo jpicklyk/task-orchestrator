@@ -554,7 +554,7 @@ See: [workflow-prompts.md](docs/workflow-prompts.md), [templates.md](docs/templa
 - Feature Management - "What's next?", "Complete feature" (~300-600 tokens)
 - Task Management - "Complete task", "Update status" (~300 tokens)
 - Dependency Analysis - "What's blocking?", "Show dependencies" (~400 tokens)
-- Hook Builder - Create custom hooks interactively
+- Task Orchestrator Hooks Builder - Create custom hooks interactively with cascade event support
 - Skill Builder - Create custom Skills
 
 Skills auto-activate from natural language. See: [.claude/skills/README.md](.claude/skills/README.md), [skills-guide.md](docs/skills-guide.md)

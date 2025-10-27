@@ -1,12 +1,12 @@
 ---
-name: Hook Builder
-description: Help users create hooks that integrate with Task Orchestrator. Works with any MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, etc.). Use when user wants to create hooks, automate workflows, or integrate git/testing with task management.
+name: Task Orchestrator Hooks Builder
+description: Help users create hooks that integrate with Task Orchestrator's workflow cascade events. Works with any MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, etc.). Use when user wants to create hooks, automate workflows, react to cascade events, or integrate git/testing with task management.
 allowed-tools: Read, Write, Bash
 ---
 
-# Hook Builder Skill
+# Task Orchestrator Hooks Builder Skill
 
-You are a hook automation specialist helping users create hooks that integrate Task Orchestrator with their workflow. This skill works with any MCP client that supports hooks (Claude Code, Claude Desktop, Cursor, Windsurf, etc.).
+You are a hook automation specialist helping users create hooks that integrate Task Orchestrator's workflow cascade event system with their workflow. This skill works with any MCP client that supports hooks (Claude Code, Claude Desktop, Cursor, Windsurf, etc.).
 
 ## Your Role
 
@@ -50,6 +50,14 @@ Ask these questions to understand requirements:
 **Should this block the operation?**
 - Blocking: Return `{"decision": "block", "reason": "..."}` to prevent operation
 - Non-blocking: Log/commit/notify but don't interfere
+
+**NEW (v2.0): Cascade event integration?**
+- Auto-apply (Template 12), Manual confirmation (Template 16), or Analytics (Template 15)?
+- See [reference/cascade-events.md](reference/cascade-events.md) for detailed options
+
+**NEW (v2.0): Flow-aware behavior?**
+- Should hook adapt based on feature tags (prototype/security/normal)?
+- See Template 13 for flow-aware quality gates
 
 ### Step 2: Generate Hook Script
 
@@ -106,58 +114,12 @@ exit 0
 5. Exit 0 for success, exit 2 for blocking errors
 6. Include descriptive comments
 
-**Common Patterns:**
-
-**Git Commit Pattern:**
-```bash
-# Get task/feature details from database
-TASK_TITLE=$(sqlite3 "$CLAUDE_PROJECT_DIR/data/tasks.db" \
-  "SELECT title FROM Tasks WHERE id='$TASK_ID'" 2>/dev/null)
-
-# Create commit
-cd "$CLAUDE_PROJECT_DIR"
-git add -A
-git commit -m "feat: $TASK_TITLE" -m "Task-ID: $TASK_ID"
-```
-
-**Test Execution Pattern:**
-```bash
-# Run tests
-cd "$CLAUDE_PROJECT_DIR"
-./gradlew test
-
-if [ $? -ne 0 ]; then
-  # Blocking: tests failed
-  cat << EOF
-{
-  "decision": "block",
-  "reason": "Tests are failing. Please fix before completing."
-}
-EOF
-  exit 0
-fi
-```
-
-**Database Query Pattern:**
-```bash
-# Query Task Orchestrator database
-RESULT=$(sqlite3 "$CLAUDE_PROJECT_DIR/data/tasks.db" \
-  "SELECT column FROM table WHERE id='$ID'" 2>/dev/null)
-
-if [ -z "$RESULT" ]; then
-  echo "Warning: Could not find record"
-  exit 0
-fi
-```
-
-**Logging Pattern:**
-```bash
-# Log to file
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-LOG_DIR="$CLAUDE_PROJECT_DIR/.claude/metrics"
-mkdir -p "$LOG_DIR"
-echo "$TIMESTAMP,$DATA" >> "$LOG_DIR/events.csv"
-```
+**Common Patterns** (see hook-templates.md for full examples):
+- Git commits: Template 1
+- Test execution/quality gates: Template 2
+- Database queries: `sqlite3 "$CLAUDE_PROJECT_DIR/data/tasks.db"`
+- Metrics logging: Template 4
+- Cascade events: Templates 12-16
 
 ### Step 3: Create Configuration
 
@@ -286,6 +248,38 @@ Add documentation to `.claude/hooks/README.md`:
 - [How to customize for different needs]
 ```
 
+## Cascade Events & Flow-Based Behavior (v2.0)
+
+Task Orchestrator v2.0 introduces **cascade events** - automatic workflow progression that hooks can observe and react to.
+
+### Quick Overview
+
+**Cascade Events** trigger when:
+- First task starts → Feature activates
+- All tasks complete → Feature progresses to testing
+- All features complete → Project completes
+
+**Workflow Flows** determine behavior:
+- `default_flow` - Standard development (normal testing)
+- `rapid_prototype_flow` - Fast iteration (skip tests)
+- `with_review_flow` - Security/compliance (strict gates)
+
+### Hook Integration Approaches
+
+**Opinionated (Recommended)**: Auto-apply when `automatic=true` - See Template 12
+**Conservative**: Manual confirmation required - See Template 16
+**Analytics**: Log events without action - See Template 15
+**Custom**: React to specific events - See Template 14
+
+### Detailed Information
+
+For comprehensive details on cascade events, see [reference/cascade-events.md](reference/cascade-events.md):
+- Cascade event fields and JSON format
+- 4 hook integration patterns with full code examples
+- Flow detection and adaptive behavior
+- Working examples in `example-hooks/`
+- Configuration and troubleshooting
+
 ## Common Hook Scenarios
 
 ### Scenario 1: Auto-Commit on Task Completion
@@ -331,6 +325,17 @@ Add documentation to `.claude/hooks/README.md`:
 3. Script filters: operation, containerType, status; queries task created_at, calculates duration
 4. Action: Append to CSV log file
 5. Test: Provide sample JSON with v2.0 format
+
+### Scenario 5: Cascade Event Hooks (v2.0)
+
+**User wants cascade event automation** ("auto-progress features", "skip tests for prototypes", "track workflow analytics")
+
+**Your Response**:
+1. Identify pattern: Opinionated (Template 12), Flow-aware (Template 13), or Analytics (Template 15)
+2. Reference: See [reference/cascade-events.md](reference/cascade-events.md) for detailed patterns
+3. Copy example: Use ready-made hooks from `example-hooks/` directory
+4. Explain: Opinionated = auto-apply (fast), Conservative = manual confirmation (safe)
+5. Test: Provide sample JSON with `cascadeEvents` array from manage_container response
 
 ## Troubleshooting Guide
 
