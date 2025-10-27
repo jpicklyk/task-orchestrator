@@ -281,7 +281,9 @@ Next morning, your AI asks: "Show me the project overview" and instantly knows:
 
 **Parallel Execution**: Orchestrator supports **wave-based parallel processing** - launching 2-5 independent tasks simultaneously instead of sequentially. For complex features with dependencies, this delivers **45-50% time reduction** by executing unblocked tasks in parallel batches. See [Parallel Processing Guide](docs/parallel-processing-guide.md) for orchestration patterns.
 
-**Setup**: Run `setup_claude_orchestration` tool once to create `.claude/agents/` directory.
+**Setup**:
+1. Run `setup_project` to create `.taskorchestrator/` configuration (all MCP clients)
+2. Run `setup_claude_orchestration` to create `.claude/agents/` directory (Claude Code only)
 
 > **📖 Complete guide**: [Agent Orchestration Documentation](docs/agent-orchestration.md)
 
@@ -429,7 +431,9 @@ AI: Routes to Implementation Specialist (Haiku) + backend-implementation Skill (
 [cycle continues with automatic dependency context]
 ```
 
-**Setup required**: Run `setup_claude_orchestration` once to create agent definitions and Skills.
+**Setup required**:
+1. Run `setup_project` to create core configuration (all MCP clients)
+2. Run `setup_claude_orchestration` to create agent definitions and Skills (Claude Code only)
 
 ---
 
@@ -500,7 +504,21 @@ Add to `claude_desktop_config.json`:
 #### For Other MCP Clients
 Adapt the Docker configuration to your platform's MCP format (Cursor, Windsurf, etc.). See the [Quick Start Guide](docs/quick-start.md) for detailed configuration examples for all platforms.
 
-### Step 3: Initialize (First Use Only)
+### Step 3: Initialize Project (First Use Only)
+
+Ask your AI:
+```
+"Run setup_project to initialize Task Orchestrator configuration"
+```
+
+Creates `.taskorchestrator/` directory with core configuration files:
+- `config.yaml` - Status progression and validation rules
+- `status-workflow-config.yaml` - Workflow definitions
+- `agent-mapping.yaml` - Agent routing configuration
+
+**Works with**: All MCP clients (Claude Desktop, Claude Code, Cursor, Windsurf, etc.)
+
+### Step 4: Initialize AI Guidelines (First Use Only)
 
 Ask your AI:
 ```
@@ -509,12 +527,14 @@ Ask your AI:
 
 This loads AI guidelines and best practices into your project.
 
-### Step 4: (Optional) Enable Sub-Agents (Claude Code Only)
+### Step 5: (Optional) Enable Sub-Agents (Claude Code Only)
 
 Ask your AI:
 ```
 "Run setup_claude_orchestration to enable sub-agent orchestration"
 ```
+
+**Prerequisites**: Must run `setup_project` first (creates `.taskorchestrator/` configuration).
 
 Creates `.claude/agents/` directory with 4 specialist agent definitions (v2.0 architecture) and 6 Skills for lightweight coordination.
 
@@ -529,7 +549,7 @@ Creates `.claude/agents/` directory with 4 specialist agent definitions (v2.0 ar
 
 The output style provides decision-making guidance that complements the agent definitions.
 
-### Step 5: Start Building
+### Step 6: Start Building
 
 **Simple workflow (any platform)**:
 ```

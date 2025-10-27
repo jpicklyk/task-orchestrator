@@ -558,4 +558,20 @@ class SQLiteTaskRepository(
         }
     }
 
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun findByFeatureId(featureId: UUID): List<Task> {
+        return transaction {
+            val tasks = TaskTable.selectAll()
+                .where { TaskTable.featureId eq featureId }
+                .map { row -> mapRowToEntity(row) }
+                .toList()
+
+            // Load tasks with tags
+            loadEntitiesWithTags(tasks)
+        }
+    }
+
 }

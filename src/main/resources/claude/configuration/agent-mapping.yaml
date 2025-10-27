@@ -1,3 +1,9 @@
+---
+name: agent-mapping
+description: Agent routing configuration mapping task tags to appropriate AI specialists and Skills
+version: "2.0.0"
+---
+
 # AI Agent Configuration for Task Orchestrator v2.0
 # Architecture: Haiku + Skills for standard implementation, Sonnet for complex problems
 #

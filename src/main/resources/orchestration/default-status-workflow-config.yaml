@@ -1,0 +1,218 @@
+---
+name: status-workflow-config
+description: Status workflow configuration defining allowed status progressions, flow mappings, and transition rules
+version: "2.0.0"
+---
+
+# Status Workflow Configuration
+# This file defines status progressions, workflow flows, and event handlers
+# for the MCP Task Orchestrator system.
+#
+# Location: .taskorchestrator/status-workflow-config.yaml
+# Created by: setup_project tool
+#
+# Documentation: https://github.com/jpicklyk/mcp-task-orchestrator/docs/event-driven-orchestration.md
+
+# Status progressions define allowed statuses for each container type
+status_progressions:
+  feature:
+    - planning
+    - in-development
+    - testing
+    - validating
+    - pending-review      # Optional status for review workflows
+    - completed
+    - archived
+    - cancelled
+
+  task:
+    - backlog
+    - pending
+    - in-progress
+    - testing
+    - blocked
+    - completed
+    - cancelled
+
+  project:
+    - concept
+    - planning
+    - active
+    - completed
+    - archived
+
+# Event handlers define status transitions triggered by business events
+# These are global handlers used by default_flow unless overridden
+event_handlers:
+  feature:
+    first_task_started:
+      from: planning
+      to: in-development
+      auto: true
+      validation: has_tasks
+
+    all_tasks_complete:
+      from: in-development
+      to: testing
+      auto: true
+      validation: all_tasks_done
+
+    tests_passed:
+      from: testing
+      to: validating
+      auto: true
+      validation: none
+
+    completion_requested:
+      from: validating
+      to: completed
+      auto: false          # Requires user confirmation
+      validation: prerequisites
+
+  task:
+    task_started:
+      from: pending
+      to: in-progress
+      auto: true
+      validation: no_blockers
+
+    implementation_complete:
+      from: in-progress
+      to: testing
+      auto: true
+      validation: has_summary
+
+    tests_passed:
+      from: testing
+      to: completed
+      auto: true
+      validation: none
+
+  project:
+    all_features_complete:
+      from: active
+      to: completed
+      auto: false          # Requires user confirmation
+      validation: prerequisites
+
+# Flow mappings define workflow variants based on entity tags
+flow_mappings:
+  # Standard development workflow with testing and validation
+  default_flow:
+    statuses:
+      - planning
+      - in-development
+      - testing
+      - validating
+      - completed
+    event_handlers:
+      first_task_started:
+        from: planning
+        to: in-development
+        auto: true
+      all_tasks_complete:
+        from: in-development
+        to: testing
+        auto: true
+      tests_passed:
+        from: testing
+        to: validating
+        auto: true
+      completion_requested:
+        from: validating
+        to: completed
+        auto: false
+
+  # Fast iteration workflow that skips testing phase
+  # Triggered by tags: prototype, spike, experiment
+  rapid_prototype_flow:
+    tags:
+      - prototype
+      - spike
+      - experiment
+    statuses:
+      - planning
+      - in-development
+      - completed
+    event_overrides:
+      # Override: Skip testing, go directly to completed
+      all_tasks_complete:
+        from: in-development
+        to: completed
+
+  # Workflow with mandatory review gate
+  # Triggered by tags: security, compliance, audit
+  with_review_flow:
+    tags:
+      - security
+      - compliance
+      - audit
+    statuses:
+      - planning
+      - in-development
+      - testing
+      - validating
+      - pending-review
+      - completed
+    event_overrides:
+      # Override: Add review gate before completion
+      completion_requested:
+        from: validating
+        to: pending-review
+    event_handlers:
+      review_approved:
+        from: pending-review
+        to: completed
+        auto: false
+
+  # Example custom flow: Research workflow
+  # Uncomment to enable, or create your own custom flows
+  # research_flow:
+  #   tags:
+  #     - research
+  #     - academic
+  #     - paper
+  #   statuses:
+  #     - ideation
+  #     - research
+  #     - documentation
+  #     - peer-review
+  #     - published
+  #   event_handlers:
+  #     first_task_started:
+  #       from: ideation
+  #       to: research
+  #       auto: true
+  #     all_tasks_complete:
+  #       from: research
+  #       to: documentation
+  #       auto: true
+  #     documentation_ready:
+  #       from: documentation
+  #       to: peer-review
+  #       auto: true
+  #     review_approved:
+  #       from: peer-review
+  #       to: published
+  #       auto: false
+
+# Status validation configuration
+status_validation:
+  # Enable prerequisite validation before status transitions
+  validate_prerequisites: true
+
+  # Allow emergency transitions (any status → blocked/archived/cancelled)
+  allow_emergency: true
+
+  # Terminal statuses that cannot be transitioned from
+  terminal_statuses:
+    feature:
+      - completed
+      - archived
+      - cancelled
+    task:
+      - completed
+      - cancelled
+    project:
+      - completed
+      - archived

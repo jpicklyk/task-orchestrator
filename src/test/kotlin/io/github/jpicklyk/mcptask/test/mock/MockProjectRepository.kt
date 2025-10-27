@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.test.mock
 
 import io.github.jpicklyk.mcptask.domain.model.EntityType
+import io.github.jpicklyk.mcptask.domain.model.FeatureCounts
 import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
 import io.github.jpicklyk.mcptask.domain.model.StatusFilter
@@ -273,6 +274,17 @@ class MockProjectRepository : ProjectRepository {
 
     override suspend fun getTaskCount(projectId: UUID): Result<Int> {
         return Result.Success(taskCounts[projectId] ?: 0)
+    }
+
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun getFeatureCountsByProjectId(projectId: UUID): FeatureCounts {
+        return FeatureCounts(
+            total = featureCounts[projectId] ?: 0,
+            completed = featureCounts[projectId] ?: 0  // Assume all completed for simple mock case
+        )
     }
 
     /**

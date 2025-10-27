@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.domain.model.EntityType
+import io.github.jpicklyk.mcptask.domain.model.FeatureCounts
+import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
 import io.github.jpicklyk.mcptask.domain.repository.ProjectRepository
@@ -191,6 +193,24 @@ class SQLiteProjectRepository(
             }
         } catch (e: Exception) {
             Result.Error(RepositoryError.DatabaseError("Failed to get task count: ${e.message}", e))
+        }
+    }
+
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun getFeatureCountsByProjectId(projectId: UUID): FeatureCounts {
+        return transaction {
+            val features = FeaturesTable.selectAll().where { FeaturesTable.projectId eq projectId }
+
+            val total = features.count().toInt()
+            val completed = features.count { it[FeaturesTable.status] == FeatureStatus.COMPLETED }.toInt()
+
+            FeatureCounts(
+                total = total,
+                completed = completed
+            )
         }
     }
 }

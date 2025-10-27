@@ -3,8 +3,12 @@ package io.github.jpicklyk.mcptask.application.tools
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
+import io.github.jpicklyk.mcptask.application.service.WorkflowConfigLoaderImpl
+import io.github.jpicklyk.mcptask.application.service.WorkflowService
+import io.github.jpicklyk.mcptask.application.service.WorkflowServiceImpl
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.*
+import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
@@ -398,6 +402,20 @@ Docs: task-orchestrator://docs/tools/manage-container
                 }
             }
         }
+    }
+
+    /**
+     * Helper method to create WorkflowService from execution context.
+     * WorkflowService requires repositories which are only available at execution time.
+     */
+    private fun createWorkflowService(context: ToolExecutionContext): WorkflowService {
+        return WorkflowServiceImpl(
+            workflowConfigLoader = WorkflowConfigLoaderImpl(),
+            taskRepository = context.taskRepository(),
+            featureRepository = context.featureRepository(),
+            projectRepository = context.projectRepository(),
+            statusValidator = statusValidator
+        )
     }
 
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -1167,18 +1185,49 @@ Docs: task-orchestrator://docs/tools/manage-container
             "Project status updated to ${status.name.lowercase().replace('_', '-')}"
         }
 
-        return handleRepositoryResult(
-            context.projectRepository().update(updated),
-            successMessage
-        ) { updatedProject ->
-            buildJsonObject {
-                put("id", updatedProject.id.toString())
-                put("status", updatedProject.status.name.lowercase().replace('_', '-'))
-                put("modifiedAt", updatedProject.modifiedAt.toString())
-                if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-                    put("advisory", transitionValidation.advisory)
-                }
+        val updateResult = context.projectRepository().update(updated)
+
+        return when (updateResult) {
+            is Result.Success -> {
+                val updatedProject = updateResult.data
+
+                // Detect cascade events after status change
+                val workflowService = createWorkflowService(context)
+                val cascadeEvents = workflowService.detectCascadeEvents(
+                    updatedProject.id,
+                    ContainerType.PROJECT
+                )
+
+                successResponse(
+                    message = successMessage,
+                    data = buildJsonObject {
+                        put("id", updatedProject.id.toString())
+                        put("status", updatedProject.status.name.lowercase().replace('_', '-'))
+                        put("modifiedAt", updatedProject.modifiedAt.toString())
+                        if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+                            put("advisory", transitionValidation.advisory)
+                        }
+                        if (cascadeEvents.isNotEmpty()) {
+                            put("cascadeEvents", JsonArray(
+                                cascadeEvents.map { ev ->
+                                    buildJsonObject {
+                                        put("event", ev.event)
+                                        put("targetType", ev.targetType.name.lowercase())
+                                        put("targetId", ev.targetId.toString())
+                                        put("targetName", ev.targetName)
+                                        put("currentStatus", ev.currentStatus)
+                                        put("suggestedStatus", ev.suggestedStatus)
+                                        put("flow", ev.flow)
+                                        put("automatic", ev.automatic)
+                                        put("reason", ev.reason)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                )
             }
+            is Result.Error -> handleRepositoryResult(updateResult, "Failed to update project") { JsonNull }
         }
     }
 
@@ -1234,18 +1283,49 @@ Docs: task-orchestrator://docs/tools/manage-container
             "Feature status updated to ${status.name.lowercase().replace('_', '-')}"
         }
 
-        return handleRepositoryResult(
-            context.featureRepository().update(updated),
-            successMessage
-        ) { updatedFeature ->
-            buildJsonObject {
-                put("id", updatedFeature.id.toString())
-                put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
-                put("modifiedAt", updatedFeature.modifiedAt.toString())
-                if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-                    put("advisory", transitionValidation.advisory)
-                }
+        val updateResult = context.featureRepository().update(updated)
+
+        return when (updateResult) {
+            is Result.Success -> {
+                val updatedFeature = updateResult.data
+
+                // Detect cascade events after status change
+                val workflowService = createWorkflowService(context)
+                val cascadeEvents = workflowService.detectCascadeEvents(
+                    updatedFeature.id,
+                    ContainerType.FEATURE
+                )
+
+                successResponse(
+                    message = successMessage,
+                    data = buildJsonObject {
+                        put("id", updatedFeature.id.toString())
+                        put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
+                        put("modifiedAt", updatedFeature.modifiedAt.toString())
+                        if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+                            put("advisory", transitionValidation.advisory)
+                        }
+                        if (cascadeEvents.isNotEmpty()) {
+                            put("cascadeEvents", JsonArray(
+                                cascadeEvents.map { ev ->
+                                    buildJsonObject {
+                                        put("event", ev.event)
+                                        put("targetType", ev.targetType.name.lowercase())
+                                        put("targetId", ev.targetId.toString())
+                                        put("targetName", ev.targetName)
+                                        put("currentStatus", ev.currentStatus)
+                                        put("suggestedStatus", ev.suggestedStatus)
+                                        put("flow", ev.flow)
+                                        put("automatic", ev.automatic)
+                                        put("reason", ev.reason)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                )
             }
+            is Result.Error -> handleRepositoryResult(updateResult, "Failed to update feature") { JsonNull }
         }
     }
 
@@ -1301,18 +1381,49 @@ Docs: task-orchestrator://docs/tools/manage-container
             "Task status updated to ${status.name.lowercase().replace('_', '-')}"
         }
 
-        return handleRepositoryResult(
-            context.taskRepository().update(updated),
-            successMessage
-        ) { updatedTask ->
-            buildJsonObject {
-                put("id", updatedTask.id.toString())
-                put("status", updatedTask.status.name.lowercase().replace('_', '-'))
-                put("modifiedAt", updatedTask.modifiedAt.toString())
-                if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-                    put("advisory", transitionValidation.advisory)
-                }
+        val updateResult = context.taskRepository().update(updated)
+
+        return when (updateResult) {
+            is Result.Success -> {
+                val updatedTask = updateResult.data
+
+                // Detect cascade events after status change
+                val workflowService = createWorkflowService(context)
+                val cascadeEvents = workflowService.detectCascadeEvents(
+                    updatedTask.id,
+                    ContainerType.TASK
+                )
+
+                successResponse(
+                    message = successMessage,
+                    data = buildJsonObject {
+                        put("id", updatedTask.id.toString())
+                        put("status", updatedTask.status.name.lowercase().replace('_', '-'))
+                        put("modifiedAt", updatedTask.modifiedAt.toString())
+                        if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
+                            put("advisory", transitionValidation.advisory)
+                        }
+                        if (cascadeEvents.isNotEmpty()) {
+                            put("cascadeEvents", JsonArray(
+                                cascadeEvents.map { ev ->
+                                    buildJsonObject {
+                                        put("event", ev.event)
+                                        put("targetType", ev.targetType.name.lowercase())
+                                        put("targetId", ev.targetId.toString())
+                                        put("targetName", ev.targetName)
+                                        put("currentStatus", ev.currentStatus)
+                                        put("suggestedStatus", ev.suggestedStatus)
+                                        put("flow", ev.flow)
+                                        put("automatic", ev.automatic)
+                                        put("reason", ev.reason)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                )
             }
+            is Result.Error -> handleRepositoryResult(updateResult, "Failed to update task") { JsonNull }
         }
     }
 

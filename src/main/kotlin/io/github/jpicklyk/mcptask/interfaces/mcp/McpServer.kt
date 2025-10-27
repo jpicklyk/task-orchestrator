@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupMa
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
+import io.github.jpicklyk.mcptask.application.tools.QueryWorkflowStateTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
@@ -272,8 +273,10 @@ class McpServer(
 
             // Status progression - Intelligent workflow recommendations
             GetNextStatusTool(statusProgressionService),
+            QueryWorkflowStateTool(),
 
             // Orchestration - AI workflow automation and coordination
+            SetupProjectTool(),
             SetupClaudeOrchestrationTool(),
             GetAgentDefinitionTool(),
             RecommendAgentTool()

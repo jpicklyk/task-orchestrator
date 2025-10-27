@@ -545,6 +545,10 @@ class ManageContainerToolTest {
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.IN_PROGRESS))
             // Mock dependency check for IN_PROGRESS prerequisite validation
             coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+            // Mock cascade detection queries
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(mockTask)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
 
             val result = tool.execute(params, context)
 
@@ -588,6 +592,9 @@ class ManageContainerToolTest {
             coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
                 listOf(mockTask.copy(status = TaskStatus.COMPLETED))
             )
+            // Mock cascade detection queries
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(total = 1, completed = 0)
 
             val result = tool.execute(params, context)
 

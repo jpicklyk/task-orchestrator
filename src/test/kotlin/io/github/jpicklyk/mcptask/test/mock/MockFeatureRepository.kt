@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
 import io.github.jpicklyk.mcptask.domain.model.StatusFilter
+import io.github.jpicklyk.mcptask.domain.model.TaskCounts
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -341,6 +342,22 @@ class MockFeatureRepository : FeatureRepository {
 
     override suspend fun getTaskCount(featureId: UUID): Result<Int> {
         return Result.Success(taskCounts[featureId] ?: 0)
+    }
+
+    // Workflow cascade detection methods
+    override fun getTaskCountsByFeatureId(featureId: UUID): TaskCounts {
+        // For testing, return a basic TaskCounts with just the total
+        // Real tests should set this up with more detailed counts
+        val total = taskCounts[featureId] ?: 0
+        return TaskCounts(
+            total = total,
+            pending = 0,
+            inProgress = 0,
+            completed = total, // Assume all are completed for simple case
+            cancelled = 0,
+            testing = 0,
+            blocked = 0
+        )
     }
 
     /**

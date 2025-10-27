@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.TaskCounts
+import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -400,6 +402,34 @@ class SQLiteFeatureRepository(
             Result.Success(count)
         } catch (e: Exception) {
             Result.Error(RepositoryError.DatabaseError("Failed to count features by project: ${e.message}", e))
+        }
+    }
+
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun getTaskCountsByFeatureId(featureId: UUID): TaskCounts {
+        return transaction {
+            val tasks = TaskTable.selectAll().where { TaskTable.featureId eq featureId }
+
+            val total = tasks.count().toInt()
+            val pending = tasks.count { it[TaskTable.status] == TaskStatus.PENDING }.toInt()
+            val inProgress = tasks.count { it[TaskTable.status] == TaskStatus.IN_PROGRESS }.toInt()
+            val completed = tasks.count { it[TaskTable.status] == TaskStatus.COMPLETED }.toInt()
+            val cancelled = tasks.count { it[TaskTable.status] == TaskStatus.CANCELLED }.toInt()
+            val testing = tasks.count { it[TaskTable.status] == TaskStatus.TESTING }.toInt()
+            val blocked = tasks.count { it[TaskTable.status] == TaskStatus.BLOCKED }.toInt()
+
+            TaskCounts(
+                total = total,
+                pending = pending,
+                inProgress = inProgress,
+                completed = completed,
+                cancelled = cancelled,
+                testing = testing,
+                blocked = blocked
+            )
         }
     }
 }

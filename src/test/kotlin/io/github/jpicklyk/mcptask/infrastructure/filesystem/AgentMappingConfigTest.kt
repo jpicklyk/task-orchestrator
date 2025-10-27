@@ -10,16 +10,27 @@ import kotlin.test.*
  */
 class AgentMappingConfigTest {
 
-    @Test
-    fun `agent-mapping yaml should be valid and parseable`() {
-        // Read the embedded resource
+    /**
+     * Helper function to load agent-mapping.yaml and extract main config (skipping frontmatter).
+     * YAML files now have frontmatter (first document) followed by main config (second document).
+     */
+    private fun loadAgentMappingConfig(): Map<String, Any> {
         val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream, "agent-mapping.yaml should exist in resources")
 
-        // Parse YAML
         val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
-        assertNotNull(config, "agent-mapping.yaml should be valid YAML")
+        val documents = yaml.loadAll(resourceStream).toList()
+        assertTrue(documents.size >= 2, "Should have frontmatter and main config documents")
+
+        @Suppress("UNCHECKED_CAST")
+        val config = documents[1] as? Map<String, Any>
+        assertNotNull(config, "agent-mapping.yaml main config should be valid")
+        return config
+    }
+
+    @Test
+    fun `agent-mapping yaml should be valid and parseable`() {
+        val config = loadAgentMappingConfig()
 
         // Verify main sections exist (workflowPhases and entityTypes removed in v2.0 architecture streamlining)
         assertTrue(config.containsKey("tagMappings"), "Should have tagMappings section")
@@ -38,11 +49,7 @@ class AgentMappingConfigTest {
             "Planning Specialist"         // Sonnet for task breakdown
         )
 
-        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
-        assertNotNull(resourceStream)
-
-        val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
+        val config = loadAgentMappingConfig()
 
         @Suppress("UNCHECKED_CAST")
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
@@ -61,11 +68,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `each tag mapping should have required fields`() {
-        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
-        assertNotNull(resourceStream)
-
-        val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
+        val config = loadAgentMappingConfig()
 
         @Suppress("UNCHECKED_CAST")
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
@@ -107,11 +110,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `priority list should include all mapped agents`() {
-        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
-        assertNotNull(resourceStream)
-
-        val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
+        val config = loadAgentMappingConfig()
 
         @Suppress("UNCHECKED_CAST")
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
@@ -156,11 +155,7 @@ class AgentMappingConfigTest {
     @Test
     fun `all tag mappings reference valid agent definition files`() {
         // Verify that all agents referenced in tagMappings have corresponding .md files
-        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
-        assertNotNull(resourceStream)
-
-        val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
+        val config = loadAgentMappingConfig()
 
         @Suppress("UNCHECKED_CAST")
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
@@ -186,11 +181,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `section tags should be kebab-case strings`() {
-        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
-        assertNotNull(resourceStream)
-
-        val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
+        val config = loadAgentMappingConfig()
 
         @Suppress("UNCHECKED_CAST")
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>
@@ -216,11 +207,7 @@ class AgentMappingConfigTest {
 
     @Test
     fun `specific agent mappings should have expected tags`() {
-        val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
-        assertNotNull(resourceStream)
-
-        val yaml = Yaml()
-        val config = yaml.load<Map<String, Any>>(resourceStream)
+        val config = loadAgentMappingConfig()
 
         @Suppress("UNCHECKED_CAST")
         val tagMappings = config["tagMappings"] as? List<Map<String, Any>>

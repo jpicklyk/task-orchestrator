@@ -35,12 +35,18 @@ class SetupClaudeOrchestrationToolTest {
 
         tool = SetupClaudeOrchestrationTool()
 
-        // Create temporary directory for testing
+        // Create temporary directory for testing (isolated from real project)
         tempDir = Files.createTempDirectory("claude-orchestration-test")
 
         // Save original user.dir and set to temp directory
+        // This ensures the tool operates in the temp directory, not the real project directory
         originalUserDir = System.getProperty("user.dir")
         System.setProperty("user.dir", tempDir.toString())
+
+        // Create .taskorchestrator directory (prerequisite for SetupClaudeOrchestrationTool)
+        // SAFE: Pass tempDir explicitly to ensure we never touch the real .taskorchestrator directory
+        val orchestrationSetupManager = io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupManager(tempDir)
+        orchestrationSetupManager.createTaskOrchestratorDirectory()
     }
 
     @AfterEach
@@ -282,6 +288,12 @@ class SetupClaudeOrchestrationToolTest {
         assertNotNull(data["skillsCopied"], "Should have skillsCopied field")
         assertNotNull(data["skillsDirectory"], "Should have skillsDirectory field")
         assertNotNull(data["totalSkills"], "Should have totalSkills field")
+
+        // Verify .taskorchestrator-related fields are NOT present (now handled by setup_project)
+        assertNull(data["taskOrchestratorDirCreated"], "Should NOT have taskOrchestratorDirCreated field")
+        assertNull(data["configCreated"], "Should NOT have configCreated field")
+        assertNull(data["workflowConfigCreated"], "Should NOT have workflowConfigCreated field")
+        assertNull(data["agentMappingCreated"], "Should NOT have agentMappingCreated field")
     }
 
     @Test
@@ -370,67 +382,5 @@ class SetupClaudeOrchestrationToolTest {
         }
     }
 
-    @Test
-    fun `execute should create config yaml file`() = runBlocking {
-        val params = JsonObject(emptyMap())
-
-        val response = tool.execute(params, mockContext)
-        val responseObj = response as JsonObject
-        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
-
-        // Verify .taskorchestrator/config.yaml exists
-        val workingDir = Paths.get(System.getProperty("user.dir"))
-        val taskOrchestratorDir = workingDir.resolve(".taskorchestrator")
-        val configFile = taskOrchestratorDir.resolve("config.yaml")
-
-        assertTrue(Files.exists(taskOrchestratorDir), ".taskorchestrator directory should exist after execution")
-        assertTrue(Files.exists(configFile), "config.yaml should exist after execution")
-        assertTrue(Files.size(configFile) > 0, "config.yaml should not be empty")
-
-        // Verify config.yaml contains expected content (v2.0 schema)
-        val configContent = Files.readString(configFile)
-        assertTrue(configContent.contains("version: \"2.0.0\""), "Config should have version 2.0.0")
-        assertTrue(configContent.contains("status_progression:"), "Config should have status_progression section")
-        assertTrue(configContent.contains("default_flow:"), "Config should have default_flow (v2.0 schema)")
-        assertTrue(configContent.contains("emergency_transitions:"), "Config should have emergency_transitions")
-        assertTrue(configContent.contains("terminal_statuses:"), "Config should have terminal_statuses")
-        assertTrue(configContent.contains("cancelled"), "Config should include cancelled status")
-        assertTrue(configContent.contains("deferred"), "Config should include deferred status")
-
-        // Verify response includes config creation info
-        val data = responseObj["data"]?.jsonObject
-        assertNotNull(data!!["configCreated"], "Should have configCreated field")
-        assertNotNull(data["configPath"], "Should have configPath field")
-        assertNotNull(data["v2ModeEnabled"], "Should have v2ModeEnabled field")
-        assertTrue(data["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be true on first run")
-        assertTrue(data["v2ModeEnabled"]?.jsonPrimitive?.boolean == true, "v2ModeEnabled should be true when config created")
-    }
-
-    @Test
-    fun `execute should skip config yaml if already exists`() = runBlocking {
-        val params = JsonObject(emptyMap())
-
-        // First execution - creates config
-        val firstResponse = tool.execute(params, mockContext)
-        val firstResponseObj = firstResponse as JsonObject
-        assertTrue(firstResponseObj["success"]?.jsonPrimitive?.boolean == true, "First execution should succeed")
-
-        val firstData = firstResponseObj["data"]?.jsonObject
-        assertTrue(firstData!!["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be true on first run")
-
-        // Second execution - skips config
-        val secondResponse = tool.execute(params, mockContext)
-        val secondResponseObj = secondResponse as JsonObject
-        assertTrue(secondResponseObj["success"]?.jsonPrimitive?.boolean == true, "Second execution should succeed")
-
-        val secondData = secondResponseObj["data"]?.jsonObject
-        assertFalse(secondData!!["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be false on second run (already exists)")
-
-        // Message should indicate config already exists
-        val secondMessage = secondResponseObj["message"]?.jsonPrimitive?.content
-        assertTrue(
-            secondMessage?.contains("Config.yaml already exists") == true,
-            "Second execution message should indicate config already exists"
-        )
-    }
+    // NOTE: Config file creation tests removed - config files now handled by setup_project tool
 }

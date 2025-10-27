@@ -23,6 +23,7 @@ object WorkflowPromptsGuidance {
         addCreateFeatureWorkflowPrompt(server)
         addTaskBreakdownPrompt(server)
         addProjectSetupPrompt(server)
+        addUpdateProjectConfigPrompt(server)
         addImplementationWorkflowPrompt(server)
     }
 
@@ -615,6 +616,27 @@ object WorkflowPromptsGuidance {
                             - Reference guideline resources when needed for detailed guidance
 
                             This initialization enables effective, natural language interaction with Task Orchestrator tools while maintaining access to detailed workflow guidance when needed.
+
+                            ---
+
+                            ## Next Step: Set Up Your Project
+
+                            **After completing AI initialization**, use the project setup workflow to configure Task Orchestrator for your specific project:
+
+                            **Run**: `project_setup_workflow`
+
+                            **What it does**:
+                            - Calls `setup_project` tool → Creates `.taskorchestrator/` configuration directory
+                            - Detects if you're using Claude Code → Optionally calls `setup_claude_orchestration`
+                            - Creates project entity in Task Orchestrator database
+                            - Sets up features and initial tasks
+                            - Saves project UUID to local memory
+
+                            **Separation of Concerns**:
+                            - **`initialize_task_orchestrator`** (this workflow): Teaches AI HOW to use Task Orchestrator (once per AI agent)
+                            - **`project_setup_workflow`**: Configures Task Orchestrator FOR a specific project (once per project)
+
+                            **You can skip project setup** if you just want to use Task Orchestrator tools directly without the full workflow guidance.
                             """.trimIndent()
                         )
                     )
@@ -1037,6 +1059,79 @@ object WorkflowPromptsGuidance {
                             - Store local context in gitignored files
                             - Report where it stored information
 
+                            ## Step 0: Initialize Task Orchestrator Configuration (REQUIRED FIRST)
+
+                            **Before setting up your project**, you MUST initialize Task Orchestrator's core configuration.
+
+                            ### Step 0.1: Run setup_project Tool
+
+                            **Execute the setup_project tool** to create core Task Orchestrator configuration:
+
+                            ```
+                            setup_project()
+                            ```
+
+                            **What this creates**:
+                            - `.taskorchestrator/` directory
+                            - `.taskorchestrator/config.yaml` - Orchestrator configuration
+                            - `.taskorchestrator/status-workflow-config.yaml` - Workflow definitions
+                            - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
+
+                            **This is idempotent**: Safe to run multiple times, skips existing files.
+
+                            **Verify success**: Tool should report success and list created/skipped files.
+
+                            ### Step 0.2: Detect Claude Code Usage
+
+                            **Check if the user is using Claude Code** (enables optional advanced features):
+
+                            **Detection methods** (try in order):
+                            1. Check for `.claude/` directory in project root (indicates Claude Code setup)
+                            2. Ask user: "Are you using Claude Code for this project? (enables sub-agents and skills) [Y/n]"
+
+                            **Based on detection**:
+                            - **If Claude Code detected/confirmed**: Continue to Step 0.3
+                            - **If NOT Claude Code**: Skip to Step 1 (basic setup complete)
+
+                            ### Step 0.3: Run setup_claude_orchestration Tool (Claude Code Only)
+
+                            **If Claude Code is being used**, execute the setup_claude_orchestration tool:
+
+                            ```
+                            setup_claude_orchestration()
+                            ```
+
+                            **What this creates** (Claude Code specific):
+                            - `.claude/agents/task-orchestrator/` - 4 specialized subagent definitions
+                            - `.claude/skills/` - 6 Skills for lightweight coordination workflows
+                            - `.claude/output-styles/` - Task Orchestrator output style
+
+                            **Prerequisite check**: This tool will verify `.taskorchestrator/` exists (from Step 0.1).
+
+                            **This is idempotent**: Safe to run multiple times, skips existing files.
+
+                            **Verify success**: Tool should report success and list created/skipped files.
+
+                            **Note**: If user is not using Claude Code, this step is skipped and they use Task Orchestrator via direct tool calls.
+
+                            ---
+
+                            **After Step 0 completion**, report to user:
+
+                            ```
+                            ✅ Task Orchestrator configuration initialized!
+
+                            Core setup complete:
+                            - Configuration files created in .taskorchestrator/
+                            [If Claude Code:]
+                            - Claude Code integration enabled
+                            - Subagents and Skills available in .claude/
+
+                            Ready to proceed with project setup...
+                            ```
+
+                            ---
+
                             ## Step 1: Detect Scenario
 
                             **Determine which setup scenario applies:**
@@ -1062,15 +1157,37 @@ object WorkflowPromptsGuidance {
                             A) Setting up Task Orchestrator for existing codebase
                             B) Starting a brand new project with a project plan"
 
-                            ## Step 2: Check Task Orchestrator Initialization
+                            ## Step 2: Check AI Initialization (Recommended)
 
-                            **Verify AI initialization** before proceeding:
+                            **RECOMMENDED**: Verify AI has been initialized with Task Orchestrator guidelines.
 
-                            Check your memory for "Task Orchestrator - AI Initialization" section:
-                            - If found: Continue to scenario-specific steps
-                            - If NOT found: Recommend running initialize_task_orchestrator first
+                            **Check your memory** (CLAUDE.md, .cursorrules, etc.) for "Task Orchestrator - AI Initialization" section:
 
-                            **Why**: Initialization ensures you understand template discovery, intent recognition, and workflow patterns.
+                            **If NOT found or uncertain**:
+                            ```
+                            ⚠️  AI Initialization Recommended
+
+                            Before setting up projects, it's recommended to run:
+
+                            `initialize_task_orchestrator`
+
+                            This workflow teaches the AI:
+                            - Template discovery patterns (CRITICAL for all work)
+                            - Intent recognition for natural language
+                            - When to apply patterns autonomously
+                            - Quality standards and best practices
+
+                            Without initialization, you can still use Task Orchestrator tools directly,
+                            but the AI won't have learned the optimal usage patterns.
+
+                            Would you like to:
+                            [1] Run initialize_task_orchestrator first (recommended)
+                            [2] Continue with project setup (skip initialization)
+                            ```
+
+                            **If user chooses [1]**: Pause this workflow, run `initialize_task_orchestrator`, then resume here.
+
+                            **If user chooses [2] or initialization already done**: Continue to Step 0 (setup tools).
 
                             ---
 
@@ -1590,6 +1707,239 @@ object WorkflowPromptsGuidance {
                             - Verify .gitignore before completing setup
 
                             This streamlined approach works for vibe coding and small teams, avoiding enterprise bureaucracy while maintaining effective project management.
+                            """.trimIndent()
+                        )
+                    )
+                ),
+                _meta = JsonObject(emptyMap())
+            )
+        }
+    }
+
+    /**
+     * Adds a prompt for upgrading Task Orchestrator configuration files to latest versions
+     * while preserving user customizations where possible.
+     */
+    private fun addUpdateProjectConfigPrompt(server: Server) {
+        server.addPrompt(
+            name = "update_project_config",
+            description = "Upgrade Task Orchestrator configuration files (.taskorchestrator/) to latest versions with backup and customization preservation"
+        ) { _ ->
+            GetPromptResult(
+                description = "Guided workflow for upgrading configuration files to latest versions",
+                messages = listOf(
+                    PromptMessage(
+                        role = Role.assistant,
+                        content = TextContent(
+                            text = """
+                            # Update Project Configuration Workflow
+
+                            This workflow upgrades your Task Orchestrator configuration files (.taskorchestrator/) to the latest versions while preserving your customizations.
+
+                            ## Step 1: Check Current Configuration Status
+
+                            **Run setup_project tool** to detect current versions:
+
+                            ```
+                            setup_project()
+                            ```
+
+                            **Analyze the response**:
+                            - Look for "hasOutdatedConfigs" field in response data
+                            - If false: No updates needed, exit workflow
+                            - If true: Continue to Step 2
+
+                            **Response will show**:
+                            ```
+                            ⚠️  Configuration updates available:
+                              - config.yaml: v1.0.0 → v2.0.0
+                              - status-workflow-config.yaml: No version → v2.0.0
+                              - agent-mapping.yaml: v2.0.0 (up to date)
+                            ```
+
+                            ## Step 2: Backup Current Configuration
+
+                            **REQUIRED**: Create backup before any modifications.
+
+                            **Backup steps**:
+                            1. Create backup directory with timestamp:
+                            ```bash
+                            mkdir -p .taskorchestrator/backups
+                            cp .taskorchestrator/config.yaml .taskorchestrator/backups/config.yaml.backup-YYYY-MM-DD-HHMMSS
+                            cp .taskorchestrator/status-workflow-config.yaml .taskorchestrator/backups/status-workflow-config.yaml.backup-YYYY-MM-DD-HHMMSS
+                            cp .taskorchestrator/agent-mapping.yaml .taskorchestrator/backups/agent-mapping.yaml.backup-YYYY-MM-DD-HHMMSS
+                            ```
+
+                            2. Verify backups created successfully
+                            3. Report backup location to user
+
+                            ## Step 3: Choose Upgrade Mode
+
+                            **Present options to user**:
+
+                            ```
+                            Configuration Upgrade Options:
+
+                            [1] Add New Files Only (SAFEST)
+                                • Copies only missing config files
+                                • Preserves all existing configurations
+                                • No changes to files with versions
+                                • Recommended: When you have customizations
+
+                            [2] Full Reset to Defaults (DESTRUCTIVE)
+                                • Overwrites ALL config files with latest defaults
+                                • Loses all customizations
+                                • Use when: Major version upgrade or config corruption
+                                • ⚠️  Requires backup confirmation
+
+                            [3] Cancel
+                                • Keep existing configuration unchanged
+
+                            Your choice: [1-3]
+                            ```
+
+                            ## Step 4: Execute Upgrade (Based on Choice)
+
+                            ### Option [1]: Add New Files Only
+
+                            **This is safe** - only creates missing files.
+
+                            **Actions**:
+                            1. For each outdated config file:
+                               - If file doesn't exist: Copy from defaults
+                               - If file exists: Skip (preserve user version)
+                            2. Report which files were added vs skipped
+                            3. User can manually merge updates if desired
+
+                            **No tool calls needed** - setup_project already skips existing files.
+
+                            **Report**:
+                            ```
+                            ✅ Upgrade complete (Add New Files mode)
+
+                            Files added: (none, all files already present)
+                            Files preserved: config.yaml, status-workflow-config.yaml, agent-mapping.yaml
+
+                            Your customizations are intact. To adopt new features:
+                            - Review latest defaults in source: src/main/resources/orchestration/
+                            - Manually merge desired changes into your configs
+                            - Backups available in: .taskorchestrator/backups/
+                            ```
+
+                            ### Option [2]: Full Reset to Defaults
+
+                            **⚠️  DESTRUCTIVE** - overwrites all config files.
+
+                            **Confirmation required**:
+                            ```
+                            ⚠️  WARNING: Full Reset Mode
+
+                            This will OVERWRITE all configuration files with defaults:
+                            - config.yaml
+                            - status-workflow-config.yaml
+                            - agent-mapping.yaml
+
+                            All customizations will be LOST.
+                            Backups created in: .taskorchestrator/backups/
+
+                            Type 'RESET' to confirm or 'cancel' to abort: ___
+                            ```
+
+                            **If user confirms**:
+                            1. Delete existing config files:
+                            ```bash
+                            rm .taskorchestrator/config.yaml
+                            rm .taskorchestrator/status-workflow-config.yaml
+                            rm .taskorchestrator/agent-mapping.yaml
+                            ```
+
+                            2. Run setup_project to recreate with defaults:
+                            ```
+                            setup_project()
+                            ```
+
+                            3. Verify new files created with latest versions
+
+                            **Report**:
+                            ```
+                            ✅ Full reset complete
+
+                            All configuration files reset to v2.0.0 defaults.
+                            Backups preserved in: .taskorchestrator/backups/
+
+                            If you need to restore customizations:
+                            1. Review backups for your custom settings
+                            2. Manually re-apply to new config files
+                            3. Use config.yaml comments as guide for valid options
+                            ```
+
+                            ## Step 5: Verification
+
+                            **Run setup_project again** to verify upgrade:
+
+                            ```
+                            setup_project()
+                            ```
+
+                            **Check response**:
+                            - hasOutdatedConfigs should be false
+                            - All config files should show latest version
+                            - No warnings about updates
+
+                            **If issues detected**:
+                            - Restore from backups
+                            - Report issue for troubleshooting
+
+                            ## Step 6: Update Team Documentation (If Committed)
+
+                            **If .taskorchestrator/ is committed to git**:
+
+                            1. Review changes:
+                            ```bash
+                            git status
+                            git diff .taskorchestrator/
+                            ```
+
+                            2. Commit updates (if appropriate):
+                            ```bash
+                            git add .taskorchestrator/
+                            git commit -m "chore: upgrade Task Orchestrator config to v2.0.0"
+                            ```
+
+                            3. Notify team of config updates
+
+                            ## Rollback Procedure (If Needed)
+
+                            **If upgrade causes issues**, restore from backups:
+
+                            ```bash
+                            # Find latest backup
+                            ls -lt .taskorchestrator/backups/
+
+                            # Restore from backup (replace TIMESTAMP)
+                            cp .taskorchestrator/backups/config.yaml.backup-TIMESTAMP .taskorchestrator/config.yaml
+                            cp .taskorchestrator/backups/status-workflow-config.yaml.backup-TIMESTAMP .taskorchestrator/status-workflow-config.yaml
+                            cp .taskorchestrator/backups/agent-mapping.yaml.backup-TIMESTAMP .taskorchestrator/agent-mapping.yaml
+                            ```
+
+                            ## Best Practices
+
+                            **When to upgrade**:
+                            - After Task Orchestrator MCP server update
+                            - When setup_project reports outdated configs
+                            - When you need new configuration features
+
+                            **Before upgrading**:
+                            - Commit current state to git (if tracked)
+                            - Create manual backup
+                            - Review changelog for breaking changes
+
+                            **After upgrading**:
+                            - Test basic operations (create task, update status)
+                            - Review new config options and customize
+                            - Update team documentation if needed
+
+                            This workflow ensures safe configuration upgrades with minimal risk to your customizations.
                             """.trimIndent()
                         )
                     )

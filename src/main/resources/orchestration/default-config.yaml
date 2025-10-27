@@ -1,6 +1,11 @@
+---
+name: config
+description: Core Task Orchestrator configuration for status progression, validation rules, and orchestration behavior
+version: "2.0.0"
+---
+
 # Task Orchestrator Configuration
 # This file configures orchestration behavior, status progressions, and quality gates
-# Version: 2.0.0
 #
 # IMPLEMENTATION STATUS LEGEND:
 # ✅ IMPLEMENTED - Feature is actively used by the codebase
@@ -8,8 +13,6 @@
 # ❌ NOT IMPLEMENTED YET - Configuration defined for future use
 #
 # See: docs/configuration-status.md for detailed implementation status
-
-version: "2.0.0"
 
 # ============================================================================
 # STATUS PROGRESSION CONFIGURATION (✅ IMPLEMENTED)

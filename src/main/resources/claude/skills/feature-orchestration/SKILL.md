@@ -28,12 +28,52 @@ Comprehensive feature lifecycle management from creation through completion, wit
 
 - `query_container` - Read features, tasks, projects
 - `manage_container` - Create/update features and tasks
+- `query_workflow_state` - Check workflow state, cascade events, prerequisites (**NEW**)
 - `query_templates` - Discover available templates
 - `apply_template` - Apply templates to features
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Create feature documentation
 
-## Status Progression Trigger Points
+## Cascade Event Detection (Automatic)
+
+**Recommended Approach:** Use `query_workflow_state` for automatic cascade event detection instead of manual checks.
+
+```javascript
+// After task completion or status change
+workflowState = query_workflow_state(
+  containerType="feature",
+  id=task.featureId
+)
+
+// Check for detected cascade events
+if (workflowState.detectedEvents.length > 0) {
+  for (event of workflowState.detectedEvents) {
+    // Event structure:
+    // - event: "all_tasks_complete", "first_task_started", etc.
+    // - suggestedStatus: Next recommended status
+    // - automatic: Whether to apply automatically
+    // - reason: Human-readable explanation
+
+    if (event.automatic) {
+      "✅ Cascade event detected: ${event.event}
+      Suggested next status: ${event.suggestedStatus}
+      Reason: ${event.reason}
+
+      Use Status Progression Skill to apply this transition."
+    }
+  }
+}
+```
+
+**Benefits:**
+- Automatic detection based on config-driven workflows
+- Works with custom user flows, not just defaults
+- Handles complex prerequisite checking
+- Provides human-readable explanations
+
+## Status Progression Trigger Points (Manual Detection)
+
+**Legacy Pattern:** Manual detection is still available but `query_workflow_state` is preferred.
 
 **CRITICAL:** Never directly change feature status. Always use Status Progression Skill for ALL status changes.
 

@@ -33,6 +33,7 @@ description: Navigate status workflows with user's config. Use when asked "What'
 
 - `Read` - Load `.taskorchestrator/config.yaml` (status_validation section only)
 - `get_next_status` - Intelligent status recommendations (delegates to MCP tool)
+- `query_workflow_state` - Complete workflow state with cascade events (**NEW**)
 - `query_container` - Check entity state (status, tags) when interpreting errors
 
 **Critical:** This skill does NOT validate transitions. StatusValidator handles that automatically at write-time. This skill interprets results and explains user's workflow rules.
@@ -175,6 +176,43 @@ manage_container(operation=\"setStatus\", containerType=\"task\", id=\"...\", st
 
 **For detailed error interpretation patterns:**
 Read `./validation-errors.md`
+
+### Action 4: Check Complete Workflow State (NEW)
+
+**User asks:** "Show me everything about this task's workflow"
+
+**Workflow:**
+```javascript
+// Get comprehensive workflow state
+workflowState = query_workflow_state(
+  containerType="task",
+  id="task-uuid"
+)
+
+// Explain complete state
+"📊 Workflow State:
+
+Current: ${workflowState.currentStatus}
+Active Flow: ${workflowState.activeFlow}
+
+✅ Allowed Next Steps:
+${workflowState.allowedTransitions.map(s => `  → ${s}`).join('\n')}
+
+⚠️ Cascade Events Detected:
+${workflowState.detectedEvents.map(e => `  • ${e.event}: ${e.reason}`).join('\n')}
+
+📋 Prerequisites for Each Transition:
+${Object.entries(workflowState.prerequisites).map(([status, prereq]) =>
+  `  ${status}: ${prereq.met ? '✅' : '❌'} ${prereq.blockingReasons.join(', ')}`
+).join('\n')}"
+```
+
+**Benefits:**
+- Single call gets complete workflow context
+- Shows all allowed transitions from config
+- Detects cascade events automatically
+- Validates prerequisites for each option
+- Works with user's custom workflows
 
 ## Understanding User-Defined Flows
 

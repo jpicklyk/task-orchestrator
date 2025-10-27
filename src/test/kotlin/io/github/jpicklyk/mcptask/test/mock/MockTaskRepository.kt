@@ -437,6 +437,13 @@ class MockTaskRepository : TaskRepository {
         return Result.Success(nextTask)
     }
 
+    // Workflow cascade detection methods
+    override fun findByFeatureId(featureId: UUID): List<Task> {
+        return tasks.values.toList()
+            .filter { it.featureId == featureId }
+            .sortedByDescending { it.modifiedAt }
+    }
+
     /**
      * Test helper method to add a task directly to the repository
      */

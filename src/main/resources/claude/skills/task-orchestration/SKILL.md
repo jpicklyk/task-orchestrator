@@ -29,11 +29,54 @@ Intelligent task execution management with parallel processing, dependency-aware
 
 - `query_container` - Read tasks, features, dependencies
 - `manage_container` - Update task status, create tasks
+- `query_workflow_state` - Check workflow state, cascade events, dependencies (**NEW**)
 - `query_dependencies` - Analyze task dependencies
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Update task sections
 
-## Status Progression Trigger Points
+## Dependency Cascade Detection (Automatic)
+
+**Recommended Approach:** Use `query_workflow_state` to automatically check for dependency cascades and unblocked tasks.
+
+```javascript
+// After task completion, check for cascades
+workflowState = query_workflow_state(
+  containerType="task",
+  id=taskId
+)
+
+// Check for detected cascade events (feature progression)
+if (workflowState.detectedEvents.length > 0) {
+  "✅ Task completion triggered cascade events:
+  ${workflowState.detectedEvents.map(e => e.reason).join(', ')}
+
+  Feature status may need to progress. Use Status Progression Skill."
+}
+
+// Check for unblocked dependencies (other tasks can now start)
+dependencies = query_dependencies(
+  taskId=taskId,
+  direction="outgoing",
+  includeTaskInfo=true
+)
+
+// Filter for now-unblocked tasks
+for (dep of dependencies) {
+  if (dep.toTask.status == "blocked" || dep.toTask.status == "pending") {
+    "✅ Task ${dep.toTask.title} is now unblocked and ready to start!"
+  }
+}
+```
+
+**Benefits:**
+- Automatic cascade detection based on config
+- Dependency-aware unblocking
+- Works with custom user workflows
+- Handles complex prerequisite checking
+
+## Status Progression Trigger Points (Manual Detection)
+
+**Legacy Pattern:** Manual detection is still available but `query_workflow_state` is preferred.
 
 **CRITICAL:** Never directly change task status. Always use Status Progression Skill for ALL status changes.
 

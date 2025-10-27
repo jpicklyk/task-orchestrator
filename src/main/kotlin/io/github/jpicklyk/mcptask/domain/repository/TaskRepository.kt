@@ -72,4 +72,11 @@ interface TaskRepository : ProjectScopedRepository<Task, TaskStatus, Priority> {
         projectId: UUID? = null,
         excludeStatuses: List<TaskStatus> = listOf(TaskStatus.COMPLETED, TaskStatus.CANCELLED)
     ): Result<Task?>
+
+    /**
+     * Finds all tasks for a feature (synchronous for cascade detection).
+     * @param featureId The feature ID
+     * @return List of tasks in the feature
+     */
+    fun findByFeatureId(featureId: UUID): List<Task>
 }

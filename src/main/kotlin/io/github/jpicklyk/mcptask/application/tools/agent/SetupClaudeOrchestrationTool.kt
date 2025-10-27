@@ -25,13 +25,15 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
 
     override val title: String = "Setup Claude Code Orchestration System"
 
-    override val description: String = """Initializes agent configuration system with subagents, skills, and orchestration config.
+    override val description: String = """Initializes Claude Code integration for Task Orchestrator.
+
+        Prerequisites:
+        - Run setup_project first to create .taskorchestrator/ configuration
 
         What This Creates:
         - `.claude/agents/task-orchestrator/` - 4 specialized subagent definitions (v2.0 architecture)
         - `.claude/skills/` - 6 Skills for lightweight coordination workflows
-        - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
-        - `.taskorchestrator/config.yaml` - Orchestration configuration (enables v2.0 features)
+        - `.claude/output-styles/` - Task Orchestrator output style
         - Decision gates in CLAUDE.md (if not present)
 
         Subagents (v2.0 Architecture - Complex Implementation):
@@ -51,10 +53,6 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
         - task-orchestration: Coordinate task lifecycle, recommendations, and completion
 
         Each Skill includes: SKILL.md (workflow guide), examples.md (working examples).
-
-        Configuration Files:
-        - agent-mapping.yaml: Maps task tags to appropriate subagents
-        - config.yaml: Status workflows, validation rules, quality gates, parallelism settings
 
         Note on Compatibility:
         This MCP server works with any MCP client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.).
@@ -233,7 +231,17 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
         return try {
             val orchestrationSetupManager = OrchestrationSetupManager()
 
-            // Step 1: Create directory structure
+            // Check prerequisite: .taskorchestrator directory must exist
+            if (!orchestrationSetupManager.taskOrchestratorDirExists()) {
+                logger.warn(".taskorchestrator directory not found - prerequisite not met")
+                return errorResponse(
+                    message = "Prerequisite not met: .taskorchestrator/ directory does not exist",
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    details = "Run setup_project tool first to create core Task Orchestrator configuration (.taskorchestrator/)"
+                )
+            }
+
+            // Step 1: Create .claude directory structure
             logger.info("Creating .claude/agents/ directory structure...")
             val directoryCreated = orchestrationSetupManager.createDirectoryStructure()
 
@@ -241,35 +249,23 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             logger.info("Copying Claude Code agent template files...")
             val copiedAgentFiles = orchestrationSetupManager.copyDefaultAgentTemplates()
 
-            // Step 3: Create .taskorchestrator directory
-            logger.info("Creating .taskorchestrator/ directory structure...")
-            val taskOrchestratorDirCreated = orchestrationSetupManager.createTaskOrchestratorDirectory()
-
-            // Step 4: Copy agent-mapping.yaml file
-            logger.info("Copying agent-mapping.yaml configuration file...")
-            val agentMappingCopied = orchestrationSetupManager.copyAgentMappingFile()
-
-            // Step 5: Copy config.yaml file (enables v2.0 mode)
-            logger.info("Copying config.yaml configuration file...")
-            val configCopied = orchestrationSetupManager.copyConfigFile()
-
-            // Step 6: Inject decision gates into CLAUDE.md
+            // Step 3: Inject decision gates into CLAUDE.md
             logger.info("Injecting decision gates into CLAUDE.md...")
             val decisionGatesInjected = orchestrationSetupManager.injectDecisionGatesIntoClaude()
 
-            // Step 7: Create skills directory
+            // Step 4: Create skills directory
             logger.info("Creating .claude/skills/ directory structure...")
             val skillsDirectoryCreated = orchestrationSetupManager.createSkillsDirectory()
 
-            // Step 8: Copy skill templates
+            // Step 5: Copy skill templates
             logger.info("Copying skill templates...")
             val copiedSkills = orchestrationSetupManager.copySkillTemplates()
 
-            // Step 9: Create output-style directory
+            // Step 6: Create output-style directory
             logger.info("Creating .claude/output-styles/ directory structure...")
             val outputStyleDirectoryCreated = orchestrationSetupManager.createOutputStyleDirectory()
 
-            // Step 10: Copy output-style file
+            // Step 7: Copy output-style file
             logger.info("Copying output-style file...")
             val outputStyleCopied = orchestrationSetupManager.copyOutputStyleFile()
 
@@ -281,8 +277,8 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
 
             // Build response message
             val message = buildString {
-                append("Claude Code orchestration system setup ")
-                if (directoryCreated || taskOrchestratorDirCreated || skillsDirectoryCreated || outputStyleDirectoryCreated) {
+                append("Claude Code integration setup ")
+                if (directoryCreated || skillsDirectoryCreated || outputStyleDirectoryCreated) {
                     append("completed successfully. ")
                 } else {
                     append("verified. ")
@@ -308,16 +304,6 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     append("Output-style file already exists. ")
                 }
 
-                if (agentMappingCopied) {
-                    append("Created agent-mapping.yaml. ")
-                } else {
-                    append("Agent-mapping.yaml already exists. ")
-                }
-                if (configCopied) {
-                    append("Created config.yaml (v2.0 mode enabled). ")
-                } else {
-                    append("Config.yaml already exists. ")
-                }
                 if (decisionGatesInjected) {
                     append("Injected decision gates into CLAUDE.md.")
                 } else {
@@ -332,16 +318,6 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     put("agentFilesSkipped", JsonArray(skippedAgentFiles.map { JsonPrimitive(it) }))
                     put("directory", orchestrationSetupManager.getClaudeDir().toString())
                     put("totalAgents", allAgentFiles.size)
-                    put("taskOrchestratorDirCreated", taskOrchestratorDirCreated)
-                    put("agentMappingCreated", agentMappingCopied)
-                    put("agentMappingPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
-                        OrchestrationSetupManager.AGENT_MAPPING_FILE
-                    ).toString())
-                    put("configCreated", configCopied)
-                    put("configPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
-                        OrchestrationSetupManager.CONFIG_FILE
-                    ).toString())
-                    put("v2ModeEnabled", configCopied)
                     put("decisionGatesInjected", decisionGatesInjected)
                     put("skillsDirectoryCreated", skillsDirectoryCreated)
                     put("skillsCopied", JsonArray(copiedSkills.map { JsonPrimitive(it) }))
