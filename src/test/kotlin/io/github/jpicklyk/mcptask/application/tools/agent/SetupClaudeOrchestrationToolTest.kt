@@ -332,7 +332,7 @@ class SetupClaudeOrchestrationToolTest {
             "dependency-analysis",
             "dependency-orchestration",
             "feature-orchestration",
-            "hook-builder",
+            "task-orchestrator-hooks-builder",
             "status-progression",
             "task-orchestration"
         )
