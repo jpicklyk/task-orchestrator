@@ -63,10 +63,8 @@ bin/
 CLAUDE.local.md
 
 ### Task Orchestrator folder ###
-# .taskorchestrator/ contains user-customizable installed/generated files
-# Source files in src/main/resources/orchestration/ are tracked separately
-/.taskorchestrator/orchestration/
-/.taskorchestrator/config.yaml
+/.taskorchestrator/
 
 ### Temporary plans folder ###
 /plans/
+
