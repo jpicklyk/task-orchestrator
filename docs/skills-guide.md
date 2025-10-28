@@ -50,7 +50,7 @@ Claude Code Skills are **lightweight capability modules** that provide focused, 
 User: "What's the next task to work on in this feature?"
 
 → Feature Management Skill activates (300 tokens)
-→ Makes 2 tool calls: get_feature(), get_next_task()
+→ Makes 2 tool calls: query_container(operation='get', ...), get_next_task()
 → Returns recommendation
 
 vs Subagent approach: 1400 tokens for the same operation (78% savings)
@@ -123,7 +123,7 @@ allowed-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__set_sta
 ### 1. Recommend Specialist for Task
 
 **Steps**:
-1. Get task details: `get_task(id, includeSections=true)`
+1. Get task details: `query_container(operation="get", containerType="task", id=id, includeSections=true)`
 2. Get specialist recommendation: `recommend_agent(taskId)`
 3. Format recommendation with context
 
@@ -141,6 +141,15 @@ allowed-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__set_sta
 Claude Code automatically extracts the relevant section based on the user's request.
 
 ---
+
+## Workflow Diagrams
+
+Visual representations of Skills in action are available as interactive HTML diagrams:
+
+- **[Feature Orchestration Skill Flow](diagrams/feature-orchestration-skill-flow.html)** - How Feature Orchestration Skill manages feature lifecycle with event detection
+- **[Task Orchestration Skill Flow](diagrams/task-orchestration-skill-flow.html)** - How Task Orchestration Skill coordinates parallel task execution
+
+These diagrams illustrate the event-driven architecture where Skills detect workflow events and delegate to appropriate tools and specialists.
 
 ## Skills vs Subagents vs Direct Tools
 
@@ -173,12 +182,12 @@ Does task require complex reasoning or code generation?
 User: "Work on authentication feature"
 
 Step 1: Feature Management Skill (300 tokens)
-→ get_feature(includeTaskCounts=true)
+→ query_container(operation="get", containerType="feature", includeTaskCounts=true)
 → get_next_task(featureId, limit=1)
 → Returns: "Recommend working on T1: Database Schema"
 
 Step 2: Task Management Skill (400 tokens)
-→ get_task(T1, includeSections=true)
+→ query_container(operation="get", containerType="task", id=T1, includeSections=true)
 → recommend_agent(T1)
 → Returns: "Route to Database Engineer specialist"
 
@@ -190,8 +199,8 @@ Step 3: Database Engineer Subagent (1600 tokens)
 → Reports completion
 
 Step 4: Task Management Skill (300 tokens)
-→ add_section(Summary)
-→ set_status(completed)
+→ manage_sections(operation="add", entityType="TASK", title="Summary", ...)
+→ manage_container(operation="setStatus", containerType="task", id=T1, status="completed")
 → Returns: "Task completed"
 
 Total: ~2600 tokens vs ~6200 tokens without Skills (58% savings)
@@ -204,7 +213,7 @@ User: "What's blocking progress?"
 
 Dependency Analysis Skill (350 tokens)
 → get_blocked_tasks(featureId)
-→ For each: get_task(id) to get details
+→ For each: query_container(operation="get", containerType="task", id=id) to get details
 → Returns: "3 tasks blocked by T2 (Create API endpoints)"
 
 No subagent needed! Skill handles entire workflow efficiently.
@@ -311,7 +320,7 @@ Each Skill invocation is independent with minimal token cost.
 
 **Typical Workflow**:
 ```
-1. get_task(id, includeSections=true)
+1. query_container(operation="get", containerType="task", id=id, includeSections=true)
 2. recommend_agent(taskId)
 3. Format recommendation with task context
 ```
@@ -350,7 +359,7 @@ Each Skill invocation is independent with minimal token cost.
 
 **Typical Workflow**:
 ```
-1. get_feature(id, includeTasks=true, includeTaskCounts=true)
+1. query_container(operation="get", containerType="feature", id=id, includeTasks=true, includeTaskCounts=true)
 2. get_next_task(featureId, limit=1, includeDetails=true)
 3. Return recommendation with context
 ```
@@ -648,9 +657,9 @@ allowed-tools: [relevant MCP tools]
 Coordinate [workflow] by making the right sequence of MCP tool calls.
 
 ## Workflow
-1. **Gather context**: get_[entity]()
-2. **Perform action**: update_[entity]()
-3. **Update state**: set_status()
+1. **Gather context**: query_container(operation="get", ...)
+2. **Perform action**: manage_container(operation="update", ...)
+3. **Update state**: manage_container(operation="setStatus", ...)
 4. **Return to user**: [summary]
 
 ## Common Patterns
@@ -1123,10 +1132,10 @@ Skills work seamlessly with both Claude Code hooks and subagent orchestration.
 
 ```
 Task Management Skill
-→ Completes task: set_status(id="T1", status="completed")
+→ Completes task: manage_container(operation="setStatus", containerType="task", id="T1", status="completed")
 
 PostToolUse Hook (automatic)
-→ Watches for: mcp__task-orchestrator__set_status where status="completed"
+→ Watches for: mcp__task-orchestrator__manage_container where operation="setStatus" and status="completed"
 → Action: Create git commit with task title
 → Executes: git add -A && git commit -m "feat: [task title]"
 
@@ -1139,10 +1148,10 @@ Result: Task completed AND changes committed automatically
 
 ```
 Feature Management Skill
-→ Attempts to complete feature: update_feature(id="F1", status="completed")
+→ Attempts to complete feature: manage_container(operation="setStatus", containerType="feature", id="F1", status="completed")
 
 PostToolUse Hook (automatic)
-→ Watches for: mcp__task-orchestrator__update_feature where status="completed"
+→ Watches for: mcp__task-orchestrator__manage_container where containerType="feature" and operation="setStatus" and status="completed"
 → Action: Run test suite
 → If tests fail: Return {"decision": "block", "reason": "Tests failing"}
 → If tests pass: Allow operation to proceed
@@ -1195,7 +1204,9 @@ Back to Level 0: Orchestrator
 
 ```
 Step 1: Create task with templates (direct MCP tool)
-create_task(
+manage_container(
+  operation="create",
+  containerType="task",
   title="Implement user authentication",
   templateIds=["technical-approach", "testing-strategy"]
 )
@@ -1413,7 +1424,7 @@ Token Breakdown:
 Total: ~1400 tokens
 
 Operations:
-- get_feature()
+- query_container(operation="get", containerType="feature", ...)
 - get_next_task()
 - Return recommendation
 
@@ -1429,7 +1440,7 @@ Token Breakdown:
 Total: ~300 tokens
 
 Operations:
-- get_feature()
+- query_container(operation="get", containerType="feature", ...)
 - get_next_task()
 - Return recommendation
 
@@ -1611,7 +1622,7 @@ Total: 19800 tokens
 4. **Defensive Instructions**: Handle error cases explicitly
    ```markdown
    ## Workflow
-   1. Get task: get_task(id)
+   1. Get task: query_container(operation="get", containerType="task", id=id)
       - If not found: Report "Task [id] not found" and stop
       - If already completed: Report "Task already complete" and stop
       - Otherwise: Continue to step 2
@@ -1756,7 +1767,7 @@ Total: 19800 tokens
 
 1. **Validate Inputs**: Check before acting
    ```markdown
-   1. Get task: get_task(id)
+   1. Get task: query_container(operation="get", containerType="task", id=id)
       - If task not found: Report error and stop
       - If task has invalid status: Report error and suggest fix
    ```
@@ -1854,14 +1865,14 @@ description: Coordinate task workflows including routing tasks to specialists, u
 ## Core Capabilities
 
 ### 1. Route Task (Use when: "start work", "who should handle")
-1. Get task: get_task(id, includeSections=true)
+1. Get task: query_container(operation="get", containerType="task", id=id, includeSections=true)
 2. Get recommendation: recommend_agent(taskId)
 3. Return specialist with context
 
 ### 2. Complete Task (Use when: "complete", "finish", "mark done")
-1. Get task: get_task(id, includeSections=true)
-2. Create Summary: add_section(...)
-3. Mark complete: set_status(id, "completed")
+1. Get task: query_container(operation="get", containerType="task", id=id, includeSections=true)
+2. Create Summary: manage_sections(operation="add", ...)
+3. Mark complete: manage_container(operation="setStatus", containerType="task", id=id, status="completed")
 4. Return confirmation
 ```
 
@@ -1910,10 +1921,10 @@ allowed-tools: mcp__task-orchestrator__get_task, mcp__task-orchestrator__set_sta
 **Example Fix**:
 ```markdown
 # Before (wrong parameter name)
-get_task(taskId="123", includeSections=true)
+query_container(operation="get", containerType="task", taskId="123", includeSections=true)
 
 # After (correct parameter name)
-get_task(id="123", includeSections=true)
+query_container(operation="get", containerType="task", id="123", includeSections=true)
 ```
 
 ---
@@ -2115,7 +2126,7 @@ If you can't resolve an issue:
 
 ## Related Documentation
 
-- **[Agent Orchestration](agent-orchestration.md)** - Sub-agent coordination system (Claude Code only)
+- **[Agent Architecture](agent-architecture.md)** - Agent coordination and hybrid architecture guide
 - **[Templates](templates.md)** - Template system for structuring work
 - **[Workflow Prompts](workflow-prompts.md)** - Universal workflow automation (all MCP clients)
 - **[API Reference](api-reference.md)** - Complete MCP tools documentation

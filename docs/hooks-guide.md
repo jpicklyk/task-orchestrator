@@ -91,24 +91,25 @@ Claude Code provides three hook event types:
 
 ```json
 {
-  "tool_name": "mcp__task-orchestrator__set_status",
+  "tool_name": "mcp__task-orchestrator__manage_container",
   "tool_input": {
+    "operation": "setStatus",
+    "containerType": "task",
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "status": "completed"
   },
   "tool_output": {
     "success": true,
-    "message": "Task status updated"
+    "message": "Task status updated to completed"
   }
 }
 ```
 
-**Common Matchers**:
-- `mcp__task-orchestrator__set_status` - Task status changes
-- `mcp__task-orchestrator__update_feature` - Feature updates
-- `mcp__task-orchestrator__update_task` - Task updates
-- `mcp__task-orchestrator__create_task` - New tasks
-- `mcp__task-orchestrator__create_feature` - New features
+**Common Matchers** (v2.0 consolidated tools):
+- `mcp__task-orchestrator__manage_container` - Container create/update/delete/setStatus operations
+- `mcp__task-orchestrator__query_container` - Container get/search/export/overview operations
+- `mcp__task-orchestrator__manage_sections` - Section add/update/delete/reorder operations
+- `mcp__task-orchestrator__query_sections` - Section query operations
 
 #### 2. SubagentStop
 
@@ -293,8 +294,8 @@ Create `.claude/hooks/your-hook-name.sh`:
 # Description of what this hook does
 #
 # Hook Event: PostToolUse
-# Matcher: mcp__task-orchestrator__set_status
-# Trigger: When status is set to "completed"
+# Matcher: mcp__task-orchestrator__manage_container
+# Trigger: When operation="setStatus" and status="completed"
 
 set -euo pipefail
 
@@ -394,7 +395,7 @@ Create or edit `.claude/settings.local.json`:
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__task-orchestrator__manage_container",
         "hooks": [
           {
             "type": "command",
@@ -446,7 +447,7 @@ Add documentation to `.claude/hooks/README.md`:
 
 **Purpose**: [What this hook does]
 
-**Triggers**: PostToolUse on `mcp__task-orchestrator__set_status` when status='completed'
+**Triggers**: PostToolUse on `mcp__task-orchestrator__manage_container` when operation="setStatus" and status="completed"
 
 **Actions**:
 - Retrieves task title from database
@@ -756,83 +757,66 @@ exit 0
 
 Hooks can react to any Task Orchestrator MCP tool. Here are the most useful tools for hook integration:
 
-#### Task Management Tools
+#### Container Management (v2.0 Unified Tools)
 
-**`mcp__task-orchestrator__set_status`**:
+**`mcp__task-orchestrator__manage_container`** - All create/update/delete/setStatus operations:
 ```json
 {
-  "matcher": "mcp__task-orchestrator__set_status",
+  "matcher": "mcp__task-orchestrator__manage_container",
   "hooks": [
-    {"type": "command", "command": ".claude/hooks/task-complete-commit.sh"}
+    {"type": "command", "command": ".claude/hooks/container-change-handler.sh"}
   ]
 }
 ```
 
-**Use cases**: Auto-commit on completion, send notifications, log metrics
+**Use cases**:
+- Auto-commit on task completion (filter by operation="setStatus" and status="completed")
+- Notify team of new tasks/features (filter by operation="create")
+- Track changes (filter by operation="update")
+- Quality gates on feature completion
+- Create feature branches
+- Sync with external systems
 
-**`mcp__task-orchestrator__create_task`**:
+**Hook script can filter by checking `tool_input`**:
+```bash
+# Extract operation and containerType from JSON input
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty')
+
+# Example: Only act on task completions
+if [ "$OPERATION" = "setStatus" ] && [ "$CONTAINER_TYPE" = "task" ] && [ "$STATUS" = "completed" ]; then
+  # Run your hook logic here
+fi
+```
+
+#### Section Management (v2.0 Unified Tools)
+
+**`mcp__task-orchestrator__manage_sections`** - All section add/update/delete/reorder operations:
 ```json
 {
-  "matcher": "mcp__task-orchestrator__create_task",
+  "matcher": "mcp__task-orchestrator__manage_sections",
   "hooks": [
-    {"type": "command", "command": ".claude/hooks/task-created-notify.sh"}
+    {"type": "command", "command": ".claude/hooks/section-change-handler.sh"}
   ]
 }
 ```
 
-**Use cases**: Notify team of new tasks, create git branch, update external tracker
+**Use cases**: Track documentation changes, validate section content, sync docs
 
-**`mcp__task-orchestrator__update_task`**:
+#### Dependency Management (v2.0 Unified Tools)
+
+**`mcp__task-orchestrator__manage_dependency`** - All dependency create/delete operations:
 ```json
 {
-  "matcher": "mcp__task-orchestrator__update_task",
-  "hooks": [
-    {"type": "command", "command": ".claude/hooks/task-updated-log.sh"}
-  ]
-}
-```
-
-**Use cases**: Track changes, sync with external systems
-
-#### Feature Management Tools
-
-**`mcp__task-orchestrator__update_feature`**:
-```json
-{
-  "matcher": "mcp__task-orchestrator__update_feature",
-  "hooks": [
-    {"type": "command", "command": ".claude/hooks/feature-complete-gate.sh"}
-  ]
-}
-```
-
-**Use cases**: Quality gates, test validation, documentation checks
-
-**`mcp__task-orchestrator__create_feature`**:
-```json
-{
-  "matcher": "mcp__task-orchestrator__create_feature",
-  "hooks": [
-    {"type": "command", "command": ".claude/hooks/feature-created-branch.sh"}
-  ]
-}
-```
-
-**Use cases**: Create feature branches, initialize documentation, notify stakeholders
-
-#### Dependency Tools
-
-**`mcp__task-orchestrator__create_dependency`**:
-```json
-{
-  "matcher": "mcp__task-orchestrator__create_dependency",
+  "matcher": "mcp__task-orchestrator__manage_dependency",
   "hooks": [
     {"type": "command", "command": ".claude/hooks/dependency-graph-update.sh"}
   ]
 }
 ```
 
-**Use cases**: Update dependency graphs, validate circular dependencies
+**Use cases**: Update dependency graphs, validate circular dependencies, track blockers
 
 ### Database Schema Reference
 
@@ -1501,7 +1485,7 @@ See `.claude/hooks/task-manager/scripts/feature-complete-gate-test.sh` for a com
 
 **Check**:
 1. Verify `.claude/settings.local.json` exists (not `.example`)
-2. Check matcher is exact: `mcp__task-orchestrator__set_status`
+2. Check matcher is exact: `mcp__task-orchestrator__manage_container` (v2.0 consolidated tool)
 3. Verify hook script path is correct
 4. Make script executable: `chmod +x .claude/hooks/script.sh`
 5. Check Claude Code console for hook errors
@@ -1782,15 +1766,15 @@ EOF
 # This provides automatic checkpointing of work as tasks finish.
 #
 # Hook Event: PostToolUse
-# Matcher: mcp__task-orchestrator__set_status
-# Trigger: When status is set to "completed"
+# Matcher: mcp__task-orchestrator__manage_container
+# Trigger: When operation="setStatus" and status="completed"
 #
 # Usage:
 #   Configure in .claude/settings.local.json:
 #   {
 #     "hooks": {
 #       "PostToolUse": [{
-#         "matcher": "mcp__task-orchestrator__set_status",
+#         "matcher": "mcp__task-orchestrator__manage_container",
 #         "hooks": [{
 #           "type": "command",
 #           "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-complete-commit.sh"
@@ -2185,7 +2169,7 @@ Task Orchestrator includes three production-ready hooks:
 
 **Purpose**: Automatically creates git commits when tasks are marked complete
 
-**Triggers**: `mcp__task-orchestrator__set_status` when status='completed'
+**Triggers**: `mcp__task-orchestrator__manage_container` when operation="setStatus" and status="completed"
 
 **Actions**:
 - Retrieves task title from database
@@ -2198,7 +2182,7 @@ Task Orchestrator includes three production-ready hooks:
 {
   "hooks": {
     "PostToolUse": [{
-      "matcher": "mcp__task-orchestrator__set_status",
+      "matcher": "mcp__task-orchestrator__manage_container",
       "hooks": [{
         "type": "command",
         "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-manager/scripts/task-complete-commit.sh"
@@ -2224,7 +2208,7 @@ Automated-By: Claude Code task-complete-commit hook
 
 **Purpose**: Quality gate that blocks feature completion if tests fail
 
-**Triggers**: `mcp__task-orchestrator__update_feature` when status='completed'
+**Triggers**: `mcp__task-orchestrator__manage_container` when operation="setStatus", containerType="feature", and status="completed"
 
 **Actions**:
 - Runs `./gradlew test` to verify all tests pass
@@ -2236,7 +2220,7 @@ Automated-By: Claude Code task-complete-commit hook
 {
   "hooks": {
     "PostToolUse": [{
-      "matcher": "mcp__task-orchestrator__update_feature",
+      "matcher": "mcp__task-orchestrator__manage_container",
       "hooks": [{
         "type": "command",
         "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-manager/scripts/feature-complete-gate.sh",
@@ -2367,40 +2351,52 @@ See `src/main/resources/skills/hook-builder/hook-templates.md` for 11 copy-paste
 | macOS | `~/Library/Application Support/Claude/config/settings.json` |
 | Linux | `~/.config/Claude/config/settings.json` |
 
-### Tool Matcher Reference
+### Tool Matcher Reference (v2.0 Consolidated Tools)
 
-**Task Management**:
-- `mcp__task-orchestrator__create_task`
-- `mcp__task-orchestrator__get_task`
-- `mcp__task-orchestrator__update_task`
-- `mcp__task-orchestrator__delete_task`
-- `mcp__task-orchestrator__set_status`
-- `mcp__task-orchestrator__search_tasks`
-
-**Feature Management**:
-- `mcp__task-orchestrator__create_feature`
-- `mcp__task-orchestrator__get_feature`
-- `mcp__task-orchestrator__update_feature`
-- `mcp__task-orchestrator__delete_feature`
-- `mcp__task-orchestrator__search_features`
-
-**Project Management**:
-- `mcp__task-orchestrator__create_project`
-- `mcp__task-orchestrator__get_project`
-- `mcp__task-orchestrator__update_project`
-- `mcp__task-orchestrator__delete_project`
-
-**Dependency Management**:
-- `mcp__task-orchestrator__create_dependency`
-- `mcp__task-orchestrator__delete_dependency`
-- `mcp__task-orchestrator__get_task_dependencies`
+**Container Management** (Projects, Features, Tasks):
+- `mcp__task-orchestrator__manage_container` - All create/update/delete/setStatus operations
+  - Filter by `tool_input.operation`: create, update, delete, setStatus, bulkUpdate
+  - Filter by `tool_input.containerType`: task, feature, project
+- `mcp__task-orchestrator__query_container` - All get/search/export/overview operations
+  - Filter by `tool_input.operation`: get, search, export, overview
 
 **Section Management**:
-- `mcp__task-orchestrator__add_section`
-- `mcp__task-orchestrator__update_section`
-- `mcp__task-orchestrator__update_section_text`
-- `mcp__task-orchestrator__delete_section`
-- `mcp__task-orchestrator__get_sections`
+- `mcp__task-orchestrator__manage_sections` - All add/update/delete/reorder operations
+  - Filter by `tool_input.operation`: add, update, updateText, updateMetadata, delete, reorder
+- `mcp__task-orchestrator__query_sections` - Section query operations
+
+**Dependency Management**:
+- `mcp__task-orchestrator__manage_dependency` - All create/delete operations
+  - Filter by `tool_input.operation`: create, delete
+- `mcp__task-orchestrator__query_dependencies` - Dependency query operations
+
+**Template Management**:
+- `mcp__task-orchestrator__manage_template` - Template create/update/delete operations
+- `mcp__task-orchestrator__query_templates` - Template query operations
+- `mcp__task-orchestrator__apply_template` - Apply templates to entities
+
+**Agent & Workflow** (Claude Code only):
+- `mcp__task-orchestrator__recommend_agent` - Get specialist recommendations
+- `mcp__task-orchestrator__get_agent_definition` - Read agent definitions
+- `mcp__task-orchestrator__get_next_status` - Status progression recommendations
+- `mcp__task-orchestrator__query_workflow_state` - Complete workflow state query
+
+**Analysis Tools**:
+- `mcp__task-orchestrator__get_next_task` - Task recommendations with dependency checking
+- `mcp__task-orchestrator__get_blocked_tasks` - Find blocked tasks
+
+**Tag Management**:
+- `mcp__task-orchestrator__list_tags` - List all tags with usage counts
+- `mcp__task-orchestrator__get_tag_usage` - Show entities using a tag
+- `mcp__task-orchestrator__rename_tag` - Rename tags across entities
+
+**Tip**: Use `tool_input` filters in your hook scripts to react to specific operations. Example:
+```bash
+OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation')
+CONTAINER_TYPE=$(echo "$INPUT" | jq -r '.tool_input.containerType')
+# Only act on task completions
+[[ "$OPERATION" = "setStatus" && "$CONTAINER_TYPE" = "task" ]] && handle_completion
+```
 
 See [api-reference.md](api-reference.md) for complete tool documentation.
 
@@ -2618,7 +2614,7 @@ fi
 - **[Hook Templates](../src/main/resources/skills/hook-builder/hook-templates.md)** - 11 copy-paste templates
 - **[Hook Builder Skill](../src/main/resources/skills/hook-builder/SKILL.md)** - Interactive hook creation
 - **[API Reference](api-reference.md)** - Complete MCP tools documentation
-- **[Agent Orchestration](agent-orchestration.md)** - Subagent workflow guide
+- **[Agent Architecture](agent-architecture.md)** - Agent coordination and hybrid architecture guide
 
 ### Example Hooks
 

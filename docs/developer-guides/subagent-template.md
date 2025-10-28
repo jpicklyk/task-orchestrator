@@ -155,6 +155,101 @@ model: [sonnet|opus]
 
 **Prevention tip**: Use a character counter or write summary in text editor first, verify length, then populate field.
 
+## v2.0 Query Patterns (Token Optimization)
+
+### Scoped Overview Pattern
+
+When you need hierarchical task context WITHOUT full section content (e.g., checking feature progress, understanding task dependencies):
+
+**Use scoped overview for 85-90% token savings:**
+```javascript
+// Get feature with task list (NO section content)
+query_container(
+  operation="overview",
+  containerType="feature",
+  id="feature-uuid"
+)
+// Returns: feature metadata + tasks array + task counts (NO sections)
+// Token cost: ~1,200 tokens vs ~18,500 with full sections (93% reduction)
+```
+
+**When to use overview vs get:**
+- ✅ **Use overview**: "Show me feature progress", "What tasks remain?", "Check dependencies"
+- ❌ **Don't use overview**: "Read task requirements", "Show technical approach section"
+
+**Pattern:**
+1. Use `operation="overview"` for hierarchical views (feature + tasks, project + features)
+2. Use `operation="get"` with `includeSections=true` ONLY when you need section content
+3. Default to overview for dependency checking and progress tracking
+
+### Agent Routing with recommend_agent
+
+**Automatic specialist selection** based on task tags:
+
+```javascript
+// Get specialist recommendation for a task
+recommend_agent(taskId="task-uuid")
+
+// Returns:
+// {
+//   "recommended": true,
+//   "agent": "Backend Engineer",
+//   "reason": "Task tags match backend category",
+//   "matchedTags": ["backend", "api", "rest"],
+//   "sectionTags": ["technical-approach", "implementation"]
+// }
+```
+
+**When specialists should call recommend_agent:**
+- Planning Specialist: After breaking down feature into tasks, recommend specialist for each
+- Feature Architect: When delegating technical implementation tasks
+- Senior Engineer: When unblocking others or routing subtasks
+
+**Usage pattern:**
+1. Call `recommend_agent(taskId="...")` for each task needing routing
+2. Read response to determine which specialist should handle the task
+3. Return recommendation in your output: "Task T1 → Backend Engineer (matched: backend, api tags)"
+
+### Status Progression Skill Integration
+
+**v2.0 uses config-driven status workflows** with prerequisite validation. When marking tasks complete:
+
+**DON'T manually call setStatus without validation:**
+```javascript
+❌ manage_container(operation="setStatus", status="completed")  // May fail if prerequisites not met
+```
+
+**DO use prerequisite-aware status changes:**
+```javascript
+✅ Step 1: Populate summary (300-500 chars - REQUIRED)
+manage_container(operation="update", id="...", summary="...")
+
+✅ Step 2: Complete tasks with validation
+manage_container(operation="setStatus", id="...", status="completed")
+// System validates: summary length, no blocking dependencies, required sections
+// Fails with clear error if prerequisites not met
+```
+
+**Prerequisite validation checks (automatic):**
+- ✅ Task summary: 300-500 characters (blocks completion if missing/invalid)
+- ✅ Blocking dependencies: All BLOCKS dependencies must be completed
+- ✅ Feature completion: All tasks must be completed before feature can complete
+- ✅ Project completion: All features must be completed
+
+**If setStatus fails:**
+1. Read error message for specific blocker (e.g., "Summary too short: 45 chars (need 300-500)")
+2. Fix the prerequisite (e.g., expand summary to 300+ chars)
+3. Retry setStatus
+4. Repeat until prerequisites met
+
+**Status Progression Skill (Claude Code only):**
+The Status Progression Skill provides AI-friendly status guidance by:
+- Interpreting config-driven workflow rules
+- Explaining prerequisite validation errors
+- Suggesting next valid status transitions
+
+**Note**: Subagents call `manage_container(operation="setStatus")` directly. The Skill is for orchestrator-level coordination.
+
 ## [Agent-Specific Critical Section if needed]
 
 [Optional section for mandatory steps like test validation, build verification, etc.]
@@ -762,6 +857,9 @@ Before finalizing a specialist file, verify:
 - [ ] Summary validation emphasis in workflow step 6 and step 8 (prerequisite check)
 - [ ] Warning that summary validation blocks task completion
 - [ ] "Files Changed" section creation instructions included (ordinal 999, tags "files-changed,completion")
+- [ ] v2.0 Query Patterns section with scoped overview pattern
+- [ ] Agent Routing section with recommend_agent usage
+- [ ] Status Progression Skill Integration section with prerequisite validation
 
 ## Token Optimization
 
@@ -781,4 +879,5 @@ Before finalizing a specialist file, verify:
 
 ## Version History
 
+- **v2.0** (2025-10-28): Added v2.0 query patterns - scoped overview for token optimization, recommend_agent routing, status progression skill integration with prerequisite validation
 - **v1.0** (2025-10-20): Initial standardized template based on analysis of 9 existing specialists

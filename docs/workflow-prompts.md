@@ -429,7 +429,7 @@ Coordination Workflow:
 2. Skill Selected: Feature Management Skill
 3. Invocation: Natural language triggers Skill
 4. Skill Executes:
-   - get_feature(id, includeTasks=true, includeTaskDependencies=true)
+   - query_container(operation="get", containerType="feature", id=id, includeTasks=true, includeTaskDependencies=true)
    - get_next_task(featureId, limit=1, includeDetails=true)
    - Analyzes task priorities and dependencies
 5. Output Processed:
@@ -452,13 +452,13 @@ Coordination Workflow:
 2. Skill Selected: Task Management Skill
 3. Invocation: "Complete task T1"
 4. Skill Executes:
-   - get_task(T1, includeSections=true)
-   - add_section(entityType=TASK, title="Summary", content="...")
-   - set_status(T1, status="completed")
+   - query_container(operation="get", containerType="task", id=T1, includeSections=true)
+   - manage_sections(operation="add", entityType=TASK, title="Summary", content="...")
+   - manage_container(operation="setStatus", containerType="task", id=T1, status="completed")
 5. Output Processed:
    "Task T1 completed. Summary section created documenting implementation of user login API."
 6. Hook Triggers (if configured):
-   - PostToolUse hook on set_status
+   - PostToolUse hook on manage_container (operation="setStatus")
    - Auto-creates git commit with task details
    - 0 additional tokens
 7. Next Action: Return confirmation to user
@@ -476,9 +476,9 @@ Coordination Workflow:
 2. Skill Selected: Dependency Analysis Skill
 3. Invocation: "Why is task T5 blocked?"
 4. Skill Executes:
-   - get_task(T5, includeSections=true)
+   - query_container(operation="get", containerType="task", id=T5, includeSections=true)
    - get_task_dependencies(T5, direction=incoming)
-   - For each dependency: get_task(id) to check status
+   - For each dependency: query_container(operation="get", containerType="task", id=id) to check status
    - Analyzes blocker impact
 5. Output Processed:
    "Task T5 blocked by 2 incomplete dependencies:
@@ -674,7 +674,7 @@ Skills (coordination - 300-600 tokens)
 Subagents (complex work - 1500-3000 tokens)
 ```
 
-**See**: [Skills Guide](skills-guide.md) for complete Skills documentation and [Hybrid Architecture](hybrid-architecture.md) for decision patterns.
+**See**: [Skills Guide](skills-guide.md) for complete Skills documentation and [Agent Architecture](agent-architecture.md) for decision patterns.
 
 ---
 

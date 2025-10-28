@@ -516,7 +516,7 @@ project-root/
 ### Additional Resources
 
 For detailed hybrid architecture documentation, see:
-- [Hybrid Architecture Decision Guide](../hybrid-architecture.md) - Complete decision flowchart
+- [Agent Architecture Guide](../agent-architecture.md) - Complete architecture and decision flowchart
 - [Skills Guide](../skills-guide.md) - Comprehensive Skills documentation
 - [Hooks Guide](../hooks-guide.md) - Comprehensive Hooks documentation
 - [`.claude/skills/README.md`](../../.claude/skills/README.md) - Skills quick reference
@@ -998,7 +998,7 @@ Scaling: 100+ tasks possible within context limits
 ### Additional Resources
 
 For detailed sub-agent orchestration documentation, see:
-- [Agent Orchestration Guide](../agent-orchestration.md) - Complete workflow patterns
+- [Agent Architecture Guide](../agent-architecture.md) - Complete workflow patterns and architecture
 - [Token Reduction Examples](../token-reduction-examples.md) - Quantitative efficiency analysis
 
 ---
@@ -1943,7 +1943,7 @@ fun configureWorkflowPrompts(server: Server) {
 - [Templates Guide](../templates.md) - Template system and usage
 
 ### Sub-Agent Orchestration
-- [Agent Orchestration Guide](../agent-orchestration.md) - 3-level architecture, workflow patterns, setup
+- [Agent Architecture Guide](../agent-architecture.md) - 3-level architecture, workflow patterns, setup
 - [Token Reduction Examples](../token-reduction-examples.md) - Quantitative efficiency analysis
 
 ### External Resources

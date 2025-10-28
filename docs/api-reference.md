@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference (v2.0)
 
-The MCP Task Orchestrator v2.0 provides **17 consolidated MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
+The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
 
 > **Migration from v1.x**: See [v2.0 Migration Guide](migration/v2.0-migration-guide.md) for complete migration instructions.
 
@@ -30,12 +30,15 @@ The MCP Task Orchestrator v2.0 provides **17 consolidated MCP tools** for AI-dri
   - [list_tags](#list_tags) 🔍
   - [get_tag_usage](#get_tag_usage) 🔍
   - [rename_tag](#rename_tag) ✏️
+- [System Tools](#system-tools)
+  - [setup_project](#setup_project) ✏️
 - [Agent Tools](#agent-tools) (Claude Code Only)
   - [setup_claude_orchestration](#setup_claude_orchestration) ✏️
   - [get_agent_definition](#get_agent_definition) 🔍
   - [recommend_agent](#recommend_agent) 🔍
 - [Workflow Tools](#workflow-tools)
   - [get_next_status](#get_next_status) 🔍
+  - [query_workflow_state](#query_workflow_state) 🔍
 - [Permission Model](#permission-model)
 - [Best Practices](#best-practices)
 
@@ -47,7 +50,7 @@ The MCP Task Orchestrator v2.0 provides **17 consolidated MCP tools** for AI-dri
 
 ### Massive Consolidation
 
-**v1.x: 56 tools** → **v2.0: 17 tools** (70% reduction)
+**v1.x: 56 tools** → **v2.0: 19 tools** (68% reduction)
 
 | Category | v1.x Tools | v2.0 Tools | Reduction |
 |----------|------------|------------|-----------|
@@ -97,12 +100,15 @@ The MCP Task Orchestrator v2.0 provides **17 consolidated MCP tools** for AI-dri
 | `list_tags` | 🔍 READ | (single operation) | List all unique tags |
 | `get_tag_usage` | 🔍 READ | (single operation) | Find entities using tag |
 | `rename_tag` | ✏️ WRITE | (single operation) | Bulk rename tags |
-| **Agent Tools** |
-| `setup_claude_orchestration` | ✏️ WRITE | (single operation) | Initialize agent system |
+| **System Tools** |
+| `setup_project` | ✏️ WRITE | (single operation) | Initialize Task Orchestrator project config |
+| **Agent Tools** (Claude Code) |
+| `setup_claude_orchestration` | ✏️ WRITE | (single operation) | Initialize Claude Code agent system |
 | `get_agent_definition` | 🔍 READ | (single operation) | Get agent metadata |
 | `recommend_agent` | 🔍 READ | (single operation) | Route task to skill/agent |
 | **Workflow Tools** |
 | `get_next_status` | 🔍 READ | (single operation) | Status progression recommendations |
+| `query_workflow_state` | 🔍 READ | (single operation) | Query complete workflow state |
 
 ---
 
@@ -2103,6 +2109,33 @@ Tags provide categorization and organization across all entities.
 
 ---
 
+## System Tools
+
+System tools manage Task Orchestrator project initialization and configuration.
+
+### setup_project
+
+**Permission**: ✏️ WRITE
+
+**Purpose**: Initialize Task Orchestrator project configuration files
+
+Creates `.taskorchestrator/` directory with:
+- `config.yaml` - Core orchestrator configuration
+- `status-workflow-config.yaml` - Workflow definitions
+- `agent-mapping.yaml` - Agent routing configuration
+- `orchestration/` - Workflow automation files
+
+**Parameters**: None required
+
+**Key Features**:
+- Idempotent (safe to run multiple times)
+- Won't overwrite customizations
+- Detects outdated configurations
+
+**Detailed Documentation**: [setup_project](tools/setup-project.md)
+
+---
+
 ## Agent Tools
 
 Agent tools support Claude Code agent orchestration (Skills and Subagents).
@@ -2508,6 +2541,87 @@ manage_container(operation="setStatus", containerType="task",
 - **[Status Progression Guide](status-progression.md)** - Comprehensive workflow examples
 - **[config.yaml Reference](../src/main/resources/orchestration/default-config.yaml)** - Status flow configuration
 - **[Status Progression Skill](.claude/skills/status-progression/SKILL.md)** - Claude Code skill documentation
+
+---
+
+### query_workflow_state
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Query comprehensive workflow state for any container
+
+**Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `containerType` | enum | **Yes** | Type: `task`, `feature`, or `project` |
+| `id` | UUID | **Yes** | Container ID to query workflow state for |
+
+#### What It Returns
+
+Complete workflow state including:
+- **Current status** and **active workflow flow** (based on entity tags)
+- **Allowed transitions** from current status (based on config)
+- **Detected cascade events** that may trigger related entity updates
+- **Prerequisites for each transition** (what must be met before transitioning)
+
+#### Use Cases
+
+1. **Pre-flight check** - Verify prerequisites before status changes
+2. **Cascade preview** - See what will happen when you complete a task
+3. **Debug workflow issues** - Understand why status change failed
+4. **Discover allowed transitions** - See all valid next statuses
+
+#### Example Request
+
+```json
+{
+  "containerType": "task",
+  "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+}
+```
+
+#### Example Response
+
+```json
+{
+  "success": true,
+  "message": "Workflow state retrieved successfully",
+  "data": {
+    "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+    "containerType": "task",
+    "currentStatus": "in-progress",
+    "activeFlow": "default_flow",
+    "allowedTransitions": ["testing", "in-review", "blocked", "on-hold"],
+    "detectedEvents": [],
+    "prerequisites": {
+      "testing": {
+        "met": false,
+        "requirements": [
+          "Summary must be 300-500 characters",
+          "No incomplete blocking dependencies"
+        ],
+        "blockingReasons": [
+          "Summary too short: 50 characters (need 300-500)"
+        ]
+      },
+      "blocked": {
+        "met": true,
+        "requirements": ["Emergency transition - no prerequisites"]
+      }
+    }
+  }
+}
+```
+
+#### Related Tools
+
+- `get_next_status` - Get intelligent recommendations (uses query_workflow_state internally)
+- `manage_container` (setStatus) - Apply status changes after validation
+
+#### Detailed Documentation
+
+**[query_workflow_state](tools/query-workflow-state.md)** - Complete reference with examples
 
 ---
 

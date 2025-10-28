@@ -5,6 +5,7 @@ Comprehensive guide to status workflows, validation rules, and integration patte
 ## Table of Contents
 
 - [Overview](#overview)
+- [Event-Driven Architecture (v2.0)](#event-driven-architecture-v20)
 - [Status Flow Diagrams](#status-flow-diagrams)
 - [Hook Integration Examples](#hook-integration-examples)
 - [Workflow Scenarios](#workflow-scenarios)
@@ -54,6 +55,40 @@ Status Progression Skill (formats for user)
     ↓
 Natural language response with commands
 ```
+
+## Event-Driven Architecture (v2.0)
+
+Task Orchestrator v2.0 uses an **event-driven status progression pattern** where Skills detect workflow events and delegate to the Status Progression system for intelligent status recommendations.
+
+### Core Principle
+
+**Skills detect workflow events, not status names.** The Status Progression system determines appropriate status transitions based on your configuration.
+
+### Universal Workflow Events
+
+**Feature Events** that trigger status checks:
+- `first_task_started` - First task begins execution → May progress feature to in-development
+- `all_tasks_complete` - All tasks finished → May progress to testing/completed
+- `tests_passed` / `tests_failed` - Quality validation results
+- `review_approved` / `changes_requested` - Human review outcomes
+- `blocker_detected` / `feature_cancelled` - Exception handling
+
+**Task Events** that trigger status checks:
+- `work_started` - Implementation begins → May move to in-progress
+- `implementation_complete` - Code + tests written → May move to testing/review
+- `tests_passed` / `tests_failed` - Automated test results
+- `review_approved` / `changes_requested` - Code review outcomes
+- `blocker_detected` / `task_cancelled` - Exception handling
+
+**How It Works:**
+1. **Event occurs** (task completes, tests run, etc.)
+2. **Skills detect event** using query tools
+3. **Skills delegate** to Status Progression Skill
+4. **get_next_status tool analyzes** state and config
+5. **Recommendation returned** based on your configured flows
+6. **Status change applied** if prerequisites met
+
+This architecture ensures status progression adapts to your custom workflows without hardcoding status names in Skills.
 
 ## Status Flow Diagrams
 

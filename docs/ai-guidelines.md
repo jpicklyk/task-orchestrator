@@ -108,9 +108,8 @@ Specialists (Implementation: 1500-3000 tokens)
 ### Complete Documentation
 
 See these guides for detailed information:
-- **[Hybrid Architecture](hybrid-architecture.md)** - Skills, Hooks, and Subagents decision guide
+- **[Agent Architecture](agent-architecture.md)** - Complete agent coordination, hybrid architecture, and specialist patterns
 - **[Skills Guide](skills-guide.md)** - Task Management, Feature Management, Dependency Analysis Skills
-- **[Agent Orchestration](agent-orchestration.md)** - Specialist patterns and workflows
 - **[Hooks Guide](hooks-guide.md)** - Zero-token automation patterns
 
 ---
@@ -244,9 +243,9 @@ AI Workflow:
 User: "Mark task T4 complete"
 
 → Task Management Skill activates (450 tokens)
-  1. get_task(id="T4", includeSections=true)
-  2. add_section(title="Summary", content="...")
-  3. set_status(taskId="T4", status="completed")
+  1. query_container(operation="get", containerType="task", id="T4", includeSections=true)
+  2. manage_sections(operation="add", entityType="TASK", title="Summary", content="...")
+  3. manage_container(operation="setStatus", containerType="task", id="T4", status="completed")
   4. Returns: "Task completed. Summary created."
 
 vs Subagent approach: 1500 tokens (70% savings)
@@ -263,7 +262,7 @@ vs Subagent approach: 1500 tokens (70% savings)
 User: "What should I work on next in this feature?"
 
 → Feature Management Skill activates (300 tokens)
-  1. get_feature(includeTasks=true, includeTaskDependencies=true)
+  1. query_container(operation="get", containerType="feature", includeTasks=true, includeTaskDependencies=true)
   2. get_next_task(featureId="...", limit=1)
   3. Returns: "Task T5: Add authentication tests (high priority, unblocked)"
 
@@ -372,14 +371,14 @@ Total: 450 tokens vs 1500 with subagent handling git (70% savings)
 - Single MCP tool call needed
 - All parameters known
 - No coordination required
-- Example: `create_task(title="...", templateIds=["..."])`
+- Example: `manage_container(operation="create", containerType="task", title="...", templateIds=["..."])`
 
 **Use Skills when**:
 - 2-5 tool calls in sequence
 - Coordination operation
 - Repetitive workflow
 - Token efficiency matters
-- Example: "Complete this task" (get_task + add_section + set_status)
+- Example: "Complete this task" (query_container + manage_sections + manage_container)
 
 **Use Subagents when**:
 - Code generation needed
@@ -554,7 +553,7 @@ AI: [Coordination task - use Skill]
     "I'll use the Task Management Skill for routing."
 
 Skill executes:
-  1. get_task(T1, includeSections=true)
+  1. query_container(operation="get", containerType="task", id=T1, includeSections=true)
   2. recommend_agent(taskId=T1) → "Backend Engineer"
   3. Returns: "Backend Engineer recommended for T1"
 
@@ -884,7 +883,7 @@ Acceptance Criteria:
 
 **Simple (Templates only)**:
 ```
-You: create_task(templateIds=["technical-approach", "testing-strategy"])
+You: manage_container(operation="create", containerType="task", templateIds=["technical-approach", "testing-strategy"])
 You: Read technical-approach section
 You: Implement the code yourself
 You: Read testing-strategy section
@@ -2918,18 +2917,16 @@ Token Savings: 95% (11,850 characters saved)
 **Priority Adjustments** (Updating urgency across tasks):
 ```
 ❌ INEFFICIENT:
-update_task({"id": "task-1", "priority": "high"})
-update_task({"id": "task-2", "priority": "high"})
-update_task({"id": "task-3", "priority": "high"})
+manage_container(operation="update", containerType="task", id="task-1", priority="high")
+manage_container(operation="update", containerType="task", id="task-2", priority="high")
+manage_container(operation="update", containerType="task", id="task-3", priority="high")
 
 ✅ EFFICIENT:
-bulk_update_tasks({
-  "tasks": [
-    {"id": "task-1", "priority": "high"},
-    {"id": "task-2", "priority": "high"},
-    {"id": "task-3", "priority": "high"}
-  ]
-})
+manage_container(operation="bulkUpdate", containerType="task", containers=[
+  {"id": "task-1", "priority": "high"},
+  {"id": "task-2", "priority": "high"},
+  {"id": "task-3", "priority": "high"}
+])
 ```
 
 **Status Progression** (Moving tasks through workflow):

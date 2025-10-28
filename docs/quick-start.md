@@ -235,7 +235,7 @@ Task Orchestrator provides a **4-tier hybrid architecture** for different operat
 
 | Tier | Use For | Token Cost | Example |
 |------|---------|------------|---------|
-| **Direct Tools** | Single operations | 50-100 | `create_task(...)` |
+| **Direct Tools** | Single operations | 50-100 | `manage_container(...)` |
 | **Skills** | Coordination (2-5 tools) | 300-600 | "What's next?" |
 | **Subagents** | Complex implementation | 1500-3000 | Backend Engineer |
 | **Hooks** | Side effects | 0 | Auto-commit on complete |
@@ -277,7 +277,7 @@ Total: 450 tokens vs 1500 with subagent (70% savings)
 
 **Learn More**:
 - **Skills Catalog**: `.claude/skills/README.md` - Complete Skills reference
-- **Decision Guide**: `docs/hybrid-architecture.md` - When to use what tier
+- **Decision Guide**: `docs/agent-architecture.md` - When to use what tier
 - **Skills Guide**: `docs/skills-guide.md` - Comprehensive examples and creation
 
 ---
@@ -762,7 +762,7 @@ Modern checkout with payment processing, inventory validation, order confirmatio
 
 ### Learn More
 
-- **[🤖 Agent Orchestration](agent-orchestration.md)** - Complete sub-agent coordination guide
+- **[🤖 Agent Architecture](agent-architecture.md)** - Complete agent coordination guide and hybrid architecture
 - **[📊 Token Reduction Examples](token-reduction-examples.md)** - Quantitative before/after analysis
 - **[📝 Templates](templates.md)** - 9 built-in templates explained
 - **[🤖 AI Guidelines](ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
