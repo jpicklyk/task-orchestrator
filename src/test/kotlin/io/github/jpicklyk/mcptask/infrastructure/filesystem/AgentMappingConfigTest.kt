@@ -11,20 +11,17 @@ import kotlin.test.*
 class AgentMappingConfigTest {
 
     /**
-     * Helper function to load agent-mapping.yaml and extract main config (skipping frontmatter).
-     * YAML files now have frontmatter (first document) followed by main config (second document).
+     * Helper function to load agent-mapping.yaml configuration.
+     * Loads single-document YAML configuration file.
      */
     private fun loadAgentMappingConfig(): Map<String, Any> {
         val resourceStream = javaClass.getResourceAsStream("/claude/configuration/agent-mapping.yaml")
         assertNotNull(resourceStream, "agent-mapping.yaml should exist in resources")
 
         val yaml = Yaml()
-        val documents = yaml.loadAll(resourceStream).toList()
-        assertTrue(documents.size >= 2, "Should have frontmatter and main config documents")
-
         @Suppress("UNCHECKED_CAST")
-        val config = documents[1] as? Map<String, Any>
-        assertNotNull(config, "agent-mapping.yaml main config should be valid")
+        val config = yaml.load(resourceStream) as? Map<String, Any>
+        assertNotNull(config, "agent-mapping.yaml should be valid YAML")
         return config
     }
 

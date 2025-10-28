@@ -739,6 +739,14 @@ class AgentRecommendationServiceImplTest {
     @Nested
     inner class ActualConfigFileIntegration {
 
+        @BeforeEach
+        fun setup() {
+            // Set up the agent configuration for tests
+            val agentDirectoryManager = AgentDirectoryManager()
+            agentDirectoryManager.createDirectoryStructure()
+            agentDirectoryManager.copyDefaultAgentMapping()
+        }
+
         @Test
         fun `should successfully load and parse actual agent-mapping yaml file`() {
             // Arrange - Use real AgentDirectoryManager (no mocking)

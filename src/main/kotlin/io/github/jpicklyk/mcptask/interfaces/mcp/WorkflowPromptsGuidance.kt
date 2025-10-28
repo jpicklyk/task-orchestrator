@@ -25,6 +25,7 @@ object WorkflowPromptsGuidance {
         addProjectSetupPrompt(server)
         addUpdateProjectConfigPrompt(server)
         addImplementationWorkflowPrompt(server)
+        addCoordinateFeatureDevelopmentPrompt(server)
     }
 
     /**
@@ -2458,6 +2459,41 @@ object WorkflowPromptsGuidance {
                             This workflow provides simple defaults with full customization through AI memory, enabling team-specific workflows without code changes.
                             """.trimIndent()
                         )
+                    )
+                ),
+                _meta = JsonObject(emptyMap())
+            )
+        }
+    }
+
+    /**
+     * Adds a lightweight feature development coordination prompt that guides AI agents through
+     * four phases of feature development, delegating to Skills for detailed guidance.
+     *
+     * This replaces the previous full_orchestration_workflow with a slim, phase-focused coordinator
+     * that reduces token usage by 45% (from ~8,500 to ~4,650 tokens on first load).
+     */
+    private fun addCoordinateFeatureDevelopmentPrompt(server: Server) {
+        server.addPrompt(
+            name = "coordinate_feature_development",
+            description = "Coordinate feature development through four phases (Feature Creation, Task Breakdown, Task Execution, Feature Completion) using Skills for detailed guidance"
+        ) { _ ->
+            val workflowContent = try {
+                this::class.java.classLoader
+                    .getResourceAsStream("workflows/coordinate-feature-development.md")
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    ?: "# Coordinate Feature Development\n\nWorkflow file not found. Please ensure coordinate-feature-development.md exists in src/main/resources/workflows/"
+            } catch (e: Exception) {
+                "# Coordinate Feature Development\n\nError loading workflow: ${e.message}"
+            }
+
+            GetPromptResult(
+                description = "Lightweight phase coordinator for feature development - Skills provide detailed templates, examples, and error handling",
+                messages = listOf(
+                    PromptMessage(
+                        role = Role.assistant,
+                        content = TextContent(text = workflowContent.trimIndent())
                     )
                 ),
                 _meta = JsonObject(emptyMap())
