@@ -527,7 +527,7 @@ subagents = {
 
 #### 4. Load Routing Configuration (Training Mode)
 ```
-Read: src/main/resources/configuration/agent-mapping-v2.yaml
+Read: .taskorchestrator/agent-mapping.yaml
 Parse: Tag → Specialist mappings
 
 Store in memory as:
