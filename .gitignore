@@ -68,3 +68,4 @@ CLAUDE.local.md
 ### Temporary plans folder ###
 /plans/
 
+/.claude/settings.local.json
