@@ -752,28 +752,30 @@ class OrchestrationSetupManager(
      * @return version string or null if not found
      */
     private fun extractVersionFromYamlFrontmatter(content: String): String? {
-        // Check if content starts with YAML frontmatter delimiter
-        if (!content.trim().startsWith("---")) {
-            return null
-        }
+        // Try YAML frontmatter first (between --- delimiters)
+        if (content.trim().startsWith("---")) {
+            val lines = content.lines()
+            val frontmatterEnd = lines.drop(1).indexOfFirst { it.trim() == "---" }
 
-        // Extract frontmatter section (between first and second ---)
-        val lines = content.lines()
-        val frontmatterEnd = lines.drop(1).indexOfFirst { it.trim() == "---" }
-
-        if (frontmatterEnd == -1) {
-            return null
-        }
-
-        // Parse frontmatter lines looking for version field
-        val frontmatterLines = lines.subList(1, frontmatterEnd + 1)
-        for (line in frontmatterLines) {
-            val trimmed = line.trim()
-            if (trimmed.startsWith("version:")) {
-                // Extract version value (remove quotes if present)
-                val versionValue = trimmed.substringAfter("version:").trim()
-                return versionValue.removeSurrounding("\"").removeSurrounding("'")
+            if (frontmatterEnd != -1) {
+                // Parse frontmatter lines looking for version field
+                val frontmatterLines = lines.subList(1, frontmatterEnd + 1)
+                for (line in frontmatterLines) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("version:")) {
+                        // Extract version value (remove quotes if present)
+                        val versionValue = trimmed.substringAfter("version:").trim()
+                        return versionValue.removeSurrounding("\"").removeSurrounding("'")
+                    }
+                }
             }
+        }
+
+        // Fallback: Try comment-based version (# Version: X.Y.Z)
+        val versionCommentRegex = Regex("""#\s*Version:\s*([0-9]+\.[0-9]+\.[0-9]+)""", RegexOption.IGNORE_CASE)
+        val match = versionCommentRegex.find(content)
+        if (match != null) {
+            return match.groupValues[1]
         }
 
         return null

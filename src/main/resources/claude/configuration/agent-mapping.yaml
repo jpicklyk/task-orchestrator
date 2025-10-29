@@ -1,6 +1,5 @@
 # AI Agent Configuration for Task Orchestrator v2.0
 # Version: 2.0.0
-# Description: Agent routing configuration mapping task tags to appropriate AI specialists and Skills
 # Architecture: Haiku + Skills for standard implementation, Sonnet for complex problems
 #
 # NEW ARCHITECTURE (v2.0):
