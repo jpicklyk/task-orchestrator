@@ -706,9 +706,10 @@ class CreateTaskTool : BaseToolDefinition() {
   - Serves AI guidelines as resources
   - Template for autonomous AI behavior
 
-- `WorkflowPromptsGuidance.kt` - Workflow prompts
-  - 6 workflow automation prompts
-  - Comprehensive workflow scenarios
+- `WorkflowPromptsGuidance.kt` - Workflow prompts registration
+  - 4 workflow automation prompts (initialize, project setup, config update, feature coordination)
+  - Loads workflow content from markdown files (`src/main/resources/workflows/*.md`)
+  - Markdown-based architecture for easy maintenance and version control
 
 #### Entry Point
 - `Main.kt` - Application entry point
@@ -1298,12 +1299,12 @@ data class TemplateSection(
    - Purpose: Structured documentation patterns
    - Discovered: AI queries via `list_templates`
 
-**Workflow Prompts**:
+**Workflow Prompts (v2.0)**:
 - `initialize_task_orchestrator` - AI initialization
-- `create_feature_workflow` - Feature creation
-- `task_breakdown_workflow` - Task decomposition
+- `coordinate_feature_development` - End-to-end feature orchestration (Claude Code)
 - `project_setup_workflow` - Project initialization
-- `implementation_workflow` - Git-aware implementation for tasks, features, and bugs
+- **Skills (Claude Code)**: Feature Management, Task Management, Dependency Analysis for autonomous coordination
+- **Direct Tools**: manage_container, query_container for API-based operations
 
 ---
 

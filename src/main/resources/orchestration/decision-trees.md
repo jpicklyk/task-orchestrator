@@ -18,7 +18,7 @@ Skill assesses complexity:
 │   └─ Skill creates directly with basic templates
 └─ Complex (3+ tasks, unclear scope)?
     ├─ Claude Code: Skill launches Feature Architect subagent
-    └─ Other clients: Skill uses create_feature_workflow prompt
+    └─ Other clients: Skill uses coordinate_feature_development workflow prompt
 ```
 
 ### OPTIMIZATION #5 - File Handoff for Feature Architect
@@ -87,7 +87,7 @@ Skill assesses breakdown:
 │   └─ Skill creates tasks directly
 └─ Complex breakdown (5+ tasks, dependencies)?
     ├─ Claude Code: Skill launches Planning Specialist subagent
-    └─ Other clients: Skill uses task_breakdown_workflow prompt
+    └─ Other clients: Skill uses direct tools (manage_container) for task creation
 ```
 
 ## Task Execution Decision
@@ -103,7 +103,7 @@ Skill workflow:
 ├─ Use recommend_agent() for routing
 └─ Execute:
     ├─ Claude Code: Launch specialists (single or parallel)
-    └─ Other clients: Use implementation_workflow prompt
+    └─ Other clients: Use Task Management Skill or direct tools (manage_container, query_container)
 ```
 
 ### OPTIMIZATION #6 - Trust Planning Specialist's Execution Graph

@@ -216,8 +216,27 @@ Guide me through completion."
 
 **Your action:**
 1. Review skill's guidance
-2. Ask user if needed: "Direct fix or escalate?"
-3. Apply fix or launch Senior Engineer
+2. Ask user if needed (use AskUserQuestion):
+   ```
+   AskUserQuestion(
+     questions: [{
+       question: "How would you like to resolve this blocker?",
+       header: "Resolution",
+       multiSelect: false,
+       options: [
+         {
+           label: "Direct Fix",
+           description: "I'll resolve the issue directly and continue"
+         },
+         {
+           label: "Escalate",
+           description: "Launch Senior Engineer to investigate and resolve"
+         }
+       ]
+     }]
+   )
+   ```
+3. Apply fix or launch Senior Engineer based on user choice
 4. Retry phase
 
 ---
