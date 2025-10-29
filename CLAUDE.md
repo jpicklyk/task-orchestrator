@@ -555,7 +555,13 @@ Task Orchestrator supports three coordination approaches for AI assistants:
 3. Apply via templateIds parameter during creation
 ```
 
-**Key Workflows**: `initialize_task_orchestrator`, `create_feature_workflow`, `task_breakdown_workflow`, `implementation_workflow`
+**Key Workflows**:
+- `initialize_task_orchestrator` - One-time AI setup
+- `coordinate_feature_development` - v2.0 end-to-end orchestration (requires Claude Code + Skills)
+- `project_setup_workflow` - Project configuration
+- `update_project_config` - Config management
+
+**Note**: v1.0 workflows (`create_feature_workflow`, `task_breakdown_workflow`, `implementation_workflow`) removed in v2.0. Use `coordinate_feature_development` or direct tool calls.
 
 See: [workflow-prompts.md](docs/workflow-prompts.md), [templates.md](docs/templates.md)
 
