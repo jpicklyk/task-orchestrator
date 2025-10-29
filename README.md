@@ -60,12 +60,10 @@ docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 
 **Claude Code** (recommended):
 ```bash
-# macOS/Linux
-claude mcp add-json task-orchestrator "{\"type\":\"stdio\",\"command\":\"docker\",\"args\":[\"run\",\"--rm\",\"-i\",\"-v\",\"mcp-task-data:/app/data\",\"-v\",\"$(pwd):/project\",\"-e\",\"AGENT_CONFIG_DIR=/project\",\"ghcr.io/jpicklyk/task-orchestrator:latest\"]}"
-
-# Windows PowerShell
-claude mcp add-json task-orchestrator "{`"type`":`"stdio`",`"command`":`"docker`",`"args`":[`"run`",`"--rm`",`"-i`",`"-v`",`"mcp-task-data:/app/data`",`"-v`",`"${PWD}:/project`",`"-e`",`"AGENT_CONFIG_DIR=/project`",`"ghcr.io/jpicklyk/task-orchestrator:latest`"]}"
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
 ```
+
+This single command works across all platforms (macOS, Linux, Windows).
 
 **Claude Desktop, Cursor, Windsurf**: See [Installation Guide](docs/installation-guide.md) for your platform.
 
