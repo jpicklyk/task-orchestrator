@@ -69,11 +69,22 @@ claude mcp add-json task-orchestrator "{`"type`":`"stdio`",`"command`":`"docker`
 
 **Claude Desktop, Cursor, Windsurf**: See [Installation Guide](docs/installation-guide.md) for your platform.
 
-### 3. Initialize Project
+### 3. Initialize AI & Project
 
-Ask your AI:
+**First time setup** - Initialize your AI with Task Orchestrator patterns:
+```
+"Run the initialize_task_orchestrator workflow"
+```
+This writes Task Orchestrator patterns to your AI's permanent memory (CLAUDE.md, .cursorrules, etc.)
+
+**Project setup** - Initialize your project with configuration:
 ```
 "Run setup_project to initialize Task Orchestrator"
+```
+
+**Quick reference** - View essential patterns anytime:
+```
+"Show me the getting_started guide"
 ```
 
 **That's it!** Your AI can now create and manage tasks with persistent memory.
