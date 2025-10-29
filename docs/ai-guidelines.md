@@ -969,12 +969,11 @@ The system uses three complementary layers to provide comprehensive guidance:
 
 **How It Works**: User or AI invokes a workflow prompt by name, receiving comprehensive instructions for completing a specific scenario.
 
-**Available Prompts**:
+**Available Approaches (v2.0)**:
 - `initialize_task_orchestrator` - AI initialization workflow
-- `create_feature_workflow` - Feature creation with templates
-- `task_breakdown_workflow` - Breaking complex work into tasks
-- `project_setup_workflow` - New project initialization
-- `implementation_workflow` - Smart implementation workflow for tasks, features, and bugs
+- **Skills** - Feature Management, Task Management, Dependency Analysis (Claude Code)
+- **Direct Tools** - manage_container, query_container for API-based operations
+- `project_setup_workflow` - New project initialization (legacy support)
 
 **Characteristics**:
 - User or AI invokable
@@ -1319,9 +1318,9 @@ AI will discover these templates via `list_templates` and suggest them appropria
 
 ---
 
-## Memory-Based Workflow Customization for AI Agents
+## Memory-Based Configuration for AI Agents (v2.0)
 
-The `implementation_workflow` and other workflows support memory-based customization. AI agents should check memory for configuration before applying defaults, enabling teams to customize workflows without code changes.
+AI agents should check memory for configuration before applying defaults, enabling teams to customize their Task Orchestrator workflows and tool usage without code changes. This applies to Skills, direct tool invocation, and any custom workflows.
 
 ### Memory Architecture
 
@@ -1600,21 +1599,21 @@ When no configuration exists, guide users through setup:
 
 ---
 
-### Integration with Workflows
+### Integration with v2.0 Tools and Skills
 
-#### implementation_workflow Integration
+#### Task Implementation (Skills/Direct Tools)
 
-The `implementation_workflow` checks memory at these points:
+When implementing tasks, check memory at these points:
 
 1. **Start** - Load all configuration from memory
 2. **Git Detection** - Check if .git exists, load git preferences
 3. **Branch Creation** - Expand variables using configuration
 4. **PR Decision** - Use use_pull_requests preference
-5. **Custom Steps** - Apply workflow overrides if configured
+5. **Custom Steps** - Apply any configured overrides
 
-#### Feature Creation Workflow Memory Integration
+#### Feature Creation Memory Integration
 
-**create_feature_workflow** can use memory for:
+When creating features or using Feature Management Skill, check memory for:
 
 **Configuration Schema**:
 ```markdown
@@ -1726,7 +1725,7 @@ AI: [Checks memory - found project_standard_features and foundation_tasks]
 
 #### Bug Handling Pattern
 
-**For bugs** (task-type-bug), `implementation_workflow` provides specialized handling:
+**For bugs** (task-type-bug), Task Management Skill and direct tools provide specialized handling:
 
 **Bug Detection**:
 ```
@@ -1856,9 +1855,9 @@ AI: "Fix complete with 5 regression tests:
 
 ### Related Documentation
 
-- **[Workflow Prompts - Memory Customization](workflow-prompts#memory-based-workflow-customization)** - User guide for customization
-- **[implementation_workflow](workflow-prompts#implementation_workflow)** - Workflow that uses memory configuration
-- **[Templates Guide](templates)** - Understanding template validation requirements
+- **[Memory Customization](ai-guidelines#memory-based-configuration-for-ai-agents-v20)** - Configuration for AI agents
+- **[Skills Guide](skills-guide.md)** - Using Skills for autonomous task coordination
+- **[Templates Guide](templates.md)** - Understanding template validation requirements
 
 ---
 
@@ -1899,11 +1898,12 @@ AI: "Fix complete with 5 regression tests:
    - Enforce test documentation (BUG/ROOT CAUSE/FIX comments)
    - Cannot complete bug fix without comprehensive tests
 
-7. **Use implementation_workflow for all work types**
-   - Tasks, features, AND bugs use same workflow
-   - Workflow automatically adapts based on work type detection
+7. **Use Task Management Skill for all work types (Claude Code)**
+   - Tasks, features, AND bugs use same Skills-based approach
+   - Skills automatically adapt based on work type detection
    - Bug-specific guidance kicks in for task-type-bug
    - Memory configuration applies to all work types
+   - Or use direct tools (manage_container, query_container) for API-based coordination
 
 ### For Development Teams
 

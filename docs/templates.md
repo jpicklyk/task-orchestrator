@@ -542,12 +542,12 @@ Custom templates are stored in the database and automatically available to:
 - Integrate MCP tools systematically
 - Offer quality validation checkpoints
 
-Templates work seamlessly with workflow prompts:
+Templates work seamlessly with v2.0 tools and Skills:
 
 - **PRD-Driven Development** ⭐: Analyzes PRD content to systematically apply appropriate templates across all features and tasks based on requirements and technical complexity
-- **create_feature_workflow**: Automatically suggests Context & Background + Requirements Specification templates
-- **task_breakdown_workflow**: Applies Task Implementation Workflow template to subtasks
-- **implementation_workflow**: Auto-detects git and applies appropriate git workflow templates for any work type (tasks, features, and bugs)
+- **Feature Management Skill (v2.0)**: Automatically discovers and suggests Context & Background + Requirements Specification templates
+- **Task Decomposition (v2.0)**: Creates subtasks with Task Implementation Workflow template applied
+- **Task Management Skill (v2.0)**: Auto-detects git and applies appropriate git workflow templates for any work type (tasks, features, and bugs)
 
 ### Templates + Sub-Agents: Working Together
 

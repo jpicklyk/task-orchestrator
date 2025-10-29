@@ -76,20 +76,20 @@ object TaskOrchestratorResources {
 
 Task Orchestrator provides **user-invokable workflow prompts** for common scenarios:
 
-### Feature Development Workflows
-- **`create_feature_workflow`**: Create features with templates and tasks
-- **`implementation_workflow`**: Smart implementation with git detection for tasks, features, and bugs
-- **`task_breakdown_workflow`**: Decompose complex work
+### Feature Development Workflows (v2.0)
+- **`coordinate_feature_development`**: End-to-end feature orchestration with Claude Code Skills
+- **Direct tool calls**: Using consolidated v2.0 tools (manage_container, query_container)
+- **Template discovery**: Automatic template application during entity creation
 
 ### Project Organization Workflows
 - **`project_setup_workflow`**: Initialize new projects with structure
 
-### How Workflow Prompts Work
-Workflow prompts are **natural language guidance** that AI agents can invoke and follow:
-1. User or AI invokes prompt: `/task-orchestrator:create_feature_workflow`
-2. AI receives step-by-step workflow instructions
-3. AI executes workflow using MCP tools
-4. User gets guided through process with best practices built-in
+### How Modern Workflows Work
+In v2.0, workflows use **two complementary approaches**:
+1. **Direct tool invocation**: Use consolidated tools for straightforward operations
+2. **Skill-based coordination**: Invoke Skills for complex workflows requiring reasoning
+3. **Template discovery**: Always discover and apply templates during creation
+4. Best practices are embedded in tool descriptions and Skills
 
 ## Template Discovery and Application
 
@@ -148,8 +148,8 @@ With guidelines internalized, AI agents can recognize patterns:
 **User Says**: "Create a feature for user authentication with OAuth"
 **Agent Recognizes**:
 - Multi-step feature development (use Task Orchestrator)
-- Use `create_feature_workflow` or follow pattern directly
-- Apply authentication and implementation templates
+- Use consolidated tools (manage_container, query_container) directly
+- Apply authentication and implementation templates via template discovery
 
 **User Says**: "Fix this small typo in the README"
 **Agent Recognizes**:
@@ -160,7 +160,7 @@ With guidelines internalized, AI agents can recognize patterns:
 **Agent Recognizes**:
 - Bug investigation scenario
 - Create task with Bug Investigation template
-- Use `implementation_workflow` to guide bug fix implementation
+- Use Task Management Skill or direct tool calls to guide bug fix implementation
 
 ## Key Principles
 
@@ -215,9 +215,9 @@ With guidelines internalized, AI agents can recognize patterns:
 5. Apply patterns naturally based on user requests
 
 **For Users**:
-1. Invoke workflow prompts for guided experiences: `/task-orchestrator:create_feature_workflow`
+1. Use natural language requests for autonomous AI assistance
 2. Trust AI agents to use Task Orchestrator when appropriate
-3. Provide clear requirements and let workflows handle the details
+3. Provide clear requirements and let Skills and tools handle the details
 
 This overview focuses on WHEN and WHY to use Task Orchestrator. For specific HOW-TO guidance, use workflow prompts or refer to individual tool descriptions.
                         """.trimIndent()
@@ -1341,47 +1341,42 @@ If Workflow Invocation:
 
 **Invocation**: User or AI can invoke when initialization needed
 
-### 2. create_feature_workflow
-**Purpose**: Comprehensive feature creation with templates and tasks
+### 2. Feature Creation (v2.0 - Direct Tools with Skills)
+**Purpose**: Create features with consolidated tools and Skills (v1 `create_feature_workflow` replaced)
 
-**When to Use** (Autonomous Mode):
+**When to Use**:
 - User says "create feature for [description]"
-- Request mentions creating a feature explicitly
-- Clear feature creation intent
+- Use Feature Management Skill for autonomous feature creation
+- Use direct tools (manage_container) for API-based creation
 
-**When to Invoke** (Explicit Mode):
-- User wants guided feature creation process
-- Complex feature requiring detailed planning
-- Learning how to structure features properly
-- Multiple related tasks need to be created
+**Autonomous Approach**:
+- Feature Management Skill automatically invokes:
+  1. list_templates(targetEntityType: FEATURE)
+  2. create_feature with discovered templates
+  3. Optionally create associated tasks
 
-**What It Does**:
-- Guides through get_overview
-- Template discovery for features
-- Feature creation with templates
-- Associated task creation
-- Dependency establishment
+**Tool-Based Approach**:
+```
+1. get_overview() - understand current state
+2. list_templates(targetEntityType: "FEATURE", isEnabled: true) - discover templates
+3. manage_container(operation: "create", containerType: "feature",
+     name: "...", summary: "...", templateIds: [...])
+```
 
-### 3. task_breakdown_workflow
-**Purpose**: Break complex tasks into manageable subtasks
+### 3. Task Decomposition (v2.0 - Direct Tools with Planning)
+**Purpose**: Break complex tasks into manageable subtasks (v1 `task_breakdown_workflow` replaced)
 
-**When to Use** (Autonomous Mode):
-- User says "break down this task"
+**When to Use**:
 - Task complexity is very high (8+)
-- Clear decomposition intent
+- User says "break down this task"
+- Need to decompose large work into phases
 
-**When to Invoke** (Explicit Mode):
-- Complex task needs systematic decomposition
-- User wants guidance on breakdown strategy
-- Learning task organization patterns
-- Multi-component tasks requiring coordination
-
-**What It Does**:
-- Analyzes complex task scope
-- Identifies natural boundaries
-- Creates focused subtasks
-- Establishes dependencies
-- Links to feature if beneficial
+**Recommended Approach**:
+1. Analyze task scope using query_container(operation: "get", ...)
+2. Identify natural boundaries (components, phases, skills)
+3. Create subtasks using manage_container(operation: "create", containerType: "task", ...)
+4. Establish ordering via manage_dependencies()
+5. Use Task Management Skill for ongoing coordination
 
 ### 4. project_setup_workflow
 **Purpose**: Initialize new project with proper structure
@@ -1404,26 +1399,34 @@ If Workflow Invocation:
 - Template strategy setup
 - Development workflow establishment
 
-### 5. implementation_workflow
-**Purpose**: Smart implementation workflow for tasks, features, and bugs with git detection
+### 5. Implementation Guidance (v2.0 - Skills and Direct Tools)
+**Purpose**: Guide task/feature/bug implementation (v1 `implementation_workflow` replaced)
 
-**When to Use** (Autonomous Mode):
+**When to Use**:
 - User says "implement [feature/task/bug fix]"
-- Clear implementation intent
-- Standard implementation request
+- Task status is "pending" and needs to move to "in-progress"
+- Need guidance on implementation approach
 
-**When to Invoke** (Explicit Mode):
-- Complex implementation requiring comprehensive guidance
-- User wants detailed implementation workflow
-- Learning implementation best practices
-- Git workflow integration needed
+**Skill-Based Approach** (Recommended for Claude Code):
+- **Task Management Skill**: Autonomous task implementation guidance
+  - Detects git usage automatically
+  - Applies workflow templates
+  - Updates status via Status Progression
+  - Coordinates with other tasks
 
-**What It Does**:
-- Current state check and git detection
-- Template application with smart detection
-- Implementation guidance with template integration (including bug-specific guidance)
-- Completion validation
-- Git workflow integration
+**Tool-Based Approach**:
+```
+1. query_container(operation: "get", containerType: "task", id: "...")
+2. Update task status to "in-progress"
+3. Use Task Management Skill or direct tools for implementation
+4. Validate via template sections
+5. mark_complete using Status Progression Skill
+```
+
+**Special Case - Bug Fixes**:
+- Create task with "bug" tag (tags: "task-type-bug")
+- Apply Bug Investigation template
+- Use Task Management Skill for systematic investigation
 
 ## Decision Framework: Autonomous vs Workflow Invocation
 
@@ -1446,8 +1449,8 @@ If Workflow Invocation:
 
 **Hybrid Approach** (Recommended for many scenarios):
 - Apply pattern autonomously
-- Mention workflow prompt availability
-- Example: "I've created the feature using standard templates. For comprehensive feature setup guidance, you can use `/create_feature_workflow`"
+- Mention Skills availability if additional guidance needed
+- Example: "I've created the feature using standard templates. Use Feature Management Skill if you need step-by-step feature planning guidance."
 
 ### For Users
 
