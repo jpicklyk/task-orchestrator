@@ -1479,36 +1479,29 @@ Docs: task-orchestrator://docs/tools/query-container
         }
     }
 
-    private fun parseProjectStatus(status: String): ProjectStatus {
-        return when (status.lowercase().replace('-', '_')) {
-            "planning" -> ProjectStatus.PLANNING
-            "in_development", "indevelopment", "in-development" -> ProjectStatus.IN_DEVELOPMENT
-            "completed" -> ProjectStatus.COMPLETED
-            "archived" -> ProjectStatus.ARCHIVED
-            else -> throw IllegalArgumentException("Invalid project status: $status")
-        }
-    }
+    /**
+     * Parses a project status string using the enum's fromString() method.
+     * This delegates to ProjectStatus.fromString(), which automatically supports
+     * all current and future status values defined in the enum.
+     */
+    private fun parseProjectStatus(status: String): ProjectStatus =
+        ProjectStatus.fromString(status) ?: throw IllegalArgumentException("Invalid project status: $status")
 
-    private fun parseFeatureStatus(status: String): FeatureStatus {
-        return when (status.lowercase().replace('-', '_')) {
-            "planning" -> FeatureStatus.PLANNING
-            "in_development", "indevelopment", "in-development" -> FeatureStatus.IN_DEVELOPMENT
-            "completed" -> FeatureStatus.COMPLETED
-            "archived" -> FeatureStatus.ARCHIVED
-            else -> throw IllegalArgumentException("Invalid feature status: $status")
-        }
-    }
+    /**
+     * Parses a feature status string using the enum's fromString() method.
+     * This delegates to FeatureStatus.fromString(), which automatically supports
+     * all current and future status values defined in the enum.
+     */
+    private fun parseFeatureStatus(status: String): FeatureStatus =
+        FeatureStatus.fromString(status) ?: throw IllegalArgumentException("Invalid feature status: $status")
 
-    private fun parseTaskStatus(status: String): TaskStatus {
-        return when (status.lowercase().replace('-', '_')) {
-            "pending" -> TaskStatus.PENDING
-            "in_progress", "inprogress", "in-progress" -> TaskStatus.IN_PROGRESS
-            "completed" -> TaskStatus.COMPLETED
-            "cancelled", "canceled" -> TaskStatus.CANCELLED
-            "deferred" -> TaskStatus.DEFERRED
-            else -> throw IllegalArgumentException("Invalid task status: $status")
-        }
-    }
+    /**
+     * Parses a task status string using the enum's fromString() method.
+     * This delegates to TaskStatus.fromString(), which automatically supports
+     * all current and future status values defined in the enum.
+     */
+    private fun parseTaskStatus(status: String): TaskStatus =
+        TaskStatus.fromString(status) ?: throw IllegalArgumentException("Invalid task status: $status")
 
     private fun isValidPriority(priority: String): Boolean {
         return try {

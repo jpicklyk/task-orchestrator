@@ -140,15 +140,32 @@ enum class TaskStatus {
     companion object {
         /**
          * Converts a string to a TaskStatus enum value (case-insensitive).
-         * Supports both underscore and hyphen separators.
+         * Supports multiple format variations:
+         * - Hyphen-separated: "in-progress", "in-review", "changes-requested", "on-hold", "ready-for-qa"
+         * - Underscore-separated: "in_progress", "in_review", "changes_requested", "on_hold", "ready_for_qa"
+         * - No separator: "inprogress", "inreview", "changesrequested", "onhold", "readyforqa"
+         *
          * @param value The string representation of the status
-         * @return The TaskStatus enum value
-         * @throws IllegalArgumentException if the status value is invalid
+         * @return The TaskStatus enum value, or null if invalid
          */
-        fun fromString(value: String): TaskStatus = try {
-            valueOf(value.uppercase().replace('-', '_'))
-        } catch (_: IllegalArgumentException) {
-            throw IllegalArgumentException("Invalid task status: $value")
+        fun fromString(value: String): TaskStatus? {
+            // Normalize the input by converting to uppercase and replacing hyphens
+            val normalized = value.uppercase().replace('-', '_')
+
+            return try {
+                valueOf(normalized)
+            } catch (_: IllegalArgumentException) {
+                // Try compound word variations (no separator) and spelling variants
+                when (normalized.replace("_", "")) {
+                    "INPROGRESS" -> IN_PROGRESS
+                    "INREVIEW" -> IN_REVIEW
+                    "CHANGESREQUESTED" -> CHANGES_REQUESTED
+                    "ONHOLD" -> ON_HOLD
+                    "READYFORQA" -> READY_FOR_QA
+                    "CANCELED" -> CANCELLED  // US spelling variant
+                    else -> null
+                }
+            }
         }
     }
 

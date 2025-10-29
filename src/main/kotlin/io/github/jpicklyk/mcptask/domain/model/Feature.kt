@@ -104,15 +104,29 @@ enum class FeatureStatus {
     companion object {
         /**
          * Converts a string to a FeatureStatus enum value (case-insensitive).
-         * Supports both underscore and hyphen separators.
+         * Supports multiple format variations:
+         * - Hyphen-separated: "in-development", "on-hold", "pending-review"
+         * - Underscore-separated: "in_development", "on_hold", "pending_review"
+         * - No separator: "indevelopment", "onhold", "pendingreview"
+         *
          * @param value The string representation of the status
-         * @return The FeatureStatus enum value
-         * @throws ValidationException if the status value is invalid
+         * @return The FeatureStatus enum value, or null if invalid
          */
-        fun fromString(value: String): FeatureStatus = try {
-            valueOf(value.uppercase().replace('-', '_'))
-        } catch (_: IllegalArgumentException) {
-            throw ValidationException("Invalid feature status: $value")
+        fun fromString(value: String): FeatureStatus? {
+            // Normalize the input by converting to uppercase and replacing hyphens
+            val normalized = value.uppercase().replace('-', '_')
+
+            return try {
+                valueOf(normalized)
+            } catch (_: IllegalArgumentException) {
+                // Try compound word variations (no separator)
+                when (normalized.replace("_", "")) {
+                    "INDEVELOPMENT" -> IN_DEVELOPMENT
+                    "ONHOLD" -> ON_HOLD
+                    "PENDINGREVIEW" -> PENDING_REVIEW
+                    else -> null
+                }
+            }
         }
     }
 
