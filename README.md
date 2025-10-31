@@ -45,7 +45,7 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 - ✅ **Skills & Hooks** - Lightweight coordination and workflow automation (Claude Code)
 - ✅ **MCP Protocol Support** - Core persistence and task management work with any MCP client
 
-> **📖 Deep dive**: See [Token Reduction Examples](docs/token-reduction-examples.md) for quantitative analysis and [Architecture Guide](docs/developer-guides/architecture.md) for technical details.
+> **📖 Deep dive**: See [Agent Architecture Guide](docs/agent-architecture.md) for token efficiency comparison and [Developer Architecture](docs/developer-guides/architecture.md) for technical details.
 
 ---
 
@@ -152,7 +152,7 @@ Tasks progress automatically based on workflow events:
 
 All status transitions validated by your config in `.taskorchestrator/config.yaml`.
 
-> **📘 Learn more**: [Event-Driven Pattern](docs/v2-0/event-driven-status-progression-pattern.md) and [Workflow Guide](docs/workflow-prompts.md)
+> **📘 Learn more**: [Status Progression Guide](docs/status-progression.md) and [Workflow Prompts](docs/workflow-prompts.md)
 
 ---
 
@@ -237,9 +237,9 @@ Task Orchestrator uses **event-driven status progression** mapped to your workfl
 - 🤖 **[AI Guidelines](docs/ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
 
 ### Using Task Orchestrator
-- 📊 **[Token Reduction Examples](docs/token-reduction-examples.md)** - Quantitative before/after analysis
-- 🤖 **[Agent Orchestration](docs/agent-orchestration.md)** - Sub-agent coordination system
-- ⚡ **[Parallel Processing](docs/parallel-processing-guide.md)** - Wave-based parallel execution
+- 🤖 **[Agent Architecture](docs/agent-architecture.md)** - 4-tier hybrid system: Direct Tools, Skills, Hooks, Subagents
+- 🎯 **[Skills Guide](docs/skills-guide.md)** - Lightweight coordination (60-82% token savings)
+- 🪝 **[Hooks Guide](docs/hooks-guide.md)** - Workflow automation and event-driven integration
 - 📝 **[Templates](docs/templates.md)** - 9 built-in documentation templates
 - 📋 **[Workflow Prompts](docs/workflow-prompts.md)** - Automated workflow guidance
 
