@@ -41,8 +41,9 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 - ✅ **Hierarchical Tasks** - Projects → Features → Tasks with dependency tracking
 - ✅ **Template System** - 9 built-in templates for consistent documentation structure
 - ✅ **Event-Driven Workflows** - Automatic status progression based on your config
-- ✅ **Sub-Agent Orchestration** - Specialist routing for complex work (Claude Code only)
-- ✅ **Universal Compatibility** - Works with any MCP client (Claude Desktop, Claude Code, Cursor, Windsurf)
+- ✅ **Sub-Agent Orchestration** - Specialist routing for complex work (Claude Code)
+- ✅ **Skills & Hooks** - Lightweight coordination and workflow automation (Claude Code)
+- ✅ **MCP Protocol Support** - Core persistence and task management work with any MCP client
 
 > **📖 Deep dive**: See [Token Reduction Examples](docs/token-reduction-examples.md) for quantitative analysis and [Architecture Guide](docs/developer-guides/architecture.md) for technical details.
 
@@ -58,14 +59,14 @@ docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 
 ### 2. Configure Your AI Platform
 
-**Claude Code** (recommended):
+**Claude Code** (primary supported platform):
 ```bash
 claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
 ```
 
 This single command works across all platforms (macOS, Linux, Windows).
 
-**Claude Desktop, Cursor, Windsurf**: See [Installation Guide](docs/installation-guide.md) for your platform.
+**Other MCP clients**: Task Orchestrator's core MCP protocol (persistent memory, task management) works with any MCP client, but advanced features (skills, subagents, hooks) are Claude Code-specific. See [Installation Guide](docs/installation-guide.md) for configuration.
 
 ### 3. Initialize AI & Project
 
@@ -155,6 +156,71 @@ All status transitions validated by your config in `.taskorchestrator/config.yam
 
 ---
 
+## Core Workflow Pattern
+
+Task Orchestrator follows a **Plan → Orchestrate → Execute** pattern that prevents context pollution:
+
+### 1. Plan Your Work
+
+Start with either:
+- **Plan file**: Create a markdown/text file with your feature description, requirements, and context
+- **Conversation context**: Describe your feature directly in conversation
+
+**Example**:
+```markdown
+# User Authentication Feature
+Build complete authentication system with login, signup, and password reset.
+
+Requirements:
+- JWT-based authentication
+- Password hashing with bcrypt
+- Email verification
+- Rate limiting on login attempts
+```
+
+### 2. Orchestrate Into Structure
+
+Use the `coordinate_feature_development` workflow (Claude Code):
+```
+"Run coordinate_feature_development with my plan file"
+```
+
+**What happens**:
+1. **Feature Architect** (Opus) analyzes your plan → Creates feature with rich context
+2. **Planning Specialist** (Sonnet) breaks down feature → Creates dependency-aware tasks
+3. Returns structured feature ready for execution
+
+**Result**: Feature with 5-15 tasks, proper templates, clear dependencies, appropriate specialist tags.
+
+### 3. Execute Based on Dependencies
+
+AI automatically:
+- Routes tasks to appropriate specialists (Backend Engineer, Frontend Developer, etc.)
+- Respects dependency chains (database → API → frontend)
+- Passes 300-500 token summaries between tasks (not 5k+ full contexts)
+- Triggers status events as work progresses
+
+**Your role**: Just say "What's next?" and the AI handles routing, dependencies, and coordination.
+
+### Status Events Drive Progression
+
+Task Orchestrator uses **event-driven status progression** mapped to your workflow:
+
+- **Default statuses**: PENDING → IN_PROGRESS → COMPLETED (customizable in `.taskorchestrator/config.yaml`)
+- **Event triggers**: Work completion, test passing, review approval automatically progress status
+- **Workflow types**: Default, bug_fix, documentation flows with different status sequences
+- **Cascade effects**: Task completion can trigger feature status changes
+
+**Configuration**: `.taskorchestrator/config.yaml` defines:
+- Valid status transitions for each entity type (task, feature, project)
+- Workflow flows (default, bug_fix, documentation)
+- Event mappings (which events trigger which status changes)
+- Prerequisites for status progression (e.g., "can't complete until all tasks done")
+
+> **📘 Deep dive**: [Status Progression Guide](docs/status-progression.md) for complete configuration reference and workflow examples.
+
+---
+
 ## Documentation
 
 ### Getting Started
@@ -183,40 +249,58 @@ All status transitions validated by your config in `.taskorchestrator/config.yam
 
 ## Platform Compatibility
 
-| AI Platform | Templates | Persistent Memory | Sub-Agent Orchestration |
-|-------------|-----------|-------------------|------------------------|
-| **Claude Code** | ✅ | ✅ | ✅ Full support |
-| **Claude Desktop** | ✅ | ✅ | ❌ |
-| **Cursor** | ✅ | ✅ | ❌ |
-| **Windsurf** | ✅ | ✅ | ❌ |
-| **Any MCP client** | ✅ | ✅ | ❌ |
+| Feature | Claude Code | Other MCP Clients |
+|---------|-------------|-------------------|
+| **Persistent Memory** | ✅ Tested & Supported | ✅ MCP Protocol Support |
+| **Template System** | ✅ Tested & Supported | ✅ MCP Protocol Support |
+| **Task Management** | ✅ Tested & Supported | ✅ MCP Protocol Support |
+| **Sub-Agent Orchestration** | ✅ Tested & Supported | ❌ Claude Code-specific |
+| **Skills (Lightweight Coordination)** | ✅ Tested & Supported | ❌ Claude Code-specific |
+| **Hooks (Workflow Automation)** | ✅ Tested & Supported | ❌ Claude Code-specific |
+| **Status Event System** | ✅ Tested & Supported | ✅ MCP Protocol Support |
 
-**Note**: Sub-agent orchestration (specialist routing, parallel execution) is exclusive to Claude Code via `.claude/agents/` directory. All platforms get persistent memory and template-driven workflows.
+**Primary Platform**: Claude Code is the primary tested and supported platform with full feature access including skills, subagents, and hooks.
+
+**Other MCP Clients**: The core MCP protocol (persistent memory, task management, templates, status events) works with any MCP client, but we cannot verify functionality on untested platforms. Advanced orchestration features (skills, subagents, hooks) require Claude Code's `.claude/` directory structure.
 
 ---
 
 ## Example: From Session Start to Feature Complete
 
+**Claude Code (Full Orchestration)**:
+
 ```
-You: "Show me the project overview"
-AI: Reads persistent state, shows 3 features, 12 tasks, current priorities
+You: "I have a plan for user authentication in plan.md"
+AI: "Loading Feature Orchestration Skill..."
+    "Launching Feature Architect (Opus) with plan file..."
+    → Feature created with 8 tasks
+    "Launching Planning Specialist (Sonnet)..."
+    → Tasks broken down with dependencies
 
-You: "Create a feature for user authentication with 4 tasks"
-AI: Creates feature with template-driven tasks (database, API, frontend, tests)
+You: "What's next?"
+AI: "Task 1: Database schema [PENDING]. No blockers."
+    Launches Database Engineer → Implements schema → Creates 400-token summary
 
-You: "Work on the first task"
-AI: [Claude Code] Routes to Database Specialist → Implements schema → Creates summary
-    [Other platforms] Reads template, implements directly
+You: "What's next?"
+AI: "Task 2: Authentication API [PENDING]. Dependencies satisfied."
+    Reads 400-token summary (not 5k full context)
+    Launches Backend Engineer → Implements API → Creates summary
 
-You: "Work on the next task"
-AI: Reads 400-token summary from database task (not 5k full context)
-    Routes to Backend Specialist → Implements API → Creates summary
+You: "What's next?"
+AI: "Task 3: Login UI [PENDING]. Backend ready."
+    Launches Frontend Developer → Implements UI → Feature progresses
 
 [Next morning - new session]
 You: "What's next?"
-AI: "Task 3: Frontend forms [PENDING]. Backend API completed yesterday. Schema available."
-    No context rebuilding needed - AI remembers everything.
+AI: "Task 4: Integration tests [PENDING]. 3 tasks completed yesterday."
+    No context rebuilding - AI remembers everything from persistent memory
 ```
+
+**Key Benefits**:
+- **Zero manual routing**: `coordinate_feature_development` handles specialist selection
+- **Automatic dependency tracking**: AI only suggests tasks with satisfied dependencies
+- **Persistent memory**: New sessions start instantly with full context
+- **Token efficiency**: 400-token summaries instead of 5k+ full contexts
 
 ---
 
@@ -226,7 +310,8 @@ AI: "Task 3: Frontend forms [PENDING]. Backend API completed yesterday. Schema a
 - **AI can't find tools**: Restart your AI client
 - **Docker not running**: Start Docker Desktop, verify with `docker version`
 - **Connection problems**: Enable `MCP_DEBUG=true` in Docker config
-- **Sub-agents not available**: Run `setup_claude_orchestration` (Claude Code only)
+- **Skills/Sub-agents not available**: Run `setup_claude_orchestration` (requires Claude Code)
+- **coordinate_feature_development not found**: Workflow prompts require Claude Code with orchestration setup
 
 **Get Help**:
 - 📖 [Troubleshooting Guide](docs/troubleshooting.md) - Comprehensive solutions
@@ -283,7 +368,7 @@ Current versioning defined in [build.gradle.kts](build.gradle.kts).
 
 ## Keywords
 
-AI coding tools, AI pair programming, Model Context Protocol, MCP server, Claude Desktop, Claude Code, Cursor AI, Windsurf, AI task management, context persistence, AI memory, token optimization, RAG, AI workflow automation, persistent AI assistant, context pollution solution
+AI coding tools, AI pair programming, Model Context Protocol, MCP server, Claude Code, Claude Desktop, AI task management, context persistence, AI memory, token optimization, RAG, AI workflow automation, persistent AI assistant, context pollution solution, AI orchestration, sub-agent coordination
 
 ---
 
