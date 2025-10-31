@@ -24,12 +24,12 @@ By **task 5** of a complex feature, traditional AI workflows break:
 
 ## Two Setup Paths
 
-| Setup Type | Works With | When to Use |
-|------------|-----------|-------------|
-| **Basic (Templates)** | Claude Desktop, Claude Code, Cursor, Windsurf, ALL MCP clients | Simple features (1-5 tasks), any platform, learning |
-| **Advanced (Sub-Agents)** | Claude Code ONLY | Complex features (6+ tasks), cross-domain coordination, 97% token reduction |
+| Setup Type | Tested Platform | When to Use |
+|------------|-----------------|-------------|
+| **Basic (MCP Protocol)** | Claude Code (tested), Other MCP clients (untested) | Core persistence, templates, task management |
+| **Advanced (Orchestration)** | Claude Code ONLY | Full orchestration with skills, subagents, hooks, coordinate_feature_development workflow |
 
-**Start with Basic Setup** - it works everywhere. Add Advanced Setup later if you need specialist coordination.
+**Claude Code is the primary supported platform** with full testing and feature access. Other MCP clients can use core MCP protocol features (persistence, templates, task management) but advanced orchestration features are Claude Code-specific.
 
 ---
 
@@ -67,14 +67,40 @@ You should see MCP server startup messages. Press `Ctrl+C` to stop.
 
 Choose your AI platform and configure accordingly:
 
-#### Option A: Claude Desktop
+#### Option A: Claude Code (Primary Supported Platform)
 
-**Find Your Configuration File**:
+Use the universal MCP configuration command from your project directory (works on macOS, Linux, Windows):
+
+```bash
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+```
+
+This single command works across all platforms. Claude Code will automatically configure and connect to the MCP server.
+
+#### Option B: Other MCP Clients (Cursor, Windsurf, Claude Desktop) - Untested
+
+> **⚠️ Important**: These platforms are NOT actively tested. The core MCP protocol (persistence, templates, task management) should work via MCP protocol, but we cannot verify functionality. Advanced features (skills, subagents, hooks, coordinate_feature_development workflow) require Claude Code and will not work on other platforms.
+
+**Configuration Format** (for Claude Desktop, Cursor, Windsurf):
+
+All these platforms use similar JSON configuration. Find your configuration file:
+
+**Claude Desktop**:
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-**Add Task Orchestrator**:
+**Cursor**:
+- **Windows**: `%APPDATA%\Cursor\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
+- **macOS**: `~/Library/Application Support/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+- **Linux**: `~/.config/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+
+**Windsurf**:
+- **Windows**: `%APPDATA%\Windsurf\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
+- **macOS**: `~/Library/Application Support/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+- **Linux**: `~/.config/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+
+**Add Task Orchestrator to your configuration file**:
 
 ```json
 {
@@ -102,99 +128,9 @@ Choose your AI platform and configure accordingly:
 
 > **Already have MCP servers configured?** Add the `task-orchestrator` entry to your existing `mcpServers` object.
 
-**Restart Claude Desktop**: Close and reopen to load the configuration.
+**Restart your application** (Claude Desktop, Cursor, or Windsurf): Close and reopen to load the configuration.
 
-#### Option B: Claude Code
-
-Use the MCP configuration command from your project directory:
-
-**macOS/Linux**:
-```bash
-claude mcp add-json task-orchestrator "{\"type\":\"stdio\",\"command\":\"docker\",\"args\":[\"run\",\"--rm\",\"-i\",\"-v\",\"mcp-task-data:/app/data\",\"-v\",\"$(pwd):/project\",\"-e\",\"AGENT_CONFIG_DIR=/project\",\"ghcr.io/jpicklyk/task-orchestrator:latest\"]}"
-```
-
-**Windows PowerShell**:
-```powershell
-claude mcp add-json task-orchestrator "{`"type`":`"stdio`",`"command`":`"docker`",`"args`":[`"run`",`"--rm`",`"-i`",`"-v`",`"mcp-task-data:/app/data`",`"-v`",`"${PWD}:/project`",`"-e`",`"AGENT_CONFIG_DIR=/project`",`"ghcr.io/jpicklyk/task-orchestrator:latest`"]}"
-```
-
-Claude Code will automatically configure and connect to the MCP server.
-
-#### Option C: Cursor IDE
-
-**Find Your Configuration File**:
-- **Windows**: `%APPDATA%\Cursor\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
-- **macOS**: `~/Library/Application Support/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
-- **Linux**: `~/.config/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
-
-**Add Task Orchestrator**:
-
-```json
-{
-  "mcpServers": {
-    "task-orchestrator": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "--volume",
-        "mcp-task-data:/app/data",
-        "--volume",
-        "/absolute/path/to/your/project:/project",
-        "--env",
-        "AGENT_CONFIG_DIR=/project",
-        "ghcr.io/jpicklyk/task-orchestrator:latest"
-      ]
-    }
-  }
-}
-```
-
-> **Note**: Replace `/absolute/path/to/your/project` with your project's actual path. For Windows: `D:/Users/username/project`, for macOS/Linux: `/Users/username/project` or `/home/username/project`.
-
-**Restart Cursor**: Close and reopen to load the configuration.
-
-#### Option D: Windsurf
-
-**Find Your Configuration File**:
-- **Windows**: `%APPDATA%\Windsurf\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
-- **macOS**: `~/Library/Application Support/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
-- **Linux**: `~/.config/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
-
-**Add Task Orchestrator**:
-
-```json
-{
-  "mcpServers": {
-    "task-orchestrator": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "--volume",
-        "mcp-task-data:/app/data",
-        "--volume",
-        "/absolute/path/to/your/project:/project",
-        "--env",
-        "AGENT_CONFIG_DIR=/project",
-        "ghcr.io/jpicklyk/task-orchestrator:latest"
-      ]
-    }
-  }
-}
-```
-
-> **Note**: Replace `/absolute/path/to/your/project` with your project's actual path. For Windows: `D:/Users/username/project`, for macOS/Linux: `/Users/username/project` or `/home/username/project`.
-
-**Restart Windsurf**: Close and reopen to load the configuration.
-
-> **Note**: Cursor and Windsurf use Cline (formerly Roo Cline) for MCP support. The configuration format is identical to Claude Desktop.
-
-#### Option E: Other MCP-Compatible AI Agents
-
-For other MCP-supporting AI agents, consult their MCP configuration documentation. Use the Docker command configuration shown above, adapting to your agent's configuration format.
+> **Note**: Cursor and Windsurf use Cline (formerly Roo Cline) for MCP support, which has a different configuration location than Claude Desktop.
 
 ### Step 4: Initialize AI Guidelines
 
@@ -212,12 +148,16 @@ Or with direct invocation:
 Your AI will:
 1. Read Task Orchestrator guideline resources
 2. Write patterns to your AI's memory file (CLAUDE.md, .cursorrules, .windsurfrules, etc.)
-3. **Detect Claude Code** and offer sub-agent setup (creates `.claude/agents/` with 10 specialists)
+3. **Detect Claude Code** and offer orchestration setup (creates `.claude/agents/`, skills, and hooks)
 4. Confirm initialization
 
 > **Why this matters**: Initialization enables autonomous template discovery, pattern recognition, and best practices. Your AI learns how to use the orchestration framework without explicit instructions every time.
 
-> **Claude Code users**: If `.claude/` directory is detected, initialization automatically offers to set up the 3-level sub-agent orchestration system. This is optional - you can decline and use templates + workflows only.
+> **Claude Code users**: If `.claude/` directory is detected, initialization automatically offers to run `setup_claude_orchestration` which creates:
+> - 4 subagents (Feature Architect, Implementation Specialist, Planning Specialist, Senior Engineer)
+> - 6+ skills for lightweight coordination (60-82% token savings)
+> - Hooks for workflow automation
+> - Access to `coordinate_feature_development` workflow
 
 ### Step 5: Verify It Works
 
@@ -332,128 +272,129 @@ Add sub-agent orchestration when:
 Ask your AI (Claude Code):
 
 ```
-Run setup_claude_orchestration to enable sub-agent orchestration
+Run setup_claude_orchestration to enable full orchestration
 ```
 
-This creates `.claude/agents/` directory with 10 specialist agent definitions:
-- Feature Manager
-- Task Manager
-- Backend Engineer
-- Frontend Developer
-- Database Engineer
-- Test Engineer
-- Technical Writer
-- Planning Specialist
-- Bug Triage Specialist
-- Code Quality Reviewer
+This creates:
+- **`.claude/agents/task-orchestrator/`** directory with 4 subagent definitions:
+  - **Feature Architect** (Opus) - Complex feature design and analysis
+  - **Implementation Specialist** (Haiku) - General implementation tasks (default, fast)
+  - **Planning Specialist** (Sonnet) - Task breakdown and dependency planning
+  - **Senior Engineer** (Sonnet) - Complex debugging, architecture, unblocking
+- **`.claude/skills/`** directory with coordination skills (feature-orchestration, task-orchestration, etc.)
+- **Output style** for orchestration mode communication
 
-### Step 2: Verify Agent Files
+### Step 2: Verify Setup
 
-Check that `.claude/agents/` directory exists with `.md` files:
+Check that directories exist:
 
 ```bash
-ls .claude/agents/
+ls .claude/agents/task-orchestrator/
+ls .claude/skills/
 ```
 
-You should see:
+You should see agent files:
 ```
-backend-engineer.md
-bug-triage-specialist.md
-code-quality-reviewer.md
-database-engineer.md
-feature-manager.md
-frontend-developer.md
+feature-architect.md
+implementation-specialist.md
 planning-specialist.md
-task-manager.md
-technical-writer.md
-test-engineer.md
+senior-engineer.md
 ```
 
-### Step 3: Test Agent Routing
+And skills directories with SKILL.md files.
 
-Create a test task and check agent recommendation:
+### Step 3: Test Orchestration
 
-```
-Create a task for creating a users database table
-```
-
-Then:
-```
-Use recommend_agent to suggest which specialist should handle this task
-```
-
-Your AI should recommend: **Database Engineer**
-
-## Your First Feature with Sub-Agents (Claude Code)
-
-Now you're ready for 3-level orchestration. Here's a complete workflow:
-
-### Step 1: Create a Complex Feature
+Try the main v2.0 workflow:
 
 ```
-Create a feature called "User Authentication" with the following tasks:
-1. Create users database table
-2. Implement user registration API
-3. Implement login API with JWT
-4. Add password reset flow
-5. Create frontend login form
-6. Create frontend registration form
-7. Write API integration tests
-8. Write documentation
-
-Apply appropriate templates to each task and set up dependencies.
+Create a plan file for a user authentication feature, then run coordinate_feature_development to orchestrate it
 ```
 
-Your AI creates the feature with 8 tasks, templates applied, dependencies configured.
+**What happens:**
+1. **Feature Architect** (Opus) analyzes plan → creates feature with rich context
+2. **Planning Specialist** (Sonnet) breaks down feature → creates dependency-aware tasks
+3. Returns structured feature ready for implementation
 
-### Step 2: Launch Feature Manager
+## Your First Feature with Orchestration (Claude Code)
 
-```
-Launch the Feature Manager agent for the User Authentication feature in START mode
-```
+Now you're ready for full orchestration using the **Plan → Orchestrate → Execute** pattern.
 
-**Feature Manager** analyzes the feature and recommends:
-```
-Recommended next task: T1 (Create users database table)
-No blockers - ready to start
-```
+### Step 1: Create Your Plan
 
-### Step 3: Launch Task Manager
+Create a plan file (markdown or text) describing your feature:
 
-```
-Launch Task Manager for task T1
-```
+**Example: `auth-feature.md`**
+```markdown
+# User Authentication Feature
+Build complete JWT-based authentication system.
 
-**Task Manager**:
-1. **Reads** task details + dependency summaries (if any)
-2. **Routes** to Database Engineer specialist
-3. **Launches** Database Engineer with focused brief
+## Requirements
+- User registration with email validation
+- Login with JWT tokens
+- Password reset flow
+- Secure password hashing (bcrypt)
+- Rate limiting on login attempts
 
-**Database Engineer**:
-1. **Reads** technical-approach template section
-2. **Implements** database schema
-3. **Creates** 300-500 token Summary section
-4. **Reports** completion
-
-**Task Manager** reports back (2-3 sentences):
-```
-Created users table with authentication fields (id, username, email, password_hash).
-Added indexes for email lookup. Ready for API implementation.
+## Technical Stack
+- Backend: Kotlin + Ktor
+- Database: PostgreSQL
+- Email: SendGrid
 ```
 
-### Step 4: Continue with Feature Manager
+### Step 2: Run coordinate_feature_development
 
 ```
-Launch Feature Manager again for User Authentication
+Run coordinate_feature_development with my auth-feature.md plan file
 ```
 
-**Feature Manager** now recommends:
+**What happens automatically:**
+
+**Phase 1: Feature Architecture** (Feature Architect - Opus)
+- Analyzes your plan for technical requirements
+- Creates feature with comprehensive summary and description
+- Applies appropriate templates
+- Returns feature ID
+
+**Phase 2: Task Breakdown** (Planning Specialist - Sonnet)
+- Breaks feature into 5-8 focused tasks
+- Applies task templates (technical-approach, testing-strategy, etc.)
+- Sets up dependency chains (database → API → frontend)
+- Tags tasks for specialist routing
+
+**Result:** Feature with 5-8 well-structured tasks, ready for execution.
+
+### Step 3: Execute with "What's Next?"
+
 ```
-Recommended next task: T2 (Implement user registration API)
-Dependency context: T1 Summary (400 tokens) available
+What's next?
 ```
 
-You continue launching Task Manager for each recommended task. The cycle continues with **automatic dependency context passing**.
+**AI (using Feature Management Skill):**
+```
+Task 1: Database schema for users table [PENDING]
+No blockers - ready to start.
+```
+
+**AI automatically:**
+1. Routes to **Implementation Specialist** (Haiku) by default
+2. Implementation Specialist reads task context + templates
+3. Implements code
+4. Creates 300-500 token Summary section
+5. Marks task complete
+6. Returns brief report
+
+```
+What's next?
+```
+
+**AI:**
+```
+Task 2: User registration API [PENDING]
+Dependencies satisfied. Reading Task 1 summary (400 tokens)...
+```
+
+**Continues automatically** with summary-based context passing.
 
 ### What You Just Did
 
@@ -469,49 +410,58 @@ T5: 79k tokens (CONTEXT POLLUTION)
 
 You used summary-based orchestration:
 ```
-Sub-Agent (scales to 100+ tasks):
-T1: Database Engineer works with 2k tokens, creates 400-token Summary
-T2: Backend Engineer reads T1 Summary (400 tokens), creates 400-token Summary
-T3: Backend Engineer reads T1 Summary (400 tokens), creates 400-token Summary
-T4: Frontend Developer reads T2+T3 Summaries (800 tokens), creates 400-token Summary
-T5: Frontend Developer reads T2+T3 Summaries (800 tokens), creates 400-token Summary
-T6: Test Engineer reads T2+T3+T4+T5 Summaries (1,600 tokens), creates 400-token Summary
-T7: Technical Writer reads T2+T3 Summaries (800 tokens), creates 400-token Summary
+Orchestrated (scales to 100+ tasks):
+T1: Implementation Specialist works with 2k tokens, creates 400-token Summary
+T2: Implementation Specialist reads T1 Summary (400 tokens), creates 400-token Summary
+T3: Implementation Specialist reads T1 Summary (400 tokens), creates 400-token Summary
+T4: Implementation Specialist reads T2+T3 Summaries (800 tokens), creates 400-token Summary
+T5: Implementation Specialist reads T2+T3 Summaries (800 tokens), creates 400-token Summary
+T6: Implementation Specialist reads T2+T3+T4+T5 Summaries (1,600 tokens), creates 400-token Summary
+T7: Implementation Specialist reads T2+T3 Summaries (800 tokens), creates 400-token Summary
 
-You (orchestrator): See 7 summaries (2,800 tokens) - NOT 79k
+You: See 7 summaries (2,800 tokens) - NOT 79k
 ```
 
 **Result**: 97% token reduction, specialists see only relevant context, work scales effortlessly.
+
+> **Custom Specialists**: You can configure custom specialist routing (Backend Engineer, Frontend Developer, Database Engineer, etc.) via `.taskorchestrator/agent-mapping.yaml`. See [Agent Architecture Guide](agent-architecture.md) for details.
 
 ---
 
 ## Decision Guide: When to Use What
 
-### Use Basic Setup (Templates Only)
+### Use Basic Setup (MCP Protocol Only)
 
 **Scenarios**:
 - ✅ Simple features (1-5 tasks)
 - ✅ Working alone on straightforward implementations
-- ✅ Using any MCP client (Cursor, Windsurf, Claude Desktop)
-- ✅ Learning Task Orchestrator
+- ✅ Using MCP clients other than Claude Code (untested but should work)
+- ✅ Learning Task Orchestrator basics
 - ✅ Quick prototypes
 
-**How it works**: AI discovers templates, creates structured tasks, reads sections for guidance, implements directly.
+**How it works**: AI discovers templates, creates structured tasks, reads sections for guidance, implements directly using core MCP tools.
 
 **Example**: "Create a task for user profile API" → AI creates task with templates → AI implements → Done
 
-### Add Advanced Setup (Sub-Agents)
+**Limitations**: No skills, subagents, hooks, or coordinate_feature_development workflow.
+
+### Add Advanced Setup (Full Orchestration - Claude Code Only)
 
 **Scenarios**:
 - ✅ Complex features (6+ tasks with dependencies)
-- ✅ Using Claude Code specifically
+- ✅ Using **Claude Code specifically** (required)
 - ✅ Cross-domain work (database → backend → frontend → tests)
 - ✅ Large projects where context management is critical
-- ✅ Want 97% token reduction
+- ✅ Want 97% token reduction with summary-based context passing
 
-**How it works**: Orchestrator launches Feature Manager → Feature Manager recommends next task → Task Manager routes to specialist → Specialist implements with summary creation → Next task reads summaries.
+**How it works**:
+1. Create plan file with requirements
+2. Run `coordinate_feature_development` → Feature Architect (Opus) + Planning Specialist (Sonnet)
+3. Say "What's next?" → Skills + Subagents coordinate automatically
+4. Implementation Specialist (Haiku) implements with summary creation
+5. Dependency context passed as 400-token summaries (not 5k+ full contexts)
 
-**Example**: "Create feature for payment processing with 9 tasks" → Feature Manager orchestrates → Specialists implement with automatic context passing → 97% token savings
+**Example**: "Create plan for payment processing" → `coordinate_feature_development` → Feature with 9 tasks → "What's next?" → Automatic orchestration → 97% token savings
 
 
 ---
@@ -674,42 +624,43 @@ Show me tasks that are ready to start (not blocked)
 
 ### How It Works
 
+**Claude Code (Recommended - Full Orchestration)**:
+
+**Step 1: Create plan file**:
+Save your PRD as `payment-system.md`
+
+**Step 2: Run coordinate_feature_development**:
+```
+Run coordinate_feature_development with my payment-system.md plan file
+```
+
+**What happens automatically:**
+- Feature Architect (Opus) analyzes PRD → Creates feature with rich context
+- Planning Specialist (Sonnet) breaks into tasks → Applies templates, sets dependencies
+- Returns: Feature with 8-12 tasks, proper sequencing, ready for "What's next?"
+
+**Step 3: Execute**:
+```
+What's next?
+```
+AI coordinates automatically with skills + subagents.
+
+---
+
+**Other MCP Clients (Basic - Manual Creation)**:
+
 **Step 1: Share your PRD**:
 ```
 I have a PRD for a payment processing system. [Paste or attach PRD]
 
-Please analyze and create a complete project structure with features, tasks, and dependencies.
+Please analyze and create a feature with tasks and dependencies.
 ```
 
-**Step 2: AI analyzes and proposes structure**:
-```
-AI: I've analyzed your PRD. Proposing:
+**Step 2: AI creates structure manually**:
+AI creates feature and tasks using direct MCP tools (no orchestration)
 
-Project: Payment Processing System
-
-Features:
-1. Stripe Integration (3 tasks) - FOUNDATIONAL
-2. Checkout API (4 tasks) - Depends on F1
-3. Order Management (3 tasks) - Depends on F2
-4. Email Notifications (2 tasks) - Parallel to F2/F3
-5. Admin Dashboard (3 tasks) - Integration layer
-
-Total: 5 features, 15 tasks
-Templates: Technical Approach, Testing Strategy applied
-Dependencies: 8 blocking relationships
-
-Proceed with creation?
-```
-
-**Step 3: Create and start**:
-```
-Yes, create the structure.
-```
-
-**Step 4: Choose your workflow**:
-
-**Basic (any MCP client)**: Work through tasks yourself with template guidance
-**Advanced (Claude Code)**: Launch Feature Manager for orchestrated specialist routing
+**Step 3: Implement**:
+Work through tasks yourself with template guidance
 
 ### Example PRD
 
@@ -791,10 +742,13 @@ Modern checkout with payment processing, inventory validation, order confirmatio
 - Verify Docker is running: `docker version`
 - Check JSON syntax: [jsonlint.com](https://jsonlint.com/)
 
-**Sub-agents not working? (Claude Code only)**
-- Run `setup_claude_orchestration` tool
-- Verify `.claude/agents/` directory exists
-- Check agent files with `ls .claude/agents/`
+**Orchestration not working? (Claude Code only)**
+- Run `setup_claude_orchestration` workflow prompt
+- Verify `.claude/agents/task-orchestrator/` directory exists
+- Check agent files: `ls .claude/agents/task-orchestrator/`
+- Should see: feature-architect.md, implementation-specialist.md, planning-specialist.md, senior-engineer.md
+- Verify skills: `ls .claude/skills/`
+- coordinate_feature_development not found? Ensure orchestration setup completed
 
 **Docker issues?**
 - Start Docker Desktop
