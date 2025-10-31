@@ -195,10 +195,18 @@ Use the `coordinate_feature_development` workflow (Claude Code):
 ### 3. Execute Based on Dependencies
 
 AI automatically:
-- Routes tasks to appropriate specialists (Backend Engineer, Frontend Developer, etc.)
+- Routes tasks to specialists (**Implementation Specialist** (Haiku) by default, **Senior Engineer** (Sonnet) for complex issues)
 - Respects dependency chains (database → API → frontend)
 - Passes 300-500 token summaries between tasks (not 5k+ full contexts)
 - Triggers status events as work progresses
+
+**Default Specialists:**
+- **Implementation Specialist** (Haiku) - General implementation tasks (fast, cost-efficient)
+- **Senior Engineer** (Sonnet) - Complex debugging, architecture, unblocking
+
+**Custom Specialists** (optional via `.taskorchestrator/agent-mapping.yaml`):
+- Backend Engineer, Frontend Developer, Database Engineer, Test Engineer, Technical Writer
+- See [Agent Architecture Guide](docs/agent-architecture.md) for configuration
 
 **Your role**: Just say "What's next?" and the AI handles routing, dependencies, and coordination.
 
@@ -279,16 +287,16 @@ AI: "Loading Feature Orchestration Skill..."
 
 You: "What's next?"
 AI: "Task 1: Database schema [PENDING]. No blockers."
-    Launches Database Engineer → Implements schema → Creates 400-token summary
+    Launches Implementation Specialist → Implements schema → Creates 400-token summary
 
 You: "What's next?"
 AI: "Task 2: Authentication API [PENDING]. Dependencies satisfied."
     Reads 400-token summary (not 5k full context)
-    Launches Backend Engineer → Implements API → Creates summary
+    Launches Implementation Specialist → Implements API → Creates summary
 
 You: "What's next?"
 AI: "Task 3: Login UI [PENDING]. Backend ready."
-    Launches Frontend Developer → Implements UI → Feature progresses
+    Launches Implementation Specialist → Implements UI → Feature progresses
 
 [Next morning - new session]
 You: "What's next?"
