@@ -157,7 +157,10 @@ Your AI will:
 > - 4 subagents (Feature Architect, Implementation Specialist, Planning Specialist, Senior Engineer)
 > - 6+ skills for lightweight coordination (60-82% token savings)
 > - Hooks for workflow automation
+> - **Task Orchestrator output-style** - Professional coordination communication with phase labels and status indicators
 > - Access to `coordinate_feature_development` workflow
+>
+> **💡 Tip**: After setup, activate the output-style with `/output-style task-orchestrator` for clearer orchestration coordination (phase labels, status indicators, concise progress updates).
 
 ### Step 5: Verify It Works
 

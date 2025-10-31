@@ -210,6 +210,8 @@ AI automatically:
 
 **Your role**: Just say "What's next?" and the AI handles routing, dependencies, and coordination.
 
+> **💡 Pro Tip**: After running `setup_claude_orchestration`, activate the Task Orchestrator output-style with `/output-style task-orchestrator` in Claude Code for clearer coordination (uses phase labels, status indicators ✅⚠️❌🔄, and concise progress updates).
+
 ### Status Events Drive Progression
 
 Task Orchestrator uses **event-driven status progression** mapped to your workflow:
