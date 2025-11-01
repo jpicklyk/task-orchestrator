@@ -319,47 +319,57 @@ The 9 built-in templates are organized into 3 strategic categories:
 
 ### Local Git Branching Workflow
 - **Target**: Tasks
-- **Sections**: Branch creation, development workflow, integration
+- **Sections**: Create Branch, Implement & Commit, Verify & Finalize
+- **Tags**: git, workflow-instruction, commands, checklist
 - **Auto-Applied**: When git repository detected (.git directory exists)
 
 ### GitHub PR Workflow
 - **Target**: Tasks
-- **Sections**: PR preparation, creation process, review management
+- **Sections**: Pre-Push Validation, Create Pull Request, Review & Merge
+- **Tags**: github, pull-request, workflow-instruction, commands, checklist
 - **Suggested**: When git detected and user confirms they use PRs
 
 ### Task Implementation Workflow
 - **Target**: Tasks
-- **Sections**: Implementation planning, development execution, completion validation
+- **Sections**: Implementation Analysis, Step-by-Step Implementation, Testing & Validation
+- **Tags**: workflow, implementation, mcp-tools, commands, checklist
 - **Auto-Applied**: Most implementation tasks with complexity > 3
 
 ### Bug Investigation Workflow
 - **Target**: Tasks
-- **Sections**: Problem analysis, investigation steps, resolution planning
+- **Sections**: Investigation Process, Root Cause Analysis, Fix Implementation & Verification
+- **Tags**: bug, investigation, workflow, mcp-tools, checklist
 - **Auto-Applied**: Bug-related tasks (when user reports bugs)
 
 ### Technical Approach
 - **Target**: Tasks
-- **Sections**: Architecture overview, implementation strategy, technology decisions
+- **Sections**: Implementation Planning Checklist, Technical Decision Log, Integration Points Checklist
+- **Tags**: technical, implementation, planning, guidance, checklist
 - **Auto-Applied**: Complex tasks (complexity > 6)
+- **Note**: Rewritten in v2.0 with actionable decision frameworks (no placeholders)
 
 ### Requirements Specification
 - **Target**: Features
-- **Sections**: Functional requirements, non-functional requirements, acceptance criteria
+- **Sections**: Must-Have Requirements, Nice-to-Have Features, Constraints & Non-Functional Requirements
+- **Tags**: requirements, specification, context, acceptance-criteria
 - **Auto-Applied**: Feature creation workflows
 
 ### Context & Background
 - **Target**: Features
-- **Sections**: Business context, user value, project background
+- **Sections**: Why This Matters, User Context, Dependencies & Coordination
+- **Tags**: context, background, business, strategic
 - **Auto-Applied**: Feature planning and project setup
 
 ### Testing Strategy
 - **Target**: Tasks
-- **Sections**: Testing approach, coverage requirements, quality gates
+- **Sections**: Test Coverage, Acceptance Criteria, Testing Checkpoints
+- **Tags**: testing, quality, validation, checklist
 - **Suggested**: Quality-critical work, production deployments
 
 ### Definition of Done
 - **Target**: Tasks
-- **Sections**: Completion criteria, acceptance guidelines, handoff requirements
+- **Sections**: Implementation Complete, Production Ready
+- **Tags**: completion, done, checklist, acceptance-criteria
 - **Suggested**: Work requiring clear completion standards
 
 > **Full Template Details**: Use `query_templates(operation="get", id="<template-id>", includeSections=true)` to see complete section structure for any template.
