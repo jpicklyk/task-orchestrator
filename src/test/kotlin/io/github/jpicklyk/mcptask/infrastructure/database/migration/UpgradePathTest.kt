@@ -10,11 +10,11 @@ import kotlin.test.assertEquals
 import java.sql.Connection
 
 /**
- * Tests upgrading from v1.0.1 (schema_version=2) to v2.0.0 (schema_version=3).
+ * Tests upgrading from v1.0.1 to v2.0.0.
  *
  * This simulates the real production upgrade scenario where:
- * - Production has V1 + V2 already applied
- * - V3 adds all v2.0 enhancements
+ * - Production has V1-V4 already applied (v1.0.1)
+ * - V5-V7 add all v2.0 enhancements (templates and tag taxonomy)
  */
 class UpgradePathTest {
 
@@ -38,8 +38,8 @@ class UpgradePathTest {
 
     @Test
     fun `should successfully upgrade from v1_0_1 to v2_0_0`() {
-        // Step 1: Create v1.0.1 database state (V1 + V2 already applied)
-        // We'll use Flyway to apply V1+V2, then verify V3 gets applied
+        // Step 1: Apply all migrations from v1.0.1 baseline through v2.0.0 enhancements
+        // V1-V4: v1.0.1 schema, V5-V7: v2.0.0 templates and tag taxonomy
 
         val schemaManager = FlywayDatabaseSchemaManager(database)
 
@@ -47,9 +47,9 @@ class UpgradePathTest {
         val result = schemaManager.updateSchema()
         assertTrue(result, "Migration should succeed")
 
-        // Verify we reach version 3 (V1 + V2 + V3)
+        // Verify we reach version 7 (V1 + V2 + V3 + V4 + V5 + V6 + V7)
         val currentVersion = schemaManager.getCurrentVersion()
-        assertEquals(3, currentVersion, "Should reach version 3 after all migrations")
+        assertEquals(7, currentVersion, "Should reach version 7 after all migrations")
 
         // Verify v2.0 features are present
         val connection = database.connector().connection as Connection
@@ -68,7 +68,7 @@ class UpgradePathTest {
 
         assertTrue(hasVersionColumn, "Projects table should have version column from V3")
 
-        // Verify templates were initialized (from V3)
+        // Verify templates were initialized (from V5 and V7)
         val templateStmt = connection.createStatement()
         val templateRs = templateStmt.executeQuery("SELECT COUNT(*) as count FROM templates")
         templateRs.next()
@@ -76,7 +76,7 @@ class UpgradePathTest {
         templateRs.close()
         templateStmt.close()
 
-        assertTrue(templateCount >= 9, "Should have at least 9 templates from V3 (found $templateCount)")
+        assertTrue(templateCount >= 9, "Should have at least 9 templates from V5+V7 (found $templateCount)")
 
         connection.close()
     }

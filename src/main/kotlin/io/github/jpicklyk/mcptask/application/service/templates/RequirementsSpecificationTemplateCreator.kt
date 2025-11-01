@@ -75,7 +75,7 @@ object RequirementsSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("functional", "core", "critical", "acceptance-criteria")
+                tags = listOf("functional", "core", "critical", "acceptance-criteria", "requirements", "context")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -126,7 +126,7 @@ object RequirementsSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = false,
-                tags = listOf("optional", "enhancements", "future", "nice-to-have")
+                tags = listOf("optional", "enhancements", "future", "nice-to-have", "requirements", "context")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -166,7 +166,7 @@ object RequirementsSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("constraints", "non-functional", "performance", "security")
+                tags = listOf("constraints", "non-functional", "performance", "security", "requirements", "context")
             )
         )
 

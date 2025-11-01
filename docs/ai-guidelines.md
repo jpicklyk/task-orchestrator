@@ -1000,6 +1000,100 @@ The system uses three complementary layers to provide comprehensive guidance:
 - Composable (multiple templates can be combined)
 - See [Templates documentation](templates.md) for details
 
+#### Section Tag Filtering (Token Optimization)
+
+**Purpose**: Read only relevant template sections using tag-based filtering, reducing token consumption by 45-60%.
+
+**How It Works**: Templates create sections with explicit tags. Use `query_sections` with tag filtering to read only what's needed for your current role.
+
+**Section Tag Taxonomy**:
+
+| Tag Category | Tags | When to Read | Who Reads |
+|--------------|------|--------------|-----------|
+| **Contextual** | `context`, `requirements`, `acceptance-criteria` | During planning and requirements gathering | Planning Specialist, Feature Architect |
+| **Actionable** | `workflow-instruction`, `checklist`, `commands`, `guidance`, `process` | During implementation and execution | Implementation Specialist |
+| **Reference** | `reference`, `technical-details` | As needed for deep technical details | Any role, situationally |
+
+**Token-Efficient Reading Patterns**:
+
+**Planning Phase** (Reading Features):
+```javascript
+// Read only context/requirements from feature for task breakdown
+sections = query_sections(
+  entityType="FEATURE",
+  entityId=featureId,
+  tags="context,requirements,acceptance-criteria",
+  includeContent=true
+)
+// Token cost: ~2,000-3,000 (vs ~7,000+ all sections)
+// Savings: 60% reduction
+```
+
+**Implementation Phase** (Reading Tasks):
+```javascript
+// Read only actionable workflow content from task
+sections = query_sections(
+  entityType="TASK",
+  entityId=taskId,
+  tags="workflow-instruction,checklist,commands,guidance,process,acceptance-criteria",
+  includeContent=true
+)
+// Token cost: ~800-1,500 (vs ~3,000-5,000 all sections)
+// Savings: 50% reduction
+```
+
+**Decision Matrix** - Which Tags to Read:
+
+| Your Role | Reading From | Tags to Read | Tags to Skip |
+|-----------|--------------|--------------|--------------|
+| **Planning Specialist** | Feature | `context`, `requirements`, `acceptance-criteria` | `workflow-instruction`, `checklist`, `commands` (execution details) |
+| **Implementation Specialist** | Task | `workflow-instruction`, `checklist`, `commands`, `guidance`, `process` | `context`, `requirements` (already in task description) |
+| **Feature Architect** | N/A (creates, doesn't read) | N/A | N/A |
+
+**Best Practices**:
+- ✅ Always use tag filtering when reading sections (never read all sections)
+- ✅ Planning reads contextual tags only (context, requirements, acceptance-criteria)
+- ✅ Implementation reads actionable tags only (workflow-instruction, checklist, commands, guidance, process)
+- ✅ Task description field (200-600 chars) contains core requirements - don't re-read in sections
+- ❌ Don't read ALL sections with `includeSections=true` (wastes 45-60% tokens)
+
+**Example - Complete Workflow**:
+```javascript
+// Step 1: Planning Specialist breaks down feature
+feature = query_container(operation="overview", containerType="feature", id=featureId)
+// Gets metadata only (~1,200 tokens)
+
+sections = query_sections(
+  entityType="FEATURE",
+  entityId=featureId,
+  tags="context,requirements,acceptance-criteria",
+  includeContent=true
+)
+// Gets planning-relevant sections only (~2-3k tokens)
+// Total: ~3,200-4,200 tokens (vs 7,000+ with all sections)
+
+// Step 2: Implementation Specialist implements task
+task = query_container(operation="get", containerType="task", id=taskId, includeSections=false)
+// Gets task metadata + description (~300-500 tokens)
+
+sections = query_sections(
+  entityType="TASK",
+  entityId=taskId,
+  tags="workflow-instruction,checklist,commands,guidance,process",
+  includeContent=true
+)
+// Gets actionable workflow sections only (~800-1,500 tokens)
+// Total: ~1,100-2,000 tokens (vs 3,000-5,000 with all sections)
+```
+
+**Integration with Subagents**:
+- Feature Architect creates features with tagged sections
+- Planning Specialist reads features using contextual tags
+- Implementation Specialist reads tasks using actionable tags
+- All subagents automatically use tag filtering (built into their workflows)
+
+See [Templates - Template Philosophy](templates.md#template-philosophy) for comprehensive architecture details.
+
 ---
 
 ## Dual Workflow Model

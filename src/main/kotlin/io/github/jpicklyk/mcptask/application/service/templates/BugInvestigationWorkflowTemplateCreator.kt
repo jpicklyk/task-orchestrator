@@ -96,7 +96,7 @@ Gather technical evidence:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("investigation", "reproduction", "diagnosis", "mcp-tools")
+                tags = listOf("investigation", "reproduction", "diagnosis", "mcp-tools", "process", "workflow-instruction", "guidance")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -179,7 +179,7 @@ Document findings clearly:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("root-cause", "analysis", "hypothesis", "verification")
+                tags = listOf("root-cause", "analysis", "hypothesis", "verification", "process", "guidance")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -286,7 +286,7 @@ Prepare fix for review and deployment:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("fix-implementation", "verification", "testing", "prevention", "mcp-tools")
+                tags = listOf("fix-implementation", "verification", "testing", "prevention", "mcp-tools", "workflow-instruction", "checklist")
             )
         )
 

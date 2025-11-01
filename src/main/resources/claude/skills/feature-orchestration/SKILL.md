@@ -27,12 +27,56 @@ Comprehensive feature lifecycle management from creation through completion, wit
 ## Tools Available
 
 - `query_container` - Read features, tasks, projects
+- `query_sections` - Read sections with tag filtering (**Token optimized**)
 - `manage_container` - Create/update features and tasks
 - `query_workflow_state` - Check workflow state, cascade events, prerequisites (**NEW**)
 - `query_templates` - Discover available templates
 - `apply_template` - Apply templates to features
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Create feature documentation
+
+## Section Tag Taxonomy
+
+**When reading feature/task sections, use tag filtering for token efficiency:**
+
+**Contextual Tags** (Planning Specialist reads from features):
+- **context** - Business context, user needs, dependencies
+- **requirements** - Functional requirements, must-haves, constraints
+- **acceptance-criteria** - Completion criteria, quality standards
+
+**Actionable Tags** (Implementation Specialist reads from tasks):
+- **workflow-instruction** - Step-by-step processes
+- **checklist** - Validation checklists, completion criteria
+- **commands** - Bash commands to execute
+- **guidance** - Implementation patterns
+- **process** - Workflow processes
+
+**Reference Tags** (Read as needed):
+- **reference** - Examples, patterns
+- **technical-details** - Deep technical specs
+
+**Example - Efficient Section Reading:**
+```javascript
+// Planning Specialist reads only context/requirements from feature
+sections = query_sections(
+  entityType="FEATURE",
+  entityId=featureId,
+  tags="context,requirements,acceptance-criteria",
+  includeContent=true
+)
+// Token cost: ~2-3k vs ~7k+ with all sections (60% savings)
+
+// Implementation Specialist reads only actionable content from task
+sections = query_sections(
+  entityType="TASK",
+  entityId=taskId,
+  tags="workflow-instruction,checklist,commands,guidance",
+  includeContent=true
+)
+// Token cost: ~800-1.5k vs ~3-5k with all sections (50% savings)
+```
+
+**Note:** Subagents (Feature Architect, Planning Specialist, Implementation Specialist) automatically use tag filtering. This reference is for direct tool usage.
 
 ## Cascade Event Detection (Automatic)
 

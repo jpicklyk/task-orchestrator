@@ -28,11 +28,51 @@ Intelligent task execution management with parallel processing, dependency-aware
 ## Tools Available
 
 - `query_container` - Read tasks, features, dependencies
+- `query_sections` - Read sections with tag filtering (**Token optimized**)
 - `manage_container` - Update task status, create tasks
 - `query_workflow_state` - Check workflow state, cascade events, dependencies (**NEW**)
 - `query_dependencies` - Analyze task dependencies
 - `recommend_agent` - Route tasks to specialists
 - `manage_sections` - Update task sections
+
+## Section Tag Taxonomy
+
+**When reading task/feature sections, use tag filtering for token efficiency:**
+
+**Actionable Tags** (Implementation Specialist reads from tasks):
+- **workflow-instruction** - Step-by-step implementation processes
+- **checklist** - Validation checklists, completion criteria
+- **commands** - Bash commands to execute
+- **guidance** - Implementation patterns and best practices
+- **process** - Workflow processes to follow
+- **acceptance-criteria** - Definition of done, success conditions
+
+**Contextual Tags** (Planning Specialist reads from features):
+- **context** - Business context, user needs, dependencies
+- **requirements** - Functional requirements, must-haves, constraints
+
+**Reference Tags** (Read as needed):
+- **reference** - Examples, patterns, reference material
+- **technical-details** - Deep technical specifications
+
+**Example - Efficient Task Section Reading:**
+```javascript
+// Implementation Specialist reads only actionable content from task
+sections = query_sections(
+  entityType="TASK",
+  entityId=taskId,
+  tags="workflow-instruction,checklist,commands,guidance,process,acceptance-criteria",
+  includeContent=true
+)
+// Token cost: ~800-1,500 tokens (vs 3,000-5,000 with all sections)
+// Savings: 45-60% token reduction
+
+// Skip contextual sections (already in task description):
+// - context (business context)
+// - requirements (captured in description field)
+```
+
+**Note:** Implementation Specialist subagent automatically uses tag filtering. This reference is for direct tool usage.
 
 ## Dependency Cascade Detection (Automatic)
 

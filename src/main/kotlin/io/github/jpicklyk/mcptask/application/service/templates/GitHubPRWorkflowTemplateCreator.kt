@@ -53,7 +53,7 @@ git rebase origin/main
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("github", "sync", "validation")
+                tags = listOf("github", "sync", "validation", "workflow-instruction", "checklist", "commands")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -100,7 +100,7 @@ Closes #[issue-number]
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("git", "pull-request", "mcp-tools")
+                tags = listOf("git", "pull-request", "mcp-tools", "workflow-instruction", "commands")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -165,7 +165,7 @@ Use GitHub MCP tools to:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("review", "merge", "mcp-tools", "cleanup")
+                tags = listOf("review", "merge", "mcp-tools", "cleanup", "process", "checklist", "commands")
             )
         )
 

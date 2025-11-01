@@ -98,29 +98,35 @@ This gives you feature metadata with tasks list (no section content):
 query_sections(
   entityType="FEATURE",
   entityId="[feature-id]",
-  tags="task-description,requirements,dependencies,technical,execution",
+  tags="context,requirements,acceptance-criteria",
   includeContent=true
 )
 ```
 
 This retrieves ONLY sections you need for task breakdown:
-- Task descriptions (if feature has pre-defined task outlines)
-- Requirements specifications
-- Dependencies and execution order
-- Technical approach details
+- **context** - Business context, user needs, dependencies, technical constraints
+- **requirements** - Functional and non-functional requirements, must-haves, nice-to-haves
+- **acceptance-criteria** - Completion criteria, quality standards
 - **Token cost: ~2,000-3,000 tokens** (only relevant content)
+
+**Tags you SKIP** (not needed for planning):
+- **workflow-instruction**, **checklist**, **commands** - Execution guidance (for Implementation Specialists, not Planning Specialist)
+- **guidance**, **process** - Implementation patterns (apply via templates instead)
+- **reference**, **technical-details** - Deep technical details (specialists read these during implementation)
 
 **Combined token cost: ~3,200-4,200 tokens (43% savings vs 7,000+)**
 
 **What you get**:
-- Feature description (the "what")
-- Relevant sections tagged for planning/task breakdown
+- Feature description (the "what needs to be built")
+- Contextual sections (business context, user needs, dependencies)
+- Requirements sections (must-haves, constraints, acceptance criteria)
 - Existing project patterns from tags
 
 **What you skip**:
-- Business context sections (not needed for task breakdown)
-- Marketing/stakeholder sections (not needed for technical tasks)
-- Template sections you won't use (e.g., "Why This Matters")
+- Workflow instructions (not needed until implementation)
+- Command examples (specialists use these during execution)
+- Process checklists (specialists follow these during work)
+- Deep technical reference material (specialists read during implementation)
 
 **When to use full read instead**:
 - Feature has NO section tags (old feature, needs full read)

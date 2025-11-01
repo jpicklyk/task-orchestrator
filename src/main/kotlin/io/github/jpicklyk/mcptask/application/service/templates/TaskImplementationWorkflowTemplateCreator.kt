@@ -86,7 +86,7 @@ Update task with analysis findings using MCP tools:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("analysis", "planning", "mcp-tools")
+                tags = listOf("analysis", "planning", "mcp-tools", "guidance", "process", "workflow-instruction")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -167,7 +167,7 @@ At each major step:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("implementation", "execution", "quality")
+                tags = listOf("implementation", "execution", "quality", "workflow-instruction", "process", "commands", "checklist")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -276,7 +276,7 @@ Before marking implementation complete:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("testing", "validation", "quality-assurance", "mcp-tools")
+                tags = listOf("testing", "validation", "quality-assurance", "mcp-tools", "workflow-instruction", "commands", "checklist")
             )
         )
 

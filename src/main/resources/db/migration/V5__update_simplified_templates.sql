@@ -1,7 +1,110 @@
 -- Migration to update template sections with simplified content
 -- This updates 6 templates that were simplified to remove enterprise bloat
 
--- Delete existing sections for templates that will be updated
+-- =============================================================================
+-- PART 1: Create the 6 templates if they don't exist
+-- =============================================================================
+-- This ensures templates exist before we try to add sections to them
+
+-- Insert Definition of Done template
+INSERT OR IGNORE INTO templates (id, name, description, target_entity_type, is_built_in, is_protected, is_enabled, created_by, tags, created_at, modified_at)
+VALUES (
+    randomblob(16),
+    'Definition of Done',
+    'Template for defining clear completion criteria, quality checklist, and handoff requirements for projects, features, and tasks.',
+    'TASK',
+    1,
+    1,
+    1,
+    'System',
+    'completion,done,checklist,handoff,quality',
+    datetime('now'),
+    datetime('now')
+);
+
+-- Insert Local Git Branching Workflow template
+INSERT OR IGNORE INTO templates (id, name, description, target_entity_type, is_built_in, is_protected, is_enabled, created_by, tags, created_at, modified_at)
+VALUES (
+    randomblob(16),
+    'Local Git Branching Workflow',
+    'A standardized workflow template for local git operations and branch management, optimized for AI agents working with version control.',
+    'TASK',
+    1,
+    1,
+    1,
+    'System',
+    'git,workflow,ai-optimized,version-control,branching',
+    datetime('now'),
+    datetime('now')
+);
+
+-- Insert GitHub PR Workflow template
+INSERT OR IGNORE INTO templates (id, name, description, target_entity_type, is_built_in, is_protected, is_enabled, created_by, tags, created_at, modified_at)
+VALUES (
+    randomblob(16),
+    'GitHub PR Workflow',
+    'A standardized workflow template for GitHub pull request creation and management using GitHub MCP server and standard git commands, optimized for AI agents with best practices integration.',
+    'TASK',
+    1,
+    1,
+    1,
+    'System',
+    'github,pull-request,workflow,ai-optimized,mcp-tools,git',
+    datetime('now'),
+    datetime('now')
+);
+
+-- Insert Context & Background template
+INSERT OR IGNORE INTO templates (id, name, description, target_entity_type, is_built_in, is_protected, is_enabled, created_by, tags, created_at, modified_at)
+VALUES (
+    randomblob(16),
+    'Context & Background',
+    'Template for capturing the strategic context, user needs, and coordination requirements that inform project and feature planning.',
+    'FEATURE',
+    1,
+    1,
+    1,
+    'System',
+    'context,background,business,strategic,documentation',
+    datetime('now'),
+    datetime('now')
+);
+
+-- Insert Testing Strategy template
+INSERT OR IGNORE INTO templates (id, name, description, target_entity_type, is_built_in, is_protected, is_enabled, created_by, tags, created_at, modified_at)
+VALUES (
+    randomblob(16),
+    'Testing Strategy',
+    'Template for defining comprehensive testing approach, coverage requirements, and validation criteria for tasks and features.',
+    'TASK',
+    1,
+    1,
+    1,
+    'System',
+    'testing,quality,validation,coverage,strategy',
+    datetime('now'),
+    datetime('now')
+);
+
+-- Insert Requirements Specification template
+INSERT OR IGNORE INTO templates (id, name, description, target_entity_type, is_built_in, is_protected, is_enabled, created_by, tags, created_at, modified_at)
+VALUES (
+    randomblob(16),
+    'Requirements Specification',
+    'Template for capturing detailed functional and non-functional requirements, acceptance criteria, and constraints for projects and features.',
+    'FEATURE',
+    1,
+    1,
+    1,
+    'System',
+    'requirements,specification,acceptance-criteria,constraints,documentation',
+    datetime('now'),
+    datetime('now')
+);
+
+-- =============================================================================
+-- PART 2: Delete existing sections for templates that will be updated
+-- =============================================================================
 DELETE FROM template_sections
 WHERE template_id IN (
     SELECT id FROM templates WHERE name IN (

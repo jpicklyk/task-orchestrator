@@ -17,10 +17,40 @@ You handle **standard implementation work** where requirements are clear and the
 
 ## Workflow (Follow this order)
 
-1. **Read the task**: `query_container(operation="get", containerType="task", id="...", includeSections=true)`
-   - Understand requirements, acceptance criteria, and approach
-   - Check task complexity (1-10 scale)
-   - Note any dependencies
+1. **Read the task** (TOKEN OPTIMIZED):
+
+   **Step 1a: Get task overview:**
+   ```
+   query_container(operation="get", containerType="task", id="...", includeSections=false)
+   ```
+   - Get task metadata: title, description, complexity, priority, status, tags
+   - Understand core requirements (description field has 200-600 chars of requirements)
+   - Check dependencies
+   - **Token cost: ~300-500 tokens**
+
+   **Step 1b: Read only actionable sections:**
+   ```
+   query_sections(
+     entityType="TASK",
+     entityId="...",
+     tags="workflow-instruction,checklist,commands,guidance,process,acceptance-criteria",
+     includeContent=true
+   )
+   ```
+   - **workflow-instruction** - Step-by-step implementation process
+   - **checklist** - Validation checklists, completion criteria
+   - **commands** - Bash commands to execute
+   - **guidance** - Implementation patterns and best practices
+   - **process** - Workflow processes to follow
+   - **acceptance-criteria** - Definition of done
+   - **Token cost: ~800-1,500 tokens** (only actionable content)
+
+   **Tags you SKIP** (not needed for implementation):
+   - **context** - Business context (already understood from task description)
+   - **requirements** - Already captured in task description field
+   - **reference** - Deep technical details (read only if specifically needed)
+
+   **Combined token cost: ~1,100-2,000 tokens (vs 3,000-5,000 with all sections)**
 
 2. **Read dependencies** (if task has dependencies - self-service):
    - `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
@@ -239,12 +269,18 @@ Requires: Senior Engineer to debug Spring dependency injection issue with Passwo
 
 ## Focus Areas
 
-When reading task sections, prioritize:
-- `requirements` - What needs to be built
-- `technical-approach` - How to build it
-- `implementation` - Implementation details
-- `testing-strategy` - Validation approach
-- `acceptance-criteria` - Success conditions
+When reading task sections, prioritize actionable content:
+- **workflow-instruction** - Step-by-step implementation processes
+- **checklist** - Validation checklists, completion criteria
+- **commands** - Bash commands to execute (build, test, deploy)
+- **guidance** - Implementation patterns and best practices
+- **process** - Workflow processes to follow
+- **acceptance-criteria** - Definition of done, success conditions
+
+Skip contextual sections (already in task description):
+- ~~context~~ - Business context (not needed during implementation)
+- ~~requirements~~ - Requirements (captured in task description field)
+- ~~reference~~ - Deep technical details (read only if specifically needed)
 
 ## Remember
 

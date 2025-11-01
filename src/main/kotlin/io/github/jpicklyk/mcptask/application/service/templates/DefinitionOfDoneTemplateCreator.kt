@@ -56,7 +56,7 @@ object DefinitionOfDoneTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("implementation", "quality", "testing", "documentation")
+                tags = listOf("implementation", "quality", "testing", "documentation", "checklist", "acceptance-criteria")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -88,7 +88,7 @@ object DefinitionOfDoneTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("deployment", "monitoring", "performance", "security", "sign-off")
+                tags = listOf("deployment", "monitoring", "performance", "security", "sign-off", "checklist", "acceptance-criteria")
             )
         )
 

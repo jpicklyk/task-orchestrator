@@ -478,9 +478,9 @@ class TemplateDataMigrationTest {
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val expectedSections = listOf(
-            "Architecture Overview",
-            "Key Dependencies",
-            "Implementation Strategy"
+            "Implementation Planning Checklist",
+            "Technical Decision Log",
+            "Integration Points Checklist"
         )
 
         val connection = database.connector().connection as Connection

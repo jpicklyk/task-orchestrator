@@ -179,7 +179,7 @@ manage_sections(
   content="[From user interview]",
   contentFormat="MARKDOWN",
   ordinal=0,
-  tags="context,business,planning-specialist"
+  tags="context,business"
 )
 ```
 
@@ -187,17 +187,31 @@ manage_sections(
 
 **Section Tagging Strategy** (OPTIMIZATION: ~40% token reduction for Planning Specialist):
 
-**Content tags**: `context`, `business`, `requirements`, `technical`, `architecture`, `user-stories`, `dependencies`, `execution`
+**Use the standard section tag taxonomy**:
 
-**Routing tags**: `planning-specialist`, `task-breakdown`, `execution`, `backend-engineer`, `frontend-developer`, `database-engineer`, `technical-writer`
+**Contextual Tags** (Planning Specialist reads these):
+- **context** - Business context, user needs, dependencies, strategic alignment
+- **requirements** - Functional and non-functional requirements, must-haves, nice-to-haves
+- **acceptance-criteria** - Completion criteria, quality standards, definition of done
 
-**Examples**:
-- Business Context → `context,business,planning-specialist`
-- User Stories → `requirements,user-stories,planning-specialist,task-breakdown`
-- Technical Specs → `technical,architecture,planning-specialist,backend-engineer,database-engineer`
-- Dependencies → `dependencies,execution,planning-specialist`
+**Actionable Tags** (Implementation Specialist reads these - NOT for feature sections):
+- **workflow-instruction**, **checklist**, **commands**, **guidance**, **process** - These are for TASK sections, not FEATURE sections
 
-**Token Efficiency**: Planning Specialist queries `tags="planning-specialist"` to get only relevant sections (~3k-4k vs ~7k+ tokens)
+**Reference Tags** (Read as needed):
+- **reference** - Examples, patterns, reference material
+- **technical-details** - Deep technical specifications
+
+**Feature Section Examples**:
+- Business Context → `context,business`
+- User Stories → `context,requirements,user-stories`
+- Technical Constraints → `requirements,technical-details`
+- Dependencies & Coordination → `context,dependencies`
+- Must-Have Requirements → `requirements,acceptance-criteria`
+- Nice-to-Have Features → `requirements,optional`
+
+**DO NOT use specialist names as tags** (backend-engineer, planning-specialist, etc.) - These are no longer needed with the new taxonomy.
+
+**Token Efficiency**: Planning Specialist queries `tags="context,requirements,acceptance-criteria"` to get only relevant sections (~3k-4k vs ~7k+ tokens)
 
 ---
 

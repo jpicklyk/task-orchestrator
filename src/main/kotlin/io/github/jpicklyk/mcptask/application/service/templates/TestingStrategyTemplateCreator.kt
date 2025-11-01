@@ -66,7 +66,7 @@ Test format: `should [expected behavior] when [specific condition]`
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("testing", "coverage", "unit-tests", "integration-tests")
+                tags = listOf("testing", "coverage", "unit-tests", "integration-tests", "guidance", "reference")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -94,7 +94,7 @@ Test format: `should [expected behavior] when [specific condition]`
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("acceptance-criteria", "completion", "quality")
+                tags = listOf("acceptance-criteria", "completion", "quality", "checklist")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -135,7 +135,7 @@ Test format: `should [expected behavior] when [specific condition]`
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("checkpoints", "validation", "deployment")
+                tags = listOf("checkpoints", "validation", "deployment", "checklist", "process", "workflow-instruction")
             )
         )
 
