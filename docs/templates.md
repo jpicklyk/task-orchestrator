@@ -5,7 +5,7 @@ title: Templates
 
 # Template System
 
-The MCP Task Orchestrator includes **9 built-in templates** organized into 3 strategic categories. Templates provide reusable patterns for structuring task and feature documentation, ensuring consistency and completeness across your project management workflows.
+The MCP Task Orchestrator includes **9 built-in templates** organized into 3 strategic categories. Templates provide workflow instructions, decision frameworks, and quality gates that guide AI assistants through implementation, planning, and validation processes.
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ The MCP Task Orchestrator includes **9 built-in templates** organized into 3 str
 
 ### What Are Templates?
 
-Templates are predefined documentation structures that can be applied to tasks, features, and projects to create consistent, comprehensive documentation. **Templates are universally available** - they work with any MCP-compatible AI client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.) and function independently of orchestration setup.
+Templates are predefined workflow guidance, decision frameworks, and validation checklists that can be applied to tasks and features to guide implementation work. **Templates are universally available** - they work with any MCP-compatible AI client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.) and function independently of orchestration setup.
 
 Each template contains:
 
@@ -36,16 +36,16 @@ Each template contains:
 ### Benefits
 
 - **Universal Availability**: Works with ALL MCP clients, not specific to Claude Code
-- **Consistency**: Standardized documentation across all work items
-- **Completeness**: Ensures all critical aspects are covered
-- **AI-Optimized**: Designed for AI assistant interaction and understanding
+- **Structured Guidance**: Standardized workflows and decision frameworks across all work
+- **Completeness**: Ensures all critical planning and validation steps are covered
+- **AI-Optimized**: Designed for AI assistant interaction and execution
 - **Composable**: Can be applied individually or combined for comprehensive coverage
 - **Discoverable**: AI agents dynamically discover and apply appropriate templates
 - **Flexible Execution**: Works with both direct execution and sub-agent orchestration
 
 ### Templates Structure the WORK
 
-**Templates define WHAT needs to be documented**, not WHO does it:
+**Templates define WHAT needs to be done and HOW to approach it**, not WHO does it:
 
 - **Requirements Specification**: Creates "Requirements" section → defines what functionality is needed
 - **Technical Approach**: Creates "Implementation Planning Checklist" section → guides planning with decision frameworks
