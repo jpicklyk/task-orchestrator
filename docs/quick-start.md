@@ -727,7 +727,7 @@ Modern checkout with payment processing, inventory validation, order confirmatio
 - **Dependencies** - BLOCKS, RELATES_TO, IS_BLOCKED_BY relationships
 - **Bulk Operations** - Create multiple tasks/features efficiently
 - **Search and Filter** - Find tasks by status, priority, tags, text
-- **Custom Templates** - Create team-specific documentation patterns
+- **Custom Templates** - Create team-specific workflow templates and quality gates
 
 ### Get Help
 
