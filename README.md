@@ -39,7 +39,7 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 - ✅ **Persistent Memory** - AI remembers project state, completed work, and decisions across sessions
 - ✅ **Token Efficiency** - Up to 90% reduction via summary-based context passing
 - ✅ **Hierarchical Tasks** - Projects → Features → Tasks with dependency tracking
-- ✅ **Template System** - 9 built-in templates for consistent documentation structure
+- ✅ **Template System** - 9 built-in workflow templates with decision frameworks and quality gates
 - ✅ **Event-Driven Workflows** - Automatic status progression based on your config
 - ✅ **Sub-Agent Orchestration** - Specialist routing for complex work (Claude Code)
 - ✅ **Skills & Hooks** - Lightweight coordination and workflow automation (Claude Code)
@@ -242,7 +242,7 @@ Task Orchestrator uses **event-driven status progression** mapped to your workfl
 - 🤖 **[Agent Architecture](docs/agent-architecture.md)** - 4-tier hybrid system: Direct Tools, Skills, Hooks, Subagents
 - 🎯 **[Skills Guide](docs/skills-guide.md)** - Lightweight coordination (60-82% token savings)
 - 🪝 **[Hooks Guide](docs/hooks-guide.md)** - Workflow automation and event-driven integration
-- 📝 **[Templates](docs/templates.md)** - 9 built-in documentation templates
+- 📝 **[Templates](docs/templates.md)** - 9 built-in workflow templates (instructions, frameworks, quality gates)
 - 📋 **[Workflow Prompts](docs/workflow-prompts.md)** - Automated workflow guidance
 
 ### Reference
