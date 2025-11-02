@@ -48,7 +48,7 @@ Each template contains:
 **Templates define WHAT needs to be documented**, not WHO does it:
 
 - **Requirements Specification**: Creates "Requirements" section → defines what functionality is needed
-- **Technical Approach**: Creates "Technical Approach" section → defines architecture and strategy
+- **Technical Approach**: Creates "Implementation Planning Checklist" section → guides planning with decision frameworks
 - **Testing Strategy**: Creates "Testing Strategy" section → defines test requirements
 
 Templates work with **TWO execution patterns**:
@@ -248,7 +248,6 @@ User: "Create a feature for user authentication"
 Claude: "I'll create the User Authentication feature. I recommend applying:
 - Context & Background (business context)
 - Requirements Specification (detailed requirements)
-- Technical Approach (architecture planning)
 
 Would you like me to apply these templates?"
 ```
@@ -272,17 +271,18 @@ The 9 built-in templates are organized into 3 strategic categories:
 
 ### AI Workflow Instructions
 
-**Purpose**: Step-by-step process guidance with MCP tool integration
+**Purpose**: Step-by-step process guidance, decision frameworks, and validation checklists
 
 **Templates**:
 - Local Git Branching Workflow
 - GitHub PR Workflow
 - Task Implementation Workflow
 - Bug Investigation Workflow
+- Technical Approach
 
-**Target**: Primarily tasks, designed for process automation
+**Target**: Tasks, designed for process automation and implementation planning
 
-**When AI Uses Them**: Implementation tasks, bug fixes, any work requiring structured workflow
+**When AI Uses Them**: Implementation tasks, bug fixes, complex planning, any work requiring structured workflow or decision-making guidance
 
 ---
 
@@ -291,13 +291,12 @@ The 9 built-in templates are organized into 3 strategic categories:
 **Purpose**: Information capture and context preservation
 
 **Templates**:
-- Technical Approach (Tasks only)
 - Requirements Specification (Features only)
 - Context & Background (Features only)
 
-**Target**: Varies by template - Technical Approach for tasks, Requirements/Context for features
+**Target**: Features, designed for planning and context documentation
 
-**When AI Uses Them**: Feature creation, complex tasks, architectural decisions
+**When AI Uses Them**: Feature creation, project planning, capturing business context and requirements
 
 ---
 
@@ -442,9 +441,7 @@ AI Workflow Instructions:
 - GitHub PR Workflow (pull requests)
 - Task Implementation Workflow (structured implementation)
 - Bug Investigation Workflow (systematic debugging)
-
-Documentation Properties:
-- Technical Approach (architecture and strategy)
+- Technical Approach (implementation planning and decision frameworks)
 
 Process & Quality:
 - Testing Strategy (comprehensive testing)
@@ -514,15 +511,15 @@ Maximum rigor with quality gates and review processes.
 
 ### Template Stacking Strategy
 
-**Layer 1: Process** (always include one)
+**Layer 1: Core Workflow** (always include one)
 - Task Implementation Workflow OR Bug Investigation Workflow
+- Add Technical Approach for complex tasks (complexity 6+)
 
-**Layer 2: Documentation** (for complex work)
-- Technical Approach (architecture)
+**Layer 2: Context Documentation** (for features and complex planning)
 - Requirements Specification (features)
 - Context & Background (features)
 
-**Layer 3: Quality** (for critical work)
+**Layer 3: Quality Gates** (for critical work)
 - Testing Strategy (test coverage)
 - Definition of Done (completion criteria)
 
