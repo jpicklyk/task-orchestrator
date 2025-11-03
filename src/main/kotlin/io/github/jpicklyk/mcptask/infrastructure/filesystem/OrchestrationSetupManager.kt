@@ -10,23 +10,23 @@ import java.nio.file.StandardCopyOption
  * Manages orchestration setup for Task Orchestrator, including both Claude Code specific
  * files and universal orchestration configuration.
  *
- * ## Claude Code Specific (Subagents & Skills)
+ * ## Claude Code Specific (Subagents, Skills & Plugins)
  * - Agent definitions in .claude/agents/task-orchestrator/ with YAML frontmatter and markdown content
  * - Skills in .claude/skills/ (root level, not in subdirectory) for lightweight coordination
+ * - Plugin in .claude/plugins/task-orchestrator/ with SessionStart hooks for communication style
  * - Agent format: YAML frontmatter with name, description, tools, model
  * - Model field: "sonnet" or "opus" (not full model names)
  *
  * ## Universal (Any AI Client)
- * - Output-style in .claude/output-styles/ - orchestrator behavior and decision-making patterns
  * - Configuration in .taskorchestrator/config.yaml - status progression, quality gates
  * - Agent mapping in .taskorchestrator/agent-mapping.yaml - tag-based routing
  * - Decision gates injected into CLAUDE.md
  *
  * ## Responsibilities
- * - Create and manage .claude/ directory structure (agents, skills, output-styles)
+ * - Create and manage .claude/ directory structure (agents, skills, plugins)
  * - Create and manage .taskorchestrator/ directory with config files
- * - Copy Claude-specific agent and skill templates from embedded resources
- * - Copy universal output-style and config files from embedded resources
+ * - Copy Claude-specific agent, skill, and plugin templates from embedded resources
+ * - Copy universal config files from embedded resources
  * - Read/write orchestration files
  * - Handle Docker volume mounts
  * - Portable across Windows/Linux/macOS
@@ -49,7 +49,6 @@ class OrchestrationSetupManager(
         const val CLAUDE_DIR = ".claude"
         const val AGENTS_DIR = "agents"
         const val SKILLS_DIR = "skills"
-        const val OUTPUT_STYLE_DIR = "output-styles"
         const val TASK_ORCHESTRATOR_SUBDIR = "task-orchestrator"
         const val TASKORCHESTRATOR_DIR = ".taskorchestrator"
         const val ORCHESTRATION_DIR = "orchestration"
@@ -57,16 +56,26 @@ class OrchestrationSetupManager(
         // Resource paths
         const val RESOURCE_PATH_PREFIX = "/claude/agents"
         const val SKILLS_RESOURCE_PATH = "/claude/skills"
-        const val OUTPUT_STYLE_RESOURCE_PATH = "/claude/output-styles"
         const val ORCHESTRATION_RESOURCE_PATH = "/orchestration"
 
         // Configuration files
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
         const val CONFIG_FILE = "config.yaml"
         const val WORKFLOW_CONFIG_FILE = "status-workflow-config.yaml"
-        const val OUTPUT_STYLE_FILE = "task-orchestrator.md"
         const val CLAUDE_MD_FILE = "CLAUDE.md"
         const val DECISION_GATES_MARKER = "## Decision Gates (Claude Code)"
+
+        // Plugin paths
+        const val PLUGINS_DIR = "plugins"
+        const val PLUGIN_RESOURCE_PATH = "/claude-plugin/task-orchestrator"
+
+        // Plugin files structure
+        val PLUGIN_FILES = listOf(
+            ".claude-plugin/plugin.json",
+            "hooks/hooks.json",
+            "hooks-handlers/session-start.sh",
+            "README.md"
+        )
 
         // Configuration version
         const val CURRENT_CONFIG_VERSION = "2.0.0"
@@ -465,13 +474,6 @@ class OrchestrationSetupManager(
     }
 
     /**
-     * Get the output-style directory path (.claude/output-styles/)
-     */
-    fun getOutputStyleDir(): Path {
-        return getClaudeDir().resolve(OUTPUT_STYLE_DIR)
-    }
-
-    /**
      * Get the hooks directory path (.claude/hooks/task-orchestrator/)
      * Note: Hooks are no longer automatically created, but this path is used for discovery of user-created hooks
      */
@@ -538,15 +540,29 @@ class OrchestrationSetupManager(
     }
 
     /**
-     * Create the .claude/output-styles/ directory structure.
-     * Returns true if created, false if already exists.
+     * Get the plugins directory path (.claude/plugins/task-orchestrator/)
      */
-    fun createOutputStyleDirectory(): Boolean {
-        val outputStyleDir = getOutputStyleDir()
+    fun getPluginDir(): Path {
+        return getClaudeDir().resolve(PLUGINS_DIR).resolve(TASK_ORCHESTRATOR_SUBDIR)
+    }
 
-        if (!Files.exists(outputStyleDir)) {
-            Files.createDirectories(outputStyleDir)
-            logger.info("Created directory: $outputStyleDir")
+    /**
+     * Check if the plugin directory exists
+     */
+    fun pluginDirExists(): Boolean {
+        return Files.exists(getPluginDir())
+    }
+
+    /**
+     * Create the .claude/plugins/task-orchestrator/ directory structure
+     * Returns true if created, false if already exists
+     */
+    fun createPluginDirectory(): Boolean {
+        val pluginDir = getPluginDir()
+
+        if (!Files.exists(pluginDir)) {
+            Files.createDirectories(pluginDir)
+            logger.info("Created directory: $pluginDir")
             return true
         }
 
@@ -554,38 +570,30 @@ class OrchestrationSetupManager(
     }
 
     /**
-     * Copy output-style file from embedded resources to .claude/output-styles/
-     * Skips if file already exists (idempotent).
+     * Copy plugin files from embedded resources to .claude/plugins/task-orchestrator/
+     * Preserves directory structure. Skips files that already exist (idempotent).
      *
-     * Returns true if the file was copied, false if it already existed.
+     * Returns list of files that were copied.
      */
-    fun copyOutputStyleFile(): Boolean {
-        val outputStyleDir = getOutputStyleDir()
-        val targetFile = outputStyleDir.resolve(OUTPUT_STYLE_FILE)
+    fun copyPluginFiles(): List<String> {
+        val pluginDir = getPluginDir()
+        val copiedFiles = mutableListOf<String>()
 
-        // Skip if file already exists (idempotent)
-        if (Files.exists(targetFile)) {
-            logger.debug("Output-style file already exists, skipping: $OUTPUT_STYLE_FILE")
-            return false
+        if (!Files.exists(pluginDir)) {
+            throw IllegalStateException("Plugin directory does not exist. Call createPluginDirectory() first.")
         }
 
-        // Ensure directory exists
-        if (!Files.exists(outputStyleDir)) {
-            throw IllegalStateException("Output-style directory does not exist. Call createOutputStyleDirectory() first.")
+        // Copy entire plugin directory structure
+        val filesCopied = copyResourceDirectory(PLUGIN_RESOURCE_PATH, pluginDir, "Plugin")
+
+        if (filesCopied > 0) {
+            logger.info("Copied $filesCopied plugin file(s)")
+            copiedFiles.addAll(PLUGIN_FILES.filter {
+                Files.exists(pluginDir.resolve(it))
+            })
         }
 
-        // Read from embedded resources
-        val resourcePath = "$OUTPUT_STYLE_RESOURCE_PATH/$OUTPUT_STYLE_FILE"
-        val resourceStream = javaClass.getResourceAsStream(resourcePath)
-            ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
-
-        // Copy to target location
-        resourceStream.use { input ->
-            Files.copy(input, targetFile, StandardCopyOption.REPLACE_EXISTING)
-        }
-
-        logger.info("Copied output-style file: $OUTPUT_STYLE_FILE")
-        return true
+        return copiedFiles
     }
 
     /**

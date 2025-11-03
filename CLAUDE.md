@@ -271,8 +271,8 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
 - **Claude Code Integration:**
-  - **Output-style (source):** `src/main/resources/output-styles/task-orchestrator.md`
-  - **Output-style (installed):** `.claude/output-styles/task-orchestrator.md` (use `/output-styles` command in Claude Code)
+  - **Plugin (source):** `src/main/resources/claude-plugin/task-orchestrator/`
+  - **Plugin (installed):** `.claude/plugins/task-orchestrator/` (installed by `setup_claude_orchestration`)
   - **Skills:** `.claude/skills/` (installed by `setup_claude_orchestration`)
   - **Subagents:** `.claude/agents/task-orchestrator/` (installed by `setup_claude_orchestration`)
 
@@ -285,13 +285,13 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 **SOURCE files** (single source of truth - modify these):
 - Agents: `src/main/resources/agents/claude/task-orchestrator/*.md`
 - Skills: `src/main/resources/skills/*/SKILL.md`
-- Output-style: `src/main/resources/output-styles/task-orchestrator.md`
+- Plugin: `src/main/resources/claude-plugin/task-orchestrator/`
 - Config: `src/main/resources/orchestration/default-config.yaml`
 
 **INSTALLED files** (copies created by setup_claude_orchestration - DO NOT modify):
 - Agents: `.claude/agents/task-orchestrator/*.md`
 - Skills: `.claude/skills/*/SKILL.md`
-- Output-style: `.claude/output-styles/task-orchestrator.md`
+- Plugin: `.claude/plugins/task-orchestrator/`
 - Config: `.taskorchestrator/config.yaml`
 
 ### How It Works
@@ -311,10 +311,10 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 
 ### For AI Specialists
 
-**When updating agents, skills, or config (default behavior)**:
+**When updating agents, skills, plugin, or config (default behavior)**:
 1. Write to `src/main/resources/agents/claude/task-orchestrator/[filename].md`
 2. Write to `src/main/resources/skills/[skill-name]/SKILL.md`
-3. Write to `src/main/resources/output-styles/task-orchestrator.md`
+3. Write to `src/main/resources/claude-plugin/task-orchestrator/[filename]`
 4. DO NOT write to `.claude/` directory unless user explicitly requests it
 5. After updating source files, users run `setup_claude_orchestration` to propagate changes
 
@@ -574,7 +574,7 @@ See: [workflow-prompts.md](docs/workflow-prompts.md), [templates.md](docs/templa
 **Installation Paths**:
 - Skills: `.claude/skills/` (auto-discovered by Claude Code)
 - Subagents: `.claude/agents/task-orchestrator/` (auto-discovered by Claude Code)
-- Output-style: `.claude/output-styles/task-orchestrator.md` (accessible via `/output-styles` command)
+- Plugin: `.claude/plugins/task-orchestrator/` (auto-discovered by Claude Code)
 
 **Skills Available**:
 - Feature Management - "What's next?", "Complete feature" (~300-600 tokens)

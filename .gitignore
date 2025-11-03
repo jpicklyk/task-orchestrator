@@ -57,7 +57,7 @@ bin/
 ### Claude Code configuration files ###
 # .claude/ directory contains user-customizable installed files
 # Source files in src/main/resources/ are tracked separately
-/.claude/output-styles/
+/.claude/plugins/
 /.claude/skills/
 /.claude/agents/
 CLAUDE.local.md

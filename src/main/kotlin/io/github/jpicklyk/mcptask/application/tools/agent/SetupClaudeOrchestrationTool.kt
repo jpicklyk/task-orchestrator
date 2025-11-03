@@ -33,7 +33,7 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
         What This Creates:
         - `.claude/agents/task-orchestrator/` - 4 specialized subagent definitions (v2.0 architecture)
         - `.claude/skills/` - 6 Skills for lightweight coordination workflows
-        - `.claude/output-styles/` - Task Orchestrator output style
+        - `.claude/plugins/task-orchestrator/` - Communication style plugin with SessionStart hook
         - Decision gates in CLAUDE.md (if not present)
 
         Subagents (v2.0 Architecture - Complex Implementation):
@@ -194,22 +194,30 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Whether v2.0 config-driven mode is enabled")
                                     )
                                 ),
-                                "outputStyleDirectoryCreated" to JsonObject(
+                                "pluginDirectoryCreated" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether output-style directory was newly created")
+                                        "description" to JsonPrimitive("Whether plugin directory was newly created")
                                     )
                                 ),
-                                "outputStyleCopied" to JsonObject(
+                                "pluginFilesCopied" to JsonObject(
                                     mapOf(
-                                        "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether output-style file was newly copied")
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("List of plugin files that were newly copied"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                                     )
                                 ),
-                                "outputStylePath" to JsonObject(
+                                "pluginFilesSkipped" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("array"),
+                                        "description" to JsonPrimitive("List of plugin files that already existed"),
+                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                    )
+                                ),
+                                "pluginPath" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Path to the output-style file")
+                                        "description" to JsonPrimitive("Path to the plugin directory")
                                     )
                                 )
                             )
@@ -261,13 +269,15 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             logger.info("Copying skill templates...")
             val copiedSkills = orchestrationSetupManager.copySkillTemplates()
 
-            // Step 6: Create output-style directory
-            logger.info("Creating .claude/output-styles/ directory structure...")
-            val outputStyleDirectoryCreated = orchestrationSetupManager.createOutputStyleDirectory()
+            // Step 6: Create plugin directory
+            logger.info("Creating .claude/plugins/task-orchestrator/ directory structure...")
+            val pluginDirectoryCreated = orchestrationSetupManager.createPluginDirectory()
 
-            // Step 7: Copy output-style file
-            logger.info("Copying output-style file...")
-            val outputStyleCopied = orchestrationSetupManager.copyOutputStyleFile()
+            // Step 7: Copy plugin files
+            logger.info("Copying plugin files...")
+            val copiedPluginFiles = orchestrationSetupManager.copyPluginFiles()
+            val allPluginFiles = OrchestrationSetupManager.PLUGIN_FILES
+            val skippedPluginFiles = allPluginFiles.filter { it !in copiedPluginFiles }
 
             // Step 8: Setup orchestration files (v2.0 progressive disclosure)
             logger.info("Setting up orchestration workflow files...")
@@ -285,7 +295,7 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
             // Build response message
             val message = buildString {
                 append("Claude Code integration setup ")
-                if (directoryCreated || skillsDirectoryCreated || outputStyleDirectoryCreated || createdOrchestrationFiles.isNotEmpty()) {
+                if (directoryCreated || skillsDirectoryCreated || pluginDirectoryCreated || createdOrchestrationFiles.isNotEmpty()) {
                     append("completed successfully. ")
                 } else {
                     append("verified. ")
@@ -305,10 +315,11 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     append("Skipped ${skippedSkills.size} existing skill(s). ")
                 }
 
-                if (outputStyleCopied) {
-                    append("Created output-style file. ")
-                } else {
-                    append("Output-style file already exists. ")
+                if (copiedPluginFiles.isNotEmpty()) {
+                    append("Created ${copiedPluginFiles.size} plugin file(s). ")
+                }
+                if (skippedPluginFiles.isNotEmpty()) {
+                    append("Skipped ${skippedPluginFiles.size} existing plugin file(s). ")
                 }
 
                 if (createdOrchestrationFiles.isNotEmpty()) {
@@ -353,11 +364,10 @@ class SetupClaudeOrchestrationTool : BaseToolDefinition() {
                     put("skillsSkipped", JsonArray(skippedSkills.map { JsonPrimitive(it) }))
                     put("skillsDirectory", orchestrationSetupManager.getSkillsDir().toString())
                     put("totalSkills", allSkills.size)
-                    put("outputStyleDirectoryCreated", outputStyleDirectoryCreated)
-                    put("outputStyleCopied", outputStyleCopied)
-                    put("outputStylePath", orchestrationSetupManager.getOutputStyleDir().resolve(
-                        OrchestrationSetupManager.OUTPUT_STYLE_FILE
-                    ).toString())
+                    put("pluginDirectoryCreated", pluginDirectoryCreated)
+                    put("pluginFilesCopied", JsonArray(copiedPluginFiles.map { JsonPrimitive(it) }))
+                    put("pluginFilesSkipped", JsonArray(skippedPluginFiles.map { JsonPrimitive(it) }))
+                    put("pluginPath", orchestrationSetupManager.getPluginDir().toString())
                     put("orchestrationFilesCreated", createdOrchestrationFiles.size)
                     put("orchestrationFilesOutdated", outdatedOrchestrationFiles.size)
                     put("orchestrationPath", orchestrationSetupManager.getOrchestrationDir().toString())

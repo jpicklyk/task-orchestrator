@@ -353,6 +353,46 @@ class SetupClaudeOrchestrationToolTest {
     }
 
     @Test
+    fun `execute should create plugin directory and files`() = runBlocking {
+        val params = JsonObject(emptyMap())
+
+        val response = tool.execute(params, mockContext)
+        val responseObj = response as JsonObject
+        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
+
+        // Verify .claude/plugins/task-orchestrator directory exists
+        val workingDir = Paths.get(System.getProperty("user.dir"))
+        val pluginDir = workingDir.resolve(".claude/plugins/task-orchestrator")
+
+        assertTrue(Files.exists(pluginDir), ".claude/plugins/task-orchestrator directory should exist after execution")
+
+        // Verify all expected plugin files exist
+        val expectedFiles = listOf(
+            ".claude-plugin/plugin.json",
+            "hooks/hooks.json",
+            "hooks-handlers/session-start.sh",
+            "README.md"
+        )
+
+        expectedFiles.forEach { fileName ->
+            val file = pluginDir.resolve(fileName)
+            assertTrue(Files.exists(file), "Plugin file $fileName should exist")
+            assertTrue(Files.size(file) > 0, "Plugin file $fileName should not be empty")
+        }
+
+        // Verify response includes plugin directory info
+        val data = responseObj["data"]?.jsonObject
+        assertNotNull(data!!["pluginDirectoryCreated"], "Should have pluginDirectoryCreated field")
+        assertNotNull(data["pluginFilesCopied"], "Should have pluginFilesCopied field")
+        assertNotNull(data["pluginFilesSkipped"], "Should have pluginFilesSkipped field")
+        assertNotNull(data["pluginPath"], "Should have pluginPath field")
+
+        // Verify plugin path is correct (normalize path separators for cross-platform compatibility)
+        val pluginPath = data["pluginPath"]?.jsonPrimitive?.content?.replace("\\", "/")
+        assertTrue(pluginPath!!.contains(".claude/plugins/task-orchestrator"), "Plugin path should contain .claude/plugins/task-orchestrator")
+    }
+
+    @Test
     fun `execute should NOT copy hook examples by default`() = runBlocking {
         val params = JsonObject(emptyMap())
 
