@@ -32,8 +32,7 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
   - [rename_tag](#rename_tag) ✏️
 - [System Tools](#system-tools)
   - [setup_project](#setup_project) ✏️
-- [Agent Tools](#agent-tools) (Claude Code Only)
-  - [setup_claude_orchestration](#setup_claude_orchestration) ✏️
+- [Agent Tools](#agent-tools) (Claude Code Only - Plugin Installation)
   - [get_agent_definition](#get_agent_definition) 🔍
   - [recommend_agent](#recommend_agent) 🔍
 - [Workflow Tools](#workflow-tools)
@@ -50,7 +49,7 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 
 ### Massive Consolidation
 
-**v1.x: 56 tools** → **v2.0: 19 tools** (68% reduction)
+**v1.x: 56 tools** → **v2.0: 18 tools** (68% reduction)
 
 | Category | v1.x Tools | v2.0 Tools | Reduction |
 |----------|------------|------------|-----------|
@@ -58,7 +57,7 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 | Sections | 11 tools | 2 tools | 82% |
 | Templates | 9 tools | 3 tools | 67% |
 | Dependencies | 3 tools | 2 tools | 33% |
-| Tags, Agents | 7 tools | 7 tools | 0% |
+| Tags, Agents (plugin-only), Workflow | 6 tools | 6 tools | 0% |
 
 ### Key Improvements
 
@@ -102,8 +101,7 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 | `rename_tag` | ✏️ WRITE | (single operation) | Bulk rename tags |
 | **System Tools** |
 | `setup_project` | ✏️ WRITE | (single operation) | Initialize Task Orchestrator project config |
-| **Agent Tools** (Claude Code) |
-| `setup_claude_orchestration` | ✏️ WRITE | (single operation) | Initialize Claude Code agent system |
+| **Agent Tools** (Claude Code - via Plugin) |
 | `get_agent_definition` | 🔍 READ | (single operation) | Get agent metadata |
 | `recommend_agent` | 🔍 READ | (single operation) | Route task to skill/agent |
 | **Workflow Tools** |
@@ -2140,73 +2138,7 @@ Creates `.taskorchestrator/` directory with:
 
 Agent tools support Claude Code agent orchestration (Skills and Subagents).
 
-> **Note**: Agent tools only work with Claude Code. Other MCP clients ignore these tools.
-
-### setup_claude_orchestration
-
-**Permission**: ✏️ WRITE
-
-**Purpose**: Initialize Claude Code orchestration system
-
-**Creates**:
-- 10 subagent definitions (`.claude/agents/`)
-- 5 Skills (`.claude/skills/`)
-- 3 Hooks (`.claude/hooks/`)
-- Agent routing configuration (`.taskorchestrator/agent-mapping.yaml`)
-
-#### Parameters
-
-None required - fully automatic setup
-
-#### Example
-
-```json
-{}
-```
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Claude Code agent system initialized successfully",
-  "data": {
-    "directoryCreated": true,
-    "agentFilesCreated": [
-      "backend-engineer.md",
-      "frontend-developer.md",
-      "database-engineer.md",
-      "test-engineer.md",
-      "technical-writer.md",
-      "feature-architect.md",
-      "planning-specialist.md",
-      "bug-triage-specialist.md",
-      "feature-manager.md",
-      "task-manager.md"
-    ],
-    "skillsCopied": [
-      "dependency-analysis",
-      "feature-management",
-      "hook-builder",
-      "skill-builder",
-      "task-management"
-    ],
-    "hooksCopied": true,
-    "totalAgents": 10,
-    "totalSkills": 5,
-    "totalHooks": 3
-  }
-}
-```
-
-#### Usage Notes
-
-- **Idempotent**: Safe to run multiple times
-- **Skips existing files**: Won't overwrite customizations
-- **Commit to version control**: Share with team via `.claude/` directory
-- **Claude Code only**: Other IDEs don't support agent orchestration
-
----
+> **Note**: Agent tools are automatically installed when you use the plugin marketplace. Other MCP clients don't support agent orchestration. For Claude Code, install via: `/plugin install task-orchestrator`
 
 ### get_agent_definition
 
@@ -2662,7 +2594,7 @@ v2.0 introduces **clear permission separation** between read and write operation
 - `manage_dependency` - Create/delete dependencies
 - `rename_tag` - Bulk rename tags
 - `apply_template` - Apply templates to entities
-- `setup_claude_orchestration` - Initialize orchestration system
+- `setup_project` - Initialize project configuration
 
 **Characteristics**:
 - ✅ Automatic locking
@@ -2911,6 +2843,6 @@ AI Workflow:
 
 **Questions?** AI agents discover tool schemas automatically through MCP. Ask Claude directly for parameter details, usage examples, or integration patterns.
 
-**Last Updated**: 2025-10-23
+**Last Updated**: 2025-11-03
 **Version**: 2.0.0
-**Tool Count**: 17 tools (70% reduction from v1.x)
+**Tool Count**: 18 tools (68% reduction from v1.x)

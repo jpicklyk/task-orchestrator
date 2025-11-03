@@ -153,7 +153,7 @@ Your AI will:
 
 > **Why this matters**: Initialization enables autonomous template discovery, pattern recognition, and best practices. Your AI learns how to use the orchestration framework without explicit instructions every time.
 
-> **Claude Code users**: If `.claude/` directory is detected, initialization automatically offers to run `setup_claude_orchestration` which creates:
+> **Claude Code users**: When you install the Task Orchestrator plugin via marketplace, you get:
 > - 4 subagents (Feature Architect, Implementation Specialist, Planning Specialist, Senior Engineer)
 > - 6+ skills for lightweight coordination (60-82% token savings)
 > - Hooks for workflow automation
@@ -256,9 +256,9 @@ Your AI will:
 
 **Skip this section** if you're not using Claude Code, or if you're just getting started. Come back when you have complex features (6+ tasks) needing specialist coordination.
 
-### When to Add Sub-Agents
+### When to Use Advanced Features
 
-Add sub-agent orchestration when:
+Advanced features (Skills, Subagents, Hooks) become available when:
 - ✅ You're using **Claude Code** (required)
 - ✅ You have **complex features** (6+ tasks with dependencies)
 - ✅ You need **cross-domain work** (database → backend → frontend → tests)
@@ -268,26 +268,23 @@ Add sub-agent orchestration when:
 
 - ✅ Basic Setup complete (Steps 1-5 above)
 - ✅ Claude Code installed and configured
-- ✅ You've created at least one task successfully
+- ✅ Plugin installed via plugin marketplace
 
-### Step 1: Enable Sub-Agents
+### Step 1: Plugin Provides Everything
 
-Ask your AI (Claude Code):
+When you install via the plugin marketplace:
 
-```
-Run setup_claude_orchestration to enable full orchestration
-```
-
-This creates:
+The plugin automatically provides:
 - **`.claude/agents/task-orchestrator/`** directory with 4 subagent definitions:
   - **Feature Architect** (Opus) - Complex feature design and analysis
   - **Implementation Specialist** (Haiku) - General implementation tasks (default, fast)
   - **Planning Specialist** (Sonnet) - Task breakdown and dependency planning
   - **Senior Engineer** (Sonnet) - Complex debugging, architecture, unblocking
 - **`.claude/skills/`** directory with coordination skills (feature-orchestration, task-orchestration, etc.)
-- **Output style** for orchestration mode communication
+- **Communication style** for orchestration mode
+- **Hooks** for workflow automation
 
-### Step 2: Verify Setup
+### Step 2: Verify Installation
 
 Check that directories exist:
 
@@ -746,12 +743,12 @@ Modern checkout with payment processing, inventory validation, order confirmatio
 - Check JSON syntax: [jsonlint.com](https://jsonlint.com/)
 
 **Orchestration not working? (Claude Code only)**
-- Run `setup_claude_orchestration` workflow prompt
-- Verify `.claude/agents/task-orchestrator/` directory exists
-- Check agent files: `ls .claude/agents/task-orchestrator/`
+- Verify plugin is installed via `/plugin list`
+- Check `.claude/agents/task-orchestrator/` directory exists
+- Verify agent files: `ls .claude/agents/task-orchestrator/`
 - Should see: feature-architect.md, implementation-specialist.md, planning-specialist.md, senior-engineer.md
 - Verify skills: `ls .claude/skills/`
-- coordinate_feature_development not found? Ensure orchestration setup completed
+- coordinate_feature_development not found? Reinstall plugin via marketplace: `/plugin install task-orchestrator`
 
 **Docker issues?**
 - Start Docker Desktop

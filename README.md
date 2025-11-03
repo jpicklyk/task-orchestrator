@@ -51,22 +51,60 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 
 ## Quick Start
 
-### 1. Install via Docker
+### Option A: Plugin Installation (Recommended for Claude Code)
 
-```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+**Easiest way** - Install everything (MCP server, skills, subagents, hooks) in one step:
+
+1. **Clone this repository:**
+   ```bash
+   git clone https://github.com/jpicklyk/task-orchestrator.git
+   cd task-orchestrator
+   ```
+
+2. **Add the local marketplace:**
+   ```
+   /plugin marketplace add ./
+   ```
+
+3. **Install the plugin:**
+   ```
+   /plugin install task-orchestrator@task-orchestrator-marketplace
+   ```
+
+4. **Restart Claude Code**
+
+5. **Initialize your project:**
+   ```
+   setup_project
+   ```
+
+**Note**: Once this repository is published on GitHub, you'll be able to use:
+```
+/plugin marketplace add jpicklyk/task-orchestrator
+/plugin install task-orchestrator
 ```
 
-### 2. Configure Your AI Platform
+See [Plugin Installation Guide](docs/plugin-installation.md) for detailed instructions and troubleshooting.
 
-**Claude Code** (primary supported platform):
-```bash
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
-```
+### Option B: Manual MCP Installation
 
-This single command works across all platforms (macOS, Linux, Windows).
+**For other MCP clients or custom setup:**
 
-**Other MCP clients**: Task Orchestrator's core MCP protocol (persistent memory, task management) works with any MCP client, but advanced features (skills, subagents, hooks) are Claude Code-specific. See [Installation Guide](docs/installation-guide.md) for configuration.
+1. **Install via Docker:**
+   ```bash
+   docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+   ```
+
+2. **Configure your AI platform:**
+
+   **Claude Code:**
+   ```bash
+   claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+   ```
+
+   This single command works across all platforms (macOS, Linux, Windows).
+
+   **Other MCP clients**: Task Orchestrator's core MCP protocol (persistent memory, task management) works with any MCP client, but advanced features (skills, subagents, hooks) are Claude Code-specific. See [Installation Guide](docs/installation-guide.md) for configuration.
 
 ### 3. Initialize AI & Project
 
@@ -210,7 +248,7 @@ AI automatically:
 
 **Your role**: Just say "What's next?" and the AI handles routing, dependencies, and coordination.
 
-> **💡 Pro Tip**: After running `setup_claude_orchestration`, the Task Orchestrator communication style plugin is automatically active in Claude Code for clearer coordination (uses phase labels, status indicators ✅⚠️❌🔄, and concise progress updates).
+> **💡 Pro Tip**: The Task Orchestrator communication style plugin is automatically active in Claude Code for clearer coordination (uses phase labels, status indicators ✅⚠️❌🔄, and concise progress updates) when installed via the plugin marketplace.
 
 ### Status Events Drive Progression
 
@@ -320,8 +358,8 @@ AI: "Task 4: Integration tests [PENDING]. 3 tasks completed yesterday."
 - **AI can't find tools**: Restart your AI client
 - **Docker not running**: Start Docker Desktop, verify with `docker version`
 - **Connection problems**: Enable `MCP_DEBUG=true` in Docker config
-- **Skills/Sub-agents not available**: Run `setup_claude_orchestration` (requires Claude Code)
-- **coordinate_feature_development not found**: Workflow prompts require Claude Code with orchestration setup
+- **Skills/Sub-agents not available**: Install via plugin marketplace (requires Claude Code)
+- **coordinate_feature_development not found**: Install plugin via marketplace for full orchestration features
 
 **Get Help**:
 - 📖 [Troubleshooting Guide](docs/troubleshooting.md) - Comprehensive solutions

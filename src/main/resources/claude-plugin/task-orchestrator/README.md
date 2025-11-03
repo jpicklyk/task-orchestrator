@@ -14,13 +14,20 @@ Automatically injects Task Orchestrator communication guidelines at the start of
 
 ## Installation
 
-This plugin is automatically installed when you run the `setup_claude_orchestration` MCP tool.
+This plugin is installed through the Claude Code plugin marketplace:
 
-**Manual Installation** (if needed):
-```bash
-# Plugin is copied from Task Orchestrator MCP server resources
-# to .claude/plugins/task-orchestrator/
-```
+1. **From local marketplace** (development):
+   ```
+   /plugin marketplace add ./
+   /plugin install task-orchestrator
+   ```
+
+2. **From GitHub** (production):
+   ```
+   /plugin install jpicklyk/task-orchestrator
+   ```
+
+After installation, run `setup_project` to initialize Task Orchestrator for your project.
 
 ## Usage
 

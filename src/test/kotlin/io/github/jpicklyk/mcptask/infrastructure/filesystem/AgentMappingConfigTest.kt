@@ -136,18 +136,19 @@ class AgentMappingConfigTest {
         }
     }
 
-    @Test
-    fun `all agent definition files should exist`() {
-        val expectedAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
-
-        expectedAgentFiles.forEach { fileName ->
-            val resourceStream = javaClass.getResourceAsStream("/claude/agents/$fileName")
-            assertNotNull(
-                resourceStream,
-                "Agent definition file '$fileName' should exist in resources"
-            )
-        }
-    }
+    // Removed: .claude/ directory setup no longer supported by Task Orchestrator
+    // Agent definitions are user-managed if using Claude Code
+    // @Test
+    // fun `all agent definition files should exist`() {
+    //     val expectedAgentFiles = OrchestrationSetupManager.DEFAULT_AGENT_FILES
+    //     expectedAgentFiles.forEach { fileName ->
+    //         val resourceStream = javaClass.getResourceAsStream("/claude/agents/$fileName")
+    //         assertNotNull(
+    //             resourceStream,
+    //             "Agent definition file '$fileName' should exist in resources"
+    //         )
+    //     }
+    // }
 
     @Test
     fun `all tag mappings reference valid agent definition files`() {

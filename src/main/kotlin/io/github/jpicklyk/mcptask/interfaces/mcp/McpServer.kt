@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationS
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionServiceImpl
 import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupManager
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.TaskOrchestratorConfigManager
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
@@ -58,7 +58,7 @@ class McpServer(
     private val toolAdapter = McpToolAdapter()
     private lateinit var templateInitializer: TemplateInitializer
     private lateinit var agentDirectoryManager: AgentDirectoryManager
-    private lateinit var orchestrationSetupManager: OrchestrationSetupManager
+    private lateinit var configManager: TaskOrchestratorConfigManager
     private lateinit var agentRecommendationService: AgentRecommendationService
     private lateinit var statusValidator: StatusValidator
     private lateinit var statusProgressionService: StatusProgressionService
@@ -87,7 +87,7 @@ class McpServer(
 
         // Initialize agent directory manager and recommendation service
         agentDirectoryManager = AgentDirectoryManager()
-        orchestrationSetupManager = OrchestrationSetupManager()
+        configManager = TaskOrchestratorConfigManager()
         agentRecommendationService = AgentRecommendationServiceImpl(agentDirectoryManager)
 
         // Initialize status progression services
@@ -173,11 +173,9 @@ class McpServer(
             repositoryProvider.taskRepository()
         )
 
-        // Configure Skills and Hooks resources
-        SkillsAndHooksResources.configure(
-            server,
-            orchestrationSetupManager
-        )
+        // Skills and Hooks resources removed - .claude/ directory setup no longer supported
+        // Skills are now user-managed in .claude/ directory if using Claude Code
+        // SkillsAndHooksResources.configure(server, configManager)
 
         // Configure tool documentation resources
         ToolDocumentationResources.configure(server)

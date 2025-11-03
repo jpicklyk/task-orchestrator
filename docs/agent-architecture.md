@@ -719,20 +719,16 @@ This workflow will:
 User: "Setup Claude Code agents"
 ```
 
-### Setup Tool
+### Plugin Installation
 
-**Tool**: `setup_claude_orchestration`
+**Method**: Claude Code Plugin Marketplace
 
-**What It Creates**:
+**What Gets Installed**:
 
 **Subagents** (`.claude/agents/task-orchestrator/`):
-- `backend-engineer.md` - Backend/API development, services
-- `frontend-developer.md` - Frontend/UI development, components
-- `database-engineer.md` - Database schemas, migrations
-- `test-engineer.md` - Testing, QA, test automation
-- `technical-writer.md` - Documentation, API docs, guides
-- `planning-specialist.md` - Requirements, architecture, planning
 - `feature-architect.md` - Feature design and breakdown
+- `implementation-specialist.md` - General implementation tasks
+- `planning-specialist.md` - Requirements, architecture, planning
 - `senior-engineer.md` - Complex debugging, unblocking
 
 **Skills** (`.claude/skills/`):
@@ -741,11 +737,15 @@ User: "Setup Claude Code agents"
 - `dependency-analysis/` - Dependency tracking
 - `dependency-orchestration/` - Dependency management
 - `status-progression/` - Status workflow validation
+- Plus implementation domain skills (backend, frontend, database, testing, documentation)
 
-**Important Notes**:
-- This tool is **idempotent** - safe to run multiple times
-- Will **not overwrite** existing files (preserves customizations)
-- Only creates files that don't already exist
+**Installation Commands**:
+- Local development: `/plugin marketplace add ./` then `/plugin install task-orchestrator`
+- From GitHub: `/plugin install jpicklyk/task-orchestrator`
+
+**Post-Installation**:
+- Run `setup_project` to initialize project configuration
+- Plugin automatically loads agents and skills on restart
 
 ### Workflow Automation Hooks (Optional)
 
@@ -915,9 +915,10 @@ Total: 2650 tokens vs 5000+ subagent-only
 **Symptoms**: Skill doesn't trigger for coordination tasks
 
 **Solution**:
-- Ensure `setup_claude_orchestration` was run
+- Verify plugin is installed via `/plugin list`
 - Check that Skills exist in `.claude/skills/`
 - Skills activate based on description keywords in user requests
+- Restart Claude Code if needed
 
 ### Issue: Dependency Context Not Passed
 
@@ -993,4 +994,4 @@ Need reasoning/code? → Subagent (1800-2200 tokens, self-service)
 **Ready to implement hybrid architecture?** See:
 - [Skill Builder](.claude/skills/skill-builder/SKILL.md) - Create custom Skills
 - [Hook Builder](.claude/skills/hook-builder/SKILL.md) - Create custom Hooks
-- [Agent Setup](api-reference.md#setup_claude_orchestration) - Initialize agent system
+- [Plugin Installation](plugin-installation.md) - Install agents and skills via marketplace

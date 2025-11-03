@@ -41,9 +41,9 @@ class GetAgentDefinitionTool : BaseToolDefinition() {
         Usage notes:
         - Use task-orchestrator://agents/list resource to see all available agents
         - Agent files located in .claude/agents/ directory
-        - Run setup_claude_agents first if agents not installed
+        - Run setup_project first to initialize core configuration
 
-        Related tools: setup_claude_agents, recommend_agent
+        Related tools: recommend_agent, setup_project
 
         For detailed examples and patterns: task-orchestrator://docs/tools/get-agent-definition
         """

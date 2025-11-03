@@ -1250,7 +1250,7 @@ The Hooks Builder will:
 5. Offer troubleshooting guidance
 6. Support for cascade event integration (v2.0+)
 
-**Available in**: `.claude/skills/task-orchestrator-hooks-builder/` (if you've run `setup_claude_orchestration`)
+**Available in**: `.claude/skills/task-orchestrator-hooks-builder/` (installed with Task Orchestrator plugin)
 
 **Skill files**:
 - `SKILL.md` - Skill definition and workflow with cascade event integration

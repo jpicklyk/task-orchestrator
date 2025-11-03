@@ -28,7 +28,7 @@ The `setup_project` tool initializes Task Orchestrator in your project by creati
 - **Version-aware**: Detects outdated configurations
 - **AI-agnostic**: Works with any MCP client (Claude Desktop, Claude Code, Cursor, etc.)
 
-**Next Step**: For Claude Code integration (Skills, Subagents), run `setup_claude_orchestration` after this tool.
+**Next Step**: For Claude Code integration (Skills, Subagents), install the Task Orchestrator plugin via Claude Code plugin marketplace after this tool.
 
 ## Quick Start
 
@@ -49,7 +49,7 @@ No parameters needed! Just call the tool.
 ```json
 {
   "success": true,
-  "message": "Task Orchestrator project setup completed successfully. Created config.yaml. Created status-workflow-config.yaml. Created agent-mapping.yaml. Created 5 orchestration file(s). Core configuration is ready. For Claude Code integration, run setup_claude_orchestration.",
+  "message": "Task Orchestrator project setup completed successfully. Created config.yaml. Created status-workflow-config.yaml. Created agent-mapping.yaml. Created 5 orchestration file(s). Core configuration is ready. For Claude Code integration, install the Task Orchestrator plugin.",
   "data": {
     "directoryCreated": true,
     "configCreated": true,
@@ -261,7 +261,7 @@ mappings:
 
 **Steps**:
 1. Run `setup_project` to create `.taskorchestrator/` directory
-2. (Optional) Run `setup_claude_orchestration` for Claude Code integration
+2. (Optional) Install Task Orchestrator plugin for Claude Code integration
 3. Customize `.taskorchestrator/config.yaml` for your team's workflow
 4. Commit `.taskorchestrator/` to git for team sharing
 
@@ -405,21 +405,21 @@ git push
 
 **Team members** will now get your customized workflows when they clone and run `setup_project`.
 
-## Integration with setup_claude_orchestration
+## Integration with Task Orchestrator Plugin
 
-`setup_project` and `setup_claude_orchestration` serve different purposes:
+`setup_project` creates core configuration, while the Task Orchestrator plugin provides Claude Code integration:
 
-| Tool | Purpose | Creates | Required For |
-|------|---------|---------|--------------|
+| Component | Purpose | Creates | Required For |
+|-----------|---------|---------|--------------|
 | `setup_project` | Core orchestrator config | `.taskorchestrator/` | All MCP clients |
-| `setup_claude_orchestration` | Claude Code integration | `.claude/agents/`, `.claude/skills/` | Claude Code only |
+| Task Orchestrator Plugin | Claude Code integration | `.claude/agents/`, `.claude/skills/` | Claude Code only |
 
 **Recommended Setup Order**:
 1. **First**: Run `setup_project` (creates core config)
-2. **Then**: Run `setup_claude_orchestration` (creates Claude Code integration)
+2. **Then**: Install plugin via `/plugin install task-orchestrator` (creates Claude Code integration)
 
 **Why This Order**:
-- `setup_claude_orchestration` may reference config files created by `setup_project`
+- Plugin may reference config files created by `setup_project`
 - Core config is needed for workflow automation regardless of AI client
 
 ## Best Practices
@@ -518,7 +518,7 @@ chmod u+w .
 
 ## Related Tools
 
-- **[setup_claude_orchestration](setup-claude-orchestration.md)** - Initialize Claude Code integration (Skills, Subagents)
+- **[Plugin Installation](../plugin-installation.md)** - Install Task Orchestrator plugin for Claude Code integration
 - **Configuration Guide**: [status-progression.md](../status-progression.md) - Complete workflow configuration reference
 - **Agent Mapping**: [agent-architecture.md](../agent-architecture.md) - Agent routing and specialist configuration
 

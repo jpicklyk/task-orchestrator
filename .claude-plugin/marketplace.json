@@ -1,0 +1,30 @@
+{
+  "name": "task-orchestrator-marketplace",
+  "owner": {
+    "name": "Task Orchestrator",
+    "url": "https://github.com/jpicklyk/task-orchestrator"
+  },
+  "metadata": {
+    "description": "MCP Task Orchestrator - Hierarchical task management with AI workflows",
+    "version": "2.0.0"
+  },
+  "plugins": [
+    {
+      "name": "task-orchestrator",
+      "version": "2.0.0",
+      "description": "Comprehensive task management with Projects → Features → Tasks hierarchy, dependency tracking, templates, and AI workflow automation",
+      "author": {
+        "name": "Jeff Picklyk",
+        "url": "https://github.com/jpicklyk"
+      },
+      "homepage": "https://github.com/jpicklyk/task-orchestrator",
+      "repository": "https://github.com/jpicklyk/task-orchestrator",
+      "license": "MIT",
+      "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
+      "category": "productivity",
+      "tags": ["tasks", "features", "projects", "dependencies", "templates", "workflows"],
+      "source": "./claude-plugins/task-orchestrator",
+      "strict": true
+    }
+  ]
+}

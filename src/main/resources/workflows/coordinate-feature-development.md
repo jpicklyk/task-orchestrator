@@ -122,11 +122,26 @@ Guide me through task breakdown."
 
 **Objective:** Execute tasks in parallel batches, cascade through dependencies
 
+**Pre-Execution Step (CRITICAL):**
+```
+Skill(command="feature-orchestration")
+
+"Feature [featureName] (ID: [featureId]) has tasks ready to execute.
+
+Cascade Event: tasks_ready_to_execute
+Check if feature status needs to progress before launching specialists.
+
+Use Status Progression Skill to determine and apply the appropriate next status based on workflow config."
+```
+
+**Why:** Feature status must reflect current phase. Uses cascade event system to determine next status (config-driven, not hardcoded).
+
 **Action:**
 ```
 Skill(command="task-orchestration")
 
 "Execute tasks for feature [featureName].
+Feature ID: [featureId]
 
 Execution graph from Phase 2:
 [paste executionGraph JSON]

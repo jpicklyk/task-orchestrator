@@ -565,7 +565,7 @@ if (rec.data.recommended) {
 - Wrong directory
 
 **Solutions**:
-- Run `setup_claude_orchestration()` to create agent mapping file
+- Run `install Task Orchestrator plugin()` to create agent mapping file
 - Verify `.taskorchestrator/agent-mapping.yaml` exists
 - Check file permissions
 
@@ -764,7 +764,7 @@ for (const testTask of testTasks) {
 
 ## Related Tools
 
-- **setup_claude_orchestration**: Install agent definitions and mapping configuration (required first)
+- **install Task Orchestrator plugin**: Install agent definitions and mapping configuration (required first)
 - **get_agent_definition**: Read agent definition file for review
 - **create_task**: Create tasks with tags that trigger recommendations
 - **get_task**: Retrieve task details that agents will work with

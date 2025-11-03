@@ -830,9 +830,9 @@ You are a backend specialist focused on REST APIs, services, and business logic.
 [Agent-specific guidance and workflow...]
 ```
 
-**Creation**: The `setup_claude_orchestration` MCP tool creates these files automatically. This tool is implemented in the Application Layer (`application/tools/agent/`) and writes agent definitions to the user's workspace.
+**Creation**: Agent definitions are provided by the Task Orchestrator plugin when installed via Claude Code plugin marketplace. The plugin contains agent definitions that are discovered automatically.
 
-**Discovery**: Claude Code automatically discovers agents in `.claude/agents/` directory - no server-side configuration needed.
+**Discovery**: Claude Code automatically discovers agents in `.claude/agents/task-orchestrator/` directory - no server-side configuration needed.
 
 ### Agent Routing System
 
@@ -962,11 +962,11 @@ Scaling: 100+ tasks possible within context limits
 
 ### Setup and Configuration
 
-**Setup Tool**: `setup_claude_orchestration`
-- **Type**: MCP tool (Application Layer)
-- **Function**: Writes agent definition files to `.claude/agents/`
-- **Agent Definitions Source**: Embedded in JAR (`src/main/resources/agents/claude/*.md`)
-- **Idempotent**: Safe to run multiple times, preserves existing customizations
+**Agent Installation**: Task Orchestrator Plugin
+- **Method**: Claude Code plugin marketplace installation
+- **Installation**: `/plugin install task-orchestrator` or `/plugin install jpicklyk/task-orchestrator`
+- **Agent Definitions**: Plugin provides agent files in `.claude/agents/task-orchestrator/`
+- **Initial Setup**: Run `setup_project` to initialize project-specific configuration
 
 **Configuration File**: `agent-mapping.yaml`
 - **Location**: `src/main/resources/agents/agent-mapping.yaml`

@@ -66,11 +66,11 @@ class RecommendAgentTool : BaseToolDefinition() {
         - No recommendation when task tags don't match any mappings
 
         Usage notes:
-        - Run setup_claude_agents first to install agent definitions
+        - Run setup_project first to initialize core configuration
         - Response includes complete nextAction with Tool parameters
         - Section tags help agents query only relevant sections (token efficiency)
 
-        Related tools: setup_claude_agents, get_agent_definition, get_task
+        Related tools: get_agent_definition, get_task, setup_project
 
         For detailed examples and patterns: task-orchestrator://docs/tools/recommend-agent
         """

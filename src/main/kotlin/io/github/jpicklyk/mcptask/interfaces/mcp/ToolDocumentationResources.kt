@@ -351,21 +351,23 @@ object ToolDocumentationResources {
         }
     }
 
-    // ========== Agent Orchestration (Unchanged in v2.0) ==========
+    // ========== System Setup Tools (v2.0) ==========
 
     private fun addSetupClaudeAgentsDocumentation(server: Server) {
+        // Note: setup_claude_agents removed in v2.0
+        // setup_project provides core Task Orchestrator project initialization
         server.addResource(
-            uri = "task-orchestrator://docs/tools/setup-claude-agents",
-            name = "setup_claude_agents Tool Documentation",
-            description = "Detailed documentation for setup_claude_agents - initialize agent orchestration system",
+            uri = "task-orchestrator://docs/tools/setup-project",
+            name = "setup_project Tool Documentation",
+            description = "Detailed documentation for setup_project - initialize Task Orchestrator project configuration",
             mimeType = "text/markdown"
         ) { _ ->
             ReadResourceResult(
                 contents = listOf(
                     TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/setup-claude-agents",
+                        uri = "task-orchestrator://docs/tools/setup-project",
                         mimeType = "text/markdown",
-                        text = loadDocumentation("setup-claude-agents.md")
+                        text = loadDocumentation("setup-project.md")
                     )
                 )
             )

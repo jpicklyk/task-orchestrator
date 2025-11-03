@@ -92,11 +92,8 @@ class SetupProjectToolTest {
         assertNotNull(data, "Data object should not be null")
         assertNotNull(data!!["directoryCreated"], "Should have directoryCreated field")
         assertNotNull(data["configCreated"], "Should have configCreated field")
-        assertNotNull(data["workflowConfigCreated"], "Should have workflowConfigCreated field")
         assertNotNull(data["agentMappingCreated"], "Should have agentMappingCreated field")
         assertNotNull(data["directory"], "Should have directory field")
-        assertNotNull(data["orchestrationFilesCreated"], "Should have orchestrationFilesCreated field")
-        assertNotNull(data["orchestrationPath"], "Should have orchestrationPath field")
     }
 
     @Test
@@ -135,26 +132,7 @@ class SetupProjectToolTest {
         assertTrue(configContent.contains("status_progression:"), "Config should have status_progression section")
     }
 
-    @Test
-    fun `execute should create workflow config yaml file`() = runBlocking {
-        val params = JsonObject(emptyMap())
-
-        val response = tool.execute(params, mockContext)
-        val responseObj = response as JsonObject
-        assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
-
-        // Verify status-workflow-config.yaml exists
-        val workingDir = Paths.get(System.getProperty("user.dir"))
-        val workflowConfigFile = workingDir.resolve(".taskorchestrator/status-workflow-config.yaml")
-
-        assertTrue(Files.exists(workflowConfigFile), "status-workflow-config.yaml should exist after execution")
-        assertTrue(Files.size(workflowConfigFile) > 0, "status-workflow-config.yaml should not be empty")
-
-        // Verify workflow config contains expected content
-        val configContent = Files.readString(workflowConfigFile)
-        assertTrue(configContent.contains("status_progressions:"), "Workflow config should have status_progressions")
-        assertTrue(configContent.contains("flow_mappings:"), "Workflow config should have flow_mappings")
-    }
+    // Workflow config file removed - no longer part of setup_project
 
     @Test
     fun `execute should create agent mapping yaml file`() = runBlocking {
@@ -205,7 +183,6 @@ class SetupProjectToolTest {
 
         val firstData = firstResponseObj["data"]?.jsonObject
         assertTrue(firstData!!["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be true on first run")
-        assertTrue(firstData["workflowConfigCreated"]?.jsonPrimitive?.boolean == true, "workflowConfigCreated should be true on first run")
         assertTrue(firstData["agentMappingCreated"]?.jsonPrimitive?.boolean == true, "agentMappingCreated should be true on first run")
 
         // Second execution - skips existing files
@@ -215,7 +192,6 @@ class SetupProjectToolTest {
 
         val secondData = secondResponseObj["data"]?.jsonObject
         assertFalse(secondData!!["configCreated"]?.jsonPrimitive?.boolean == true, "configCreated should be false on second run")
-        assertFalse(secondData["workflowConfigCreated"]?.jsonPrimitive?.boolean == true, "workflowConfigCreated should be false on second run")
         assertFalse(secondData["agentMappingCreated"]?.jsonPrimitive?.boolean == true, "agentMappingCreated should be false on second run")
     }
 
@@ -225,49 +201,26 @@ class SetupProjectToolTest {
         assertEquals("Setup Task Orchestrator Project", tool.title, "Tool should have proper title")
         assertTrue(tool.description.contains("Task Orchestrator"), "Description should mention Task Orchestrator")
         assertTrue(tool.description.contains(".taskorchestrator"), "Description should mention .taskorchestrator directory")
-        assertTrue(tool.description.contains("setup_claude_orchestration"), "Description should mention setup_claude_orchestration as related tool")
     }
 
     @Test
-    fun `execute should create orchestration workflow files`() = runBlocking {
+    fun `execute should NOT create orchestration workflow files`() = runBlocking {
         val params = JsonObject(emptyMap())
 
         val response = tool.execute(params, mockContext)
         val responseObj = response as JsonObject
         assertTrue(responseObj["success"]?.jsonPrimitive?.boolean == true, "Should succeed")
 
-        // Verify orchestration directory exists
+        // Verify orchestration directory does NOT exist (orchestration files removed in v2.0)
         val workingDir = Paths.get(System.getProperty("user.dir"))
         val orchestrationDir = workingDir.resolve(".taskorchestrator/orchestration")
 
-        assertTrue(Files.exists(orchestrationDir), "orchestration directory should exist after execution")
+        assertFalse(Files.exists(orchestrationDir), "orchestration directory should NOT exist (removed in v2.0)")
 
-        // Verify at least one orchestration file exists
-        val orchFiles = listOf(
-            "decision-trees.md",
-            "workflows.md",
-            "examples.md",
-            "optimizations.md",
-            "error-handling.md",
-            "activation-prompt.md",
-            "README.md"
-        )
-
-        var filesFound = 0
-        for (filename in orchFiles) {
-            val file = orchestrationDir.resolve(filename)
-            if (Files.exists(file)) {
-                filesFound++
-                assertTrue(Files.size(file) > 0, "$filename should not be empty")
-            }
-        }
-
-        assertTrue(filesFound > 0, "Should have created at least one orchestration file")
-
-        // Verify response includes orchestration file count
+        // Verify response does NOT include orchestration file fields
         val data = responseObj["data"]?.jsonObject
-        assertNotNull(data!!["orchestrationFilesCreated"], "Should have orchestrationFilesCreated field")
-        assertTrue(data["orchestrationFilesCreated"]?.jsonPrimitive?.int!! >= 1, "Should have created at least 1 orchestration file")
+        assertNull(data!!["orchestrationFilesCreated"], "Should NOT have orchestrationFilesCreated field")
+        assertNull(data["orchestrationPath"], "Should NOT have orchestrationPath field")
     }
 
     @Test
@@ -280,9 +233,9 @@ class SetupProjectToolTest {
 
         val workingDir = Paths.get(System.getProperty("user.dir"))
 
-        // Verify .claude directory does NOT exist (that's setup_claude_orchestration's job)
+        // Verify .claude directory does NOT exist (user-managed separately if using Claude Code)
         val claudeDir = workingDir.resolve(".claude")
-        assertFalse(Files.exists(claudeDir), ".claude directory should NOT exist (handled by setup_claude_orchestration)")
+        assertFalse(Files.exists(claudeDir), ".claude directory should NOT exist (user-managed, not created by setup_project)")
 
         // Verify response does NOT include Claude-specific fields
         val data = responseObj["data"]?.jsonObject

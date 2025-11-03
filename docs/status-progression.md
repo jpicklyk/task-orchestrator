@@ -35,7 +35,7 @@ Task Orchestrator uses a **config-driven status system** that combines:
 - **Purpose**: Interprets get_next_status output and config for human-friendly guidance
 - **Uses**: Calls get_next_status tool + reads config.yaml
 - **Returns**: Natural language explanations and actionable commands
-- **Access**: Only in Claude Code after running setup_claude_orchestration
+- **Access**: Only in Claude Code after installing Task Orchestrator plugin
 
 **Relationship**:
 ```

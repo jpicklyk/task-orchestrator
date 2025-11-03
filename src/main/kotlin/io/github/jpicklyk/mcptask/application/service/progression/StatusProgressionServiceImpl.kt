@@ -65,7 +65,7 @@ class StatusProgressionServiceImpl(
             return NextStatusRecommendation.Terminal(
                 terminalStatus = currentStatus,
                 activeFlow = "unknown",
-                reason = "Configuration not found. Run setup_claude_orchestration to initialize workflows."
+                reason = "Configuration not found. Run setup_project to initialize workflows."
             )
         }
 
@@ -244,7 +244,7 @@ class StatusProgressionServiceImpl(
         if (config == null) {
             logger.warn("No config found, cannot check readiness")
             return ReadinessResult.Invalid(
-                reason = "Configuration not found. Run setup_claude_orchestration to initialize workflows.",
+                reason = "Configuration not found. Run setup_project to initialize workflows.",
                 allowedStatuses = emptyList()
             )
         }

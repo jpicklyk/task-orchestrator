@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.application.tools.agent
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.OrchestrationSetupManager
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.TaskOrchestratorConfigManager
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.Tool
 import kotlinx.serialization.json.*
@@ -17,7 +17,7 @@ import kotlinx.serialization.json.*
  * - agent-mapping.yaml - Agent routing configuration (used if Claude Code integration enabled)
  *
  * This tool sets up core orchestrator functionality and is AI-agnostic.
- * For Claude Code-specific setup (agents, skills), use setup_claude_orchestration.
+ * For Claude Code integration, manually configure .claude/skills and .claude/agents (not provided by this tool).
  */
 class SetupProjectTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.SYSTEM
@@ -31,12 +31,10 @@ class SetupProjectTool : BaseToolDefinition() {
         What This Creates:
         - `.taskorchestrator/` - Core configuration directory
         - `.taskorchestrator/config.yaml` - Orchestrator configuration (status progression, validation rules)
-        - `.taskorchestrator/status-workflow-config.yaml` - Workflow definitions and event handlers
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
 
         Configuration Files:
         - config.yaml: Status workflows, validation rules, quality gates, parallelism settings
-        - status-workflow-config.yaml: Flow definitions (default_flow, bug_fix_flow, etc.), event handlers
         - agent-mapping.yaml: Maps task tags to appropriate agents (used with Claude Code)
 
         Parameters: None required
@@ -54,11 +52,7 @@ class SetupProjectTool : BaseToolDefinition() {
 
         After setup:
         - Edit .taskorchestrator/config.yaml to customize status workflows
-        - Edit .taskorchestrator/status-workflow-config.yaml to add custom flows
         - Commit .taskorchestrator/ directory for team sharing
-        - For Claude Code integration, run setup_claude_orchestration
-
-        Related tools: setup_claude_orchestration
 
         For detailed examples and patterns: task-orchestrator://docs/tools/setup-project
         """
@@ -101,12 +95,6 @@ class SetupProjectTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Whether config.yaml was newly created")
                                     )
                                 ),
-                                "workflowConfigCreated" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("boolean"),
-                                        "description" to JsonPrimitive("Whether status-workflow-config.yaml was newly created")
-                                    )
-                                ),
                                 "agentMappingCreated" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("boolean"),
@@ -136,33 +124,22 @@ class SetupProjectTool : BaseToolDefinition() {
         logger.info("Executing setup_project tool")
 
         return try {
-            val orchestrationSetupManager = OrchestrationSetupManager()
+            val configManager = TaskOrchestratorConfigManager()
 
             // Step 1: Create .taskorchestrator directory
             logger.info("Creating .taskorchestrator/ directory structure...")
-            val directoryCreated = orchestrationSetupManager.createTaskOrchestratorDirectory()
+            val directoryCreated = configManager.createTaskOrchestratorDirectory()
 
             // Step 2: Copy config.yaml file (core orchestrator configuration)
             logger.info("Copying config.yaml configuration file...")
-            val configCopied = orchestrationSetupManager.copyConfigFile()
+            val configCopied = configManager.copyConfigFile()
 
-            // Step 3: Copy status-workflow-config.yaml file (workflow configuration)
-            logger.info("Copying status-workflow-config.yaml workflow configuration file...")
-            val workflowConfigCopied = orchestrationSetupManager.copyWorkflowConfigFile()
-
-            // Step 4: Copy agent-mapping.yaml file (agent routing configuration)
+            // Step 3: Copy agent-mapping.yaml file (agent routing configuration)
             logger.info("Copying agent-mapping.yaml configuration file...")
-            val agentMappingCopied = orchestrationSetupManager.copyAgentMappingFile()
+            val agentMappingCopied = configManager.copyAgentMappingFile()
 
-            // Step 5: Copy orchestration files (v2.0 progressive disclosure architecture)
-            logger.info("Setting up orchestration workflow files...")
-            orchestrationSetupManager.createOrchestrationDirectory()
-            val orchestrationResults = orchestrationSetupManager.setupOrchestrationFiles()
-            val createdOrchestrationFiles = orchestrationResults.filter { it.value.first == "created" }
-            val outdatedOrchestrationFiles = orchestrationResults.filter { it.value.first == "outdated" }
-
-            // Step 6: Check for version updates (if files already existed)
-            val versionStatus = orchestrationSetupManager.getConfigVersionStatus()
+            // Step 4: Check for version updates (if files already existed)
+            val versionStatus = configManager.getConfigVersionStatus()
             val outdatedConfigs = versionStatus.filter { it.value.first }
 
             // Build response message
@@ -180,29 +157,14 @@ class SetupProjectTool : BaseToolDefinition() {
                     append("Config.yaml already exists. ")
                 }
 
-                if (workflowConfigCopied) {
-                    append("Created status-workflow-config.yaml. ")
-                } else {
-                    append("Workflow config already exists. ")
-                }
-
                 if (agentMappingCopied) {
                     append("Created agent-mapping.yaml. ")
                 } else {
                     append("Agent-mapping.yaml already exists. ")
                 }
 
-                // Report orchestration files
-                if (createdOrchestrationFiles.isNotEmpty()) {
-                    append("Created ${createdOrchestrationFiles.size} orchestration file(s). ")
-                }
-                if (orchestrationResults.filter { it.value.first == "skipped" }.isNotEmpty()) {
-                    append("${orchestrationResults.filter { it.value.first == "skipped" }.size} orchestration file(s) already present. ")
-                }
-
-                if (directoryCreated || configCopied || workflowConfigCopied || agentMappingCopied || createdOrchestrationFiles.isNotEmpty()) {
-                    append("Core configuration is ready. ")
-                    append("For Claude Code integration, run setup_claude_orchestration.")
+                if (directoryCreated || configCopied || agentMappingCopied) {
+                    append("Core configuration is ready.")
                 } else {
                     append("All configuration files already present.")
                 }
@@ -222,45 +184,22 @@ class SetupProjectTool : BaseToolDefinition() {
                     }
                     append("\nTo upgrade configurations while preserving customizations, run: update_project_config workflow")
                 }
-
-                // Report outdated orchestration files
-                if (outdatedOrchestrationFiles.isNotEmpty()) {
-                    append("\n\n⚠️  Orchestration file updates available:\n")
-                    outdatedOrchestrationFiles.forEach { (filename, result) ->
-                        val (currentVersion, latestVersion) = result.second
-                        append("  - $filename: ")
-                        if (currentVersion != null) {
-                            append("v$currentVersion → v$latestVersion")
-                        } else {
-                            append("No version → v$latestVersion")
-                        }
-                        append("\n")
-                    }
-                    append("\nOrchestration files can be manually updated by copying new versions from .taskorchestrator/orchestration/")
-                }
             }
 
             successResponse(
                 data = buildJsonObject {
                     put("directoryCreated", directoryCreated)
                     put("configCreated", configCopied)
-                    put("workflowConfigCreated", workflowConfigCopied)
                     put("agentMappingCreated", agentMappingCopied)
-                    put("orchestrationFilesCreated", createdOrchestrationFiles.size)
-                    put("orchestrationFilesOutdated", outdatedOrchestrationFiles.size)
-                    put("directory", orchestrationSetupManager.getTaskOrchestratorDir().toString())
-                    put("configPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
-                        OrchestrationSetupManager.CONFIG_FILE
+                    put("directory", configManager.getTaskOrchestratorDir().toString())
+                    put("configPath", configManager.getTaskOrchestratorDir().resolve(
+                        TaskOrchestratorConfigManager.CONFIG_FILE
                     ).toString())
-                    put("workflowConfigPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
-                        OrchestrationSetupManager.WORKFLOW_CONFIG_FILE
+                    put("agentMappingPath", configManager.getTaskOrchestratorDir().resolve(
+                        TaskOrchestratorConfigManager.AGENT_MAPPING_FILE
                     ).toString())
-                    put("agentMappingPath", orchestrationSetupManager.getTaskOrchestratorDir().resolve(
-                        OrchestrationSetupManager.AGENT_MAPPING_FILE
-                    ).toString())
-                    put("orchestrationPath", orchestrationSetupManager.getOrchestrationDir().toString())
                     put("hasOutdatedConfigs", outdatedConfigs.isNotEmpty())
-                    put("currentVersion", OrchestrationSetupManager.CURRENT_CONFIG_VERSION)
+                    put("currentVersion", TaskOrchestratorConfigManager.CURRENT_CONFIG_VERSION)
                     if (outdatedConfigs.isNotEmpty()) {
                         put("outdatedConfigs", buildJsonArray {
                             outdatedConfigs.forEach { (filename, versionInfo) ->
@@ -268,17 +207,6 @@ class SetupProjectTool : BaseToolDefinition() {
                                     put("filename", filename)
                                     put("currentVersion", versionInfo.second ?: "unknown")
                                     put("latestVersion", versionInfo.third)
-                                })
-                            }
-                        })
-                    }
-                    if (outdatedOrchestrationFiles.isNotEmpty()) {
-                        put("outdatedOrchestrationFiles", buildJsonArray {
-                            outdatedOrchestrationFiles.forEach { (filename, result) ->
-                                add(buildJsonObject {
-                                    put("filename", filename)
-                                    put("currentVersion", result.second.first ?: "unknown")
-                                    put("latestVersion", result.second.second)
                                 })
                             }
                         })
