@@ -277,7 +277,6 @@ class McpServer(
 
             // Orchestration - AI workflow automation and coordination
             SetupProjectTool(),
-            SetupClaudeOrchestrationTool(),
             GetAgentDefinitionTool(),
             RecommendAgentTool()
         )
