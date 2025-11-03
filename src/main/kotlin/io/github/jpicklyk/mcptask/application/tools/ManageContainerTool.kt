@@ -308,10 +308,11 @@ Docs: task-orchestrator://docs/tools/manage-container
                 throw ToolValidationException("Container at index $index has no fields to update")
             }
 
-            // Validate status
+            // Validate status (config-aware via StatusValidator)
             containerObj["status"]?.jsonPrimitive?.content?.let { status ->
-                if (!isValidStatus(status, containerType)) {
-                    throw ToolValidationException("Invalid status at index $index for $containerType: $status")
+                val validationResult = statusValidator.validateStatus(status, containerType)
+                if (validationResult is StatusValidator.ValidationResult.Invalid) {
+                    throw ToolValidationException("At index $index: ${validationResult.reason}")
                 }
             }
 
@@ -337,10 +338,11 @@ Docs: task-orchestrator://docs/tools/manage-container
     }
 
     private fun validateOptionalParams(params: JsonElement, containerType: String) {
-        // Validate status if present
+        // Validate status if present (config-aware via StatusValidator)
         optionalString(params, "status")?.let { status ->
-            if (!isValidStatus(status, containerType)) {
-                throw ToolValidationException("Invalid status for $containerType: $status")
+            val validationResult = statusValidator.validateStatus(status, containerType)
+            if (validationResult is StatusValidator.ValidationResult.Invalid) {
+                throw ToolValidationException(validationResult.reason)
             }
         }
 
@@ -1680,45 +1682,59 @@ Docs: task-orchestrator://docs/tools/manage-container
         }
     }
 
-    // Status validation and parsing methods
-
-    private fun isValidStatus(status: String, containerType: String): Boolean {
-        return try {
-            when (containerType) {
-                "project" -> parseProjectStatus(status)
-                "feature" -> parseFeatureStatus(status)
-                "task" -> parseTaskStatus(status)
-                else -> return false
-            }
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
+    // Status parsing methods
+    // Note: Status validation is handled by StatusValidator in validateParams()
 
     /**
      * Parses a project status string using the enum's fromString() method.
      * This delegates to ProjectStatus.fromString(), which automatically supports
      * all current and future status values defined in the enum.
+     *
+     * Note: Validation should occur in validateParams() using StatusValidator.
+     * This method should only be called after validation passes.
      */
-    private fun parseProjectStatus(status: String): ProjectStatus =
-        ProjectStatus.fromString(status) ?: throw IllegalArgumentException("Invalid project status: $status")
+    private fun parseProjectStatus(status: String): ProjectStatus {
+        return ProjectStatus.fromString(status) ?: run {
+            val allowedStatuses = statusValidator.getAllowedStatuses("project")
+            throw IllegalArgumentException(
+                "Invalid project status '$status'. Allowed statuses: ${allowedStatuses.joinToString(", ")}"
+            )
+        }
+    }
 
     /**
      * Parses a feature status string using the enum's fromString() method.
      * This delegates to FeatureStatus.fromString(), which automatically supports
      * all current and future status values defined in the enum.
+     *
+     * Note: Validation should occur in validateParams() using StatusValidator.
+     * This method should only be called after validation passes.
      */
-    private fun parseFeatureStatus(status: String): FeatureStatus =
-        FeatureStatus.fromString(status) ?: throw IllegalArgumentException("Invalid feature status: $status")
+    private fun parseFeatureStatus(status: String): FeatureStatus {
+        return FeatureStatus.fromString(status) ?: run {
+            val allowedStatuses = statusValidator.getAllowedStatuses("feature")
+            throw IllegalArgumentException(
+                "Invalid feature status '$status'. Allowed statuses: ${allowedStatuses.joinToString(", ")}"
+            )
+        }
+    }
 
     /**
      * Parses a task status string using the enum's fromString() method.
      * This delegates to TaskStatus.fromString(), which automatically supports
      * all current and future status values defined in the enum.
+     *
+     * Note: Validation should occur in validateParams() using StatusValidator.
+     * This method should only be called after validation passes.
      */
-    private fun parseTaskStatus(status: String): TaskStatus =
-        TaskStatus.fromString(status) ?: throw IllegalArgumentException("Invalid task status: $status")
+    private fun parseTaskStatus(status: String): TaskStatus {
+        return TaskStatus.fromString(status) ?: run {
+            val allowedStatuses = statusValidator.getAllowedStatuses("task")
+            throw IllegalArgumentException(
+                "Invalid task status '$status'. Allowed statuses: ${allowedStatuses.joinToString(", ")}"
+            )
+        }
+    }
 
     private fun isValidPriority(priority: String): Boolean {
         return try {

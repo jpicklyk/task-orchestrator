@@ -228,6 +228,270 @@ class ManageContainerToolTest {
     }
 
     @Nested
+    inner class StatusValidationErrorMessageTests {
+        /**
+         * Tests for v2.0 mode (with config.yaml present).
+         * The @BeforeEach in the main class sets up config.yaml, so these tests run in v2.0 mode.
+         */
+
+        @Test
+        fun `should include allowed statuses in error for invalid task status - v2_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("title", "Test Task")
+                put("status", "invalid-status")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            // Error should mention the invalid status
+            assertTrue(exception.message!!.contains("invalid-status"),
+                "Error should mention the invalid status")
+
+            // Error should include "Allowed statuses:" or similar
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+
+            // Error should list at least some valid statuses
+            assertTrue(exception.message!!.contains("pending") ||
+                       exception.message!!.contains("in-progress") ||
+                       exception.message!!.contains("completed"),
+                "Error should list valid task statuses")
+        }
+
+        @Test
+        fun `should include allowed statuses in error for invalid feature status - v2_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "feature")
+                put("name", "Test Feature")
+                put("status", "active")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            assertTrue(exception.message!!.contains("active"),
+                "Error should mention the invalid status")
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+            assertTrue(exception.message!!.contains("planning") ||
+                       exception.message!!.contains("in-development") ||
+                       exception.message!!.contains("completed"),
+                "Error should list valid feature statuses")
+        }
+
+        @Test
+        fun `should include allowed statuses in error for invalid project status - v2_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "project")
+                put("name", "Test Project")
+                put("status", "running")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            assertTrue(exception.message!!.contains("running"),
+                "Error should mention the invalid status")
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+            assertTrue(exception.message!!.contains("planning") ||
+                       exception.message!!.contains("in-development") ||
+                       exception.message!!.contains("completed"),
+                "Error should list valid project statuses")
+        }
+
+        @Test
+        fun `should include allowed statuses in bulk update error - v2_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "bulkUpdate")
+                put("containerType", "task")
+                put("containers", JsonArray(listOf(
+                    buildJsonObject {
+                        put("id", taskId.toString())
+                        put("status", "invalid-status")
+                    }
+                )))
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            // Error should mention it's at index 0
+            assertTrue(exception.message!!.contains("index 0") || exception.message!!.contains("At index 0"),
+                "Error should mention the index")
+
+            // Error should mention the invalid status
+            assertTrue(exception.message!!.contains("invalid-status"),
+                "Error should mention the invalid status")
+
+            // Error should include allowed statuses
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+        }
+
+        @Test
+        fun `should accept valid statuses in v2_0 mode`() {
+            // Test that valid statuses don't throw errors
+            val validTaskStatuses = listOf("pending", "in-progress", "completed", "backlog", "blocked")
+
+            validTaskStatuses.forEach { status ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "task")
+                    put("title", "Test Task")
+                    put("status", status)
+                }
+
+                assertDoesNotThrow({
+                    tool.validateParams(params)
+                }, "Status '$status' should be valid")
+            }
+        }
+
+        @Test
+        fun `should include allowed statuses in error for invalid status in update operation - v2_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("id", taskId.toString())
+                put("status", "invalid-update-status")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            // Error should mention the invalid status
+            assertTrue(exception.message!!.contains("invalid-update-status"),
+                "Error should mention the invalid status")
+
+            // Error should include allowed statuses
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+
+            // Should list valid statuses
+            assertTrue(exception.message!!.contains("pending") ||
+                       exception.message!!.contains("in-progress") ||
+                       exception.message!!.contains("completed"),
+                "Error should list valid task statuses")
+        }
+    }
+
+    @Nested
+    inner class StatusValidationV1ModeTests {
+        /**
+         * Tests for v1.0 mode (without config.yaml).
+         * We need to delete the config file to test v1.0 fallback behavior.
+         */
+
+        @BeforeEach
+        fun removeConfigForV1Mode() {
+            // Remove config file to force v1.0 mode
+            try {
+                val configFile = Paths.get(System.getProperty("user.dir"), ".taskorchestrator", "config.yaml")
+                Files.deleteIfExists(configFile)
+            } catch (e: Exception) {
+                // Ignore errors
+            }
+        }
+
+        @Test
+        fun `should include allowed statuses in error for invalid task status - v1_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("title", "Test Task")
+                put("status", "invalid-status")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            // In v1.0 mode, error should still include allowed statuses (from enum)
+            assertTrue(exception.message!!.contains("invalid-status"),
+                "Error should mention the invalid status")
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+
+            // Should list enum-based statuses
+            assertTrue(exception.message!!.contains("pending") ||
+                       exception.message!!.contains("in-progress"),
+                "Error should list valid task statuses from enum")
+        }
+
+        @Test
+        fun `should include allowed statuses in error for invalid feature status - v1_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "feature")
+                put("name", "Test Feature")
+                put("status", "active")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            assertTrue(exception.message!!.contains("active"),
+                "Error should mention the invalid status")
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+        }
+
+        @Test
+        fun `should include allowed statuses in error for invalid project status - v1_0 mode`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "project")
+                put("name", "Test Project")
+                put("status", "running")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+
+            assertTrue(exception.message!!.contains("running"),
+                "Error should mention the invalid status")
+            assertTrue(exception.message!!.contains("llowed status") || exception.message!!.contains("Valid status"),
+                "Error should mention allowed/valid statuses")
+            assertTrue(exception.message!!.contains("planning") ||
+                       exception.message!!.contains("in-development"),
+                "Error should list valid project statuses from enum")
+        }
+
+        @Test
+        fun `should accept all enum statuses in v1_0 mode`() {
+            // Test that all enum-based statuses are valid in v1.0 mode
+            val validTaskStatuses = listOf("pending", "in-progress", "completed", "cancelled", "deferred",
+                                           "backlog", "in-review", "changes-requested", "on-hold", "testing")
+
+            validTaskStatuses.forEach { status ->
+                val params = buildJsonObject {
+                    put("operation", "create")
+                    put("containerType", "task")
+                    put("title", "Test Task")
+                    put("status", status)
+                }
+
+                assertDoesNotThrow({
+                    tool.validateParams(params)
+                }, "Status '$status' should be valid in v1.0 mode")
+            }
+        }
+    }
+
+    @Nested
     inner class CreateOperationTests {
         @Test
         fun `should create task successfully`() = runBlocking {
