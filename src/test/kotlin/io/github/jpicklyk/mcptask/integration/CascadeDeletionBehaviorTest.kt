@@ -1,10 +1,9 @@
 package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.dependency.CreateDependencyTool
-import io.github.jpicklyk.mcptask.application.tools.section.AddSectionTool
-import io.github.jpicklyk.mcptask.application.tools.task.CreateTaskTool
-import io.github.jpicklyk.mcptask.application.tools.task.DeleteTaskTool
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
@@ -33,10 +32,9 @@ class CascadeDeletionBehaviorTest {
     private lateinit var executionContext: ToolExecutionContext
     
     // Tools
-    private lateinit var createTaskTool: CreateTaskTool
-    private lateinit var deleteTaskTool: DeleteTaskTool
-    private lateinit var createDependencyTool: CreateDependencyTool
-    private lateinit var addSectionTool: AddSectionTool
+    private lateinit var manageContainerTool: ManageContainerTool
+    private lateinit var manageDependencyTool: ManageDependencyTool
+    private lateinit var manageSectionsTool: ManageSectionsTool
     
     // Test tasks
     private lateinit var centralTask: Task
@@ -68,10 +66,9 @@ class CascadeDeletionBehaviorTest {
         executionContext = ToolExecutionContext(repositoryProvider)
         
         // Initialize tools
-        createTaskTool = CreateTaskTool()
-        deleteTaskTool = DeleteTaskTool()
-        createDependencyTool = CreateDependencyTool()
-        addSectionTool = AddSectionTool()
+        manageContainerTool = ManageContainerTool(null, null)
+        manageDependencyTool = ManageDependencyTool(null, null)
+        manageSectionsTool = ManageSectionsTool(null, null)
         
         // Create test tasks with different roles in dependency chain
         centralTask = Task(id = UUID.randomUUID(), title = "Central Task", summary = "Task at center of dependency network", status = TaskStatus.IN_PROGRESS)
@@ -99,11 +96,13 @@ class CascadeDeletionBehaviorTest {
         
         // Attempt to delete central task without force
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(false)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(false, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should fail without force")
@@ -144,11 +143,13 @@ class CascadeDeletionBehaviorTest {
         
         // Delete central task with force
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(true)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should succeed with force")
@@ -194,12 +195,14 @@ class CascadeDeletionBehaviorTest {
         
         // Delete task with sections and dependencies
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(true),
             "deleteSections" to JsonPrimitive(true)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should succeed")
@@ -230,12 +233,14 @@ class CascadeDeletionBehaviorTest {
         
         // Delete task but preserve sections
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(true),
             "deleteSections" to JsonPrimitive(false)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should succeed")
@@ -266,11 +271,13 @@ class CascadeDeletionBehaviorTest {
         
         // Delete task
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(isolatedTask.id.toString()),
             "force" to JsonPrimitive(true)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         
@@ -299,11 +306,13 @@ class CascadeDeletionBehaviorTest {
         
         // Delete central task with force
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(true)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should succeed")
@@ -347,11 +356,13 @@ class CascadeDeletionBehaviorTest {
         
         // Delete central task with force
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(true)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should succeed with large network")
@@ -382,11 +393,13 @@ class CascadeDeletionBehaviorTest {
         
         // Delete task
         val deleteParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("delete"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(centralTask.id.toString()),
             "force" to JsonPrimitive(true)
         ))
         
-        val response = deleteTaskTool.execute(deleteParams, executionContext)
+        val response = manageContainerTool.execute(deleteParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(true, responseObj["success"]?.jsonPrimitive?.boolean, "Deletion should succeed")
@@ -404,17 +417,19 @@ class CascadeDeletionBehaviorTest {
 
     private suspend fun createDependency(fromTaskId: UUID, toTaskId: UUID, type: DependencyType) {
         val params = JsonObject(mapOf(
+            "operation" to JsonPrimitive("create"),
             "fromTaskId" to JsonPrimitive(fromTaskId.toString()),
             "toTaskId" to JsonPrimitive(toTaskId.toString()),
             "type" to JsonPrimitive(type.name)
         ))
-        
-        val response = createDependencyTool.execute(params, executionContext)
+
+        val response = manageDependencyTool.execute(params, executionContext)
         assertTrue((response as JsonObject)["success"]?.jsonPrimitive?.boolean == true, "Dependency creation should succeed")
     }
 
     private suspend fun createSection(taskId: UUID, title: String, content: String, ordinal: Int): Section {
         val params = JsonObject(mapOf(
+            "operation" to JsonPrimitive("add"),
             "entityType" to JsonPrimitive("TASK"),
             "entityId" to JsonPrimitive(taskId.toString()),
             "title" to JsonPrimitive(title),
@@ -422,13 +437,14 @@ class CascadeDeletionBehaviorTest {
             "content" to JsonPrimitive(content),
             "ordinal" to JsonPrimitive(ordinal)
         ))
-        
-        val response = addSectionTool.execute(params, executionContext)
+
+        val response = manageSectionsTool.execute(params, executionContext)
         assertTrue((response as JsonObject)["success"]?.jsonPrimitive?.boolean == true, "Section creation should succeed")
-        
-        val data = (response["data"] as JsonObject)["section"] as JsonObject
+
+        // v2 API: section data is directly in "data", not nested under "data.section"
+        val data = response["data"] as JsonObject
         val sectionId = UUID.fromString(data["id"]!!.jsonPrimitive.content)
-        
+
         return Section(
             id = sectionId,
             entityType = EntityType.TASK,

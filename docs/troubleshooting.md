@@ -111,11 +111,13 @@ Top 5 most common issues with one-line fixes:
 
 **Solutions**:
 
-1. **Use Explicit Workflow Mode**
-   - For critical scenarios, invoke explicit workflow prompts:
-     - "Walk me through this using the create_feature_workflow"
-     - "Use the project_setup_workflow for this"
-   - Explicit mode guarantees comprehensive step-by-step coverage
+1. **Use Skills or Direct Tools (v2.0)**
+   - For critical scenarios (Claude Code):
+     - "Use Feature Management Skill to help me plan this feature"
+     - "Use Task Management Skill for this implementation"
+   - For API-based operations or other clients:
+     - Use direct tools: manage_container, query_container
+   - For project setup: Use project_setup_workflow
 
 2. **Review Guideline Resources**
    - Ask your AI to refresh pattern understanding

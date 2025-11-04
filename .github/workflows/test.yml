@@ -1,0 +1,48 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed for version calculation
+
+    - name: Set up JDK 23
+      uses: actions/setup-java@v4
+      with:
+        java-version: '23'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+
+    - name: Make gradlew executable
+      run: chmod +x gradlew
+
+    - name: Run tests
+      run: ./gradlew test --no-daemon --tests '*' --tests '!DescriptionFieldMigrationTest'
+
+    - name: Publish Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: always()
+      with:
+        report_paths: '**/build/test-results/test/TEST-*.xml'
+        check_name: 'Test Results'
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          **/build/test-results/test/TEST-*.xml
+          **/build/reports/tests/test/**

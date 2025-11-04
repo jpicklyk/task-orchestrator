@@ -1,0 +1,15 @@
+{
+  "description": "Task Orchestrator communication style hook",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks-handlers/session-start.js"
+          }
+        ]
+      }
+    ]
+  }
+}

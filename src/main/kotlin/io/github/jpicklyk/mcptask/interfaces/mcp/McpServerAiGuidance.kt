@@ -185,13 +185,18 @@ Use specialized tools for maximum efficiency:
                             
                             ## Workflow Automation
 
-                            **Use workflow prompts** for automated guidance on complex scenarios:
-                            - `create_feature_workflow` - Complete feature creation with templates and tasks
-                            - `task_breakdown_workflow` - Break complex tasks into manageable pieces
+                            **Universal workflows** (all MCP clients):
+                            - `initialize_task_orchestrator` - One-time AI setup (writes patterns to permanent memory)
                             - `project_setup_workflow` - Initialize new projects with proper structure
-                            - `implementation_workflow` - Smart implementation with git detection for tasks, features, and bugs
+                            - `update_project_config` - Update project configuration
+                            - `getting_started` - Quick reference guide (read-only, shows this content)
+
+                            **Claude Code workflows** (requires Skills):
+                            - `coordinate_feature_development` - End-to-end feature orchestration (Phases 1-4)
 
                             **Usage**: `task-orchestrator:workflow_name` then provide details or let AI guide you
+
+                            **Note**: v1.0 workflows removed in v2.0. Use `coordinate_feature_development` or direct tool calls.
 
                             $UPDATE_EFFICIENCY_GUIDE
                             """.trimIndent()

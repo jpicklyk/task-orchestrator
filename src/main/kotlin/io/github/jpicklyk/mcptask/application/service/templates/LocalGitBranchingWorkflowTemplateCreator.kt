@@ -54,7 +54,7 @@ git branch --show-current
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("git", "branch-creation")
+                tags = listOf("git", "branch-creation", "workflow-instruction", "commands")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -98,7 +98,7 @@ git commit -m "[type]: [description]"
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("implementation", "commits", "workflow")
+                tags = listOf("implementation", "commits", "workflow", "workflow-instruction", "commands")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -134,7 +134,7 @@ When branch is ready:
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("verification", "finalization")
+                tags = listOf("verification", "finalization", "checklist", "commands")
             )
         )
 

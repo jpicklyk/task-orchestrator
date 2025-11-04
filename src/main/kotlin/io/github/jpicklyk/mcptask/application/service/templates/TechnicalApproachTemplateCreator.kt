@@ -7,7 +7,8 @@ import io.github.jpicklyk.mcptask.domain.model.TemplateSection
 import java.util.*
 
 /**
- * Creates a template for documenting technical approach and implementation strategy.
+ * Creates a template for technical approach with actionable guidance (no placeholders).
+ * Provides decision-making frameworks and checklists to guide implementation planning.
  */
 object TechnicalApproachTemplateCreator {
 
@@ -16,145 +17,294 @@ object TechnicalApproachTemplateCreator {
         val template = Template(
             id = templateId,
             name = "Technical Approach",
-            description = "Template for documenting technical solution approach, architecture decisions, and implementation strategy for features and tasks.",
+            description = "Actionable guidance for implementation planning with decision frameworks and validation checklists (no placeholders).",
             targetEntityType = EntityType.TASK,
             isBuiltIn = true,
             isProtected = true,
             isEnabled = true,
             createdBy = "System",
-            tags = listOf("technical", "architecture", "implementation", "strategy", "documentation")
+            tags = listOf("technical", "architecture", "implementation", "strategy", "guidance")
         )
 
         val sections = listOf(
             TemplateSection(
                 templateId = templateId,
-                title = "Architecture Overview",
-                usageDescription = "High-level technical architecture and design decisions for the implementation",
-                contentSample = """### Architecture Overview
+                title = "Implementation Planning Checklist",
+                usageDescription = "Decision-making framework to guide implementation planning before coding",
+                contentSample = """### Implementation Planning Checklist
 
-### System Design
-[Describe the overall system design and how this component fits into the larger architecture]
+Before you start coding, work through these planning questions:
 
-### Key Components
-- **[Component 1]**: [Purpose and responsibility]
-- **[Component 2]**: [Purpose and responsibility] 
-- **[Component 3]**: [Purpose and responsibility]
+#### 1. Component Identification
+**What are the 2-4 main classes/modules you'll create or modify?**
+- List each component with its single responsibility
+- Example: `UserService` (CRUD operations), `AuthController` (HTTP endpoints), `TokenValidator` (JWT validation)
 
-### Design Patterns
-[List and explain any design patterns being used]
-- **Pattern Name**: [Why this pattern was chosen and how it's applied]
+**Component boundaries:**
+- Is each component focused on one responsibility?
+- Are there any components that should be split further?
+- Are there existing components you can reuse?
 
-### Data Flow
-```
-[User/Client] → [Component A] → [Component B] → [Database/External Service]
-```
+#### 2. Component Interactions
+**How will your components communicate?**
+- Draw a simple flow: Component A → calls → Component B → updates → Database
+- What data flows between components?
+- What interfaces or contracts are needed?
 
-[Describe the flow of data through the system and any transformations]
+**Interface design:**
+- What methods will each component expose?
+- What parameters and return types?
+- What exceptions might be thrown?
 
-### Integration Points
-- **[External System/Service]**: [How integration works, APIs used, data exchange format]
-- **[Internal System]**: [How components communicate, interfaces, protocols]
+#### 3. Technology Decisions
+**What libraries or frameworks will you use?**
+- List each with justification: "Jackson for JSON parsing (better Kotlin support than Gson)"
+- Are there version constraints? "Must use Spring Boot 3.2+ for native compilation"
+- Have you considered alternatives and trade-offs?
 
-### Technology Stack
-- **Language/Framework**: [Specific technology and version]
-- **Database**: [Database technology and schema considerations]
-- **Libraries/Dependencies**: [Key libraries and their purposes]
-- **Tools**: [Development, testing, and deployment tools]""",
+**Technology checklist:**
+- [ ] All required dependencies identified
+- [ ] Version compatibility verified
+- [ ] License compatibility checked
+- [ ] Performance implications understood
+
+#### 4. Data Management
+**What data structures and storage are needed?**
+- Database tables: What columns, types, indexes?
+- In-memory structures: What collections, caching strategies?
+- Data transformations: What mappings between layers?
+
+**Data flow:**
+- How does data enter the system? (API, file, message queue)
+- How is it transformed? (validation, mapping, enrichment)
+- Where is it persisted? (database, cache, file system)
+- How is it retrieved? (queries, filters, pagination)
+
+#### 5. Error Handling Strategy
+**What can go wrong and how will you handle it?**
+- External service failures → Retry with backoff? Circuit breaker? Fallback?
+- Invalid input → Validation at what layer? What error messages?
+- Database errors → Transaction rollback? Logging? User notification?
+- Unexpected exceptions → Global handler? Custom error pages?
+
+**Error handling checklist:**
+- [ ] All external failure modes identified
+- [ ] Validation strategy defined
+- [ ] Error logging approach determined
+- [ ] User-facing error messages planned
+
+#### 6. Testing Strategy
+**How will you verify correctness?**
+- Unit tests: What classes need tests? What edge cases?
+- Integration tests: What interactions need verification?
+- Manual testing: What scenarios to walk through?
+- Test data: What fixtures or mocks needed?
+
+**Testing checklist:**
+- [ ] Critical path unit tests identified
+- [ ] Integration test scenarios listed
+- [ ] Test data requirements clear
+- [ ] Acceptance criteria testable
+
+#### 7. Risk Assessment
+**What could block or delay this work?**
+- Technical risks: "Database migration might fail on production data"
+- Dependency risks: "External API has rate limits"
+- Knowledge gaps: "Unfamiliar with WebSocket protocol"
+
+**Mitigation strategies:**
+- For each risk: What's your mitigation plan?
+- Example: "Test migration on prod backup first" or "Add caching layer for API calls"
+- What's your rollback plan if things go wrong?
+
+#### Document Your Decisions
+
+When you complete this planning:
+- **Update task summary** (300-500 chars) with key decisions
+- Example: "Implementing OAuth2 auth using Spring Security. Chose JWT over sessions for scalability. Created AuthService (token gen), AuthController (endpoints), UserRepository (data access). Risk: JWT secret rotation - mitigated with external config."
+
+**Note:** This planning helps clarify your approach. Skills provide domain-specific implementation patterns (backend, frontend, database).""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("architecture", "design", "components")
+                tags = listOf("guidance", "checklist", "planning")
             ),
             TemplateSection(
                 templateId = templateId,
-                title = "Key Dependencies",
-                usageDescription = "External dependencies, libraries, and services required for implementation",
-                contentSample = """### Key Dependencies
+                title = "Technical Decision Log",
+                usageDescription = "Framework for documenting key technical decisions and their rationale",
+                contentSample = """### Technical Decision Log
 
-### External Libraries
-| Library | Version | Purpose | Justification |
-|---------|---------|---------|---------------|
-| [Library Name] | [Version] | [What it does] | [Why chosen over alternatives] |
-| [Library Name] | [Version] | [What it does] | [Why chosen over alternatives] |
+Use this format to document significant technical decisions:
 
-### Internal Dependencies
-- **[Module/Service Name]**: [What functionality is needed and how it's accessed]
-- **[Module/Service Name]**: [What functionality is needed and how it's accessed]
+#### Decision Template
 
-### External Services
-- **[Service Name]**: [API endpoints, authentication, rate limits, SLA considerations]
-- **[Service Name]**: [API endpoints, authentication, rate limits, SLA considerations]
+```
+**Decision:** [What you decided]
+**Context:** [Why this decision was needed]
+**Alternatives Considered:** [What other options you evaluated]
+**Chosen Approach:** [What you're implementing]
+**Rationale:** [Why this is the best choice]
+**Trade-offs:** [What you're giving up or accepting]
+**Reversibility:** [How hard to change later: Easy/Moderate/Difficult]
+```
 
-### Database Dependencies
-- **Schema Changes**: [Any new tables, columns, or indexes required]
-- **Data Migration**: [Any data migration or transformation needed]
-- **Performance Considerations**: [Indexing strategy, query optimization]
+#### Common Decision Categories
 
-### Configuration Dependencies
-- **Environment Variables**: [New configuration values needed]
-- **Feature Flags**: [Any feature toggles or gradual rollout mechanisms]
-- **Security Configurations**: [Authentication, authorization, encryption requirements]
+**Architecture Decisions:**
+- Monolith vs Microservices → "Chose monolith for simpler deployment and debugging"
+- Synchronous vs Asynchronous → "Async for background jobs, sync for user-facing APIs"
+- RESTful vs GraphQL → "REST for simplicity, team familiarity"
 
-### Development Dependencies
-- **Build Tools**: [Any new build or compilation requirements]
-- **Testing Dependencies**: [Test frameworks, mock services, test data]
-- **Deployment Dependencies**: [Infrastructure, containers, deployment scripts]""",
+**Technology Decisions:**
+- Library selection → "Jackson vs Gson: Jackson has better Kotlin support"
+- Database choice → "PostgreSQL vs MySQL: PostgreSQL for better JSON support"
+- Framework choice → "Spring Boot vs Micronaut: Spring for ecosystem maturity"
+
+**Design Pattern Decisions:**
+- Repository pattern → "Abstracts data access, easier testing"
+- Factory pattern → "Simplifies object creation with many variations"
+- Observer pattern → "Decouples event producers from consumers"
+
+**Data Management Decisions:**
+- Caching strategy → "Redis for distributed caching, Caffeine for local"
+- Database schema → "Normalized vs denormalized: Normalized for data integrity"
+- Data migration → "Blue-green deployment with backward-compatible schema"
+
+#### Example Decision
+
+```
+**Decision:** Use JWT tokens for authentication
+**Context:** Need stateless authentication for horizontal scaling
+**Alternatives Considered:**
+- Session-based auth (requires sticky sessions or shared session store)
+- OAuth2 with third-party provider (adds external dependency)
+**Chosen Approach:** JWT tokens with RS256 signing
+**Rationale:**
+- Stateless: no server-side session storage
+- Scalable: any server can verify token
+- Standard: well-understood security model
+**Trade-offs:**
+- Token revocation is difficult (mitigated with short TTL + refresh tokens)
+- Token size larger than session IDs (acceptable overhead)
+**Reversibility:** Moderate - would need session store and code changes
+```
+
+**Documentation:**
+- Add significant decisions to task summary (concise)
+- Create this section only for complex tasks (complexity 7+)
+- Focus on "why" not "what" (code shows what)""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
-                isRequired = true,
-                tags = listOf("dependencies", "libraries", "services")
+                isRequired = false,
+                tags = listOf("technical-details", "reference", "decision-log")
             ),
             TemplateSection(
                 templateId = templateId,
-                title = "Implementation Strategy",
-                usageDescription = "Detailed implementation plan, phases, and technical considerations",
-                contentSample = """### Implementation Strategy
+                title = "Integration Points Checklist",
+                usageDescription = "Validation checklist for dependencies, interfaces, and integration concerns",
+                contentSample = """### Integration Points Checklist
 
-### Implementation Phases
-1. **Phase 1: [Phase Name]**
-   - **Goal**: [What this phase accomplishes]
-   - **Deliverables**: [Specific outputs and milestones]
-   - **Duration**: [Estimated time]
-   - **Dependencies**: [What must be completed first]
+#### External Dependencies Validation
 
-2. **Phase 2: [Phase Name]**
-   - **Goal**: [What this phase accomplishes]
-   - **Deliverables**: [Specific outputs and milestones]
-   - **Duration**: [Estimated time]
-   - **Dependencies**: [What must be completed first]
+**For each external library or service:**
+- [ ] **Purpose clear:** Why are you using it? What problem does it solve?
+- [ ] **Version specified:** Exact version or range? Any known compatibility issues?
+- [ ] **Fallback plan:** What happens if it fails or is unavailable?
+- [ ] **Configuration:** What environment variables or config files needed?
+- [ ] **Testing:** How will you test integration? Mock or real service?
 
-### Technical Approach
-- **Code Organization**: [How code will be structured, packages, modules]
-- **Error Handling**: [Strategy for error handling and recovery]
-- **Logging and Monitoring**: [What will be logged and monitored]
-- **Performance Considerations**: [Performance requirements and optimization strategies]
+**Common integration concerns:**
+- API rate limits → "GitHub API: 5000/hour authenticated, cache responses"
+- Authentication → "OAuth2 flow, need client ID/secret in env vars"
+- Data format → "Expects JSON, provide examples for validation"
+- Network errors → "Timeout after 30s, retry with exponential backoff"
 
-### Security Considerations
-- **Authentication/Authorization**: [How security will be implemented]
-- **Data Protection**: [Encryption, data handling, privacy considerations]
-- **Input Validation**: [How user input and external data will be validated]
-- **Security Testing**: [Security testing approach and tools]
+#### Internal Dependencies Validation
 
-### Scalability and Performance
-- **Performance Requirements**: [Response time, throughput, resource usage targets]
-- **Scalability Strategy**: [How system will handle increased load]
-- **Caching Strategy**: [What will be cached and how]
-- **Resource Optimization**: [Memory, CPU, network optimization approaches]
+**For each internal module or service:**
+- [ ] **Interface clear:** What methods/APIs will you call?
+- [ ] **Data contract:** What data format? Any validation requirements?
+- [ ] **Error handling:** What exceptions might be thrown? How to handle?
+- [ ] **Versioning:** Is the interface stable or might it change?
+- [ ] **Testing:** Can you test in isolation with mocks?
 
-### Risk Mitigation
-- **Technical Risks**: [Identified risks and mitigation strategies]
-- **Performance Risks**: [Potential performance issues and solutions]
-- **Integration Risks**: [Risks with external dependencies and fallback plans]
-- **Rollback Strategy**: [How to safely rollback if issues arise]
+**Integration patterns:**
+- Direct method calls → "Inject dependency via constructor"
+- Event-based → "Publish events via EventBus, handle asynchronously"
+- Message queue → "Send messages to queue, consumer processes separately"
+- REST API → "Make HTTP calls, handle timeouts and retries"
 
-### Alternative Approaches Considered
-- **Alternative 1**: [Approach considered and why it was rejected]
-- **Alternative 2**: [Approach considered and why it was rejected]
-- **Trade-offs**: [Key trade-offs made in the chosen approach]""",
+#### Database Integration
+
+**Schema considerations:**
+- [ ] **Tables identified:** What tables will you read/write?
+- [ ] **Indexes needed:** What queries will you make? Are they indexed?
+- [ ] **Constraints:** Foreign keys, unique constraints, check constraints?
+- [ ] **Migration plan:** New tables? Column changes? Data migration?
+- [ ] **Rollback strategy:** Can you rollback schema changes safely?
+
+**Transaction boundaries:**
+- What operations must be atomic?
+- Where do transactions start and commit?
+- What happens on rollback?
+
+#### Configuration Dependencies
+
+**Environment-specific settings:**
+- [ ] **Local development:** What defaults for dev environment?
+- [ ] **Testing:** Test-specific overrides needed?
+- [ ] **Production:** Production values documented? Secrets managed?
+
+**Configuration checklist:**
+- [ ] All config keys documented
+- [ ] Sensible defaults for development
+- [ ] Validation for required values
+- [ ] Secrets not hardcoded
+
+#### API Contracts
+
+**If creating new APIs:**
+- [ ] **Endpoint paths:** RESTful? Versioned?
+- [ ] **Request format:** JSON? Form data? Query params?
+- [ ] **Response format:** JSON structure defined? Status codes?
+- [ ] **Error responses:** Consistent error format? Error codes?
+- [ ] **Authentication:** How is API secured? Token-based? OAuth?
+
+**API design checklist:**
+- [ ] Follows project conventions
+- [ ] Backward compatible if modifying existing
+- [ ] Documented with examples
+- [ ] Versioned appropriately
+
+#### Validation Strategy
+
+**Before implementation:**
+- [ ] All integration points identified
+- [ ] Dependencies documented
+- [ ] Failure modes considered
+- [ ] Testing approach defined
+
+**During implementation:**
+- [ ] Test each integration point
+- [ ] Verify error handling
+- [ ] Check performance/timeouts
+- [ ] Document any surprises
+
+**Example checklist completion:**
+```
+✓ External: GitHub API - rate limited, caching strategy defined
+✓ Internal: UserService - interface stable, constructor injection
+✓ Database: Users table indexed on email, migration V5 created
+✓ Config: GitHub token in env, validation on startup
+✓ API: POST /api/sync-repos, returns JSON, OAuth2 protected
+```
+
+**Note:** This checklist ensures you've thought through all integration concerns before implementation.""",
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
-                isRequired = true,
-                tags = listOf("implementation", "strategy", "phases", "security")
+                isRequired = false,
+                tags = listOf("checklist", "guidance", "integration", "validation")
             )
         )
 

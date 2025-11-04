@@ -54,14 +54,13 @@ class FeatureTest {
     }
 
     @Test
-    fun `should throw exception when creating feature with empty summary`() {
-        val exception = assertThrows<ValidationException> {
-            Feature(
-                name = "Valid Name",
-                summary = ""
-            )
-        }
-        assertTrue(exception.message!!.contains("summary cannot be empty"))
+    fun `should allow empty summary for agent-generated content`() {
+        // Summary is agent-generated and defaults to empty
+        val feature = Feature(
+            name = "Valid Name",
+            summary = ""
+        )
+        assertEquals("", feature.summary)
     }
 
     @Test

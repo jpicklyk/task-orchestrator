@@ -1,5 +1,5 @@
 # Multi-stage build - Build stage
-FROM eclipse-temurin:21-jdk AS builder
+FROM eclipse-temurin:23-jdk AS builder
 
 WORKDIR /app
 
@@ -19,8 +19,11 @@ RUN chmod +x gradlew
 # Copy source code
 COPY src src
 
-# Build using your Gradle wrapper
-RUN ./gradlew build --no-daemon
+# Copy documentation resources needed at runtime
+COPY docs docs
+
+# Build using your Gradle wrapper (skip tests, they're run in CI/CD)
+RUN ./gradlew build -x test --no-daemon
 
 # Runtime stage
 FROM amazoncorretto:25-al2023-headless
@@ -33,6 +36,9 @@ WORKDIR /app
 # Copy the built JAR from the builder stage
 COPY --from=builder /app/build/libs/mcp-task-orchestrator-*.jar /app/orchestrator.jar
 
+# Copy documentation resources needed at runtime
+COPY --from=builder /app/docs /app/docs
+
 # Volume for the SQLite database and configuration
 VOLUME /app/data
 
@@ -43,4 +49,5 @@ ENV LOG_LEVEL=info
 ENV USE_FLYWAY=true
 
 # Run the application with explicit stdio handling
-CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "-jar", "orchestrator.jar"]
+# --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+
+CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]

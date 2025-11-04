@@ -561,8 +561,8 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
 
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: TStatus?,
-        priority: TPriority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TPriority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -575,14 +575,30 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
                 // Apply project filter if this implementation supports it
                 // (will be overridden in project-scoped repositories)
 
-                // Apply status filter
-                if (status != null && getStatusColumn() != null) {
-                    query = query.where { getStatusColumn()!! eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty() && getStatusColumn() != null) {
+                    val statusColumn = getStatusColumn()!!
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.where { statusColumn inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { statusColumn notInList statusFilter.exclude }
+                    }
                 }
 
-                // Apply priority filter
-                if (priority != null && getPriorityColumn() != null) {
-                    query = query.andWhere { getPriorityColumn()!! eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty() && getPriorityColumn() != null) {
+                    val priorityColumn = getPriorityColumn()!!
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { priorityColumn inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { priorityColumn notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply text search filter
@@ -641,8 +657,8 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
 
     override suspend fun countByFilters(
         projectId: UUID?,
-        status: TStatus?,
-        priority: TPriority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TPriority>?,
         tags: List<String>?,
         textQuery: String?
     ): Result<Long> = withContext(Dispatchers.IO) {
@@ -654,14 +670,30 @@ abstract class SQLiteBusinessEntityRepository<T, TStatus, TPriority>(
                 // Apply project filter if this implementation supports it
                 // (will be overridden in project-scoped repositories)
 
-                // Apply status filter
-                if (status != null && getStatusColumn() != null) {
-                    query = query.where { getStatusColumn()!! eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty() && getStatusColumn() != null) {
+                    val statusColumn = getStatusColumn()!!
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.where { statusColumn inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { statusColumn notInList statusFilter.exclude }
+                    }
                 }
 
-                // Apply priority filter
-                if (priority != null && getPriorityColumn() != null) {
-                    query = query.andWhere { getPriorityColumn()!! eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty() && getPriorityColumn() != null) {
+                    val priorityColumn = getPriorityColumn()!!
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { priorityColumn inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { priorityColumn notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply text search filter

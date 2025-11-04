@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.TaskCounts
+import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -48,6 +50,7 @@ class SQLiteFeatureRepository(
             id = row[FeaturesTable.id].value,
             projectId = row[FeaturesTable.projectId],
             name = row[FeaturesTable.name],
+            description = row[FeaturesTable.description],
             summary = row[FeaturesTable.summary],
             status = row[FeaturesTable.status],
             priority = row[FeaturesTable.priority],
@@ -66,6 +69,7 @@ class SQLiteFeatureRepository(
         return buildString {
             append(entity.name)
             append(" ").append(entity.summary)
+            entity.description?.let { append(" ").append(it) }
             entity.tags.forEach { tag -> append(" ").append(tag) }
         }
     }
@@ -90,6 +94,7 @@ class SQLiteFeatureRepository(
             it[id] = entity.id
             it[projectId] = entity.projectId
             it[name] = entity.name
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
@@ -106,6 +111,7 @@ class SQLiteFeatureRepository(
         }) {
             it[projectId] = entity.projectId
             it[name] = entity.name
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
@@ -185,8 +191,8 @@ class SQLiteFeatureRepository(
 
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<FeatureStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -201,14 +207,28 @@ class SQLiteFeatureRepository(
                     query = query.where { FeaturesTable.projectId eq projectId }
                 }
 
-                // Apply status filter
-                if (status != null) {
-                    query = query.andWhere { FeaturesTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                // Apply priority filter
-                if (priority != null) {
-                    query = query.andWhere { FeaturesTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply text search filter
@@ -296,8 +316,8 @@ class SQLiteFeatureRepository(
 
     override suspend fun findByProjectAndFilters(
         projectId: UUID,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<FeatureStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -307,13 +327,28 @@ class SQLiteFeatureRepository(
                 // Start with project filter
                 var query = FeaturesTable.selectAll().where { FeaturesTable.projectId eq projectId }
 
-                // Apply additional filters
-                if (status != null) {
-                    query = query.andWhere { FeaturesTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                if (priority != null) {
-                    query = query.andWhere { FeaturesTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { FeaturesTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 if (!textQuery.isNullOrBlank()) {
@@ -367,6 +402,34 @@ class SQLiteFeatureRepository(
             Result.Success(count)
         } catch (e: Exception) {
             Result.Error(RepositoryError.DatabaseError("Failed to count features by project: ${e.message}", e))
+        }
+    }
+
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun getTaskCountsByFeatureId(featureId: UUID): TaskCounts {
+        return transaction {
+            val tasks = TaskTable.selectAll().where { TaskTable.featureId eq featureId }
+
+            val total = tasks.count().toInt()
+            val pending = tasks.count { it[TaskTable.status] == TaskStatus.PENDING }.toInt()
+            val inProgress = tasks.count { it[TaskTable.status] == TaskStatus.IN_PROGRESS }.toInt()
+            val completed = tasks.count { it[TaskTable.status] == TaskStatus.COMPLETED }.toInt()
+            val cancelled = tasks.count { it[TaskTable.status] == TaskStatus.CANCELLED }.toInt()
+            val testing = tasks.count { it[TaskTable.status] == TaskStatus.TESTING }.toInt()
+            val blocked = tasks.count { it[TaskTable.status] == TaskStatus.BLOCKED }.toInt()
+
+            TaskCounts(
+                total = total,
+                pending = pending,
+                inProgress = inProgress,
+                completed = completed,
+                cancelled = cancelled,
+                testing = testing,
+                blocked = blocked
+            )
         }
     }
 }

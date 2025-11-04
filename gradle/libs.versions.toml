@@ -5,7 +5,7 @@ kotlinCoroutines = "1.8.0"
 kotlinSerialization = "1.8.0"
 
 # MCP SDK
-mcpSdk = "0.7.2"
+mcpSdk = "0.7.4"
 
 # Database
 sqlite = "3.45.1.0"
@@ -21,6 +21,9 @@ logback = "1.5.13"
 # Testing
 mockk = "1.14.2"
 junit = "5.10.2"
+
+# YAML
+snakeyaml = "2.5"
 
 [libraries]
 # Kotlin and Coroutines
@@ -46,6 +49,9 @@ flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 slf4j = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4jNop" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+
+# YAML
+snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 
 # Testing
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }

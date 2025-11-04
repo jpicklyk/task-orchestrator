@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.domain.repository
 
+import io.github.jpicklyk.mcptask.domain.model.FeatureCounts
 import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
 import java.util.*
@@ -10,7 +11,7 @@ import java.util.*
  * Inherits standardized capabilities for searching, filtering, and tag management.
  */
 interface ProjectRepository : FilterableRepository<Project, ProjectStatus, Nothing> {
-    
+
     /**
      * Finds projects by name (partial matching).
      * @param name The name or part of the name to search for
@@ -32,6 +33,14 @@ interface ProjectRepository : FilterableRepository<Project, ProjectStatus, Nothi
      * @param projectId The project ID
      */
     suspend fun getTaskCount(projectId: UUID): Result<Int>
+
+    /**
+     * Gets detailed feature counts for a project.
+     * Used by WorkflowService for cascade event detection.
+     * @param projectId The project ID
+     * @return FeatureCounts with total and completed counts
+     */
+    fun getFeatureCountsByProjectId(projectId: UUID): FeatureCounts
 
     /**
      * Advanced project-specific filtering (inherits from base implementation).

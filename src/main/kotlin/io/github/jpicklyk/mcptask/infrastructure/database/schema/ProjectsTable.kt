@@ -11,6 +11,7 @@ import org.jetbrains.exposed.v1.javatime.timestamp
 object ProjectsTable : UUIDTable("projects") {
     val name = varchar("name", 255)
     val summary = text("summary")
+    val description = text("description").nullable()
     val status = enumerationByName("status", 20, ProjectStatus::class)
     val createdAt = timestamp("created_at")
     val modifiedAt = timestamp("modified_at")

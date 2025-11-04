@@ -1,0 +1,346 @@
+# Task Orchestrator Configuration
+# This file configures orchestration behavior, status progressions, and quality gates
+# Version: 2.0.0
+#
+# IMPLEMENTATION STATUS LEGEND:
+# ✅ IMPLEMENTED - Feature is actively used by the codebase
+# ⚠️ PARTIAL - Feature is partially implemented or referenced
+# ❌ NOT IMPLEMENTED YET - Configuration defined for future use
+#
+# See: docs/configuration-status.md for detailed implementation status
+
+version: "2.0.0"
+
+# ============================================================================
+# STATUS PROGRESSION CONFIGURATION (✅ IMPLEMENTED)
+# ============================================================================
+# Define allowed status flows for features and tasks
+# Progression typically moves forward, but can move backward for rework
+#
+# IMPLEMENTATION: StatusValidator.kt loads and enforces these workflows
+# NOTE: This config activates v2.0 mode when setup_claude_orchestration tool is run.
+# Without this config, system uses legacy v1.0 enum-based validation.
+
+status_progression:
+  features:
+    # All valid feature statuses (v2.0) - 10 total statuses
+    # Valid feature statuses (defined by FeatureStatus enum):
+    # draft, planning, in-development, testing, validating, pending-review,
+    # blocked, on-hold, completed, archived, deployed
+    #
+    # DRAFT: Initial draft state for exploring ideas and rough requirements.
+    #        Use when: Feature concept is being explored but not ready for planning.
+    #        Next steps: Refine requirements, then move to PLANNING.
+    #
+    # PLANNING: Defining detailed requirements, breaking down into tasks, and creating technical approach.
+    #           Use when: Requirements are clear enough to start decomposing into actionable tasks.
+    #           Next steps: Complete task breakdown, then move to IN_DEVELOPMENT.
+    #
+    # IN_DEVELOPMENT: Active implementation of tasks by specialists.
+    #                 Use when: Tasks are being actively worked on by developers.
+    #                 Next steps: Complete all tasks, then move to TESTING.
+    #
+    # TESTING: All development tasks complete, running test suite and validation.
+    #          Use when: Implementation finished and ready for quality assurance.
+    #          Next steps: Pass all tests, then move to VALIDATING.
+    #
+    # VALIDATING: Tests passed, performing final validation before completion.
+    #             Use when: All tests pass and feature needs final review/approval.
+    #             Next steps: Validation complete, move to COMPLETED or PENDING_REVIEW.
+    #
+    # PENDING_REVIEW: Awaiting human review/approval before marking complete.
+    #                 Use when: Feature complete but requires stakeholder sign-off.
+    #                 Next steps: Review approved, move to COMPLETED.
+    #
+    # BLOCKED: Feature blocked by external dependencies, technical issues, or missing resources.
+    #          Use when: Cannot proceed due to blockers (API unavailable, infrastructure down, etc.).
+    #          Emergency status: Can be entered from any state.
+    #          Next steps: Resolve blocker, then resume previous flow.
+    #
+    # ON_HOLD: Feature temporarily paused due to priority changes, resource constraints, or pending decisions.
+    #          Use when: Work paused intentionally (waiting for budget, design decisions, etc.).
+    #          Emergency status: Can be entered from any state.
+    #          Next steps: Resume when resources available, return to previous status or IN_DEVELOPMENT.
+    #
+    # COMPLETED: Feature complete, validated, and delivered.
+    #            Use when: All work finished, tests pass, validation complete.
+    #            Terminal status: No further progression.
+    #
+    # ARCHIVED: Feature archived for historical reference (obsolete, replaced, or superseded).
+    #           Use when: Feature is no longer active but kept for reference.
+    #           Emergency status: Can be entered from any state.
+    #           Terminal status: No further progression.
+
+    # Default flow for software development
+    default_flow: [draft, planning, in-development, testing, validating, completed]
+
+    # Alternative flows for different feature types
+    rapid_prototype_flow: [draft, in-development, completed]  # Skip planning/testing
+    experimental_flow: [draft, in-development, archived]  # Experiments can skip completion
+    with_review_flow: [draft, planning, in-development, testing, validating, pending-review, completed]  # Full review cycle
+
+    # Tag-to-flow mappings
+    flow_mappings:
+      - tags: [prototype, poc, spike]
+        flow: rapid_prototype_flow
+      - tags: [experiment, research]
+        flow: experimental_flow
+
+    # Emergency transitions
+    emergency_transitions: [blocked, on-hold, archived]
+
+    # Terminal statuses
+    terminal_statuses: [completed, archived]
+
+  tasks:
+    # All valid task statuses (v2.0) - 11 total statuses
+    # Valid task statuses (defined by TaskStatus enum):
+    # backlog, pending, in-progress, in-review, changes-requested, testing,
+    # blocked, on-hold, completed, cancelled, deferred, deployed, ready-for-qa, investigating
+    #
+    # BACKLOG: Task in backlog awaiting prioritization and planning.
+    #          Use when: Task identified but not yet scheduled or prioritized.
+    #          Next steps: Prioritize task, then move to PENDING.
+    #
+    # PENDING: Task ready to start, waiting for specialist assignment or available resources.
+    #          Use when: Task prioritized and ready for implementation, dependencies met.
+    #          Next steps: Assign specialist, move to IN_PROGRESS.
+    #
+    # IN_PROGRESS: Task actively being worked on by specialist (code being written, docs being drafted).
+    #              Use when: Specialist is actively implementing the task.
+    #              Next steps: Implementation complete, move to IN_REVIEW or TESTING.
+    #
+    # IN_REVIEW: Implementation complete, awaiting code review or peer validation.
+    #            Use when: Code/work complete and needs human review before testing.
+    #            Next steps: Review approved → TESTING, changes needed → CHANGES_REQUESTED.
+    #
+    # CHANGES_REQUESTED: Review completed with requested changes; task needs rework.
+    #                    Use when: Reviewer requests modifications before approval.
+    #                    Next steps: Implement changes (back to IN_PROGRESS), then re-submit for IN_REVIEW.
+    #
+    # TESTING: Implementation complete, running automated test suite or manual QA.
+    #          Use when: Code/work ready for quality assurance validation.
+    #          Next steps: Tests pass → COMPLETED, tests fail → IN_PROGRESS for fixes.
+    #
+    # BLOCKED: Task blocked by incomplete dependencies or external issues (API down, missing specs).
+    #          Use when: Cannot proceed until blocker is resolved.
+    #          Next steps: Resolve blocker, then resume previous status.
+    #
+    # ON_HOLD: Task temporarily paused due to resource constraints, priority changes, or pending decisions.
+    #          Use when: Work intentionally paused (waiting for approval, budget, design decisions).
+    #          Next steps: Resume when ready, return to previous status or IN_PROGRESS.
+    #
+    # COMPLETED: Task finished, validated, and merged/delivered.
+    #            Use when: All work complete, tests pass, review approved.
+    #            Terminal status: No further progression.
+    #
+    # CANCELLED: Task explicitly cancelled by user or stakeholder (requirements changed, no longer needed).
+    #            Use when: Task work abandoned and will not be completed.
+    #            Terminal status: No further progression.
+    #
+    # DEFERRED: Task postponed indefinitely; may be resumed in future release or sprint.
+    #           Use when: Task delayed but not cancelled (low priority, resource constraints).
+    #           Terminal status: No further progression (but can be "undeferred" by creating new task).
+
+    # Default flow for standard software development
+    default_flow: [backlog, pending, in-progress, testing, completed]
+
+    # Alternative flows for different task types
+    bug_fix_flow: [pending, in-progress, testing, completed]  # Skip backlog
+    documentation_flow: [pending, in-progress, in-review, completed]  # No testing
+    hotfix_flow: [in-progress, testing, completed]  # Emergency, skip backlog+pending
+    with_review_flow: [backlog, pending, in-progress, in-review, changes-requested, testing, completed]  # Full review cycle
+
+    # Tag-to-flow mappings (priority order matters - first match wins)
+    flow_mappings:
+      - tags: [bug, bugfix, fix]
+        flow: bug_fix_flow
+      - tags: [documentation, docs]
+        flow: documentation_flow
+      - tags: [hotfix, emergency, urgent]
+        flow: hotfix_flow
+    # If no tags match, default_flow is used
+
+    # Statuses that can be entered from any state
+    emergency_transitions: [blocked, on-hold, cancelled, deferred]
+
+    # Terminal statuses (no progression from these)
+    terminal_statuses: [completed, cancelled, deferred]
+
+  projects:
+    # All valid project statuses (v2.0) - 6 total statuses
+    # Valid project statuses (defined by ProjectStatus enum):
+    # planning, in-development, on-hold, cancelled, completed, archived
+    #
+    # PLANNING: Defining project scope, features, timeline, and resource allocation.
+    #           Use when: Project initiated and high-level planning underway.
+    #           Next steps: Complete feature breakdown, move to IN_DEVELOPMENT.
+    #
+    # IN_DEVELOPMENT: Active development of features by specialists.
+    #                 Use when: Features are being actively implemented.
+    #                 Next steps: Complete all features, move to COMPLETED.
+    #
+    # ON_HOLD: Project temporarily paused due to resource constraints, budget issues, or strategic priority changes.
+    #          Use when: Project work intentionally suspended (waiting for funding, stakeholder decisions, etc.).
+    #          Emergency status: Can be entered from any state.
+    #          Next steps: Resume when conditions improve, return to PLANNING or IN_DEVELOPMENT.
+    #
+    # CANCELLED: Project cancelled or abandoned (requirements changed, no longer viable, superseded by another project).
+    #            Use when: Project will not be completed and is permanently stopped.
+    #            Emergency status: Can be entered from any state.
+    #            Terminal status: No further progression.
+    #
+    # COMPLETED: Project finished and delivered to production or stakeholders.
+    #            Use when: All features complete, project goals achieved.
+    #            Terminal status: No further progression (but can be archived later).
+    #
+    # ARCHIVED: Project archived for historical reference (completed long ago, obsolete, or replaced).
+    #           Use when: Project no longer active but kept for documentation/reference purposes.
+    #           Terminal status: No further progression.
+
+    # Default project flow
+    default_flow: [planning, in-development, completed, archived]
+
+    # No alternative flows needed (projects are high-level)
+
+    # Emergency transitions
+    emergency_transitions: [on-hold, cancelled]
+
+    # Terminal statuses
+    terminal_statuses: [completed, archived, cancelled]
+
+# ============================================================================
+# STATUS VALIDATION RULES (✅ IMPLEMENTED)
+# ============================================================================
+# Advanced validation rules for status transitions
+#
+# IMPLEMENTATION: StatusValidator.kt enforces these rules when config is present
+# The validator supports flexible workflows with safety guardrails
+#
+# These rules control how strictly the system enforces workflow progression,
+# enabling teams to balance process rigor with practical flexibility.
+
+status_validation:
+  # Enforce strict sequential flow (can't skip statuses in defined flows)
+  # When true: Must follow default_flow or alternative flows step-by-step
+  # When false: Can jump to any allowed status
+  #
+  # Example with enforce_sequential=true:
+  #   ✅ Allowed: pending → in-progress → testing → completed (follows flow)
+  #   ❌ Blocked: pending → completed (skips in-progress and testing)
+  #
+  # Example with enforce_sequential=false:
+  #   ✅ Allowed: pending → completed (can skip intermediate steps)
+  #
+  # Recommendation: Keep true for teams needing process compliance (code review, testing gates).
+  #                 Set false for rapid prototyping or small teams with informal processes.
+  enforce_sequential: true
+
+  # Allow backward transitions (e.g., testing → in-progress for rework)
+  # When true: Can move backwards in flow to fix issues
+  # When false: Can only move forward
+  #
+  # Example with allow_backward=true:
+  #   ✅ Allowed: in-review → in-progress (fix review comments)
+  #   ✅ Allowed: testing → in-progress (fix failing tests)
+  #
+  # Example with allow_backward=false:
+  #   ❌ Blocked: testing → in-progress (must create new task for fixes)
+  #
+  # Recommendation: Keep true for iterative development workflows (review cycles, test-fix loops).
+  #                 Set false only if your process requires forward-only progression.
+  allow_backward: true
+
+  # Allow emergency transitions (blocked, on-hold, archived, cancelled, deferred)
+  # When true: Can enter emergency_transitions from any state
+  # When false: Emergency statuses follow normal flow rules
+  #
+  # Example with allow_emergency=true:
+  #   ✅ Allowed: in-progress → blocked (dependency fails)
+  #   ✅ Allowed: testing → on-hold (urgent priority change)
+  #   ✅ Allowed: planning → cancelled (requirements changed)
+  #
+  # Example with allow_emergency=false:
+  #   ❌ Blocked: in-progress → blocked (must follow normal flow)
+  #
+  # Recommendation: Keep true to handle unexpected blockers, priority shifts, and cancellations.
+  #                 Emergency statuses are critical for real-world workflow flexibility.
+  allow_emergency: true
+
+  # Validate prerequisites before status change (feature must have tasks, etc.)
+  # When true: Enforces business rules like "feature needs tasks before completion"
+  # When false: Allows status changes without prerequisite checks
+  #
+  # Example prerequisite validations (when true):
+  #   - Feature cannot move to IN_DEVELOPMENT without at least one task
+  #   - Task cannot move to COMPLETED if blocked by incomplete dependencies
+  #   - Feature cannot complete if it has incomplete tasks
+  #
+  # Note: Currently enforces basic validation; full prerequisite system planned for future releases.
+  #
+  # Recommendation: Keep true to prevent incomplete work from being marked complete.
+  #                 Set false only for testing or if managing prerequisites externally.
+  validate_prerequisites: true
+
+# ============================================================================
+# PARALLEL EXECUTION SETTINGS (❌ NOT IMPLEMENTED YET)
+# ============================================================================
+# Configure how tasks are executed in parallel based on dependencies
+#
+# PLANNED: Future parallel execution engine for concurrent task processing
+# CURRENT: No code reads these settings; parallel execution is manual
+
+parallelism:
+  enabled: true                    # Enable parallel task execution
+  max_parallel_tasks: 5            # Maximum concurrent tasks
+  auto_launch: true                # Auto-launch parallel batches (false = suggest only)
+  monitor_interval: 30             # Progress check interval (seconds)
+
+# ============================================================================
+# WORKFLOW AUTOMATION (❌ NOT IMPLEMENTED YET)
+# ============================================================================
+# Configure automatic workflow behaviors
+#
+# PLANNED: Automated task creation, specialist assignment, status progression
+# CURRENT: No automation engine reads these settings; all actions are manual
+
+automation:
+  # Feature and task creation
+  auto_create_tasks: true          # Auto-create tasks for simple features
+  auto_assign_specialists: true    # Auto-assign specialists based on tags
+  auto_progress_status: true       # Auto-progress status when conditions met
+  auto_complete_features: false    # Require manual confirmation for completion
+
+  # Template management
+  templates:
+    auto_discover: true            # Auto-discover available templates
+    auto_apply: true               # Auto-apply templates to new entities
+    required: []                   # Required template names
+    # Example:
+    # required:
+    #   - "Technical Approach"
+    #   - "Testing Strategy"
+
+# ============================================================================
+# FEATURE-SPECIFIC SETTINGS
+# ============================================================================
+
+# Complexity thresholds for routing decisions (⚠️ REFERENCED but not loaded)
+# NOTE: These values are documented in Skills but not loaded by backend code
+complexity:
+  simple_threshold: 4              # Complexity ≤ 4 = simple task
+  moderate_threshold: 7            # Complexity 5-7 = moderate task
+  complex_threshold: 10            # Complexity 8-10 = complex task
+
+# Feature creation thresholds (⚠️ REFERENCED but not loaded)
+# NOTE: These values are documented in Skills but not loaded by backend code
+feature_creation:
+  simple_max_tasks: 3              # Max tasks for "simple" feature
+  simple_max_description: 200      # Max chars for "simple" feature
+  complex_min_tasks: 5             # Min tasks for "complex" feature
+
+# Dependency management (❌ NOT IMPLEMENTED YET)
+dependencies:
+  auto_detect_circular: true       # Auto-detect circular dependencies
+  warn_on_deep_chains: true        # Warn when dependency chains > 5 levels
+  max_dependency_depth: 10         # Maximum allowed dependency depth

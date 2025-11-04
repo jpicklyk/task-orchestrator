@@ -5,8 +5,8 @@ plugins {
 }
 
 // Define semantic version components (manually maintained)
-val majorVersion = "1"
-val minorVersion = "1"
+val majorVersion = "2"
+val minorVersion = "0"
 val patchVersion = "0"
 
 // Define release qualifier (empty for stable releases)
@@ -68,6 +68,9 @@ dependencies {
 
     // JSON serialization/deserialization
     implementation(libs.kotlinx.serialization.json)
+
+    // YAML parsing
+    implementation(libs.snakeyaml)
 
     // Testing
     testImplementation(libs.kotlin.test)

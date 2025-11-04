@@ -48,6 +48,7 @@ class SQLiteTaskRepository(
             featureId = row[TaskTable.featureId],
             projectId = row[TaskTable.projectId],
             title = row[TaskTable.title],
+            description = row[TaskTable.description],
             summary = row[TaskTable.summary],
             status = row[TaskTable.status],
             priority = row[TaskTable.priority],
@@ -67,6 +68,7 @@ class SQLiteTaskRepository(
         return buildString {
             append(entity.title)
             append(" ").append(entity.summary)
+            entity.description?.let { append(" ").append(it) }
             entity.tags.forEach { tag -> append(" ").append(tag) }
         }
     }
@@ -95,6 +97,7 @@ class SQLiteTaskRepository(
             it[featureId] = entity.featureId
             it[projectId] = entity.projectId
             it[title] = entity.title
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
@@ -113,6 +116,7 @@ class SQLiteTaskRepository(
             it[featureId] = entity.featureId
             it[projectId] = entity.projectId
             it[title] = entity.title
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
@@ -137,8 +141,8 @@ class SQLiteTaskRepository(
 
     override suspend fun findByFeature(
         featureId: UUID,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TaskStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         limit: Int
     ): Result<List<Task>> = withContext(Dispatchers.IO) {
         try {
@@ -146,13 +150,28 @@ class SQLiteTaskRepository(
                 // Start with a base query filtering by feature
                 var query = TaskTable.selectAll().where { TaskTable.featureId eq featureId }
 
-                // Apply additional filters
-                if (status != null) {
-                    query = query.andWhere { TaskTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                if (priority != null) {
-                    query = query.andWhere { TaskTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply ordering and pagination
@@ -174,8 +193,8 @@ class SQLiteTaskRepository(
 
     override suspend fun findByFeatureAndFilters(
         featureId: UUID,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TaskStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         complexityMin: Int?,
@@ -187,14 +206,28 @@ class SQLiteTaskRepository(
                 // Start with base query filtering by feature
                 var query = TaskTable.selectAll().where { TaskTable.featureId eq featureId }
 
-                // Apply status filter
-                if (status != null) {
-                    query = query.andWhere { TaskTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                // Apply priority filter
-                if (priority != null) {
-                    query = query.andWhere { TaskTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply complexity filters
@@ -330,8 +363,8 @@ class SQLiteTaskRepository(
 
     override suspend fun findByProjectAndFilters(
         projectId: UUID,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TaskStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -341,13 +374,28 @@ class SQLiteTaskRepository(
                 // Start with project filter
                 var query = TaskTable.selectAll().where { TaskTable.projectId eq projectId }
 
-                // Apply additional filters
-                if (status != null) {
-                    query = query.andWhere { TaskTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                if (priority != null) {
-                    query = query.andWhere { TaskTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 if (!textQuery.isNullOrBlank()) {
@@ -405,8 +453,8 @@ class SQLiteTaskRepository(
 
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: TaskStatus?,
-        priority: Priority?,
+        statusFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<TaskStatus>?,
+        priorityFilter: io.github.jpicklyk.mcptask.domain.model.StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -416,7 +464,7 @@ class SQLiteTaskRepository(
                 // Start with a base query
                 var query = TaskTable.selectAll()
 
-                // Apply project filter: tasks belong to project if they have direct projectId 
+                // Apply project filter: tasks belong to project if they have direct projectId
                 // OR if they belong to a feature that belongs to the project
                 if (projectId != null) {
                     // Get feature IDs that belong to this project
@@ -432,14 +480,28 @@ class SQLiteTaskRepository(
                     }
                 }
 
-                // Apply status filter
-                if (status != null) {
-                    query = query.andWhere { TaskTable.status eq status }
+                // Apply status filter using multi-value logic
+                if (statusFilter != null && !statusFilter.isEmpty()) {
+                    // Include: status IN (...)
+                    if (statusFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status inList statusFilter.include }
+                    }
+                    // Exclude: status NOT IN (...)
+                    if (statusFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.status notInList statusFilter.exclude }
+                    }
                 }
 
-                // Apply priority filter
-                if (priority != null) {
-                    query = query.andWhere { TaskTable.priority eq priority }
+                // Apply priority filter using multi-value logic
+                if (priorityFilter != null && !priorityFilter.isEmpty()) {
+                    // Include: priority IN (...)
+                    if (priorityFilter.include.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority inList priorityFilter.include }
+                    }
+                    // Exclude: priority NOT IN (...)
+                    if (priorityFilter.exclude.isNotEmpty()) {
+                        query = query.andWhere { TaskTable.priority notInList priorityFilter.exclude }
+                    }
                 }
 
                 // Apply text search filter
@@ -493,6 +555,22 @@ class SQLiteTaskRepository(
                     e
                 )
             )
+        }
+    }
+
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun findByFeatureId(featureId: UUID): List<Task> {
+        return transaction {
+            val tasks = TaskTable.selectAll()
+                .where { TaskTable.featureId eq featureId }
+                .map { row -> mapRowToEntity(row) }
+                .toList()
+
+            // Load tasks with tags
+            loadEntitiesWithTags(tasks)
         }
     }
 

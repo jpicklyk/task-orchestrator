@@ -9,7 +9,8 @@ import java.util.*
  *
  * @property id Unique identifier for the project.
  * @property name Name of the project.
- * @property summary Brief summary describing the project.
+ * @property description Optional detailed description provided by user.
+ * @property summary Brief summary describing the project (agent-generated, max 500 chars).
  * @property status Current status of the project.
  * @property createdAt Timestamp when the project was created.
  * @property modifiedAt Timestamp when the project was last modified.
@@ -18,7 +19,10 @@ import java.util.*
 data class Project(
     val id: UUID = UUID.randomUUID(),
     val name: String,
-    val summary: String,
+    /** Optional detailed description provided by user */
+    val description: String? = null,
+    /** Brief summary of the project (agent-generated, max 500 chars) */
+    val summary: String = "",
     val status: ProjectStatus = ProjectStatus.PLANNING,
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
@@ -36,13 +40,19 @@ data class Project(
      */
     fun validate() {
         require(name.isNotBlank()) { "Project name cannot be empty" }
-        require(summary.isNotBlank()) { "Project summary cannot be empty" }
+        require(summary.length <= 500) { "Project summary must not exceed 500 characters" }
+
+        // Description cannot be blank if provided
+        description?.let {
+            require(it.isNotBlank()) { "Project description must not be blank if provided" }
+        }
     }
 
     /**
      * Creates an updated copy of this project with the specified modifications.
      *
      * @param name New name for the project (defaults to current name).
+     * @param description New description for the project (defaults to current description).
      * @param summary New summary for the project (defaults to current summary).
      * @param status New status for the project (defaults to current status).
      * @param tags New tags for the project (defaults to current tags).
@@ -50,12 +60,14 @@ data class Project(
      */
     fun update(
         name: String = this.name,
+        description: String? = this.description,
         summary: String = this.summary,
         status: ProjectStatus = this.status,
         tags: List<String> = this.tags
     ): Project {
         return copy(
             name = name,
+            description = description,
             summary = summary,
             status = status,
             modifiedAt = Instant.now(),
@@ -69,19 +81,22 @@ data class Project(
          * This factory method is useful for creating projects with validation.
          *
          * @param name Name of the project.
-         * @param summary Brief summary describing the project.
+         * @param description Optional detailed description provided by user.
+         * @param summary Brief summary describing the project (defaults to empty).
          * @param status Status of the project (defaults to PLANNING).
          * @param tags List of tags for categorization (defaults to empty list).
          * @return A new validated Project instance.
          */
         fun create(
             name: String,
-            summary: String,
+            description: String? = null,
+            summary: String = "",
             status: ProjectStatus = ProjectStatus.PLANNING,
             tags: List<String> = emptyList()
         ): Project {
             return Project(
                 name = name,
+                description = description,
                 summary = summary,
                 status = status,
                 tags = tags

@@ -1,0 +1,24 @@
+{
+  "name": "task-orchestrator",
+  "version": "2.0.0",
+  "description": "Comprehensive task management with Projects → Features → Tasks hierarchy, dependency tracking, templates, and AI workflow automation. Includes Skills for coordination and Subagents for implementation work.",
+  "author": {
+    "name": "Jeff Picklyk",
+    "url": "https://github.com/jpicklyk"
+  },
+  "homepage": "https://github.com/jpicklyk/task-orchestrator",
+  "repository": "https://github.com/jpicklyk/task-orchestrator",
+  "license": "MIT",
+  "keywords": [
+    "task-management",
+    "project-management",
+    "workflow",
+    "mcp",
+    "ai-orchestration",
+    "dependencies",
+    "templates"
+  ],
+  "agents": "./agents",
+  "skills": "./skills",
+  "hooks": "./hooks/hooks.json"
+}

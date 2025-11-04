@@ -1,20 +1,31 @@
 package io.github.jpicklyk.mcptask.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializer
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
-import io.github.jpicklyk.mcptask.application.tools.GetBlockedTasksTool
-import io.github.jpicklyk.mcptask.application.tools.GetNextTaskTool
-import io.github.jpicklyk.mcptask.application.tools.GetOverviewTool
-import io.github.jpicklyk.mcptask.application.tools.ListTagsTool
-import io.github.jpicklyk.mcptask.application.tools.SetStatusTool
+import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationService
+import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationServiceImpl
+import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
+import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionServiceImpl
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
+import io.github.jpicklyk.mcptask.infrastructure.filesystem.TaskOrchestratorConfigManager
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
+import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
+import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
+import io.github.jpicklyk.mcptask.application.tools.QueryWorkflowStateTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.dependency.*
-import io.github.jpicklyk.mcptask.application.tools.feature.*
-import io.github.jpicklyk.mcptask.application.tools.project.*
-import io.github.jpicklyk.mcptask.application.tools.section.*
-import io.github.jpicklyk.mcptask.application.tools.task.*
-import io.github.jpicklyk.mcptask.application.tools.template.*
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.QueryDependenciesTool
+import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
+import io.github.jpicklyk.mcptask.application.tools.section.QuerySectionsTool
+import io.github.jpicklyk.mcptask.application.tools.tag.*
+import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
+import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
+import io.github.jpicklyk.mcptask.application.tools.status.GetNextStatusTool
+import io.github.jpicklyk.mcptask.application.tools.template.ApplyTemplateTool
+import io.github.jpicklyk.mcptask.application.tools.template.ManageTemplateTool
+import io.github.jpicklyk.mcptask.application.tools.agent.*
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
@@ -46,6 +57,11 @@ class McpServer(
     private lateinit var toolExecutionContext: ToolExecutionContext
     private val toolAdapter = McpToolAdapter()
     private lateinit var templateInitializer: TemplateInitializer
+    private lateinit var agentDirectoryManager: AgentDirectoryManager
+    private lateinit var configManager: TaskOrchestratorConfigManager
+    private lateinit var agentRecommendationService: AgentRecommendationService
+    private lateinit var statusValidator: StatusValidator
+    private lateinit var statusProgressionService: StatusProgressionService
     
     /**
      * Configures and runs the MCP server.
@@ -68,6 +84,15 @@ class McpServer(
 
         // Initialize templates
         initializeTemplates()
+
+        // Initialize agent directory manager and recommendation service
+        agentDirectoryManager = AgentDirectoryManager()
+        configManager = TaskOrchestratorConfigManager()
+        agentRecommendationService = AgentRecommendationServiceImpl(agentDirectoryManager)
+
+        // Initialize status progression services
+        statusValidator = StatusValidator()
+        statusProgressionService = StatusProgressionServiceImpl(statusValidator)
 
         // Configure the server
         val server = configureServer()
@@ -140,6 +165,21 @@ class McpServer(
         // Configure markdown resources
         server.configureMarkdownResources(repositoryProvider)
 
+        // Configure agent resources
+        AgentResources.configure(
+            server,
+            agentDirectoryManager,
+            agentRecommendationService,
+            repositoryProvider.taskRepository()
+        )
+
+        // Skills and Hooks resources removed - .claude/ directory setup no longer supported
+        // Skills are now user-managed in .claude/ directory if using Claude Code
+        // SkillsAndHooksResources.configure(server, configManager)
+
+        // Configure tool documentation resources
+        ToolDocumentationResources.configure(server)
+
         // Note: You may see an error in the logs like:
         // "Error handling notification: notifications/initialized - java.util.NoSuchElementException: Key method is missing in the map."
         // This appears to be an internal issue with the Kotlin SDK's notification handling system.
@@ -201,64 +241,42 @@ class McpServer(
      */
     private fun createTools(): List<ToolDefinition> {
         return listOf(
-            // Task management tools
-            CreateTaskTool(),
-            UpdateTaskTool(null, null),
-            BulkUpdateTasksTool(),
-            GetTaskTool(),
-            DeleteTaskTool(null, null),
-            SearchTasksTool(),
-            GetOverviewTool(),
-            SetStatusTool(),
-            ListTagsTool(),
-            GetBlockedTasksTool(),
-            GetNextTaskTool(),
-            TaskToMarkdownTool(),
+            // ========== v2.0 CONSOLIDATED TOOLS ==========
 
-            // Dependency management tools
-            CreateDependencyTool(),
-            GetTaskDependenciesTool(),
-            DeleteDependencyTool(),
+            // Container management - Unified operations for Projects/Features/Tasks
+            QueryContainerTool(),
+            ManageContainerTool(null, null),
 
-            // Feature management tools
-            CreateFeatureTool(),
-            UpdateFeatureTool(),
-            GetFeatureTool(),
-            DeleteFeatureTool(),
-            SearchFeaturesTool(),
-            FeatureToMarkdownTool(),
+            // Section management - Unified operations for all section types
+            QuerySectionsTool(null, null),
+            ManageSectionsTool(null, null),
 
-            // Project management tools
-            CreateProjectTool(),
-            GetProjectTool(),
-            UpdateProjectTool(),
-            DeleteProjectTool(),
-            SearchProjectsTool(),
-            ProjectToMarkdownTool(),
-
-            // Section management tools
-            AddSectionTool(null, null),
-            GetSectionsTool(),
-            UpdateSectionTool(null, null),
-            DeleteSectionTool(),
-            BulkUpdateSectionsTool(),
-            BulkCreateSectionsTool(),
-            BulkDeleteSectionsTool(),
-            // Enhanced section tools for context-efficiency
-            UpdateSectionTextTool(),
-            UpdateSectionMetadataTool(),
-            ReorderSectionsTool(),
-
-            // Template management tools
-            CreateTemplateTool(),
-            GetTemplateTool(),
+            // Template management - Read, write, and apply operations
+            QueryTemplatesTool(null, null),
+            ManageTemplateTool(null, null),
             ApplyTemplateTool(null, null),
-            ListTemplatesTool(),
-            AddTemplateSectionTool(),
-            UpdateTemplateMetadataTool(),
-            DeleteTemplateTool(),
-            EnableTemplateTool(),
-            DisableTemplateTool()
+
+            // Dependency management - Query and manage task dependencies
+            QueryDependenciesTool(null, null),
+            ManageDependencyTool(null, null),
+
+            // Tag management - Discovery and organization
+            ListTagsTool(),
+            GetTagUsageTool(),
+            RenameTagTool(),
+
+            // Workflow optimization - Task recommendations and blocking analysis
+            GetNextTaskTool(),
+            GetBlockedTasksTool(),
+
+            // Status progression - Intelligent workflow recommendations
+            GetNextStatusTool(statusProgressionService),
+            QueryWorkflowStateTool(),
+
+            // Orchestration - AI workflow automation and coordination
+            SetupProjectTool(),
+            GetAgentDefinitionTool(),
+            RecommendAgentTool()
         )
     }
 

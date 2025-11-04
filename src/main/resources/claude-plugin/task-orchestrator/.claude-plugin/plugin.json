@@ -1,0 +1,9 @@
+{
+  "name": "task-orchestrator-output-style",
+  "version": "2.0.0",
+  "description": "Professional coordinator communication style for Task Orchestrator workflows with clear status indicators and phase management",
+  "author": {
+    "name": "Task Orchestrator Team",
+    "email": "noreply@github.com"
+  }
+}

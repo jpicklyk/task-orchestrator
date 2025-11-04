@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.application.service.*
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.task.UpdateTaskTool
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
@@ -63,8 +63,10 @@ class LockingSystemIntegrationTest {
         assertTrue(createResult is Result.Success)
 
         // Create update tool with locking
-        val updateTool = UpdateTaskTool()
+        val updateTool = ManageContainerTool()
         val updateParams = JsonObject(mapOf(
+            "operation" to JsonPrimitive("update"),
+            "containerType" to JsonPrimitive("task"),
             "id" to JsonPrimitive(task.id.toString()),
             "title" to JsonPrimitive("Updated Task Title"),
             "status" to JsonPrimitive("in_progress")
@@ -76,7 +78,7 @@ class LockingSystemIntegrationTest {
         val operationId = lockingService.recordOperationStart(
             LockOperation(
                 operationType = OperationType.WRITE,
-                toolName = "UpdateTaskTool",
+                toolName = "ManageContainerTool",
                 description = "Updating task ${task.id}",
                 entityIds = setOf(task.id)
             )
@@ -116,7 +118,7 @@ class LockingSystemIntegrationTest {
         
         val updateOperation = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Updating task ${task.id}",
             entityIds = setOf(task.id)
         )
@@ -152,14 +154,14 @@ class LockingSystemIntegrationTest {
 
         val operation1 = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Updating task ${task1.id}",
             entityIds = setOf(task1.id)
         )
-        
+
         val operation2 = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Updating task ${task2.id}",
             entityIds = setOf(task2.id)
         )
@@ -215,7 +217,7 @@ class LockingSystemIntegrationTest {
 
         val operation = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Session-tracked operation on ${task.id}",
             entityIds = setOf(task.id),
             metadata = mapOf("sessionId" to sessionId)
@@ -257,7 +259,7 @@ class LockingSystemIntegrationTest {
         // Simulate section operations
         val taskOperation = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Updating task ${task.id}",
             entityIds = setOf(task.id)
         )
@@ -300,7 +302,7 @@ class LockingSystemIntegrationTest {
 
         val operation = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Performance test operation",
             entityIds = setOf(task.id),
             expectedDurationMinutes = 5
@@ -369,7 +371,7 @@ class LockingSystemIntegrationTest {
         
         val nonOverlappingOperation = LockOperation(
             operationType = OperationType.WRITE,
-            toolName = "UpdateTaskTool",
+            toolName = "ManageContainerTool",
             description = "Updating non-overlapping task",
             entityIds = setOf(nonOverlappingTask.id)
         )

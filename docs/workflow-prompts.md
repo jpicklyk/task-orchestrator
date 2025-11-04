@@ -5,16 +5,20 @@ title: Workflow Prompts
 
 # Workflow Prompts
 
-Workflow prompts provide structured, step-by-step guidance for complex project management scenarios. They complement AI's autonomous pattern application by offering explicit workflows when needed.
+Workflow prompts provide structured, step-by-step guidance for complex project management scenarios. **Workflow prompts guide the PROCESS** of accomplishing work, while templates structure the WORK itself. They complement AI's autonomous pattern application by offering explicit workflows when needed.
+
+**Available on all MCP clients**: Workflow prompts work with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP-compatible AI assistant.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Dual Workflow Model](#dual-workflow-model)
 - [Available Workflow Prompts](#available-workflow-prompts)
+- [Skills Integration in Workflows](#skills-integration-in-workflows)
 - [When to Use Workflow Prompts](#when-to-use-workflow-prompts)
 - [Usage Patterns](#usage-patterns)
 - [Integration with Templates](#integration-with-templates)
+- [Regression Testing Requirements](#regression-testing-requirements)
 
 ---
 
@@ -24,10 +28,38 @@ Workflow prompts are AI-invokable guides that provide comprehensive instructions
 
 ### What They Provide
 
-- **Structured Processes**: Step-by-step instructions for complex workflows
+- **Structured Processes**: Step-by-step instructions for complex workflows (the HOW)
 - **Quality Validation**: Built-in checkpoints and validation steps
-- **Template Integration**: Automatic template selection and application
+- **Template Integration**: Automatic template selection and application (the WHAT)
 - **Best Practices**: Proven patterns for common scenarios
+- **Universal Availability**: Works with ANY MCP client (not Claude Code specific)
+
+### Templates vs. Workflow Prompts
+
+**Templates structure the WORK** (WHAT needs to be documented):
+- Create sections: Requirements, Technical Approach, Testing Strategy
+- Define what information must be captured
+- Provide consistent documentation structure
+- Work with both direct execution and sub-agent orchestration
+
+**Workflow Prompts guide the PROCESS** (HOW to accomplish the work):
+- Provide step-by-step procedural guidance
+- Integrate MCP tool calls systematically
+- Offer quality validation checkpoints
+- Guide from start to completion
+
+**Example**:
+```
+Template (Technical Approach):
+→ Creates "Technical Approach" section
+→ Defines: Architecture, Technology Stack, Design Patterns
+
+Workflow Prompt (coordinate_feature_development):
+→ Phase 1: Create feature and apply templates
+→ Phase 2: Break down into tasks with dependencies
+→ Phase 3: Execute tasks using Specialists
+→ Phase 4: Complete feature and validate quality gates
+```
 
 ### What Makes Them Different
 
@@ -103,61 +135,64 @@ Claude explicitly:
 
 ---
 
-### `create_feature_workflow`
+### `coordinate_feature_development`
 
-**Purpose**: Create comprehensive features with templates, tasks, and proper organization
+**Purpose**: Coordinate end-to-end feature development through four phases using Skills for detailed guidance
 
 **When to Use**:
-- Creating a major new functional area (3+ related tasks)
-- Need structured approach to feature planning
-- Want to ensure comprehensive documentation from the start
-- Learning feature creation best practices
+- User provides feature request (with or without PRD file) for end-to-end orchestration
+- Need to break down a feature into executable tasks
+- Want comprehensive feature lifecycle management from creation through completion
+- Prefer Skills-based coordination for token efficiency
 
 **What It Covers**:
-1. Understanding current project state
-2. Template discovery and selection
-3. Feature creation with metadata
-4. Associated task creation with git workflow detection
-5. Dependency establishment
-6. Validation and review
+1. **Phase 1: Feature Creation** - Create feature with templates and sections, progress to planning status
+2. **Phase 2: Task Breakdown** - Break feature into domain-isolated tasks with dependencies and execution graph
+3. **Phase 3: Task Execution** - Execute tasks in parallel batches, cascade through dependencies
+4. **Phase 4: Feature Completion** - Progress feature through testing and quality gates to completion
 
-**Key Decisions It Helps With**:
-- Which templates to apply for comprehensive coverage
-- How to break down feature into tasks
-- What priority and complexity to assign
-- How to establish task dependencies
+**Skills Integration**:
+- **Phase 1 & 4**: Feature Orchestration Skill handles feature creation and completion
+- **Phase 2**: Planning Specialist (Sonnet) creates tasks for complex features; Skill for simple breakdowns
+- **Phase 3**: Task Orchestration Skill coordinates parallel task execution via Implementation Specialists
+- **Token savings**: 64% vs sequential subagent approach (4500 → 1600 tokens per feature)
+- **Pattern**: Phases orchestrated by workflow → Detailed work delegated to Skills and Specialists
 
-**Autonomous Alternative**: Simply ask "Create a feature for user authentication" and Claude will apply feature creation patterns automatically
+**Key Decisions It Handles**:
+- When to route to Feature Architect (complex features)
+- When to route to Planning Specialist (5+ tasks)
+- Parallel vs sequential task execution
+- Quality gate enforcement before completion
+- Cascade dependency handling
+
+**Workflow Phases**:
+
+```
+Phase 1: Feature Creation
+└─ Skill: Feature Orchestration
+   └─ Decision: Simple → Direct | Complex → Feature Architect
+   └─ Output: Feature created, status=planning
+
+Phase 2: Task Breakdown
+└─ Skill: Feature Orchestration + Planning Specialist
+   └─ Decision: Simple (< 5 tasks) → Skill | Complex (≥ 5 tasks) → Specialist
+   └─ Output: Tasks created, execution graph generated
+
+Phase 3: Task Execution
+└─ Skill: Task Orchestration
+   └─ Coordination: Launch specialist per batch, cascade on dependency resolution
+   └─ Output: All tasks completed, summaries populated
+
+Phase 4: Feature Completion
+└─ Skill: Feature Orchestration + Status Progression Skill
+   └─ Flow: Validate completion → Run quality gates → Transition status
+   └─ Output: Feature completed
+```
+
+**Autonomous Alternative**: Simply ask "Create feature for user authentication and break it down into tasks" and Claude will apply coordinate_feature_development patterns automatically
 
 ---
 
-### `task_breakdown_workflow`
-
-**Purpose**: Break down complex tasks into manageable, focused subtasks
-
-**When to Use**:
-- Task complexity rating is 7 or higher
-- Task spans multiple technical areas or skill sets
-- Need clear implementation phases
-- Want to enable parallel work by team members
-
-**What It Covers**:
-1. Analyzing the complex task
-2. Identifying natural boundaries (component, phase, skill set)
-3. Creating feature container (if beneficial for 4+ subtasks)
-4. Creating focused subtasks with proper templates
-5. Establishing dependencies and sequencing
-6. Updating original task to coordination role
-
-**Key Decisions It Helps With**:
-- When to create a feature vs. just subtasks
-- How to determine natural breakdown boundaries
-- What complexity target for subtasks (3-6 recommended)
-- How to sequence implementation dependencies
-
-**Autonomous Alternative**: Ask "This task is too complex, help me break it down" and Claude will apply breakdown patterns automatically
-
----
 
 ### `project_setup_workflow`
 
@@ -189,75 +224,368 @@ Claude explicitly:
 
 ---
 
-### `implementation_workflow`
 
-**Purpose**: Smart implementation workflow for tasks, features, and bugs with automatic git detection and workflow integration
+### `coordination_workflow`
+
+**Purpose**: Handle common coordination operations efficiently using Skills instead of subagents
 
 **When to Use**:
-- Ready to start implementing a specific feature or task
-- Want automatic git workflow integration
-- Need guidance on template application
-- Learning implementation best practices
+- Need to coordinate multiple tool calls (2-5 tools)
+- Want maximum token efficiency for coordination tasks
+- Performing repetitive operations (task completion, routing, dependency checks)
+- Working within feature lifecycle (what's next, progress tracking)
 
 **What It Covers**:
-1. Memory-based configuration loading (PR preferences, branch naming, custom workflows)
-2. Current state check and git detection (automatic)
-3. Work type detection (task, feature, or **bug**) with specialized guidance
-4. **Bug-specific investigation** and root cause verification (for bugs)
-5. Smart template application based on context and git detection
-6. Implementation execution with template guidance
-7. **Mandatory regression testing** (for bug fixes)
-8. Completion validation before marking done
+1. Identifying coordination operation type
+2. Selecting appropriate Skill (Feature, Task, or Dependency)
+3. Invoking Skill with proper context
+4. Processing Skill output
+5. Determining next action
 
 **Key Decisions It Helps With**:
-- Which task to work on next
-- What templates to apply (automatic suggestions)
-- Whether to use git workflows (auto-detected)
-- **For bugs**: When investigation is complete and ready to implement
-- **For bugs**: What regression tests are needed
-- When task is truly complete
+- Which Skill handles this coordination operation
+- When to use Skill vs direct tool vs subagent
+- How to chain Skills for complex workflows
+- When to escalate from Skill to subagent
 
-**Special Features**:
-- **Git Detection**: Automatically detects .git directory and suggests git workflow templates
-- **GitHub Integration**: Asks about PR workflows if git detected
-- **Template Stacking**: Suggests combining multiple templates for comprehensive guidance
-- **Bug Investigation Integration**: Offers Bug Investigation template if not applied, verifies root cause before implementation
-- **Regression Testing Enforcement**: For bug fixes, requires comprehensive regression tests before completion
+**Workflow Steps**:
 
-**Bug Handling**:
+**Step 1: Identify Operation Type**
 
-When working on bugs (task-type-bug), the workflow provides specialized guidance:
+Determine which category of coordination:
+- **Feature-level**: "What's next?" "Feature progress?" "Complete feature?"
+- **Task-level**: "Route this task" "Complete task" "Update status"
+- **Dependency-level**: "What's blocked?" "Check dependencies" "Show blockers"
+- **Hook/Skill creation**: "Create automation" "Build custom Skill"
 
-1. **Investigation Phase**:
-   - Checks if Bug Investigation template is applied
-   - Offers to apply template if missing
-   - Verifies root cause is documented before allowing implementation
-   - Guides through systematic investigation if incomplete
+**Step 2: Select Appropriate Skill**
 
-2. **Implementation Phase**:
-   - Reproduce bug in tests first (test should fail with current code)
-   - Document reproduction steps
-   - Implement fix addressing root cause
-   - Verify test passes with fix
+| Operation Type | Skill to Use | Example Invocations |
+|---------------|--------------|-------------------|
+| Feature coordination | Feature Management Skill | "What's the next task?" "Feature F1 progress?" |
+| Task lifecycle | Task Management Skill | "Complete task T1" "Route this task" |
+| Dependency analysis | Dependency Analysis Skill | "Check dependencies" "What's blocking T5?" |
+| Hook creation | Hook Builder Skill | "Create auto-commit hook" "Build test gate" |
+| Skill creation | Skill Builder Skill | "Help me create a Skill" "Build doc generator" |
 
-3. **Regression Testing** (MANDATORY):
-   - **Bug Reproduction Test**: Test that fails with old code, passes with fix
-   - **Edge Case Tests**: Boundary conditions that led to the bug
-   - **Integration Tests**: If bug crossed component boundaries
-   - **Performance Tests**: If bug was performance-related
-   - **Test Documentation**: BUG/ROOT CAUSE/FIX comments required
+**Step 3: Invoke Skill**
 
-4. **Completion Validation**:
-   - Root cause documented
-   - Bug investigation complete
-   - Regression tests created and passing
-   - Test names reference task ID
-   - Code coverage increased
-   - **Cannot complete without regression tests**
+**For Feature Management**:
+```
+Examples:
+- "What should I work on next in feature F1?"
+- "Check progress on feature F2"
+- "Complete feature F1"
+- "Show blocked tasks in this feature"
 
-See [Regression Testing Requirements](#regression-testing-requirements) below for detailed guidance.
+Expected Response: Task recommendation, progress report, completion summary, or blocker list (300-600 tokens)
+```
 
-**Autonomous Alternative**: Ask "What should I work on next?" or "I'll start implementing the login feature" and Claude will guide implementation automatically
+**For Task Management**:
+```
+Examples:
+- "Complete task T1"
+- "Which specialist should handle task T2?"
+- "Mark task T3 as in-progress"
+- "Check if task T4 is ready to start"
+
+Expected Response: Task completion confirmation, specialist recommendation, status update, or dependency report (300-600 tokens)
+```
+
+**For Dependency Analysis**:
+```
+Examples:
+- "What's blocking progress in feature F1?"
+- "Show me the dependency chain for task T5"
+- "Which task should I unblock first?"
+- "Why is task T6 blocked?"
+
+Expected Response: Blocker analysis, dependency tree, prioritization recommendation (300-500 tokens)
+```
+
+**Step 4: Process Skill Output**
+
+Skills return:
+- **Brief summaries** (not full context) - keep orchestrator lean
+- **Clear recommendations** - what to do next
+- **Relevant context** - just enough for decision-making
+- **Action items** - explicit next steps
+
+**Step 5: Determine Next Action**
+
+Based on Skill output:
+
+**If Skill recommends implementation**:
+→ Launch appropriate subagent (Backend Engineer, Database Engineer, etc.)
+
+**If Skill identifies blocker**:
+→ Address blocker first (use another Skill or subagent to unblock)
+
+**If Skill completes operation**:
+→ Optional: Hooks may trigger automatically (git commit, tests, notifications)
+→ Return to user with confirmation
+
+**If Skill requests clarification**:
+→ Ask user for additional information
+
+**Example Coordination Workflows**:
+
+**Example 1: Feature Task Recommendation (Feature Management Skill)**
+
+```
+User: "What's the next unblocked task in authentication feature?"
+
+Coordination Workflow:
+1. Operation Type: Feature coordination
+2. Skill Selected: Feature Management Skill
+3. Invocation: Natural language triggers Skill
+4. Skill Executes:
+   - query_container(operation="get", containerType="feature", id=id, includeTasks=true, includeTaskDependencies=true)
+   - get_next_task(featureId, limit=1, includeDetails=true)
+   - Analyzes task priorities and dependencies
+5. Output Processed:
+   "Next Task: T3 - Implement token refresh endpoint
+    Priority: high | Complexity: 6/10
+    Status: Unblocked (dependency T2 completed)
+    Recommended Specialist: Backend Engineer"
+6. Next Action: Launch Backend Engineer or ask user to confirm
+
+Tokens: ~300 (vs 1400 for subagent approach = 78% savings)
+```
+
+**Example 2: Task Completion (Task Management Skill + Hook)**
+
+```
+User: "Complete task T1"
+
+Coordination Workflow:
+1. Operation Type: Task lifecycle management
+2. Skill Selected: Task Management Skill
+3. Invocation: "Complete task T1"
+4. Skill Executes:
+   - query_container(operation="get", containerType="task", id=T1, includeSections=true)
+   - manage_sections(operation="add", entityType=TASK, title="Summary", content="...")
+   - manage_container(operation="setStatus", containerType="task", id=T1, status="completed")
+5. Output Processed:
+   "Task T1 completed. Summary section created documenting implementation of user login API."
+6. Hook Triggers (if configured):
+   - PostToolUse hook on manage_container (operation="setStatus")
+   - Auto-creates git commit with task details
+   - 0 additional tokens
+7. Next Action: Return confirmation to user
+
+Tokens: ~600 for Skill + 0 for Hook (vs 1500 for subagent = 60% savings)
+```
+
+**Example 3: Dependency Validation (Dependency Analysis Skill)**
+
+```
+User: "Why is task T5 blocked?"
+
+Coordination Workflow:
+1. Operation Type: Dependency analysis
+2. Skill Selected: Dependency Analysis Skill
+3. Invocation: "Why is task T5 blocked?"
+4. Skill Executes:
+   - query_container(operation="get", containerType="task", id=T5, includeSections=true)
+   - get_task_dependencies(T5, direction=incoming)
+   - For each dependency: query_container(operation="get", containerType="task", id=id) to check status
+   - Analyzes blocker impact
+5. Output Processed:
+   "Task T5 blocked by 2 incomplete dependencies:
+    - T2: Implement authentication API (in-progress)
+    - T4: Create user database schema (pending)
+
+    Recommendation: Complete T4 first (unblocks T5 and T6)"
+6. Next Action: Ask user if they want to work on T4, or show T4 details
+
+Tokens: ~350 (vs 1200 for subagent = 71% savings)
+```
+
+**Example 4: Chaining Skills for Complete Feature Flow**
+
+```
+User: "Work through authentication feature systematically"
+
+Coordination Workflow (Multi-Step):
+
+Step A: Feature Management Skill
+→ "What's next in feature F1?"
+→ Response: "Task T1: Database schema (unblocked)"
+→ Tokens: 300
+
+Step B: Task Management Skill
+→ "Route task T1"
+→ Response: "Database Engineer recommended"
+→ Tokens: 300
+
+Step C: Launch Database Engineer (subagent)
+→ Implements database schema
+→ Returns brief
+→ Tokens: 1600
+
+Step D: Task Management Skill
+→ "Complete task T1"
+→ Creates summary, marks complete
+→ Tokens: 600
+
+Step E: Hook triggers (auto-commit)
+→ Git commit created
+→ Tokens: 0
+
+Step F: Feature Management Skill
+→ "What's next in feature F1?"
+→ Response: "Task T2: Implement auth API"
+→ Tokens: 300
+
+[Pattern continues...]
+
+Total per iteration: 3100 tokens
+vs Subagent-only: 5500 tokens
+Savings: 44% per task cycle
+```
+
+**When to Escalate from Skill to Subagent**:
+
+Skills handle coordination efficiently, but escalate to subagents when:
+- ✅ Need to generate code (Skills can't write implementation)
+- ✅ Need complex reasoning (architectural decisions, trade-off analysis)
+- ✅ Need multi-step workflows with backtracking
+- ✅ Need specialist domain knowledge (Backend Engineer, Database Engineer)
+
+**Pattern**:
+```
+Skill identifies work → Recommends specialist → Orchestrator launches subagent
+```
+
+**Token Efficiency Summary**:
+
+| Coordination Operation | Subagent Tokens | Skill Tokens | Savings |
+|----------------------|----------------|--------------|---------|
+| Feature recommendation | 1400 | 300 | 78% |
+| Task routing | 1300 | 300 | 77% |
+| Task completion | 1500 | 600 | 60% |
+| Dependency analysis | 1200 | 350 | 71% |
+| **Average** | **1350** | **388** | **71%** |
+
+**Autonomous Alternative**: Claude recognizes coordination patterns automatically and invokes appropriate Skills without explicit workflow invocation
+
+---
+
+## Skills Integration in Workflows
+
+Workflow prompts can leverage **Skills** to reduce token costs for coordination operations. Skills are lightweight, focused capabilities that achieve **60-82% token savings** compared to subagent operations through progressive disclosure.
+
+### What Are Skills?
+
+Skills are specialized mini-agents that:
+- Handle coordination tasks with 2-5 tool calls
+- Activate automatically based on description matching
+- Cost 300-600 tokens (vs 1400-1700 for subagents)
+- Work seamlessly with workflow prompts
+
+**Available Skills for Workflows**:
+1. **Feature Management Skill** - Feature coordination, next task recommendation (300-600 tokens)
+2. **Task Management Skill** - Task completion, status updates, specialist routing (300-600 tokens)
+3. **Dependency Analysis Skill** - Dependency validation, blocker identification (300-500 tokens)
+4. **Hook Builder Skill** - Custom automation hook creation (400-700 tokens, interactive)
+5. **Skill Builder Skill** - Custom skill creation (500-800 tokens, interactive)
+
+### When Workflows Should Use Skills
+
+**Use Skills when workflow steps involve**:
+- ✅ 2-5 tool calls in sequence (coordination patterns)
+- ✅ Repetitive operations (task completion, status checks)
+- ✅ Simple data queries and updates
+- ✅ Task routing and recommendation
+
+**Continue using direct tools or subagents for**:
+- ❌ Single tool calls (direct tools are simpler)
+- ❌ Complex reasoning or code generation (subagents required)
+- ❌ Multi-step workflows with backtracking (subagents handle better)
+
+### Decision Criteria for Workflows
+
+```
+Does this workflow step require...
+├─ Single tool call? → Use direct MCP tool
+├─ 2-5 coordinated tool calls? → Recommend Skill
+└─ Complex reasoning/code? → Launch subagent
+```
+
+### Token Efficiency Benefits
+
+| Operation | Without Skills | With Skills | Savings |
+|-----------|----------------|-------------|---------|
+| **Recommend next task** | 1400 tokens (subagent) | 300 tokens (Skill) | 78% |
+| **Complete task** | 1500 tokens (subagent) | 600 tokens (Skill) | 60% |
+| **Check dependencies** | 1200 tokens (subagent) | 350 tokens (Skill) | 71% |
+| **Route task to specialist** | 1300 tokens (subagent) | 300 tokens (Skill) | 77% |
+
+**Example workflow comparison**:
+```
+Traditional (subagent-only):
+→ Feature coordination: 1400 tokens
+→ Task routing: 1300 tokens
+→ Implementation: 2000 tokens (subagent)
+→ Task completion: 1500 tokens
+Total: 6,200 tokens
+
+Skills-enhanced:
+→ Feature coordination: 300 tokens (Skill)
+→ Task routing: 300 tokens (Skill)
+→ Implementation: 2000 tokens (subagent)
+→ Task completion: 600 tokens (Skill)
+Total: 3,200 tokens (48% savings)
+```
+
+### How to Recommend Skills in Workflows
+
+When a workflow identifies a coordination operation, recommend the appropriate Skill:
+
+**Pattern 1: Feature Coordination**
+```markdown
+Step 3: Determine next task to work on
+- Use Feature Management Skill to get recommendation
+- Invocation: "What's the next unblocked task in this feature?"
+- Expected: Task recommendation with context (300-600 tokens)
+```
+
+**Pattern 2: Task Completion**
+```markdown
+Step 7: Mark task complete
+- Use Task Management Skill for completion
+- Invocation: "Complete task [id]"
+- Expected: Summary created, status updated (600 tokens)
+- Benefit: Hook can auto-commit if configured (0 additional tokens)
+```
+
+**Pattern 3: Dependency Validation**
+```markdown
+Step 2: Validate dependencies before starting
+- Use Dependency Analysis Skill to check blockers
+- Invocation: "Check if task [id] has incomplete dependencies"
+- Expected: Dependency status report (300-500 tokens)
+```
+
+### Integration with Existing Workflows
+
+Skills **complement** workflow prompts by handling the coordination steps efficiently:
+
+- **Workflow prompts** guide the overall PROCESS (what to do, when, in what order)
+- **Skills** execute coordination OPERATIONS efficiently (how to coordinate specific steps)
+- **Subagents** perform complex WORK (implementation, reasoning, code generation)
+
+This three-tier approach provides maximum efficiency:
+```
+Workflow Prompt (process guidance)
+    ↓
+Skills (coordination - 300-600 tokens)
+    ↓
+Subagents (complex work - 1500-3000 tokens)
+```
+
+**See**: [Skills Guide](skills-guide.md) for complete Skills documentation and [Agent Architecture](agent-architecture.md) for decision patterns.
 
 ---
 
@@ -338,7 +666,7 @@ Claude: [Starts autonomous pattern application]
 [Recognizes complexity]
 
 Claude: "This is a complex feature with multiple integration points. Would you like
-me to use the create_feature_workflow for comprehensive step-by-step guidance?"
+me to use the coordinate_feature_development workflow for comprehensive step-by-step guidance?"
 ```
 
 **Best For**: Most scenarios - let Claude assess and suggest escalation
@@ -353,11 +681,11 @@ Combine workflows for comprehensive coverage:
 User: "Use the project setup workflow to create a new API project"
 [Project created]
 
-User: "Now use the create feature workflow for the authentication feature"
-[Feature created with tasks]
+User: "Now use the coordinate_feature_development workflow for the authentication feature"
+[Feature created with tasks and execution plan]
 
-User: "Apply the implement feature workflow to start working on the first task"
-[Implementation begins with proper templates]
+User: "Start executing tasks from the feature plan"
+[Implementation specialists execute tasks through phases]
 ```
 
 **Best For**: Large projects, systematic development, learning the full workflow
@@ -431,49 +759,79 @@ Ready to begin implementation?"
 
 ## Integration with Templates
 
+### How Workflows and Templates Work Together
+
+**Workflow prompts guide the PROCESS, templates structure the WORK**:
+
+| Aspect | Templates | Workflow Prompts |
+|--------|-----------|------------------|
+| **Purpose** | Define WHAT to document | Define HOW to accomplish work |
+| **Creates** | Sections (Requirements, Technical Approach) | Step-by-step procedural guidance |
+| **Works With** | Any MCP client | Any MCP client |
+| **Sub-Agents** | Sections read by specialists | Process followed by orchestrator |
+| **Example** | "Technical Approach" section with architecture | "Step 3: Read Technical Approach and implement" |
+
 ### How Workflows Use Templates
 
 All workflow prompts integrate with the template system:
 
 1. **Automatic Discovery**: Workflows use `list_templates` to find applicable templates
 2. **Smart Selection**: Workflows suggest templates based on work type and context
-3. **Multiple Templates**: Workflows often apply 2-3 templates for comprehensive coverage
-4. **Git Detection**: Workflows automatically suggest git templates when .git directory detected
+3. **Section Creation**: Templates create the sections (WORK structure)
+4. **Process Guidance**: Workflows guide you through using those sections (PROCESS steps)
+5. **Multiple Templates**: Workflows often apply 2-3 templates for comprehensive coverage
+6. **Git Detection**: Workflows automatically suggest git templates when .git directory detected
 
 ### Template Categories by Workflow
 
-**Feature Creation Workflow** typically uses:
-- Context & Background (business context)
-- Requirements Specification (detailed requirements)
-- Technical Approach (architecture planning)
+**Coordinate Feature Development Workflow** (creates WORK structure across 4 phases):
 
-**Task Breakdown Workflow** typically uses:
-- Task Implementation Workflow (implementation guidance)
-- Local Git Branching Workflow (if git detected)
-- Technical Approach (for complex subtasks)
+**Phase 1: Feature Creation**
+- Context & Background → creates "Business Context" section
+- Requirements Specification → creates "Requirements" section
+- Technical Approach → creates "Technical Approach" section
 
-**Bug Triage Workflow** typically uses:
-- Bug Investigation Workflow (systematic investigation)
-- Local Git Branching Workflow (if git detected)
-- Definition of Done (completion criteria)
+**Phase 2: Task Breakdown**
+- Task Implementation Workflow → creates "Implementation Steps" section
+- Local Git Branching Workflow → creates "Git Workflow" section (if git detected)
+- Technical Approach → creates "Technical Approach" section (for complex subtasks)
 
-**Project Setup Workflow** typically uses:
-- Multiple templates for features and foundation tasks
-- Custom templates created for project-specific needs
+**Phase 3 & 4: Execution and Completion**
+- Uses templates created in Phases 1 & 2
+- Specialists read sections for context
+- Task summaries populate "Results" or "Implementation Notes" sections
 
-**Implement Feature Workflow** uses:
-- Task Implementation Workflow (always)
-- Local Git Branching Workflow (if git detected)
-- GitHub PR Workflow (if user confirms they use PRs)
-- Technical Approach (for complex tasks)
+**Key Insight**: Templates create the sections FIRST in Phase 1-2, then Skills and Specialists guide you through USING those sections in Phase 3-4 to execute and complete work.
 
-> **See**: [Templates Guide](templates) for complete template documentation and [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for discovery patterns
+### Templates Work With Both Execution Patterns
+
+**Direct Execution** (any MCP client):
+```
+1. Workflow applies templates → creates sections
+2. Workflow guides you through process
+3. You read template sections for context
+4. You implement the work
+5. You update template sections with results
+```
+
+**Sub-Agent Execution** (Claude Code only):
+```
+1. Workflow applies templates → creates sections
+2. Orchestrator launches specialist
+3. Specialist reads template sections for context
+4. Specialist implements the work
+5. Specialist updates template sections with results
+```
+
+**Templates are identical in both patterns** - they create the same sections (Requirements, Technical Approach, Testing Strategy). The difference is WHO reads and implements: you directly, or a specialist agent.
+
+> **See**: [Templates Guide](templates) for complete template documentation, including how templates work with both direct and sub-agent execution patterns, and [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for discovery patterns
 
 ---
 
 ## Regression Testing Requirements
 
-When fixing bugs using `implementation_workflow`, **comprehensive regression tests are mandatory** to prevent the issue from recurring. The workflow enforces these requirements and will not allow completion without proper tests.
+When fixing bugs through feature development (Phase 3 execution in `coordinate_feature_development`), **comprehensive regression tests are mandatory** to prevent the issue from recurring. Skills and Specialists enforce these requirements and will not allow completion without proper tests.
 
 ### When Required
 
@@ -637,312 +995,14 @@ fun `should handle state transition - regression for TASK-xxxxx`() {
 
 ### Enforcement
 
-The `implementation_workflow` **enforces** regression testing requirements:
+Skills and Specialists **enforce** regression testing requirements:
 
-- **Step 3 (Bug Detection)**: Identifies bug fixes and prepares for regression testing
-- **Step 5 (Implementation)**: Guides through bug reproduction and test creation
-- **Step 7 (Validation)**: Checks for regression tests before allowing completion
-- **Critical Warning**: If user attempts to complete without tests, workflow reminds them of requirements
+- **Phase 3 (Task Execution)**: Identifies bug fixes and prepares for regression testing
+- **Implementation**: Guides through bug reproduction and test creation
+- **Completion Validation**: Checks for regression tests before allowing task completion
+- **Critical: Bug fixes require comprehensive regression tests before marking complete**
 
 **You cannot mark a bug fix as completed without regression tests.**
-
----
-
-## Memory-Based Workflow Customization
-
-The `implementation_workflow` supports customization through AI memory configuration, allowing teams to adapt workflows to their specific processes without modifying code.
-
-### Overview
-
-**Memory-based customization** allows you to:
-- Define pull request preferences (always/never/ask)
-- Customize branch naming conventions with variables
-- Override procedural workflow steps while keeping validation
-- Configure team-specific processes
-- Store configuration globally (user-wide) or per-project (team-wide)
-
-**Key Benefits**:
-- ✅ **Zero-config default**: Works out of the box with sensible defaults
-- ✅ **Progressive enhancement**: Start minimal, add complexity as needed
-- ✅ **Version-controlled**: Project configuration lives in your repo
-- ✅ **Natural language**: Update via conversation with AI
-- ✅ **AI-agnostic**: Works with any AI memory mechanism
-
----
-
-### Minimal Configuration
-
-The simplest customization is just your PR preference:
-
-```markdown
-# Task Orchestrator - Implementation Workflow Configuration
-
-## Pull Request Preference
-use_pull_requests: "always"
-```
-
-That's it! The workflow will now always create pull requests without asking.
-
-**Options**:
-- `"always"` - Always create PRs (skip asking)
-- `"never"` - Never create PRs, merge directly to main
-- `"ask"` - Ask each time (default if not configured)
-
----
-
-### Memory Configuration Schema
-
-Complete configuration schema with all available options:
-
-```markdown
-# Task Orchestrator - Implementation Workflow Configuration
-
-## Pull Request Preference
-use_pull_requests: "always" | "never" | "ask"
-
-## Branch Naming Conventions (optional - defaults provided)
-branch_naming_bug: "bugfix/{task-id-short}-{description}"
-branch_naming_feature: "feature/{task-id-short}-{description}"
-branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
-branch_naming_enhancement: "enhancement/{task-id-short}-{description}"
-
-## Commit Message Customization (optional)
-commit_message_prefix: "[{type}/{task-id-short}]"
-
-## Custom Workflow Steps (optional - leave empty to use templates)
-### Bug Fix Workflow Override
-# [Custom steps override Bug Investigation template procedural guidance]
-# Template validation requirements still apply
-
-### Feature Implementation Workflow Override
-# [Custom steps override Task Implementation template procedural guidance]
-# Template validation requirements still apply
-```
-
----
-
-### Branch Naming Variables
-
-Use these standardized variables in branch naming patterns:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `{task-id}` | Full task UUID | `70490b4d-f412-4c20-93f1-cacf038a2ee8` |
-| `{task-id-short}` | First 8 characters of UUID | `70490b4d` |
-| `{description}` | Sanitized task title | `fix-authentication-bug` |
-| `{feature-id}` | Feature UUID (if applicable) | `a3d0ab76-d93d-455c-ba54-459476633a3f` |
-| `{feature-id-short}` | First 8 chars of feature UUID | `a3d0ab76` |
-| `{priority}` | Task priority | `high`, `medium`, `low` |
-| `{complexity}` | Task complexity | `1` through `10` |
-| `{type}` | Work type from tags | `bug`, `feature`, `enhancement`, `hotfix` |
-
-**Sanitization**: The `{description}` variable is automatically sanitized (lowercase, hyphenated, special chars removed, max 50 chars).
-
----
-
-### Template Validation vs Procedural Override
-
-**What's Always Used** (never overridden):
-- ✅ Validation requirements from templates
-- ✅ Acceptance criteria and definition of done
-- ✅ Testing requirements and quality gates
-- ✅ Technical context and background information
-
-**What Can Be Overridden** (custom workflow steps replace):
-- ⚠️ Step-by-step implementation instructions
-- ⚠️ Procedural workflow guidance
-- ⚠️ Tool invocation sequences
-
-This ensures quality standards are maintained while allowing team-specific processes.
-
----
-
-### Real-World Configuration Examples
-
-#### Example 1: Startup Team (Minimal Setup)
-
-```markdown
-# Task Orchestrator - Implementation Workflow Configuration
-
-## Pull Request Preference
-use_pull_requests: "never"
-```
-
-**Use Case**: Fast-moving startup, direct commits to main, rapid iteration.
-
----
-
-#### Example 2: Jira Integration with Custom Branch Naming
-
-```markdown
-# Task Orchestrator - Implementation Workflow Configuration
-
-## Pull Request Preference
-use_pull_requests: "always"
-
-## Branch Naming (Jira-style)
-branch_naming_bug: "bugfix/PROJ-{task-id-short}-{description}"
-branch_naming_feature: "feature/PROJ-{task-id-short}-{description}"
-branch_naming_hotfix: "hotfix/PROJ-{task-id-short}-{description}"
-
-## Commit Messages
-commit_message_prefix: "[PROJ-{task-id-short}]"
-```
-
-**Use Case**: Team using Jira with project prefix "PROJ", wants consistent ticket references.
-
-**Result**:
-- Branch: `feature/PROJ-70490b4d-oauth-authentication`
-- Commit: `[PROJ-70490b4d] feat: add OAuth2 authentication`
-
----
-
-#### Example 3: Enterprise Team with Staging Deployment
-
-```markdown
-# Task Orchestrator - Implementation Workflow Configuration
-
-## Pull Request Preference
-use_pull_requests: "always"
-
-## Branch Naming
-branch_naming_bug: "bugfix/{priority}-{task-id-short}-{description}"
-branch_naming_hotfix: "hotfix/{task-id-short}-{description}"
-
-## Bug Fix Workflow Override
-### Custom Bug Fix Process
-1. Create branch from main
-2. Implement fix with tests
-3. Deploy to staging environment: `./deploy-staging.sh`
-4. Run integration test suite: `npm run test:integration:staging`
-5. Request QA approval in PR
-6. After QA approval, merge to main
-7. Deploy to production: `./deploy-production.sh`
-
-Note: Template validation still requires:
-- Bug Investigation template analysis completed
-- Root cause documented
-- Test coverage for bug fix
-- Regression tests passing
-```
-
-**Use Case**: Enterprise team with required staging deployment and QA approval.
-
----
-
-#### Example 4: Priority-Based Branch Naming
-
-```markdown
-# Task Orchestrator - Implementation Workflow Configuration
-
-## Pull Request Preference
-use_pull_requests: "always"
-
-## Branch Naming (priority-based)
-branch_naming_bug: "bug/{priority}-{complexity}-{description}"
-branch_naming_feature: "feature/{feature-id-short}/{description}"
-branch_naming_hotfix: "hotfix/{description}"
-```
-
-**Use Case**: Team that prioritizes by severity and groups features together.
-
-**Result**:
-- Bug: `bug/high-8-security-vulnerability`
-- Feature: `feature/a3d0ab76/oauth-integration`
-- Hotfix: `hotfix/critical-data-leak`
-
----
-
-### Natural Language Customization
-
-You can update configuration through natural conversation with your AI:
-
-**Example Conversation**:
-```
-User: "Can you update our workflow to use Linear-style branch naming?"
-
-AI: "I'll update your project configuration to use Linear conventions:
-     {type}/{description}-{task-id-short}
-
-     Should I save this to your project's memory?"
-
-User: "Yes, and we always use pull requests"
-
-AI: "Updated! I've saved:
-     - Linear-style branch naming
-     - use_pull_requests: always
-
-     Your team's configuration is now in CLAUDE.md"
-```
-
-The AI handles:
-- Schema generation
-- Variable substitution
-- Validation
-- Storage in appropriate memory location
-
----
-
-### Global vs Project-Specific Configuration
-
-**Global (User-Wide)**:
-- Your personal preferences across all projects
-- Stored in AI's global memory
-- Examples: PR preference, default branch naming
-
-**Project-Specific (Team-Wide)**:
-- Team conventions for specific project
-- Stored in project repo (e.g., `CLAUDE.md`)
-- Examples: Jira integration, staging deployment steps
-
-**Priority**: Project-specific configuration overrides global preferences.
-
----
-
-### Getting Started with Customization
-
-1. **Start Simple**: Just configure `use_pull_requests` preference
-2. **Add Branch Naming**: Customize patterns for your team's conventions
-3. **Override Workflows**: Add custom steps only if needed
-4. **Iterate**: Refine based on team feedback
-
-**First-Time Setup** (via AI conversation):
-```
-User: "Set up workflow customization for our team"
-
-AI: "I'll help you configure. A few questions:
-     1. Do you always use pull requests? (always/never/ask)
-     2. Do you use Jira or Linear for tickets?
-     3. Any specific branch naming conventions?"
-
-[AI creates configuration based on answers]
-```
-
----
-
-### Best Practices
-
-**DO**:
-- ✅ Start with minimal configuration (just PR preference)
-- ✅ Use default branch naming patterns unless team has strong conventions
-- ✅ Store team configuration in version-controlled project files
-- ✅ Document custom workflow steps clearly
-- ✅ Test configuration with simple task first
-
-**DON'T**:
-- ❌ Override template validation requirements
-- ❌ Create overly complex branch naming patterns
-- ❌ Duplicate template guidance in custom workflow steps
-- ❌ Store sensitive information in configuration
-
----
-
-### Related Documentation
-
-- **[implementation_workflow](workflow-prompts#implementation_workflow)** - Workflow that uses this configuration
-- **[AI Guidelines - Memory Patterns](ai-guidelines)** - How AI agents use memory
-- **[Quick Start](quick-start)** - Getting started examples
-- **[Templates Guide](templates)** - Understanding template validation
 
 ---
 

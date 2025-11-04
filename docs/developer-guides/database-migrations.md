@@ -20,12 +20,12 @@ src/main/resources/db/migration/V{number}__{Description}.sql
 ```
 
 **Examples:**
-- `V3__Add_User_Preferences_Table.sql`
-- `V4__Add_Audit_Log_Indexes.sql` 
-- `V5__Migrate_Legacy_Status_Values.sql`
+- `V7__Add_User_Preferences_Table.sql`
+- `V8__Add_Audit_Log_Indexes.sql`
+- `V9__Migrate_Legacy_Status_Values.sql`
 
 **Rules:**
-- Use sequential numbers: V3, V4, V5... (V1 and V2 already exist)
+- Use sequential numbers: V7, V8, V9... (V1-V6 already exist)
 - Use double underscores `__` after version number
 - Use descriptive names with underscores for spaces
 - Never modify existing migration files after they're applied
@@ -33,10 +33,10 @@ src/main/resources/db/migration/V{number}__{Description}.sql
 ### 2. Migration File Template
 
 ```sql
--- V{N}__{Description}.sql
--- 
+-- V7__{Description}.sql
+--
 -- Purpose: Brief description of what this migration does
--- 
+--
 -- ROLLBACK INSTRUCTIONS (if complex):
 -- Manual steps needed to undo this migration:
 -- 1. DROP TABLE new_table;
@@ -288,14 +288,14 @@ Flyway Community Edition doesn't support automatic rollbacks. For complex migrat
 
 ### Document Rollback Steps
 ```sql
--- V5__Add_Complex_Feature.sql
--- 
+-- V7__Add_Complex_Feature.sql
+--
 -- ROLLBACK INSTRUCTIONS:
 -- This migration adds audit_log table and triggers.
 -- To manually rollback:
 -- 1. DROP TRIGGER IF EXISTS audit_trigger;
 -- 2. DROP TABLE IF EXISTS audit_log;
--- 3. DELETE FROM flyway_schema_history WHERE version = '5';
+-- 3. DELETE FROM flyway_schema_history WHERE version = '7';
 -- 4. Restart application to ensure clean state
 ```
 
@@ -305,10 +305,10 @@ Flyway Community Edition doesn't support automatic rollbacks. For complex migrat
 docker stop mcp-task-orchestrator 2>/dev/null || true
 
 # 2. Connect to database and run rollback SQL
-sqlite3 data/tasks.db < rollback_v5.sql
+sqlite3 data/tasks.db < rollback_v7.sql
 
 # 3. Update Flyway history
-sqlite3 data/tasks.db "DELETE FROM flyway_schema_history WHERE version = '5';"
+sqlite3 data/tasks.db "DELETE FROM flyway_schema_history WHERE version = '7';"
 
 # 4. Restart application (production)
 docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest

@@ -1,0 +1,29 @@
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :generateVersionInfo UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :processTestResources NO-SOURCE
+
+> Task :compileKotlin FAILED
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:224:49 Unresolved reference 'getHooksDir'.
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:239:50 Argument type mismatch: actual type is 'File', but 'Path!' was expected.
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:322:49 Unresolved reference 'getHooksDir'.
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:330:35 Argument type mismatch: actual type is 'File', but 'Path!' was expected.
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:336:82 Unresolved reference 'fileName'.
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:342:48 Argument type mismatch: actual type is 'File', but 'Path!' was expected.
+e: file:///D:/Projects/task-orchestrator/src/main/kotlin/io/github/jpicklyk/mcptask/interfaces/mcp/SkillsAndHooksResources.kt:343:43 Unresolved reference 'fileName'.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s
+3 actionable tasks: 1 executed, 2 up-to-date

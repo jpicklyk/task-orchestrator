@@ -5,19 +5,45 @@ title: Quick Start
 
 # Quick Start Guide
 
-Get MCP Task Orchestrator running with your MCP-compatible AI agent in under 2 minutes. This guide shows configuration for Claude Desktop and Claude Code, but works with any AI that supports the Model Context Protocol.
+**Stop losing context. Start building faster.**
 
-## Prerequisites
+Get the AI orchestration framework running in 5 minutes. This guide covers both **basic setup** (templates, works on ALL MCP clients) and **advanced setup** (sub-agent orchestration, Claude Code only).
+
+## The Problem You're Solving
+
+By **task 5** of a complex feature, traditional AI workflows break:
+- ❌ Context pollution (79k tokens by task 4)
+- ❌ Token exhaustion forces session restarts
+- ❌ AI forgets completed work
+
+**Breaking point**: Traditional approaches fail at **12-15 tasks**. Task Orchestrator scales to **100+ tasks** with 97-99% token reduction.
+
+> **📊 See quantitative examples**: [Token Reduction Examples](token-reduction-examples.md)
+
+---
+
+## Two Setup Paths
+
+| Setup Type | Tested Platform | When to Use |
+|------------|-----------------|-------------|
+| **Basic (MCP Protocol)** | Claude Code (tested), Other MCP clients (untested) | Core persistence, templates, task management |
+| **Advanced (Orchestration)** | Claude Code ONLY | Full orchestration with skills, subagents, hooks, coordinate_feature_development workflow |
+
+**Claude Code is the primary supported platform** with full testing and feature access. Other MCP clients can use core MCP protocol features (persistence, templates, task management) but advanced orchestration features are Claude Code-specific.
+
+---
+
+## Basic Setup (5 Minutes)
+
+### Prerequisites
 
 - **Docker Desktop** installed and running
-- **MCP-compatible AI agent** (Claude Desktop, Claude Code, Cursor, or other)
+- **MCP-compatible AI agent** (Claude Desktop, Claude Code, Cursor, Windsurf)
 - **Basic CLI access** (Terminal/Command Prompt)
 
 > **New to Docker?** [Download Docker Desktop](https://www.docker.com/products/docker-desktop/) - free for personal use.
 
----
-
-## Step 1: Get the Docker Image
+### Step 1: Get the Docker Image
 
 Pull the latest production image:
 
@@ -27,9 +53,7 @@ docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 
 > **Want to build from source or use a development version?** See the [Installation Guide](installation-guide) for detailed instructions.
 
----
-
-## Step 2: Test the Installation
+### Step 2: Test the Installation
 
 Verify the image works:
 
@@ -39,90 +63,44 @@ docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator
 
 You should see MCP server startup messages. Press `Ctrl+C` to stop.
 
----
+### Step 3: Configure Your AI Agent
 
-## Step 3: Configure Your AI Agent
+Choose your AI platform and configure accordingly:
 
-Choose your configuration method based on your AI agent:
+#### Option A: Claude Code (Primary Supported Platform)
 
-### Option A: Claude Desktop
+Use the universal MCP configuration command from your project directory (works on macOS, Linux, Windows):
 
-**Find Your Configuration File**:
+```bash
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+```
+
+This single command works across all platforms. Claude Code will automatically configure and connect to the MCP server.
+
+#### Option B: Other MCP Clients (Cursor, Windsurf, Claude Desktop) - Untested
+
+> **⚠️ Important**: These platforms are NOT actively tested. The core MCP protocol (persistence, templates, task management) should work via MCP protocol, but we cannot verify functionality. Advanced features (skills, subagents, hooks, coordinate_feature_development workflow) require Claude Code and will not work on other platforms.
+
+**Configuration Format** (for Claude Desktop, Cursor, Windsurf):
+
+All these platforms use similar JSON configuration. Find your configuration file:
+
+**Claude Desktop**:
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-**Add Task Orchestrator**:
-
-```json
-{
-  "mcpServers": {
-    "task-orchestrator": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "--volume",
-        "mcp-task-data:/app/data",
-        "ghcr.io/jpicklyk/task-orchestrator:latest"
-      ]
-    }
-  }
-}
-```
-
-> **Already have MCP servers configured?** Add the `task-orchestrator` entry to your existing `mcpServers` object.
-
-**Restart Claude Desktop**: Close and reopen to load the configuration.
-
-### Option B: Claude Code
-
-Use the MCP configuration command:
-
-```bash
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
-```
-
-Claude Code will automatically configure and connect to the MCP server.
-
-### Option C: Cursor IDE
-
-**Find Your Configuration File**:
+**Cursor**:
 - **Windows**: `%APPDATA%\Cursor\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
 - **macOS**: `~/Library/Application Support/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
 - **Linux**: `~/.config/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
 
-**Add Task Orchestrator**:
-
-```json
-{
-  "mcpServers": {
-    "task-orchestrator": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "--volume",
-        "mcp-task-data:/app/data",
-        "ghcr.io/jpicklyk/task-orchestrator:latest"
-      ]
-    }
-  }
-}
-```
-
-**Restart Cursor**: Close and reopen to load the configuration.
-
-### Option D: Windsurf
-
-**Find Your Configuration File**:
+**Windsurf**:
 - **Windows**: `%APPDATA%\Windsurf\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
 - **macOS**: `~/Library/Application Support/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
 - **Linux**: `~/.config/Windsurf/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
 
-**Add Task Orchestrator**:
+**Add Task Orchestrator to your configuration file**:
 
 ```json
 {
@@ -135,6 +113,10 @@ Claude Code will automatically configure and connect to the MCP server.
         "-i",
         "--volume",
         "mcp-task-data:/app/data",
+        "--volume",
+        "/absolute/path/to/your/project:/project",
+        "--env",
+        "AGENT_CONFIG_DIR=/project",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
@@ -142,506 +124,639 @@ Claude Code will automatically configure and connect to the MCP server.
 }
 ```
 
-**Restart Windsurf**: Close and reopen to load the configuration.
+> **Note**: Replace `/absolute/path/to/your/project` with your project's actual path. For Windows: `D:/Users/username/project`, for macOS/Linux: `/Users/username/project` or `/home/username/project`.
 
-> **Note**: Cursor and Windsurf use Cline (formerly Roo Cline) for MCP support. The configuration format is identical to Claude Desktop.
+> **Already have MCP servers configured?** Add the `task-orchestrator` entry to your existing `mcpServers` object.
 
-### Option E: Other MCP-Compatible AI Agents
+**Restart your application** (Claude Desktop, Cursor, or Windsurf): Close and reopen to load the configuration.
 
-For other MCP-supporting AI agents, consult their MCP configuration documentation. Use the Docker command configuration shown above, adapting to your agent's configuration format.
+> **Note**: Cursor and Windsurf use Cline (formerly Roo Cline) for MCP support, which has a different configuration location than Claude Desktop.
 
----
+### Step 4: Initialize AI Guidelines
 
-## Step 4: Verify Connection and Initialize
-
-### Verify the Connection
-
-Open your AI agent and ask:
-
-```
-Show me an overview of my current tasks
-```
-
-Your AI agent should respond confirming the task orchestrator is working (showing no tasks initially).
-
-### Verify AI Guidelines Initialization
-
-Your AI agent can access Task Orchestrator guidelines through MCP resources. The AI may read these automatically, or you can trigger explicit initialization.
-
-**Check if initialized**: Look for a "Task Orchestrator - AI Initialization" section in your project's AI memory file:
-- **Claude Code**: `CLAUDE.md`
-- **Cursor**: `.cursorrules`
-- **Windsurf**: `.windsurfrules`
-- **GitHub Copilot**: `.github/copilot-instructions.md`
-
-If the section doesn't exist or you want to ensure proper initialization, ask your AI agent:
+Your AI can access Task Orchestrator best practices through MCP resources. Initialize once to enable autonomous pattern recognition:
 
 ```
 Initialize Task Orchestrator using the initialize_task_orchestrator workflow
 ```
 
-Or, if your AI agent supports direct prompt invocation:
-
+Or with direct invocation:
 ```
 /task-orchestrator:initialize_task_orchestrator
 ```
 
 Your AI will:
-1. Read all Task Orchestrator guideline resources
-2. Write key patterns to your AI's memory file (CLAUDE.md, .cursorrules, etc.)
-3. Confirm initialization with the specific file location
+1. Read Task Orchestrator guideline resources
+2. Write patterns to your AI's memory file (CLAUDE.md, .cursorrules, .windsurfrules, etc.)
+3. **Detect Claude Code** and offer orchestration setup (creates `.claude/agents/`, skills, and hooks)
+4. Confirm initialization
 
-> **Why this matters**: Initialization enables your AI to autonomously discover templates, recognize patterns, and apply best practices without explicit instructions. The initialization persists across all sessions.
+> **Why this matters**: Initialization enables autonomous template discovery, pattern recognition, and best practices. Your AI learns how to use the orchestration framework without explicit instructions every time.
 
-> **Note**: Initialization is typically **per-project** (stored in project root). If you work with Task Orchestrator across multiple projects, you may need to initialize once per project, or use global AI memory if your AI agent supports it.
+> **Claude Code users**: When you install the Task Orchestrator plugin via marketplace, you get:
+> - 4 subagents (Feature Architect, Implementation Specialist, Planning Specialist, Senior Engineer)
+> - 6+ skills for lightweight coordination (60-82% token savings)
+> - Hooks for workflow automation
+> - **Task Orchestrator communication style plugin** - Professional coordination communication with phase labels and status indicators (auto-activates)
+> - Access to `coordinate_feature_development` workflow
+>
+> **💡 Tip**: The communication style plugin automatically activates at session start, providing clearer orchestration coordination (phase labels, status indicators, concise progress updates).
+
+### Step 5: Verify It Works
+
+Ask your AI:
+
+```
+Show me an overview of my current tasks
+```
+
+Your AI should respond confirming the connection (showing no tasks initially).
+
+## Understanding Skills and Hooks
+
+Task Orchestrator provides a **4-tier hybrid architecture** for different operation types:
+
+| Tier | Use For | Token Cost | Example |
+|------|---------|------------|---------|
+| **Direct Tools** | Single operations | 50-100 | `manage_container(...)` |
+| **Skills** | Coordination (2-5 tools) | 300-600 | "What's next?" |
+| **Subagents** | Complex implementation | 1500-3000 | Backend Engineer |
+| **Hooks** | Side effects | 0 | Auto-commit on complete |
+
+### Quick Example - Using Skills
+
+**Skills** are lightweight capabilities that Claude Code automatically invokes when your request matches their description. They save 60-82% tokens compared to subagents for coordination operations.
+
+**Example: Feature Management Skill**
+```
+You: "What task should I work on next in this feature?"
+
+→ Claude invokes Feature Management Skill (300 tokens)
+→ Returns: "Task T4: Add authentication tests (high priority, unblocked)"
+
+vs Subagent approach: 1400 tokens for same operation (78% savings)
+```
+
+**Example: Task Management Skill + Hook**
+```
+You: "Mark task T4 complete"
+
+→ Task Management Skill coordinates (450 tokens):
+  - Reads task details
+  - Creates Summary section
+  - Updates status to completed
+
+→ Hook triggers automatically (0 tokens):
+  - Creates git commit with task info
+  - No LLM calls needed
+
+Total: 450 tokens vs 1500 with subagent (70% savings)
+```
+
+**Token Efficiency Benefits**:
+- **Skills**: 60-82% savings for coordination operations
+- **Hooks**: 100% savings for automation (zero tokens)
+- **Hybrid approach**: Use Skills + Hooks for maximum efficiency
+
+**Learn More**:
+- **Skills Catalog**: `.claude/skills/README.md` - Complete Skills reference
+- **Decision Guide**: `docs/agent-architecture.md` - When to use what tier
+- **Skills Guide**: `docs/skills-guide.md` - Comprehensive examples and creation
 
 ---
 
-## Understanding Your Setup Options
+## Your First Task (Basic Setup)
 
-Before creating your first project, understand your options based on your situation:
+You're now ready for template-driven development. Try this:
 
-### Option 1: New Project (Greenfield Development)
+```
+Create a task for implementing user login API with appropriate templates
+```
 
-**When to use**: Building new software from scratch
+Your AI will:
+1. **Discover templates** with `list_templates()`
+2. **Create task** with technical-approach + testing-strategy templates
+3. **Show you** the structured sections created
 
-**What you get**: Full project hierarchy (Project → Features → Tasks)
+To implement:
+```
+Start working on the login API task
+```
 
-**Example scenarios**:
-- "I'm building a new web application"
-- "Starting a mobile app project"
-- "Creating a new microservice"
+Your AI will:
+1. **Read template sections** for guidance
+2. **Implement** the code directly
+3. **Mark complete** when finished
 
-### Option 2: Existing Codebase (Task Tracking)
-
-**When to use**: Tracking work on existing software
-
-**What you get**: Project container for organizing work items on existing code
-
-**Example scenarios**:
-- "I need to track bug fixes for my production app"
-- "Managing enhancements to an existing system"
-- "Organizing refactoring work"
-
-### Option 3: Simple Task Tracking (No Project)
-
-**When to use**: Small-scale work without project overhead
-
-**What you get**: Just features and tasks (projects are optional!)
-
-**Example scenarios**:
-- "Quick prototype work"
-- "Personal learning projects"
-- "Ad-hoc task management"
-
-> **Key Insight**: Projects are optional! You can create features and tasks directly without a top-level project container.
+**Congratulations!** You're using template-driven development. This works on **all MCP clients** (Claude Desktop, Cursor, Windsurf, etc.).
 
 ---
 
-## Step 5: Create Your First Work Items
+## Advanced Setup: Sub-Agent Orchestration (Claude Code Only)
 
-Choose the path that matches your situation from Step 4:
+**Skip this section** if you're not using Claude Code, or if you're just getting started. Come back when you have complex features (6+ tasks) needing specialist coordination.
 
-### Path A: New Project (Greenfield)
+### When to Use Advanced Features
 
-For building new software from scratch.
+Advanced features (Skills, Subagents, Hooks) become available when:
+- ✅ You're using **Claude Code** (required)
+- ✅ You have **complex features** (6+ tasks with dependencies)
+- ✅ You need **cross-domain work** (database → backend → frontend → tests)
+- ✅ You want **97% token reduction** for large projects
 
-**Option 1: Quick Natural Language (Autonomous)**
+### Prerequisites
 
-Let your AI handle project setup automatically:
+- ✅ Basic Setup complete (Steps 1-5 above)
+- ✅ Claude Code installed and configured
+- ✅ Plugin installed via plugin marketplace
 
-```
-Create a new project called "My Web App" for building a web application
-with user authentication and a dashboard
-```
+### Step 1: Plugin Provides Everything
 
-Your AI will autonomously:
-- Create the project with appropriate structure
-- Set up initial organization
-- Suggest next steps for features and tasks
+When you install via the plugin marketplace:
 
-**Option 2: Comprehensive Guided Setup (Workflow Prompt)**
+The plugin automatically provides:
+- **`.claude/agents/task-orchestrator/`** directory with 4 subagent definitions:
+  - **Feature Architect** (Opus) - Complex feature design and analysis
+  - **Implementation Specialist** (Haiku) - General implementation tasks (default, fast)
+  - **Planning Specialist** (Sonnet) - Task breakdown and dependency planning
+  - **Senior Engineer** (Sonnet) - Complex debugging, architecture, unblocking
+- **`.claude/skills/`** directory with coordination skills (feature-orchestration, task-orchestration, etc.)
+- **Communication style** for orchestration mode
+- **Hooks** for workflow automation
 
-For step-by-step guidance with best practices, use the workflow prompt:
+### Step 2: Verify Installation
 
-```
-Set up a new project using the project_setup_workflow
-```
+Check that directories exist:
 
-Or with direct invocation:
-```
-/task-orchestrator:project_setup_workflow
-```
-
-Your AI will guide you through:
-- Project creation with documentation
-- Feature planning and structure
-- Initial task creation
-- Template strategy setup
-- Development workflow establishment
-
-**Then add features and tasks:**
-
-```
-Create a feature called "User Authentication" with appropriate templates
+```bash
+ls .claude/agents/task-orchestrator/
+ls .claude/skills/
 ```
 
+You should see agent files:
 ```
-Create tasks for implementing user login, registration, and password reset
-```
-
-**View your structure:**
-
-```
-Show me an overview of my project
+feature-architect.md
+implementation-specialist.md
+planning-specialist.md
+senior-engineer.md
 ```
 
-> **Which to use?** Use natural language for quick setup. Use the workflow prompt for comprehensive guidance and learning.
+And skills directories with SKILL.md files.
 
-### Path B: Existing Codebase
+### Step 3: Test Orchestration
 
-For tracking work on existing software:
-
-```
-Create a project called "Production App Maintenance" to track work on my existing application
-```
-
-Then import existing work items:
+Try the main v2.0 workflow:
 
 ```
-Create tasks for the following work items:
-- Fix authentication timeout bug
-- Add user profile editing
-- Implement API rate limiting
-- Update documentation
+Create a plan file for a user authentication feature, then run coordinate_feature_development to orchestrate it
 ```
 
-Organize with features:
+**What happens:**
+1. **Feature Architect** (Opus) analyzes plan → creates feature with rich context
+2. **Planning Specialist** (Sonnet) breaks down feature → creates dependency-aware tasks
+3. Returns structured feature ready for implementation
 
-```
-Create features to organize these tasks:
-- User Management feature
-- API Infrastructure feature
-- Documentation feature
-```
+## Your First Feature with Orchestration (Claude Code)
 
-Link tasks to features:
+Now you're ready for full orchestration using the **Plan → Orchestrate → Execute** pattern.
 
-```
-Move the user-related tasks to the User Management feature
-```
+### Step 1: Create Your Plan
 
-### Path C: Simple Task Tracking
+Create a plan file (markdown or text) describing your feature:
 
-For lightweight work without projects.
+**Example: `auth-feature.md`**
+```markdown
+# User Authentication Feature
+Build complete JWT-based authentication system.
 
-**Quick approach:**
+## Requirements
+- User registration with email validation
+- Login with JWT tokens
+- Password reset flow
+- Secure password hashing (bcrypt)
+- Rate limiting on login attempts
 
-```
-Create a feature called "Learning React" with relevant templates
-```
-
-```
-Create tasks for:
-- Complete React tutorial
-- Build sample app
-- Deploy to production
-```
-
-**With guided setup (optional):**
-
-```
-Create a feature using the create_feature_workflow
+## Technical Stack
+- Backend: Kotlin + Ktor
+- Database: PostgreSQL
+- Email: SendGrid
 ```
 
-Or: `/task-orchestrator:create_feature_workflow`
-
-**View your work:**
+### Step 2: Run coordinate_feature_development
 
 ```
-Show me all pending tasks
+Run coordinate_feature_development with my auth-feature.md plan file
 ```
 
-> **Pro Tip**: You can always add a project container later if your work grows in scope. Start simple and scale up as needed.
+**What happens automatically:**
+
+**Phase 1: Feature Architecture** (Feature Architect - Opus)
+- Analyzes your plan for technical requirements
+- Creates feature with comprehensive summary and description
+- Applies appropriate templates
+- Returns feature ID
+
+**Phase 2: Task Breakdown** (Planning Specialist - Sonnet)
+- Breaks feature into 5-8 focused tasks
+- Applies task templates (technical-approach, testing-strategy, etc.)
+- Sets up dependency chains (database → API → frontend)
+- Tags tasks for specialist routing
+
+**Result:** Feature with 5-8 well-structured tasks, ready for execution.
+
+### Step 3: Execute with "What's Next?"
+
+```
+What's next?
+```
+
+**AI (using Feature Management Skill):**
+```
+Task 1: Database schema for users table [PENDING]
+No blockers - ready to start.
+```
+
+**AI automatically:**
+1. Routes to **Implementation Specialist** (Haiku) by default
+2. Implementation Specialist reads task context + templates
+3. Implements code
+4. Creates 300-500 token Summary section
+5. Marks task complete
+6. Returns brief report
+
+```
+What's next?
+```
+
+**AI:**
+```
+Task 2: User registration API [PENDING]
+Dependencies satisfied. Reading Task 1 summary (400 tokens)...
+```
+
+**Continues automatically** with summary-based context passing.
+
+### What You Just Did
+
+Instead of accumulating context linearly:
+```
+Traditional (fails at task 5):
+T1: 5k tokens
+T2: 11k tokens (includes T1)
+T3: 21k tokens (includes T1+T2)
+T4: 42k tokens (includes T1+T2+T3)
+T5: 79k tokens (CONTEXT POLLUTION)
+```
+
+You used summary-based orchestration:
+```
+Orchestrated (scales to 100+ tasks):
+T1: Implementation Specialist works with 2k tokens, creates 400-token Summary
+T2: Implementation Specialist reads T1 Summary (400 tokens), creates 400-token Summary
+T3: Implementation Specialist reads T1 Summary (400 tokens), creates 400-token Summary
+T4: Implementation Specialist reads T2+T3 Summaries (800 tokens), creates 400-token Summary
+T5: Implementation Specialist reads T2+T3 Summaries (800 tokens), creates 400-token Summary
+T6: Implementation Specialist reads T2+T3+T4+T5 Summaries (1,600 tokens), creates 400-token Summary
+T7: Implementation Specialist reads T2+T3 Summaries (800 tokens), creates 400-token Summary
+
+You: See 7 summaries (2,800 tokens) - NOT 79k
+```
+
+**Result**: 97% token reduction, specialists see only relevant context, work scales effortlessly.
+
+> **Custom Specialists**: You can configure custom specialist routing (Backend Engineer, Frontend Developer, Database Engineer, etc.) via `.taskorchestrator/agent-mapping.yaml`. See [Agent Architecture Guide](agent-architecture.md) for details.
 
 ---
 
-## Understanding Workflow Prompts
+## Decision Guide: When to Use What
 
-Task Orchestrator provides **workflow prompts** for comprehensive, step-by-step guidance. You have two ways to work:
+### Use Basic Setup (MCP Protocol Only)
 
-### Autonomous Mode (Natural Language)
-Simply describe what you want in natural language. Your AI recognizes intent and applies appropriate patterns automatically.
+**Scenarios**:
+- ✅ Simple features (1-5 tasks)
+- ✅ Working alone on straightforward implementations
+- ✅ Using MCP clients other than Claude Code (untested but should work)
+- ✅ Learning Task Orchestrator basics
+- ✅ Quick prototypes
 
-**Example**: "Create a feature for user authentication" → AI autonomously creates feature with templates
+**How it works**: AI discovers templates, creates structured tasks, reads sections for guidance, implements directly using core MCP tools.
 
-**Best for**: Quick operations, experienced users, clear simple requests
+**Example**: "Create a task for user profile API" → AI creates task with templates → AI implements → Done
 
-### Workflow Prompt Mode (Explicit Guidance)
-Invoke specific workflow prompts for comprehensive guidance with teaching and best practices.
+**Limitations**: No skills, subagents, hooks, or coordinate_feature_development workflow.
 
-**Example**: `/task-orchestrator:create_feature_workflow` → AI guides you step-by-step
+### Add Advanced Setup (Full Orchestration - Claude Code Only)
 
-**Best for**: Learning, complex scenarios, comprehensive setup, edge cases
+**Scenarios**:
+- ✅ Complex features (6+ tasks with dependencies)
+- ✅ Using **Claude Code specifically** (required)
+- ✅ Cross-domain work (database → backend → frontend → tests)
+- ✅ Large projects where context management is critical
+- ✅ Want 97% token reduction with summary-based context passing
 
-**Available Workflow Prompts**:
-- `initialize_task_orchestrator` - Set up AI guidelines
-- `project_setup_workflow` - Comprehensive project initialization
-- `create_feature_workflow` - Guided feature creation with tasks
-- `task_breakdown_workflow` - Decompose complex tasks systematically
-- `implementation_workflow` - Smart implementation with git detection
+**How it works**:
+1. Create plan file with requirements
+2. Run `coordinate_feature_development` → Feature Architect (Opus) + Planning Specialist (Sonnet)
+3. Say "What's next?" → Skills + Subagents coordinate automatically
+4. Implementation Specialist (Haiku) implements with summary creation
+5. Dependency context passed as 400-token summaries (not 5k+ full contexts)
 
-> **When to use which?** Use natural language for speed and efficiency. Use workflow prompts for learning, complex scenarios, or when you want detailed guidance.
+**Example**: "Create plan for payment processing" → `coordinate_feature_development` → Feature with 9 tasks → "What's next?" → Automatic orchestration → 97% token savings
 
----
-
-## What You Can Do
-
-### Project Organization
-- Create hierarchical projects with features and tasks
-- Apply templates for consistent documentation
-- Track status, priority, and complexity
-
-### Template-Driven Documentation
-- 9 built-in templates for common scenarios
-- Automatic template discovery by your AI agent
-- Compose multiple templates for comprehensive coverage
-
-### Workflow Automation
-- 6 built-in workflow prompts for complex scenarios
-- Autonomous pattern application
-- Dependency management
-
-### Natural Language Control
-Simply ask your AI agent:
-- "Create a task to implement the login API"
-- "Show me all high-priority pending tasks"
-- "Apply the technical approach template to this task"
-- "What should I work on next?"
 
 ---
 
-## PRD-Driven Development Workflow
+## Querying Container Details
 
-**Product Requirements Documents (PRDs) provide the most effective workflow** for AI-assisted development. This approach gives your AI agent comprehensive context for intelligent breakdown and planning.
+Task Orchestrator provides multiple ways to query container data, optimized for different use cases:
 
-### Why PRD-Driven Development Works Best
+### Show Details (Scoped Overview)
 
-- **Complete Context**: AI analyzes entire requirements at once
-- **Intelligent Breakdown**: Automatic decomposition into features and tasks
-- **Consistent Documentation**: Templates applied systematically
-- **Proper Sequencing**: Dependencies created based on technical requirements
-- **Better Results**: AI makes more informed decisions with full context
+Get a hierarchical view of a specific container without section content:
 
-### Step-by-Step PRD Workflow
-
-**Step 1: Provide Your PRD**
-
-Share your PRD file with your AI agent:
-```
-I have a PRD for a new authentication system. Let me share it with you:
-
-[Paste PRD content or share file path]
-
-Please analyze this PRD and break it down into a project structure with features and tasks.
+```bash
+# Get feature with tasks
+query_container operation="overview" containerType="feature" id="<feature-uuid>"
 ```
 
-**Step 2: AI Analyzes and Plans**
+**Returns:**
+- Feature metadata (name, status, priority, summary)
+- List of tasks (minimal: id, title, status, priority, complexity)
+- Task counts by status
+- NO section content (token efficient: ~1.2k tokens)
 
-Your AI agent will:
-1. Read and analyze the entire PRD
-2. Identify major features and functional areas
-3. Create a project structure
-4. Break down features into specific tasks
-5. Apply appropriate templates for documentation
-6. Create dependencies based on technical requirements
+**Use cases:**
+- "Show me what's in Feature X"
+- "What's the status of Project Y?"
+- "What tasks does Feature Z have?"
 
-**Step 3: Review and Refine**
+### List All (Global Overview)
 
-Your AI agent presents the breakdown:
-```
-AI Agent: "I've analyzed your authentication PRD. Here's the proposed structure:
+Get an overview of all entities:
 
-Project: Authentication System v2
-
-Features:
-1. OAuth Integration (5 tasks)
-   - Complexity: High
-   - Templates: Technical Approach, Requirements Specification
-
-2. Session Management (4 tasks)
-   - Complexity: Medium
-   - Templates: Technical Approach, Testing Strategy
-
-3. User Profile API (3 tasks)
-   - Complexity: Low
-   - Templates: Task Implementation Workflow
-
-Dependencies identified:
-- OAuth Integration BLOCKS Session Management
-- Session Management BLOCKS User Profile API
-
-Should I proceed with creating this structure?"
+```bash
+# List all features
+query_container operation="overview" containerType="feature"
 ```
 
-**Step 4: Create Structure**
+**Returns:**
+- Array of all features
+- Minimal fields for each
+- NO child entities
 
-Approve and your AI agent creates:
+### Full Documentation (Get with Sections)
+
+Get complete entity with all section content:
+
+```bash
+# Get feature with full documentation
+query_container operation="get" containerType="feature" id="<uuid>" includeSections=true
 ```
-Yes, please create this structure with all templates and dependencies.
+
+**Returns:**
+- Complete feature metadata
+- All sections with full content
+- High token cost (~18k+ tokens)
+
+**Use this ONLY when:**
+- User explicitly asks for documentation
+- User needs to read section content
+- Editing sections
+
+### Comparison
+
+| Method | Token Cost | Use When |
+|--------|------------|----------|
+| Scoped overview | ~1.2k | "Show me Feature X" (hierarchical view) |
+| Global overview | ~500-2k | "List all features" |
+| Get with sections | ~18k+ | "Show me Feature X documentation" |
+
+**Recommendation:** Default to scoped overview for "show details" queries - you get more context for fewer tokens.
+
+### Example Workflow: Feature Status Check
+
+```bash
+# 1. List all features to find the one you want
+query_container operation="overview" containerType="feature"
+
+# 2. Get details on specific feature (scoped overview)
+query_container operation="overview" containerType="feature" id="<uuid>"
+# Returns: feature + task list + task counts (~1.2k tokens)
+
+# 3. If you need full documentation (rare):
+query_container operation="get" containerType="feature" id="<uuid>" includeSections=true
+# Returns: feature + all sections (~18k tokens)
 ```
 
-**Step 5: Start Implementation**
+**Token efficiency:** Steps 1-2 use ~1.7k tokens vs ~18k if you jumped to step 3.
 
-Your AI agent creates everything and you're ready to work:
+---
+
+## Common Workflows
+
+### Creating Your First Project
+
+**For new software development**:
 ```
-Show me what tasks I should start with
+Create a new project called "E-Commerce Platform" for building an online store
 ```
 
-### Example PRD Workflow
+Your AI creates the project and suggests next steps.
 
-**User provides PRD**:
+**For existing codebases**:
 ```
-Analyze this PRD and create a complete project structure:
+Create a project called "Legacy System Refactoring" to track modernization work
+```
 
-# E-commerce Checkout System PRD
+### Creating Features and Tasks
+
+**Simple feature**:
+```
+Create a feature called "User Profile Management" with appropriate templates
+```
+
+**Feature with tasks**:
+```
+Create a feature for payment processing with these tasks:
+1. Set up Stripe integration
+2. Implement checkout flow
+3. Add order confirmation emails
+4. Write integration tests
+```
+
+### Working with Templates
+
+**Discover available templates**:
+```
+Show me available templates for tasks
+```
+
+**Apply templates to existing task**:
+```
+Add the technical-approach and testing-strategy templates to the login API task
+```
+
+### Managing Dependencies
+
+**Create blocking dependency**:
+```
+Task "Login API" blocks task "Frontend Login Form"
+```
+
+**Check what you can work on**:
+```
+Show me tasks that are ready to start (not blocked)
+```
+
+---
+
+## PRD-Driven Development (Recommended Pattern)
+
+**Product Requirements Documents (PRDs) provide the most effective workflow** for AI-assisted development. Your AI analyzes the entire requirement at once, creating optimal task breakdown and dependencies.
+
+### Why PRD-Driven Works Best
+
+- **Complete Context**: AI analyzes entire requirements at once for intelligent breakdown
+- **Automatic Decomposition**: Features, tasks, dependencies created systematically
+- **Template Application**: AI applies appropriate templates based on content
+- **Proper Sequencing**: Dependencies based on technical requirements, not guesswork
+- **Better Results**: AI makes informed decisions with full context
+
+### How It Works
+
+**Claude Code (Recommended - Full Orchestration)**:
+
+**Step 1: Create plan file**:
+Save your PRD as `payment-system.md`
+
+**Step 2: Run coordinate_feature_development**:
+```
+Run coordinate_feature_development with my payment-system.md plan file
+```
+
+**What happens automatically:**
+- Feature Architect (Opus) analyzes PRD → Creates feature with rich context
+- Planning Specialist (Sonnet) breaks into tasks → Applies templates, sets dependencies
+- Returns: Feature with 8-12 tasks, proper sequencing, ready for "What's next?"
+
+**Step 3: Execute**:
+```
+What's next?
+```
+AI coordinates automatically with skills + subagents.
+
+---
+
+**Other MCP Clients (Basic - Manual Creation)**:
+
+**Step 1: Share your PRD**:
+```
+I have a PRD for a payment processing system. [Paste or attach PRD]
+
+Please analyze and create a feature with tasks and dependencies.
+```
+
+**Step 2: AI creates structure manually**:
+AI creates feature and tasks using direct MCP tools (no orchestration)
+
+**Step 3: Implement**:
+Work through tasks yourself with template guidance
+
+### Example PRD
+
+```markdown
+# E-commerce Checkout PRD
 
 ## Overview
-Build a modern checkout system with payment processing, inventory validation,
-and order confirmation.
+Modern checkout with payment processing, inventory validation, order confirmation.
 
 ## Requirements
 - Real-time inventory checking
-- Multiple payment methods (credit card, PayPal, Apple Pay)
+- Multiple payment methods (Stripe, PayPal, Apple Pay)
 - Email confirmations
 - Order tracking
 - Admin order management
 
 ## Technical Constraints
-- Must integrate with existing inventory API
-- Payment processing via Stripe
-- Email via SendGrid
+- Integrate with existing inventory API
+- Stripe for payments
+- SendGrid for email
 - Support 1000 concurrent users
 ```
 
-**AI Agent's Response**:
-```
-I'll analyze this PRD and create a comprehensive project structure.
-
-[AI agent uses get_overview, creates project, creates features with templates,
-creates tasks with dependencies, applies templates]
-
-Created project "E-commerce Checkout System" with:
-
-Features:
-1. Inventory Integration (3 tasks) - BLOCKS other features
-2. Payment Processing (5 tasks) - Core functionality
-3. Order Management (4 tasks) - Depends on Payment
-4. Email Notifications (2 tasks) - Can run in parallel
-5. Admin Dashboard (3 tasks) - Final integration
-
-Total: 5 features, 17 tasks
-Templates applied: Technical Approach, Requirements Specification, Testing Strategy
-Dependencies: 8 blocking relationships created
-
-Ready to start implementation. Recommended sequence:
-1. Begin with Inventory Integration (unblocks other work)
-2. Parallel: Email Notifications setup
-3. Payment Processing (depends on inventory)
-4. Order Management (depends on payment)
-5. Admin Dashboard (final integration)
-```
+**AI creates**:
+- Project: E-commerce Checkout System
+- 5 features with 17 tasks
+- Templates applied based on content
+- 8 blocking dependencies
+- Recommended implementation sequence
 
 ### PRD Best Practices
 
-**What Makes a Good PRD for AI Breakdown**:
+**Good PRD includes**:
 - Clear functional requirements
-- Technical constraints specified
-- User flows described
-- Integration points identified
-- Success criteria defined
+- Technical constraints (APIs, libraries, performance targets)
+- User flows and integration points
+- Success criteria and acceptance tests
 
-**PRD Format Suggestions**:
-- **Structured Markdown**: Headers, lists, clear sections
-- **Technical Details**: APIs, libraries, constraints
-- **User Stories**: "As a user, I want to..."
-- **Acceptance Criteria**: Clear definition of done
-- **Non-Functional Requirements**: Performance, security, scalability
+**PRD format tips**:
+- Use structured markdown (headers, lists, sections)
+- Include technical details (not just user stories)
+- Specify non-functional requirements (performance, security)
+- Define clear acceptance criteria
 
-**Example PRD Structure**:
-```markdown
-# Feature Name
-
-## Problem Statement
-What problem does this solve?
-
-## Requirements
-### Functional
-- Feature 1
-- Feature 2
-
-### Non-Functional
-- Performance targets
-- Security requirements
-
-## Technical Approach
-- Architecture overview
-- Key technologies
-- Integration points
-
-## Success Criteria
-How do we know it's complete?
-```
-
-### PRD Workflow Tips
-
-1. **Start with Overview**: Let your AI agent read the entire PRD before creating tasks
-2. **Review Before Creating**: Your AI agent will propose structure - review and adjust
-3. **Trust AI Breakdown**: AI analyzes technical dependencies intelligently
-4. **Iterate as Needed**: Refine features and tasks based on your AI agent's suggestions
-5. **Use Templates**: AI automatically applies appropriate templates based on PRD content
-
-> **Advanced**: For very large PRDs, break into sections and work incrementally. Your AI agent can process sections and maintain context across the full scope.
+> **Tip**: For large PRDs, your AI can process sections incrementally while maintaining full context.
 
 ---
 
-## Next Steps
+## What's Next
 
-### Learn the System
+### Learn More
 
-1. **[AI Guidelines](ai-guidelines)** - How AI agents use Task Orchestrator autonomously
-2. **[Templates Guide](templates)** - 9 built-in templates for structured documentation
-3. **[Workflow Prompts](workflow-prompts)** - 6 workflow automations for complex scenarios
+- **[🤖 Agent Architecture](agent-architecture.md)** - Complete agent coordination guide and hybrid architecture
+- **[📊 Token Reduction Examples](token-reduction-examples.md)** - Quantitative before/after analysis
+- **[📝 Templates](templates.md)** - 9 built-in templates explained
+- **[🤖 AI Guidelines](ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
+- **[🔧 API Reference](api-reference.md)** - Complete tool documentation
 
-### Explore Advanced Features
+### Advanced Features
 
-- **Dependencies**: Link related tasks with BLOCKS, IS_BLOCKED_BY relationships
-- **Bulk Operations**: Create and manage multiple tasks efficiently
-- **Search and Filter**: Find tasks by status, priority, tags, or text
-- **Custom Templates**: Create team-specific documentation patterns
+- **Dependencies** - BLOCKS, RELATES_TO, IS_BLOCKED_BY relationships
+- **Bulk Operations** - Create multiple tasks/features efficiently
+- **Search and Filter** - Find tasks by status, priority, tags, text
+- **Custom Templates** - Create team-specific workflow templates and quality gates
 
 ### Get Help
 
-- **[Troubleshooting Guide](troubleshooting)** - Solutions to common issues
-- **[Installation Guide](installation-guide)** - Detailed setup instructions
-- **[API Reference](api-reference)** - Complete tool documentation
-- **[GitHub Issues](https://github.com/jpicklyk/task-orchestrator/issues)** - Report bugs or request features
+- **[🆘 Troubleshooting](troubleshooting.md)** - Common issues and solutions
+- **[🔧 Installation Guide](installation-guide.md)** - Detailed setup for all platforms
+- **[💬 GitHub Discussions](https://github.com/jpicklyk/task-orchestrator/discussions)** - Ask questions
+- **[🐛 Report Issues](https://github.com/jpicklyk/task-orchestrator/issues)** - Bug reports and feature requests
 
 ---
 
-## Troubleshooting Quick Tips
+## Quick Troubleshooting
 
-**AI can't find the tools?**
-- Restart your AI agent after configuration changes
-- Verify Docker Desktop is running
-- Check JSON syntax with [jsonlint.com](https://jsonlint.com/)
+**AI can't find tools?**
+- Restart your AI after configuration changes
+- Verify Docker is running: `docker version`
+- Check JSON syntax: [jsonlint.com](https://jsonlint.com/)
+
+**Orchestration not working? (Claude Code only)**
+- Verify plugin is installed via `/plugin list`
+- Check `.claude/agents/task-orchestrator/` directory exists
+- Verify agent files: `ls .claude/agents/task-orchestrator/`
+- Should see: feature-architect.md, implementation-specialist.md, planning-specialist.md, senior-engineer.md
+- Verify skills: `ls .claude/skills/`
+- coordinate_feature_development not found? Reinstall plugin via marketplace: `/plugin install task-orchestrator`
 
 **Docker issues?**
-- Ensure Docker Desktop is running: `docker version`
-- Verify the image exists: `docker images | grep task-orchestrator`
+- Start Docker Desktop
+- Pull image: `docker pull ghcr.io/jpicklyk/task-orchestrator:latest`
+- Test: `docker run --rm -i -v mcp-task-data:/app/data ghcr.io/jpicklyk/task-orchestrator:latest`
 
-**Need detailed help?** See the [Troubleshooting Guide](troubleshooting) for comprehensive solutions.
+**Still stuck?** See [Troubleshooting Guide](troubleshooting.md) for comprehensive solutions.
 
 ---
 
-**Ready to dive deeper?** Start with [AI Guidelines](ai-guidelines) to understand how AI agents work with Task Orchestrator, or explore [Templates](templates) for structured documentation patterns.
+**You're ready!** Start with a simple task to learn the system, then scale to complex features with sub-agent orchestration when needed. 🚀

@@ -55,5 +55,17 @@ bin/
 /doc_research/
 
 ### Claude Code configuration files ###
-/.claude/settings.local.json
+# .claude/ directory contains user-customizable installed files
+# Source files in src/main/resources/ are tracked separately
+/.claude/plugins/
+/.claude/skills/
+/.claude/agents/
 CLAUDE.local.md
+
+### Task Orchestrator folder ###
+/.taskorchestrator/
+
+### Temporary plans folder ###
+/plans/
+
+/.claude/settings.local.json

@@ -237,11 +237,6 @@ class OptimisticLockingConcurrencyTest {
         val task3 = (result3 as Result.Success).data
         assertEquals(4L, task3.version, "Version should be 4 after third update")
 
-        // Verify: All updates succeeded
-        assertTrue(result1 is Result.Success, "Update 1 should succeed")
-        assertTrue(result2 is Result.Success, "Update 2 should succeed")
-        assertTrue(result3 is Result.Success, "Update 3 should succeed")
-
         // Verify: Final state
         val finalResult = taskRepository.getById(createdTask.id)
         val finalTask = (finalResult as Result.Success).data

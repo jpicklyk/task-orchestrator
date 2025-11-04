@@ -13,6 +13,7 @@ object FeaturesTable : UUIDTable("features") {
     val projectId = uuid("project_id").nullable()
     val name = text("name")
     val summary = text("summary")
+    val description = text("description").nullable()
     val status = enumerationByName("status", 20, FeatureStatus::class)
     val priority = enumerationByName("priority", 10, Priority::class)
     val createdAt = timestamp("created_at")

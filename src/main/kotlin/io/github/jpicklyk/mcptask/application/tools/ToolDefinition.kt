@@ -73,6 +73,7 @@ enum class ToolCategory(val value: String) {
     FEATURE_MANAGEMENT("feature_management"),
     TEMPLATE_MANAGEMENT("template_management"),
     PROJECT_MANAGEMENT("project_management"),
+    SECTION_MANAGEMENT("section_management"),
     COMPLEXITY_ANALYSIS("complexity_analysis"),
     TASK_EXPANSION("task_expansion"),
     DEPENDENCY_MANAGEMENT("dependency_management"),

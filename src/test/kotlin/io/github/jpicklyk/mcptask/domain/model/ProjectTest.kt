@@ -77,17 +77,15 @@ class ProjectTest {
     }
 
     @Test
-    fun `should throw exception when summary is empty`() {
-        // Act & Assert
-        val exception = assertThrows<IllegalArgumentException> {
-            Project(
-                name = "Valid name",
-                summary = ""
-            )
-        }
+    fun `should allow empty summary for agent-generated content`() {
+        // Summary is agent-generated and defaults to empty
+        val project = Project(
+            name = "Valid name",
+            summary = ""
+        )
 
         // Assert
-        assertEquals("Project summary cannot be empty", exception.message)
+        assertEquals("", project.summary)
     }
 
     @Test

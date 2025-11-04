@@ -24,7 +24,7 @@ Welcome to the comprehensive documentation for MCP Task Orchestrator - an AI-nat
   </div>
   <div class="grid-item">
     <h3>📋 <a href="templates">Templates</a></h3>
-    <p>9 built-in templates for consistent documentation</p>
+    <p>9 built-in workflow templates (instructions, frameworks, quality gates)</p>
   </div>
   <div class="grid-item">
     <h3>🔄 <a href="workflow-prompts">Workflow Prompts</a></h3>
@@ -45,7 +45,7 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 - **🤖 AI-Native Design**: Built specifically for AI assistant interactions
 - **📊 Hierarchical Organization**: Projects → Features → Tasks with dependencies
 - **🎯 Context-Efficient**: Progressive loading and token optimization
-- **📋 Template-Driven**: Consistent documentation with 9 built-in templates
+- **📋 Template-Driven**: 9 built-in workflow templates with decision frameworks and quality gates
 - **🔄 Workflow Automation**: 6 comprehensive workflow prompts
 - **⚡ Complete API**: Comprehensive MCP tools for full project orchestration
 
@@ -63,7 +63,7 @@ Project (optional)
 - **Tasks**: Primary work units with status, priority, and complexity tracking
 - **Dependencies**: Model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
 - **Sections**: Rich content blocks for detailed documentation
-- **Templates**: Standardized patterns for consistent project documentation
+- **Templates**: Workflow instructions, decision frameworks, and quality gates for implementation guidance
 
 ## Getting Started Path
 
@@ -72,7 +72,7 @@ New to Task Orchestrator? Follow this path for the best experience:
 1. **[Quick Start](quick-start)** (2 minutes) - Get Docker image and configure Claude Desktop
 2. **[AI Guidelines](ai-guidelines)** (5 minutes) - Understand how Claude uses the system autonomously
 3. **Create your first project** - Ask Claude: *"Create a new project for my web application"*
-4. **[Templates](templates)** (10 minutes) - Learn about structured documentation patterns
+4. **[Templates](templates)** (10 minutes) - Learn about workflow templates and decision frameworks
 5. **[Workflow Prompts](workflow-prompts)** - Explore workflow automations for complex scenarios
 
 ## Documentation Structure
@@ -130,7 +130,7 @@ Claude will:
 
 ### Template-Driven Workflow
 
-Templates provide structured documentation automatically:
+Templates provide workflow guidance and decision frameworks:
 
 ```
 "Apply the bug investigation workflow to this authentication issue"

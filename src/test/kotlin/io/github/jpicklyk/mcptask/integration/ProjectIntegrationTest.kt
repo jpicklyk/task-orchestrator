@@ -1,15 +1,10 @@
 package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.feature.CreateFeatureTool
-import io.github.jpicklyk.mcptask.application.tools.feature.GetFeatureTool
-import io.github.jpicklyk.mcptask.application.tools.project.CreateProjectTool
-import io.github.jpicklyk.mcptask.application.tools.project.GetProjectTool
-import io.github.jpicklyk.mcptask.application.tools.section.AddSectionTool
-import io.github.jpicklyk.mcptask.application.tools.section.GetSectionsTool
-import io.github.jpicklyk.mcptask.application.tools.task.CreateTaskTool
-import io.github.jpicklyk.mcptask.application.tools.task.GetTaskTool
-import io.github.jpicklyk.mcptask.application.tools.task.SearchTasksTool
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
+import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
+import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
+import io.github.jpicklyk.mcptask.application.tools.section.QuerySectionsTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.test.mock.*
 import kotlinx.coroutines.runBlocking
@@ -29,15 +24,10 @@ class ProjectIntegrationTest {
     private lateinit var executionContext: ToolExecutionContext
 
     // Tools
-    private lateinit var createProjectTool: CreateProjectTool
-    private lateinit var getProjectTool: GetProjectTool
-    private lateinit var createFeatureTool: CreateFeatureTool
-    private lateinit var getFeatureTool: GetFeatureTool
-    private lateinit var createTaskTool: CreateTaskTool
-    private lateinit var getTaskTool: GetTaskTool
-    private lateinit var searchTasksTool: SearchTasksTool
-    private lateinit var addSectionTool: AddSectionTool
-    private lateinit var getSectionsTool: GetSectionsTool
+    private lateinit var manageContainerTool: ManageContainerTool
+    private lateinit var queryContainerTool: QueryContainerTool
+    private lateinit var manageSectionsTool: ManageSectionsTool
+    private lateinit var querySectionsTool: QuerySectionsTool
 
     @BeforeEach
     fun setUp() {
@@ -57,15 +47,10 @@ class ProjectIntegrationTest {
         executionContext = ToolExecutionContext(repositoryProvider)
 
         // Initialize tools
-        createProjectTool = CreateProjectTool()
-        getProjectTool = GetProjectTool()
-        createFeatureTool = CreateFeatureTool()
-        getFeatureTool = GetFeatureTool()
-        createTaskTool = CreateTaskTool()
-        getTaskTool = GetTaskTool()
-        searchTasksTool = SearchTasksTool()
-        addSectionTool = AddSectionTool()
-        getSectionsTool = GetSectionsTool()
+        manageContainerTool = ManageContainerTool(null, null)
+        queryContainerTool = QueryContainerTool()
+        manageSectionsTool = ManageSectionsTool(null, null)
+        querySectionsTool = QuerySectionsTool(null, null)
     }
 
     /**
@@ -75,13 +60,15 @@ class ProjectIntegrationTest {
     fun `should create and retrieve a project`() = runBlocking {
         // Create a project
         val createProjectParams = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "project")
             put("name", "Test Project")
             put("summary", "Project for testing")
             put("status", ProjectStatus.PLANNING.name.lowercase())
             put("tags", "test,integration")
         }
 
-        val createProjectResponse = createProjectTool.execute(createProjectParams, executionContext)
+        val createProjectResponse = manageContainerTool.execute(createProjectParams, executionContext)
         assertTrue(createProjectResponse is JsonObject, "Project creation response should be a JsonObject")
 
         val createProjectResult = createProjectResponse as JsonObject
@@ -99,10 +86,12 @@ class ProjectIntegrationTest {
 
         // Retrieve the project
         val getProjectParams = buildJsonObject {
+            put("operation", "get")
+            put("containerType", "project")
             put("id", projectId)
         }
 
-        val getProjectResponse = getProjectTool.execute(getProjectParams, executionContext)
+        val getProjectResponse = queryContainerTool.execute(getProjectParams, executionContext)
         assertTrue(getProjectResponse is JsonObject, "Get project response should be a JsonObject")
 
         val getProjectResult = getProjectResponse as JsonObject
@@ -124,12 +113,14 @@ class ProjectIntegrationTest {
     fun `should associate sections with projects`() = runBlocking {
         // Create a project
         val createProjectParams = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "project")
             put("name", "Project with Sections")
             put("summary", "Project for testing section associations")
             put("status", ProjectStatus.PLANNING.name.lowercase())
         }
 
-        val createProjectResponse = createProjectTool.execute(createProjectParams, executionContext)
+        val createProjectResponse = manageContainerTool.execute(createProjectParams, executionContext)
         val createProjectResult = createProjectResponse as JsonObject
         assertTrue(
             createProjectResult["success"]?.jsonPrimitive?.boolean == true,
@@ -141,6 +132,7 @@ class ProjectIntegrationTest {
 
         // Create sections associated with the project
         val section1Params = buildJsonObject {
+            put("operation", "add")
             put("entityType", EntityType.PROJECT.name)
             put("entityId", projectId)
             put("title", "Project Overview")
@@ -152,6 +144,7 @@ class ProjectIntegrationTest {
         }
 
         val section2Params = buildJsonObject {
+            put("operation", "add")
             put("entityType", EntityType.PROJECT.name)
             put("entityId", projectId)
             put("title", "Project Details")
@@ -162,14 +155,14 @@ class ProjectIntegrationTest {
             put("tags", "details,specifications")
         }
 
-        val addSection1Response = addSectionTool.execute(section1Params, executionContext)
+        val addSection1Response = manageSectionsTool.execute(section1Params, executionContext)
         val addSection1Result = addSection1Response as JsonObject
         assertTrue(
             addSection1Result["success"]?.jsonPrimitive?.boolean == true,
             "Section 1 addition should be successful"
         )
 
-        val addSection2Response = addSectionTool.execute(section2Params, executionContext)
+        val addSection2Response = manageSectionsTool.execute(section2Params, executionContext)
         val addSection2Result = addSection2Response as JsonObject
         assertTrue(
             addSection2Result["success"]?.jsonPrimitive?.boolean == true,
@@ -182,7 +175,7 @@ class ProjectIntegrationTest {
             put("entityId", projectId)
         }
 
-        val getSectionsResponse = getSectionsTool.execute(getSectionsParams, executionContext)
+        val getSectionsResponse = querySectionsTool.execute(getSectionsParams, executionContext)
         val getSectionsResult = getSectionsResponse as JsonObject
         assertTrue(
             getSectionsResult["success"]?.jsonPrimitive?.boolean == true,
@@ -208,12 +201,14 @@ class ProjectIntegrationTest {
     fun `should create project with features and maintain relationships`() = runBlocking {
         // Create a project
         val createProjectParams = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "project")
             put("name", "Project with Features")
             put("summary", "Project for testing feature relationships")
             put("status", ProjectStatus.PLANNING.name.lowercase())
         }
 
-        val createProjectResponse = createProjectTool.execute(createProjectParams, executionContext)
+        val createProjectResponse = manageContainerTool.execute(createProjectParams, executionContext)
         val createProjectResult = createProjectResponse as JsonObject
         assertTrue(
             createProjectResult["success"]?.jsonPrimitive?.boolean == true,
@@ -225,6 +220,8 @@ class ProjectIntegrationTest {
 
         // Create features associated with the project
         val feature1Params = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "feature")
             put("name", "Feature 1")
             put("summary", "First test feature")
             put("projectId", projectId)
@@ -233,6 +230,8 @@ class ProjectIntegrationTest {
         }
 
         val feature2Params = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "feature")
             put("name", "Feature 2")
             put("summary", "Second test feature")
             put("projectId", projectId)
@@ -240,27 +239,28 @@ class ProjectIntegrationTest {
             put("priority", Priority.MEDIUM.name.lowercase())
         }
 
-        val createFeature1Response = createFeatureTool.execute(feature1Params, executionContext)
+        val createFeature1Response = manageContainerTool.execute(feature1Params, executionContext)
         val createFeature1Result = createFeature1Response as JsonObject
         assertTrue(
             createFeature1Result["success"]?.jsonPrimitive?.boolean == true,
             "Feature 1 creation should be successful"
         )
 
-        val createFeature2Response = createFeatureTool.execute(feature2Params, executionContext)
+        val createFeature2Response = manageContainerTool.execute(feature2Params, executionContext)
         val createFeature2Result = createFeature2Response as JsonObject
         assertTrue(
             createFeature2Result["success"]?.jsonPrimitive?.boolean == true,
             "Feature 2 creation should be successful"
         )
 
-        // Retrieve project with features
+        // Retrieve project - v2 does not support includeFeatures parameter
         val getProjectParams = buildJsonObject {
+            put("operation", "get")
+            put("containerType", "project")
             put("id", projectId)
-            put("includeFeatures", true)
         }
 
-        val getProjectResponse = getProjectTool.execute(getProjectParams, executionContext)
+        val getProjectResponse = queryContainerTool.execute(getProjectParams, executionContext)
         val getProjectResult = getProjectResponse as JsonObject
         assertTrue(
             getProjectResult["success"]?.jsonPrimitive?.boolean == true,
@@ -268,7 +268,25 @@ class ProjectIntegrationTest {
         )
 
         val retrievedProjectData = getProjectResult["data"]?.jsonObject
-        val features = retrievedProjectData!!["features"]?.jsonObject?.get("items")?.jsonArray
+        assertNotNull(retrievedProjectData, "Retrieved project data should not be null")
+        assertEquals("Project with Features", retrievedProjectData!!["name"]?.jsonPrimitive?.content)
+
+        // Retrieve features separately using search with projectId filter
+        val searchFeaturesParams = buildJsonObject {
+            put("operation", "search")
+            put("containerType", "feature")
+            put("projectId", projectId)
+        }
+
+        val searchFeaturesResponse = queryContainerTool.execute(searchFeaturesParams, executionContext)
+        val searchFeaturesResult = searchFeaturesResponse as JsonObject
+        assertTrue(
+            searchFeaturesResult["success"]?.jsonPrimitive?.boolean == true,
+            "Search features should be successful"
+        )
+
+        val featuresData = searchFeaturesResult["data"]?.jsonObject
+        val features = featuresData!!["items"]?.jsonArray
         assertNotNull(features, "Features should not be null")
         assertEquals(2, features!!.size, "Project should have 2 features")
 
@@ -285,16 +303,20 @@ class ProjectIntegrationTest {
     fun `should enforce project consistency for features`() = runBlocking {
         // Create two projects
         val project1Params = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "project")
             put("name", "Project 1")
             put("summary", "First test project")
         }
 
         val project2Params = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "project")
             put("name", "Project 2")
             put("summary", "Second test project")
         }
 
-        val project1Response = createProjectTool.execute(project1Params, executionContext)
+        val project1Response = manageContainerTool.execute(project1Params, executionContext)
         val project1Result = project1Response as JsonObject
         assertTrue(
             project1Result["success"]?.jsonPrimitive?.boolean == true,
@@ -302,7 +324,7 @@ class ProjectIntegrationTest {
         )
         val project1Id = project1Result["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
 
-        val project2Response = createProjectTool.execute(project2Params, executionContext)
+        val project2Response = manageContainerTool.execute(project2Params, executionContext)
         val project2Result = project2Response as JsonObject
         assertTrue(
             project2Result["success"]?.jsonPrimitive?.boolean == true,
@@ -312,12 +334,14 @@ class ProjectIntegrationTest {
 
         // Create a feature in project 1
         val featureParams = buildJsonObject {
+            put("operation", "create")
+            put("containerType", "feature")
             put("name", "Test Feature")
             put("summary", "Feature for testing consistency")
             put("projectId", project1Id)
         }
 
-        val featureResponse = createFeatureTool.execute(featureParams, executionContext)
+        val featureResponse = manageContainerTool.execute(featureParams, executionContext)
         val featureResult = featureResponse as JsonObject
         assertTrue(
             featureResult["success"]?.jsonPrimitive?.boolean == true,
@@ -327,10 +351,12 @@ class ProjectIntegrationTest {
 
         // Verify feature is associated with project 1
         val getFeatureParams = buildJsonObject {
+            put("operation", "get")
+            put("containerType", "feature")
             put("id", featureId)
         }
 
-        val getFeatureResponse = getFeatureTool.execute(getFeatureParams, executionContext)
+        val getFeatureResponse = queryContainerTool.execute(getFeatureParams, executionContext)
         val getFeatureResult = getFeatureResponse as JsonObject
         assertTrue(
             getFeatureResult["success"]?.jsonPrimitive?.boolean == true,

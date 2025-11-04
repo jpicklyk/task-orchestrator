@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.model.Feature
 import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusFilter
+import io.github.jpicklyk.mcptask.domain.model.TaskCounts
 import io.github.jpicklyk.mcptask.domain.repository.FeatureRepository
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -171,8 +173,8 @@ class MockFeatureRepository : FeatureRepository {
     // FilterableRepository methods
     override suspend fun findByFilters(
         projectId: UUID?,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<FeatureStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -184,12 +186,12 @@ class MockFeatureRepository : FeatureRepository {
             filteredFeatures = filteredFeatures.filter { it.projectId == projectId }
         }
 
-        if (status != null) {
-            filteredFeatures = filteredFeatures.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredFeatures = filteredFeatures.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredFeatures = filteredFeatures.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredFeatures = filteredFeatures.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -219,8 +221,8 @@ class MockFeatureRepository : FeatureRepository {
 
     override suspend fun countByFilters(
         projectId: UUID?,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<FeatureStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?
     ): Result<Long> {
@@ -230,12 +232,12 @@ class MockFeatureRepository : FeatureRepository {
             filteredFeatures = filteredFeatures.filter { it.projectId == projectId }
         }
 
-        if (status != null) {
-            filteredFeatures = filteredFeatures.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredFeatures = filteredFeatures.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredFeatures = filteredFeatures.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredFeatures = filteredFeatures.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -283,8 +285,8 @@ class MockFeatureRepository : FeatureRepository {
 
     override suspend fun findByProjectAndFilters(
         projectId: UUID,
-        status: FeatureStatus?,
-        priority: Priority?,
+        statusFilter: StatusFilter<FeatureStatus>?,
+        priorityFilter: StatusFilter<Priority>?,
         tags: List<String>?,
         textQuery: String?,
         limit: Int,
@@ -292,12 +294,12 @@ class MockFeatureRepository : FeatureRepository {
         var filteredFeatures = features.values.toList()
             .filter { it.projectId == projectId }
 
-        if (status != null) {
-            filteredFeatures = filteredFeatures.filter { it.status == status }
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            filteredFeatures = filteredFeatures.filter { statusFilter.matches(it.status) }
         }
 
-        if (priority != null) {
-            filteredFeatures = filteredFeatures.filter { it.priority == priority }
+        if (priorityFilter != null && !priorityFilter.isEmpty()) {
+            filteredFeatures = filteredFeatures.filter { priorityFilter.matches(it.priority) }
         }
 
         if (!tags.isNullOrEmpty()) {
@@ -340,6 +342,22 @@ class MockFeatureRepository : FeatureRepository {
 
     override suspend fun getTaskCount(featureId: UUID): Result<Int> {
         return Result.Success(taskCounts[featureId] ?: 0)
+    }
+
+    // Workflow cascade detection methods
+    override fun getTaskCountsByFeatureId(featureId: UUID): TaskCounts {
+        // For testing, return a basic TaskCounts with just the total
+        // Real tests should set this up with more detailed counts
+        val total = taskCounts[featureId] ?: 0
+        return TaskCounts(
+            total = total,
+            pending = 0,
+            inProgress = 0,
+            completed = total, // Assume all are completed for simple case
+            cancelled = 0,
+            testing = 0,
+            blocked = 0
+        )
     }
 
     /**

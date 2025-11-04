@@ -18,12 +18,20 @@ class FlywayDatabaseSchemaManager(private val database: Database) : DatabaseSche
 
     override fun updateSchema(): Boolean {
         return try {
+            // Check if repair mode is requested
+            val shouldRepair = System.getenv("FLYWAY_REPAIR")?.toBoolean() ?: false
+
+            if (shouldRepair) {
+                logger.info("FLYWAY_REPAIR=true detected, running repair...")
+                return repair()
+            }
+
             logger.info("Starting Flyway database migration...")
-            
+
             // Get database URL from the connector
             val databaseUrl = database.url
             logger.info("Using database URL for Flyway: $databaseUrl")
-            
+
             // Create Flyway instance with SQLite-specific configuration using database URL
             val flyway = Flyway.configure()
                 .dataSource(databaseUrl, null, null) // For SQLite, no username/password needed
@@ -33,12 +41,12 @@ class FlywayDatabaseSchemaManager(private val database: Database) : DatabaseSche
                 .baselineOnMigrate(true) // Create baseline for existing databases
                 .baselineVersion("0") // Start baseline at version 0
                 .load()
-            
+
             // Apply migrations
             val result = flyway.migrate()
             logger.info("Successfully applied ${result.migrationsExecuted} migration(s)")
             logger.info("Current schema version: ${result.targetSchemaVersion ?: "unknown"}")
-            
+
             true
         } catch (e: FlywayException) {
             logger.error("Flyway migration failed: ${e.message}", e)
@@ -51,6 +59,38 @@ class FlywayDatabaseSchemaManager(private val database: Database) : DatabaseSche
             logger.error("Database migration failed: ${e.message}", e)
             // Print to stderr as well to ensure we see it in tests
             System.err.println("MIGRATION ERROR: ${e.message}")
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Repairs the Flyway schema history table by updating checksums to match current migration files.
+     * This is useful when migration files have been modified after being applied.
+     */
+    fun repair(): Boolean {
+        return try {
+            logger.info("Starting Flyway repair...")
+
+            val databaseUrl = database.url
+            logger.info("Using database URL for Flyway repair: $databaseUrl")
+
+            val flyway = Flyway.configure()
+                .dataSource(databaseUrl, null, null)
+                .locations("classpath:db/migration")
+                .validateMigrationNaming(true)
+                .cleanDisabled(false)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .load()
+
+            flyway.repair()
+            logger.info("Flyway repair completed successfully")
+
+            true
+        } catch (e: FlywayException) {
+            logger.error("Flyway repair failed: ${e.message}", e)
+            System.err.println("FLYWAY REPAIR ERROR: ${e.message}")
             e.printStackTrace()
             false
         }

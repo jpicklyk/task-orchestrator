@@ -1,0 +1,232 @@
+# AI Agent Configuration for Task Orchestrator v2.0
+# Version: 2.0.0
+# Architecture: Haiku + Skills for standard implementation, Sonnet for complex problems
+#
+# NEW ARCHITECTURE (v2.0):
+# - Implementation Specialist (Haiku) handles standard work with composable Skills
+# - Senior Engineer (Sonnet) handles bugs, blockers, debugging, complex problems
+# - Feature Architect (Opus) handles feature design and requirements
+# - Planning Specialist (Sonnet) handles task breakdown and execution graphs
+#
+# For detailed documentation, see: docs/agent-orchestration.md
+
+# ============================================================================
+# TAG MAPPING GUIDE
+# ============================================================================
+#
+# HOW TAG MAPPING WORKS:
+# - Task tags trigger Skill loading in Implementation Specialist
+# - OR route to specialized agents (Senior Engineer, Feature Architect, Planning)
+# - First match in tagPriority order wins
+#
+# SKILL-BASED ROUTING (Implementation Specialist + Skills):
+# - backend, frontend, database, testing, documentation tags
+# - → Load relevant Skill(s) into Implementation Specialist (Haiku)
+# - Composable: [backend, database] loads both Skills
+#
+# AGENT-BASED ROUTING (Complex work):
+# - bug, blocker, error → Senior Engineer (Sonnet, debugging/investigation)
+# - feature-creation → Feature Architect (Opus, complex reasoning)
+# - planning, task-breakdown → Planning Specialist (Sonnet, decomposition)
+#
+# ============================================================================
+
+# Map task tags to specialized agents or Skills
+tagMappings:
+
+  # =========================================================================
+  # STANDARD IMPLEMENTATION (Haiku + Skills)
+  # =========================================================================
+  # Most tasks (70-80%) go here - fast, cost-effective implementation
+  # Skills loaded on-demand based on tags for domain expertise
+
+  - task_tags: [backend, api, service, kotlin, rest, spring, spring-boot,
+                frontend, ui, react, vue, angular, web, component, jsx, tsx,
+                database, migration, schema, sql, flyway, exposed, orm,
+                testing, test, qa, quality, coverage, unit-test, integration-test,
+                documentation, docs, user-docs, api-docs, guide, readme]
+    agent: Implementation Specialist
+    model: haiku
+    section_tags: [requirements, technical-approach, implementation, testing-strategy]
+    skill_routing:
+      backend: backend-implementation
+      frontend: frontend-implementation
+      database: database-implementation
+      testing: testing-implementation
+      documentation: documentation-implementation
+
+  # =========================================================================
+  # COMPLEX PROBLEM SOLVING (Sonnet)
+  # =========================================================================
+  # Bugs, blockers, debugging, investigation, complex refactoring
+  # Senior Engineer has better reasoning for ambiguous problems
+
+  - task_tags: [bug, bugfix, regression, defect, error, issue,
+                blocker, blocked, investigation, debug, debugging,
+                complex, performance, optimization, refactor, refactoring]
+    agent: Senior Engineer
+    model: sonnet
+    section_tags: [bug-report, reproduction, investigation, technical-approach]
+    description: "Complex problem solving, debugging, bug investigation, unblocking specialists, performance optimization"
+
+  # =========================================================================
+  # FEATURE DESIGN (Opus)
+  # =========================================================================
+  # Complex reasoning for ambiguous feature requests
+  # Transforms concepts into structured features with PRDs
+
+  - task_tags: [feature-creation, feature-authoring, requirements-gathering, concept, prd]
+    agent: Feature Architect
+    model: opus
+    section_tags: [context, requirements, business]
+    description: "Feature design from ambiguous requirements, PRD creation, strategic architecture"
+
+  # =========================================================================
+  # TASK PLANNING (Sonnet)
+  # =========================================================================
+  # Task decomposition with execution graphs and domain isolation
+  # Creates well-defined tasks for Implementation Specialist
+
+  - task_tags: [planning, task-breakdown, specification, architecture, design, decomposition]
+    agent: Planning Specialist
+    model: sonnet
+    section_tags: [context, requirements, technical-approach, dependencies]
+    description: "Task breakdown with execution graphs, domain isolation, dependency management"
+
+# ============================================================================
+# TAG PRIORITY
+# ============================================================================
+# When multiple tags match, first match wins
+# Order matters: bugs before implementation, architecture before implementation
+
+tagPriority:
+  - bug              # Bugs highest priority → Senior Engineer
+  - blocker          # Blockers → Senior Engineer
+  - error            # Errors → Senior Engineer
+  - complex          # Complex problems → Senior Engineer
+  - performance      # Performance issues → Senior Engineer
+  - optimization     # Optimization work → Senior Engineer
+  - refactor         # Complex refactoring → Senior Engineer
+  - refactoring      # Complex refactoring → Senior Engineer
+  - feature-creation # Feature design → Feature Architect (Opus)
+  - planning         # Planning → Planning Specialist
+  - database         # Database before backend (more specific)
+  - backend          # Backend implementation
+  - frontend         # Frontend implementation
+  - testing          # Testing implementation
+  - documentation    # Documentation implementation
+
+# ============================================================================
+# FALLBACK CONFIGURATION
+# ============================================================================
+# When no tags match or task has no tags
+
+default_specialist: "implementation-specialist"
+fallback_behavior: "use_default"  # Options: use_default, ask_user, skip
+
+# Default behavior: Launch Implementation Specialist (Haiku) without specific Skill
+# Agent can still ask user for domain or infer from task description
+
+# ============================================================================
+# MODEL SPECIFICATIONS
+# ============================================================================
+# Models assigned by agent type (not task-specific)
+
+models:
+  implementation-specialist: haiku    # Fast, cost-effective (4-5x faster, 1/3 cost)
+  senior-engineer: sonnet             # Better reasoning for complex problems
+  feature-architect: opus             # Complex reasoning for ambiguous requirements
+  planning-specialist: sonnet         # Balanced reasoning for decomposition
+
+# ============================================================================
+# ESCALATION PATHS
+# ============================================================================
+# How work flows between agents
+
+escalation:
+  # Implementation Specialist blocked → Senior Engineer
+  - from: implementation-specialist
+    to: senior-engineer
+    trigger: blocker_reported
+    description: "Implementation Specialist encounters issue it cannot resolve"
+
+  # Senior Engineer needs architecture decision → Feature Architect
+  - from: senior-engineer
+    to: feature-architect
+    trigger: architecture_decision_needed
+    description: "Senior Engineer encounters strategic architecture question"
+
+  # Feature created → Planning Specialist breaks it down
+  - from: feature-architect
+    to: planning-specialist
+    trigger: feature_created
+    description: "Feature Architect creates feature, Planning Specialist decomposes to tasks"
+
+  # Planning creates tasks → Implementation Specialist executes
+  - from: planning-specialist
+    to: implementation-specialist
+    trigger: tasks_created
+    description: "Planning Specialist creates well-defined tasks for execution"
+
+# ============================================================================
+# SKILL CATALOG
+# ============================================================================
+# Available Skills for Implementation Specialist to load
+
+skills:
+  - name: backend-implementation
+    path: .claude/skills/backend-implementation/SKILL.md
+    triggers: [backend, api, service, kotlin, rest, spring]
+    description: "Backend API development, services, business logic"
+    token_cost: ~400
+
+  - name: frontend-implementation
+    path: .claude/skills/frontend-implementation/SKILL.md
+    triggers: [frontend, ui, react, vue, angular, web, component]
+    description: "Frontend UI development, components, user interactions"
+    token_cost: ~400
+
+  - name: database-implementation
+    path: .claude/skills/database-implementation/SKILL.md
+    triggers: [database, migration, schema, sql, flyway, exposed]
+    description: "Database schema design, migrations, data modeling"
+    token_cost: ~450
+
+  - name: testing-implementation
+    path: .claude/skills/testing-implementation/SKILL.md
+    triggers: [testing, test, qa, quality, coverage]
+    description: "Test automation, quality assurance, test coverage"
+    token_cost: ~400
+
+  - name: documentation-implementation
+    path: .claude/skills/documentation-implementation/SKILL.md
+    triggers: [documentation, docs, user-docs, api-docs, guide]
+    description: "Technical documentation, API references, user guides"
+    token_cost: ~400
+
+# ============================================================================
+# USAGE NOTES
+# ============================================================================
+#
+# STANDARD WORKFLOW:
+# 1. Task created with tags: [backend, api]
+# 2. recommend_agent() checks this file
+# 3. Matches "backend" → Implementation Specialist (Haiku)
+# 4. Implementation Specialist loads backend-implementation Skill
+# 5. Fast, cost-effective execution with domain expertise
+# 6. If blocked → escalates to Senior Engineer (Sonnet)
+#
+# COMPLEX WORKFLOW:
+# 1. Task created with tags: [bug, backend]
+# 2. recommend_agent() checks tagPriority
+# 3. "bug" comes first → Senior Engineer (Sonnet)
+# 4. Senior Engineer investigates, debugs, fixes
+# 5. Better reasoning for ambiguous problems
+#
+# COMPOSABLE SKILLS:
+# 1. Task with [backend, database] tags
+# 2. Implementation Specialist loads BOTH Skills
+# 3. Full-stack context in single agent
+# 4. Token-efficient: pay only for loaded Skills
+#
+# ============================================================================

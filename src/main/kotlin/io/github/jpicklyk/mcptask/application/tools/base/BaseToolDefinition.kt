@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.github.jpicklyk.mcptask.infrastructure.util.ResponseUtil
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -380,5 +381,26 @@ abstract class BaseToolDefinition : ToolDefinition {
         // TODO: Handle proper JSON array format when we have the appropriate JSON library functions
 
         throw ToolValidationException("Parameter $name must be a string list (comma-separated string)")
+    }
+
+    /**
+     * Extract an optional JSON array parameter from the input parameters.
+     *
+     * @param params The input parameters
+     * @param name The name of the parameter to extract
+     * @return The extracted JsonArray, or null if the parameter is missing
+     * @throws ToolValidationException If the parameter is present but not a JSON array
+     */
+    protected fun optionalJsonArray(params: JsonElement, name: String): JsonArray? {
+        val paramsObj = params as? JsonObject
+            ?: throw ToolValidationException("Parameters must be a JSON object")
+
+        val arrayElement = paramsObj[name] ?: return null
+
+        if (arrayElement is JsonArray) {
+            return arrayElement
+        }
+
+        throw ToolValidationException("Parameter $name must be a JSON array")
     }
 }

@@ -21,8 +21,11 @@ data class Task(
     /** Required title describing the task */
     val title: String,
 
-    /** Brief summary of the task (replaces detailed description) */
-    val summary: String,
+    /** Optional detailed description provided by user */
+    val description: String? = null,
+
+    /** Brief summary of the task (agent-generated, max 500 chars) */
+    val summary: String = "",
     
     /** Current status of the task */
     val status: TaskStatus = TaskStatus.PENDING,
@@ -57,10 +60,15 @@ data class Task(
      */
     fun validate() {
         require(title.isNotBlank()) { "Task title must not be empty" }
-        require(summary.isNotBlank()) { "Task summary must not be empty" }
         require(complexity in 1..10) { "Task complexity must be between 1 and 10" }
+        require(summary.length <= 500) { "Task summary must not exceed 500 characters" }
 
-        // Note: Validation of feature/project relationship consistency 
+        // Description cannot be blank if provided
+        description?.let {
+            require(it.isNotBlank()) { "Task description must not be blank if provided" }
+        }
+
+        // Note: Validation of feature/project relationship consistency
         // is handled at the repository level, as it requires checking against the database
     }
     
@@ -92,6 +100,7 @@ data class Task(
             val task = builder(
                 Task(
                     title = "",
+                    description = null,
                     summary = "",
                     createdAt = now,
                     modifiedAt = now
@@ -105,11 +114,63 @@ data class Task(
 
 /**
  * Represents the current status of a task.
+ *
+ * v2.0: Additional orchestration statuses added for config-driven workflows.
+ * When .taskorchestrator/config.yaml exists, validation uses config instead of these enum values.
  */
 enum class TaskStatus {
+    // v1.0 original statuses
     PENDING,
     IN_PROGRESS,
     COMPLETED,
-    CANCELLED,
-    DEFERRED
+    CANCELLED,    // Explicitly cancelled by user
+    DEFERRED,     // Postponed indefinitely
+
+    // v2.0 orchestration statuses
+    BACKLOG,            // Task in backlog, not yet ready for work
+    IN_REVIEW,          // Task implementation complete, awaiting review
+    CHANGES_REQUESTED,  // Review completed, changes requested
+    ON_HOLD,            // Task temporarily paused
+    TESTING,            // Implementation complete, running tests
+    READY_FOR_QA,       // Testing complete, ready for quality assurance review
+    INVESTIGATING,      // Actively investigating issues or technical approach
+    BLOCKED,            // Blocked by incomplete dependencies
+    DEPLOYED;           // Task successfully deployed to production environment
+
+    companion object {
+        /**
+         * Converts a string to a TaskStatus enum value (case-insensitive).
+         * Supports multiple format variations:
+         * - Hyphen-separated: "in-progress", "in-review", "changes-requested", "on-hold", "ready-for-qa"
+         * - Underscore-separated: "in_progress", "in_review", "changes_requested", "on_hold", "ready_for_qa"
+         * - No separator: "inprogress", "inreview", "changesrequested", "onhold", "readyforqa"
+         *
+         * @param value The string representation of the status
+         * @return The TaskStatus enum value, or null if invalid
+         */
+        fun fromString(value: String): TaskStatus? {
+            // Normalize the input by converting to uppercase and replacing hyphens
+            val normalized = value.uppercase().replace('-', '_')
+
+            return try {
+                valueOf(normalized)
+            } catch (_: IllegalArgumentException) {
+                // Try compound word variations (no separator) and spelling variants
+                when (normalized.replace("_", "")) {
+                    "INPROGRESS" -> IN_PROGRESS
+                    "INREVIEW" -> IN_REVIEW
+                    "CHANGESREQUESTED" -> CHANGES_REQUESTED
+                    "ONHOLD" -> ON_HOLD
+                    "READYFORQA" -> READY_FOR_QA
+                    "CANCELED" -> CANCELLED  // US spelling variant
+                    else -> null
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns the string representation of this status in uppercase with underscores.
+     */
+    override fun toString(): String = name
 }

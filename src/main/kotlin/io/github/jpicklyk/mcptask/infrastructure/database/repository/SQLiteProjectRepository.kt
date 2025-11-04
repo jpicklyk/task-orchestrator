@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.domain.model.EntityType
+import io.github.jpicklyk.mcptask.domain.model.FeatureCounts
+import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.Project
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
 import io.github.jpicklyk.mcptask.domain.repository.ProjectRepository
@@ -47,6 +49,7 @@ class SQLiteProjectRepository(
         return Project(
             id = row[ProjectsTable.id].value,
             name = row[ProjectsTable.name],
+            description = row[ProjectsTable.description],
             summary = row[ProjectsTable.summary],
             status = row[ProjectsTable.status],
             createdAt = row[ProjectsTable.createdAt],
@@ -64,6 +67,7 @@ class SQLiteProjectRepository(
         return buildString {
             append(entity.name)
             append(" ").append(entity.summary)
+            entity.description?.let { append(" ").append(it) }
             entity.tags.forEach { tag -> append(" ").append(tag) }
         }
     }
@@ -76,6 +80,7 @@ class SQLiteProjectRepository(
         ProjectsTable.insert {
             it[id] = entity.id
             it[name] = entity.name
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[createdAt] = entity.createdAt
@@ -90,6 +95,7 @@ class SQLiteProjectRepository(
             (ProjectsTable.id eq entity.id) and (ProjectsTable.version eq entity.version)
         }) {
             it[name] = entity.name
+            it[description] = entity.description
             it[summary] = entity.summary
             it[status] = entity.status
             it[modifiedAt] = entity.modifiedAt
@@ -187,6 +193,24 @@ class SQLiteProjectRepository(
             }
         } catch (e: Exception) {
             Result.Error(RepositoryError.DatabaseError("Failed to get task count: ${e.message}", e))
+        }
+    }
+
+    //======================================
+    // Workflow cascade detection
+    //======================================
+
+    override fun getFeatureCountsByProjectId(projectId: UUID): FeatureCounts {
+        return transaction {
+            val features = FeaturesTable.selectAll().where { FeaturesTable.projectId eq projectId }
+
+            val total = features.count().toInt()
+            val completed = features.count { it[FeaturesTable.status] == FeatureStatus.COMPLETED }.toInt()
+
+            FeatureCounts(
+                total = total,
+                completed = completed
+            )
         }
     }
 }

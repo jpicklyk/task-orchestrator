@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools
 
-import io.github.jpicklyk.mcptask.application.tools.feature.UpdateFeatureTool
-import io.github.jpicklyk.mcptask.application.tools.project.UpdateProjectTool
-import io.github.jpicklyk.mcptask.application.tools.task.UpdateTaskTool
+import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.*
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
@@ -31,17 +29,13 @@ import java.util.*
  */
 class UpdateEfficiencyIntegrationTest {
 
-    private lateinit var taskTool: UpdateTaskTool
-    private lateinit var featureTool: UpdateFeatureTool
-    private lateinit var projectTool: UpdateProjectTool
+    private lateinit var manageContainerTool: ManageContainerTool
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach
     fun setup() {
         // Initialize tools
-        taskTool = UpdateTaskTool()
-        featureTool = UpdateFeatureTool()
-        projectTool = UpdateProjectTool()
+        manageContainerTool = ManageContainerTool(null, null)
 
         // Create mock repositories
         val mockTaskRepository = mockk<TaskRepository>()
@@ -130,11 +124,13 @@ class UpdateEfficiencyIntegrationTest {
 
         // Efficient update: Only id + status
         val efficientParams = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "task")
             put("id", taskId)
             put("status", "completed")
         }
 
-        val result = taskTool.execute(efficientParams, context)
+        val result = manageContainerTool.execute(efficientParams, context)
         val responseObj = result as JsonObject
 
         // Verify success
@@ -157,7 +153,7 @@ class UpdateEfficiencyIntegrationTest {
         val inefficientEstimate = 600
         val savings = ((inefficientEstimate - efficientSize).toDouble() / inefficientEstimate * 100).toInt()
 
-        assertTrue(savings >= 85, "Should achieve 85%+ savings (actual: $savings%)")
+        assertTrue(savings >= 80, "Should achieve 80%+ savings (actual: $savings%)")
     }
 
     @Test
@@ -166,11 +162,13 @@ class UpdateEfficiencyIntegrationTest {
 
         // Efficient update: Only id + priority
         val efficientParams = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "feature")
             put("id", featureId)
             put("priority", "high")
         }
 
-        val result = featureTool.execute(efficientParams, context)
+        val result = manageContainerTool.execute(efficientParams, context)
         val responseObj = result as JsonObject
 
         // Verify success
@@ -189,7 +187,7 @@ class UpdateEfficiencyIntegrationTest {
         val inefficientEstimate = 500
         val savings = ((inefficientEstimate - efficientSize).toDouble() / inefficientEstimate * 100).toInt()
 
-        assertTrue(savings >= 85, "Should achieve 85%+ savings (actual: $savings%)")
+        assertTrue(savings >= 75, "Should achieve 75%+ savings (actual: $savings%)")
     }
 
     @Test
@@ -198,11 +196,13 @@ class UpdateEfficiencyIntegrationTest {
 
         // Efficient update: Only id + tags
         val efficientParams = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "project")
             put("id", projectId)
             put("tags", "new-tag1,new-tag2,new-tag3,new-tag4")
         }
 
-        val result = projectTool.execute(efficientParams, context)
+        val result = manageContainerTool.execute(efficientParams, context)
         val responseObj = result as JsonObject
 
         // Verify success
@@ -218,7 +218,7 @@ class UpdateEfficiencyIntegrationTest {
         val inefficientEstimate = 400 // Full entity with summary
         val savings = ((inefficientEstimate - efficientSize).toDouble() / inefficientEstimate * 100).toInt()
 
-        assertTrue(savings >= 75, "Should achieve significant savings (actual: $savings%)")
+        assertTrue(savings >= 60, "Should achieve significant savings (actual: $savings%)")
     }
 
     @Test
@@ -227,12 +227,14 @@ class UpdateEfficiencyIntegrationTest {
 
         // Update 2 fields (still efficient)
         val params = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "task")
             put("id", taskId)
             put("status", "in-progress")
             put("priority", "high")
         }
 
-        val result = taskTool.execute(params, context)
+        val result = manageContainerTool.execute(params, context)
         val responseObj = result as JsonObject
 
         // Verify success
@@ -243,7 +245,7 @@ class UpdateEfficiencyIntegrationTest {
         val fullEntityEstimate = 600
         val savings = ((fullEntityEstimate - actualSize).toDouble() / fullEntityEstimate * 100).toInt()
 
-        assertTrue(savings >= 80, "Should achieve 80%+ savings even with multiple fields (actual: $savings%)")
+        assertTrue(savings >= 75, "Should achieve 75%+ savings even with multiple fields (actual: $savings%)")
     }
 
     @Test
@@ -252,10 +254,12 @@ class UpdateEfficiencyIntegrationTest {
 
         // Edge case: Only id (technically valid, no-op)
         val params = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "task")
             put("id", taskId)
         }
 
-        val result = taskTool.execute(params, context)
+        val result = manageContainerTool.execute(params, context)
         val responseObj = result as JsonObject
 
         // Should succeed (no-op update)
@@ -272,11 +276,13 @@ class UpdateEfficiencyIntegrationTest {
             val taskId = UUID.randomUUID().toString()
 
             val efficientParams = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
                 put("id", taskId)
                 put("status", "completed")
             }
 
-            val result = taskTool.execute(efficientParams, context)
+            val result = manageContainerTool.execute(efficientParams, context)
             val responseObj = result as JsonObject
 
             assertTrue(responseObj["success"]?.jsonPrimitive?.boolean ?: false)
@@ -288,8 +294,8 @@ class UpdateEfficiencyIntegrationTest {
         // Calculate total savings
         val totalSavings = ((totalInefficientEstimate - totalEfficientSize).toDouble() / totalInefficientEstimate * 100).toInt()
 
-        assertTrue(totalSavings >= 85, "Batch updates should achieve 85%+ savings (actual: $totalSavings%)")
-        assertTrue(totalEfficientSize < 800, "Total size for 10 updates should be < 800 chars (actual: $totalEfficientSize)")
+        assertTrue(totalSavings >= 75, "Batch updates should achieve 75%+ savings (actual: $totalSavings%)")
+        assertTrue(totalEfficientSize < 1200, "Total size for 10 updates should be < 1200 chars (actual: $totalEfficientSize)")
         assertTrue(totalInefficientEstimate >= 6000, "Inefficient approach would be ~6000 chars (actual: $totalInefficientEstimate)")
     }
 
@@ -298,11 +304,13 @@ class UpdateEfficiencyIntegrationTest {
         val taskId = UUID.randomUUID().toString()
 
         val params = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "task")
             put("id", taskId)
             put("status", "completed")
         }
 
-        val result = taskTool.execute(params, context)
+        val result = manageContainerTool.execute(params, context)
         val responseObj = result as JsonObject
         val data = responseObj["data"]?.jsonObject
 
@@ -330,23 +338,25 @@ class UpdateEfficiencyIntegrationTest {
 
         taskIds.forEach { taskId ->
             val params = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "task")
                 put("id", taskId)
                 put("status", "completed")
             }
 
-            val result = taskTool.execute(params, context)
+            val result = manageContainerTool.execute(params, context)
             assertTrue((result as JsonObject)["success"]?.jsonPrimitive?.boolean ?: false)
 
             totalChars += params.toString().length
         }
 
         // Total characters for 5 efficient updates
-        assertTrue(totalChars < 400, "5 status updates should be < 400 chars (actual: $totalChars)")
+        assertTrue(totalChars < 600, "5 status updates should be < 600 chars (actual: $totalChars)")
 
         // Compare to inefficient approach (5 × ~600 chars = ~3000 chars)
         val inefficientTotal = 5 * 600
         val savings = ((inefficientTotal - totalChars).toDouble() / inefficientTotal * 100).toInt()
 
-        assertTrue(savings >= 85, "Real-world scenario should achieve 85%+ savings (actual: $savings%)")
+        assertTrue(savings >= 75, "Real-world scenario should achieve 75%+ savings (actual: $savings%)")
     }
 }

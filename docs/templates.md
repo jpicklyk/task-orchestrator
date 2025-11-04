@@ -5,7 +5,7 @@ title: Templates
 
 # Template System
 
-The MCP Task Orchestrator includes **9 built-in templates** organized into 3 strategic categories. Templates provide reusable patterns for structuring task and feature documentation, ensuring consistency and completeness across your project management workflows.
+The MCP Task Orchestrator includes **9 built-in templates** organized into 3 strategic categories. Templates provide workflow instructions, decision frameworks, and quality gates that guide AI assistants through implementation, planning, and validation processes.
 
 ## Table of Contents
 
@@ -24,7 +24,9 @@ The MCP Task Orchestrator includes **9 built-in templates** organized into 3 str
 
 ### What Are Templates?
 
-Templates are predefined documentation structures that can be applied to tasks, features, and projects to create consistent, comprehensive documentation. Each template contains:
+Templates are predefined workflow guidance, decision frameworks, and validation checklists that can be applied to tasks and features to guide implementation work. **Templates are universally available** - they work with any MCP-compatible AI client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.) and function independently of orchestration setup.
+
+Each template contains:
 
 - **Section Definitions**: Structured content blocks with specific purposes
 - **Usage Descriptions**: Guidance for AI assistants on how to use each section
@@ -33,17 +35,184 @@ Templates are predefined documentation structures that can be applied to tasks, 
 
 ### Benefits
 
-- **Consistency**: Standardized documentation across all work items
-- **Completeness**: Ensures all critical aspects are covered
-- **AI-Optimized**: Designed for AI assistant interaction and understanding
+- **Universal Availability**: Works with ALL MCP clients, not specific to Claude Code
+- **Structured Guidance**: Standardized workflows and decision frameworks across all work
+- **Completeness**: Ensures all critical planning and validation steps are covered
+- **AI-Optimized**: Designed for AI assistant interaction and execution
 - **Composable**: Can be applied individually or combined for comprehensive coverage
 - **Discoverable**: AI agents dynamically discover and apply appropriate templates
+- **Flexible Execution**: Works with both direct execution and sub-agent orchestration
+
+### Templates Structure the WORK
+
+**Templates define WHAT needs to be done and HOW to approach it**, not WHO does it:
+
+- **Requirements Specification**: Creates "Requirements" section → defines what functionality is needed
+- **Technical Approach**: Creates "Implementation Planning Checklist" section → guides planning with decision frameworks
+- **Testing Strategy**: Creates "Testing Strategy" section → defines test requirements
+
+Templates work with **TWO execution patterns**:
+
+#### Pattern 1: Direct Execution (Universal - Any MCP Client)
+
+You (the AI assistant) read the template sections and implement the work yourself:
+
+```
+1. Apply templates when creating task/feature
+2. Templates create sections (Requirements, Technical Approach, Testing)
+3. You read those sections for context
+4. You implement the code, tests, documentation yourself
+5. You update sections with results
+```
+
+#### Pattern 2: Sub-Agent Execution (Claude Code Only)
+
+Specialist agents read template sections and implement the work:
+
+```
+1. Apply templates when creating task/feature
+2. Templates create sections (Requirements, Technical Approach, Testing)
+3. Orchestrator launches specialist (Backend Engineer, Test Engineer, etc.)
+4. Specialist reads template sections for context
+5. Specialist implements the work
+6. Specialist updates sections with results
+```
+
+**Key Insight**: Templates create the same sections in both patterns. The difference is WHO reads them and implements the work - you directly, or a specialist agent.
 
 ### How Templates Work
 
-Templates are **database-driven** and **dynamically discoverable** - AI agents use the `list_templates` tool to find appropriate templates based on work type, then apply them automatically or suggest them to users.
+Templates are **database-driven** and **dynamically discoverable** - AI agents use the `query_templates` tool to find appropriate templates based on work type, then apply them automatically or suggest them to users.
 
 > **Learn More**: See [AI Guidelines - Template Strategy](ai-guidelines#layer-3-dynamic-templates-database-driven) for how AI discovers and applies templates autonomously.
+
+---
+
+## Template Philosophy
+
+### Multi-Layered Complementary Architecture
+
+The Task Orchestrator uses a **three-layer architecture** where templates, skills, and subagents work together without redundancy:
+
+**Layer 1: Templates (Universal - ANY MCP Client)**
+- **What**: Database-driven workflow instructions
+- **Purpose**: Provide actionable guidance for implementation
+- **Scope**: Works with ALL MCP clients (Claude Desktop, Claude Code, Cursor, Windsurf, etc.)
+- **Content**: Checklists, commands, decision frameworks, process steps
+- **Example**: "Run `./gradlew test` before committing", "Create Flyway migration V{N}__description.sql"
+
+**Layer 2: Skills (Claude Code Only)**
+- **What**: Lightweight coordination workflows (2-5 tool calls)
+- **Purpose**: Add domain expertise on top of templates
+- **Scope**: Claude Code only (auto-activating from natural language)
+- **Content**: Coordination patterns, integration examples, troubleshooting
+- **Example**: Feature Management Skill coordinates "What's next?" by using templates + MCP tools
+
+**Layer 3: Subagents (Claude Code Only - Complex Work)**
+- **What**: Specialist agents for complex implementation
+- **Purpose**: Deep reasoning + code implementation
+- **Scope**: Claude Code only (launched via Task tool)
+- **Content**: Backend Engineer, Frontend Developer, Database Engineer, etc.
+- **Example**: Backend Engineer implements API endpoints using templates for guidance
+
+**Key Principle**: No redundancy across layers. Templates provide WHAT workflow to follow (universal). Skills add HOW to coordinate (Claude Code). Subagents are WHO executes (Claude Code, complex work only).
+
+### Section Tag Taxonomy
+
+Templates create sections with **explicit tags** that enable token-efficient reading. Different roles read different section types:
+
+#### Contextual Tags (Planning)
+- **context** - Business context, user needs, dependencies, strategic alignment
+- **requirements** - Functional and non-functional requirements, must-haves, constraints
+- **acceptance-criteria** - Completion criteria, quality standards, definition of done
+
+**Who reads**: Planning Specialist (during task breakdown from features)
+
+#### Actionable Tags (Implementation)
+- **workflow-instruction** - Step-by-step implementation processes
+- **checklist** - Validation checklists, completion criteria
+- **commands** - Bash commands to execute (build, test, deploy)
+- **guidance** - Implementation patterns and best practices
+- **process** - Workflow processes to follow
+
+**Who reads**: Implementation Specialist (during code/test/doc implementation)
+
+#### Reference Tags (As Needed)
+- **reference** - Examples, patterns, reference material
+- **technical-details** - Deep technical specifications
+
+**Who reads**: Any role, only when specifically needed
+
+### Token-Efficient Section Reading
+
+Using tag filtering reduces token consumption by 45-60%:
+
+**Without Tag Filtering** (Old Approach):
+```javascript
+// Read ALL sections from task
+task = query_container(
+  operation="get",
+  containerType="task",
+  id=taskId,
+  includeSections=true
+)
+// Token cost: ~3,000-5,000 tokens
+// Includes business context, requirements, AND workflows
+```
+
+**With Tag Filtering** (New Approach):
+```javascript
+// Planning Specialist: Read only context/requirements from feature
+sections = query_sections(
+  entityType="FEATURE",
+  entityId=featureId,
+  tags="context,requirements,acceptance-criteria",
+  includeContent=true
+)
+// Token cost: ~2,000-3,000 tokens (vs ~7,000+)
+// Savings: 60% reduction
+
+// Implementation Specialist: Read only actionable content from task
+sections = query_sections(
+  entityType="TASK",
+  entityId=taskId,
+  tags="workflow-instruction,checklist,commands,guidance,process",
+  includeContent=true
+)
+// Token cost: ~800-1,500 tokens (vs ~3,000-5,000)
+// Savings: 50% reduction
+```
+
+### Template Content Guidelines
+
+**Templates contain ACTIONABLE content, not placeholders:**
+
+❌ **Bad** (Old v1.0 approach - generic placeholders):
+```markdown
+## Implementation Steps
+1. [Component 1]: [Description]
+2. [Component 2]: [Description]
+3. [Library Name]: [Configuration]
+```
+**Problem**: 500-1,500 tokens wasted on generic text. Provides zero guidance.
+
+✅ **Good** (v2.0 approach - actionable guidance):
+```markdown
+## Implementation Planning Checklist
+
+Before coding, answer these questions:
+
+### Component Identification
+**What 2-4 main classes/modules will you create/modify?**
+- List each with single responsibility
+- Example: UserService (CRUD), AuthController (HTTP), TokenValidator (JWT)
+
+### Dependency Analysis
+**What external libraries or services will you integrate?**
+- List each with specific purpose
+- Verify versions match project requirements
+```
+**Benefit**: Actual decision framework. Specialists use it to plan work.
 
 ---
 
@@ -53,7 +222,7 @@ Templates are **database-driven** and **dynamically discoverable** - AI agents u
 
 Claude and other AI agents don't have hardcoded template knowledge - they **discover templates dynamically** using the Task Orchestrator's template system:
 
-1. **Query Templates**: AI uses `list_templates` to find available templates
+1. **Query Templates**: AI uses `query_templates` (operation="list") to find available templates
 2. **Filter by Context**: Filters by `targetEntityType` (TASK vs FEATURE) and `isEnabled`
 3. **Analyze Options**: Reviews template descriptions and categories
 4. **Select Appropriate**: Chooses templates that match the work type
@@ -66,7 +235,7 @@ Claude and other AI agents don't have hardcoded template knowledge - they **disc
 User: "Create a task to implement the login API"
 
 Claude autonomously:
-1. Runs list_templates --targetEntityType TASK --isEnabled true
+1. Runs query_templates(operation="list", targetEntityType="TASK", isEnabled=true)
 2. Identifies appropriate templates (Task Implementation, Technical Approach)
 3. Creates task with templateIds parameter
 4. Confirms creation with applied templates
@@ -79,7 +248,6 @@ User: "Create a feature for user authentication"
 Claude: "I'll create the User Authentication feature. I recommend applying:
 - Context & Background (business context)
 - Requirements Specification (detailed requirements)
-- Technical Approach (architecture planning)
 
 Would you like me to apply these templates?"
 ```
@@ -103,17 +271,18 @@ The 9 built-in templates are organized into 3 strategic categories:
 
 ### AI Workflow Instructions
 
-**Purpose**: Step-by-step process guidance with MCP tool integration
+**Purpose**: Step-by-step process guidance, decision frameworks, and validation checklists
 
 **Templates**:
 - Local Git Branching Workflow
 - GitHub PR Workflow
 - Task Implementation Workflow
 - Bug Investigation Workflow
+- Technical Approach
 
-**Target**: Primarily tasks, designed for process automation
+**Target**: Tasks, designed for process automation and implementation planning
 
-**When AI Uses Them**: Implementation tasks, bug fixes, any work requiring structured workflow
+**When AI Uses Them**: Implementation tasks, bug fixes, complex planning, any work requiring structured workflow or decision-making guidance
 
 ---
 
@@ -122,13 +291,12 @@ The 9 built-in templates are organized into 3 strategic categories:
 **Purpose**: Information capture and context preservation
 
 **Templates**:
-- Technical Approach
-- Requirements Specification
-- Context & Background
+- Requirements Specification (Features only)
+- Context & Background (Features only)
 
-**Target**: Both tasks and features, with feature-level emphasis
+**Target**: Features, designed for planning and context documentation
 
-**When AI Uses Them**: Feature creation, complex tasks, architectural decisions
+**When AI Uses Them**: Feature creation, project planning, capturing business context and requirements
 
 ---
 
@@ -137,10 +305,10 @@ The 9 built-in templates are organized into 3 strategic categories:
 **Purpose**: Quality assurance and completion standards
 
 **Templates**:
-- Testing Strategy
-- Definition of Done
+- Testing Strategy (Tasks only)
+- Definition of Done (Tasks only)
 
-**Target**: Tasks and features requiring quality gates
+**Target**: Tasks requiring quality gates
 
 **When AI Uses Them**: Critical functionality, production deployments, quality-focused work
 
@@ -150,50 +318,60 @@ The 9 built-in templates are organized into 3 strategic categories:
 
 ### Local Git Branching Workflow
 - **Target**: Tasks
-- **Sections**: Branch creation, development workflow, integration
+- **Sections**: Create Branch, Implement & Commit, Verify & Finalize
+- **Tags**: git, workflow-instruction, commands, checklist
 - **Auto-Applied**: When git repository detected (.git directory exists)
 
 ### GitHub PR Workflow
 - **Target**: Tasks
-- **Sections**: PR preparation, creation process, review management
+- **Sections**: Pre-Push Validation, Create Pull Request, Review & Merge
+- **Tags**: github, pull-request, workflow-instruction, commands, checklist
 - **Suggested**: When git detected and user confirms they use PRs
 
 ### Task Implementation Workflow
 - **Target**: Tasks
-- **Sections**: Implementation planning, development execution, completion validation
+- **Sections**: Implementation Analysis, Step-by-Step Implementation, Testing & Validation
+- **Tags**: workflow, implementation, mcp-tools, commands, checklist
 - **Auto-Applied**: Most implementation tasks with complexity > 3
 
 ### Bug Investigation Workflow
 - **Target**: Tasks
-- **Sections**: Problem analysis, investigation steps, resolution planning
+- **Sections**: Investigation Process, Root Cause Analysis, Fix Implementation & Verification
+- **Tags**: bug, investigation, workflow, mcp-tools, checklist
 - **Auto-Applied**: Bug-related tasks (when user reports bugs)
 
 ### Technical Approach
-- **Target**: Tasks and Features
-- **Sections**: Architecture overview, implementation strategy, technology decisions
-- **Auto-Applied**: Complex tasks (complexity > 6), architectural features
+- **Target**: Tasks
+- **Sections**: Implementation Planning Checklist, Technical Decision Log, Integration Points Checklist
+- **Tags**: technical, implementation, planning, guidance, checklist
+- **Auto-Applied**: Complex tasks (complexity > 6)
+- **Note**: Rewritten in v2.0 with actionable decision frameworks (no placeholders)
 
 ### Requirements Specification
 - **Target**: Features
-- **Sections**: Functional requirements, non-functional requirements, acceptance criteria
+- **Sections**: Must-Have Requirements, Nice-to-Have Features, Constraints & Non-Functional Requirements
+- **Tags**: requirements, specification, context, acceptance-criteria
 - **Auto-Applied**: Feature creation workflows
 
 ### Context & Background
 - **Target**: Features
-- **Sections**: Business context, user value, project background
+- **Sections**: Why This Matters, User Context, Dependencies & Coordination
+- **Tags**: context, background, business, strategic
 - **Auto-Applied**: Feature planning and project setup
 
 ### Testing Strategy
-- **Target**: Tasks and Features
-- **Sections**: Testing approach, coverage requirements, quality gates
+- **Target**: Tasks
+- **Sections**: Test Coverage, Acceptance Criteria, Testing Checkpoints
+- **Tags**: testing, quality, validation, checklist
 - **Suggested**: Quality-critical work, production deployments
 
 ### Definition of Done
-- **Target**: Tasks and Features
-- **Sections**: Completion criteria, acceptance guidelines, handoff requirements
+- **Target**: Tasks
+- **Sections**: Implementation Complete, Production Ready
+- **Tags**: completion, done, checklist, acceptance-criteria
 - **Suggested**: Work requiring clear completion standards
 
-> **Full Template Details**: Use `get_template --id <template-id> --includeSections true` to see complete section structure for any template.
+> **Full Template Details**: Use `query_templates(operation="get", id="<template-id>", includeSections=true)` to see complete section structure for any template.
 
 ---
 
@@ -208,7 +386,7 @@ The recommended way to use templates is through natural conversation with Claude
 User: "Create a task to implement the user login endpoint"
 
 Claude: [Autonomously]
-- Discovers templates via list_templates
+- Discovers templates via query_templates
 - Selects: Task Implementation Workflow + Technical Approach
 - Creates task with both templates applied
 - Confirms: "Created task with Task Implementation and Technical Approach templates"
@@ -233,7 +411,6 @@ Claude: [Suggests templates]
 "I'll create the Payment Processing feature. I recommend applying:
 - Context & Background (business justification)
 - Requirements Specification (detailed requirements)
-- Technical Approach (integration architecture)
 
 Proceeding with these templates..."
 ```
@@ -256,7 +433,7 @@ Ask Claude to show you available templates:
 ```
 User: "What templates are available for tasks?"
 
-Claude: [Uses list_templates]
+Claude: [Uses query_templates]
 "Available templates for tasks:
 
 AI Workflow Instructions:
@@ -264,9 +441,7 @@ AI Workflow Instructions:
 - GitHub PR Workflow (pull requests)
 - Task Implementation Workflow (structured implementation)
 - Bug Investigation Workflow (systematic debugging)
-
-Documentation Properties:
-- Technical Approach (architecture and strategy)
+- Technical Approach (implementation planning and decision frameworks)
 
 Process & Quality:
 - Testing Strategy (comprehensive testing)
@@ -301,7 +476,6 @@ What type of work are you doing?
 ├─ Feature Planning
 │   └─ Context & Background
 │       + Requirements Specification
-│       + Technical Approach
 │
 └─ Production Deployment
     └─ Technical Approach
@@ -313,9 +487,9 @@ What type of work are you doing?
 
 **For New Features**:
 ```
-Context & Background + Requirements Specification + Technical Approach
+Context & Background + Requirements Specification
 ```
-Provides complete coverage from business justification through architecture.
+Provides complete coverage from business justification through detailed requirements.
 
 **For Complex Implementation**:
 ```
@@ -337,15 +511,15 @@ Maximum rigor with quality gates and review processes.
 
 ### Template Stacking Strategy
 
-**Layer 1: Process** (always include one)
+**Layer 1: Core Workflow** (always include one)
 - Task Implementation Workflow OR Bug Investigation Workflow
+- Add Technical Approach for complex tasks (complexity 6+)
 
-**Layer 2: Documentation** (for complex work)
-- Technical Approach (architecture)
+**Layer 2: Context Documentation** (for features and complex planning)
 - Requirements Specification (features)
 - Context & Background (features)
 
-**Layer 3: Quality** (for critical work)
+**Layer 3: Quality Gates** (for critical work)
 - Testing Strategy (test coverage)
 - Definition of Done (completion criteria)
 
@@ -379,7 +553,7 @@ Ask Claude:
 - Remediation plan"
 ```
 
-Claude will use `create_template` and `add_template_section` tools to build your template.
+Claude will use `manage_template` tool (operations: create, addSection) to build your template.
 
 **Step 2: Test Template**
 
@@ -457,7 +631,7 @@ Custom templates are stored in the database and automatically available to:
 
 ### For AI Agents
 
-1. **Always query templates first**: Use `list_templates` before creating tasks/features
+1. **Always query templates first**: Use `query_templates(operation="list", ...)` before creating tasks/features
 2. **Auto-apply git workflows**: Detect .git and apply git templates automatically
 3. **Suggest multiple templates**: For comprehensive coverage, recommend 2-3 templates
 4. **Respect user preferences**: If user specifies templates, use exactly those
@@ -489,12 +663,51 @@ Custom templates are stored in the database and automatically available to:
 
 ## Integration with Workflows
 
-Templates work seamlessly with workflow prompts:
+### How Templates and Workflows Complement Each Other
+
+**Templates structure the WORK** (what needs to be documented):
+- Create sections automatically when applied
+- Define required documentation (Requirements, Technical Approach, Testing)
+- Provide consistent structure across all tasks and features
+
+**Workflow Prompts guide the PROCESS** (how to accomplish the work):
+- Provide step-by-step procedural guidance
+- Integrate MCP tools systematically
+- Offer quality validation checkpoints
+
+Templates work seamlessly with v2.0 tools and Skills:
 
 - **PRD-Driven Development** ⭐: Analyzes PRD content to systematically apply appropriate templates across all features and tasks based on requirements and technical complexity
-- **create_feature_workflow**: Automatically suggests Context & Background + Requirements Specification
-- **task_breakdown_workflow**: Applies Task Implementation Workflow to subtasks
-- **implementation_workflow**: Auto-detects git and applies appropriate git workflows for any work type (tasks, features, and bugs)
+- **Feature Management Skill (v2.0)**: Automatically discovers and suggests Context & Background + Requirements Specification templates
+- **Task Decomposition (v2.0)**: Creates subtasks with Task Implementation Workflow template applied
+- **Task Management Skill (v2.0)**: Auto-detects git and applies appropriate git workflow templates for any work type (tasks, features, and bugs)
+
+### Templates + Sub-Agents: Working Together
+
+When using Claude Code with sub-agent orchestration:
+
+1. **Templates create the sections** (Requirements, Technical Approach, Testing Strategy)
+2. **Sub-agents read those sections** for context when implementing
+3. **Templates provide consistent structure** that all specialists understand
+
+**Example Flow**:
+```
+1. Create task with Technical Approach template
+   → Creates "Technical Approach" section with architecture guidance
+
+2. Launch Backend Engineer specialist
+   → Reads "Technical Approach" section for context
+   → Implements code following the architecture
+   → Updates section with implementation notes
+
+3. Launch Test Engineer specialist
+   → Reads "Testing Strategy" section for test requirements
+   → Reads "Technical Approach" for implementation context
+   → Writes comprehensive tests
+   → Updates section with test results
+```
+
+**Key Point**: Templates work IDENTICALLY whether you're implementing directly or using sub-agents. The sections provide structure and context in both scenarios.
 
 > **Most Effective**: PRD-driven development provides optimal template selection by analyzing complete requirements. See [PRD Workflow Guide](quick-start#prd-driven-development-workflow) for how Claude intelligently applies templates during PRD breakdown.
 >

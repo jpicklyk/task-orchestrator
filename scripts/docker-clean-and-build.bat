@@ -1,3 +1,3 @@
 @echo off
 echo Building Docker image...
-docker build -t mcp-task-orchestrator:dev .
+docker build -t task-orchestrator:local-test .
