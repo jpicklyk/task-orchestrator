@@ -41,6 +41,7 @@ class TaskOrchestratorConfigManager(
         // Configuration files
         const val AGENT_MAPPING_FILE = "agent-mapping.yaml"
         const val CONFIG_FILE = "config.yaml"
+        const val ORCHESTRATOR_PROMPT_FILE = "orchestrator-prompt.txt"
 
         // Configuration version
         const val CURRENT_CONFIG_VERSION = "2.0.0"
@@ -152,6 +153,42 @@ class TaskOrchestratorConfigManager(
         }
 
         logger.info("Copied config file: $CONFIG_FILE (v2.0 mode enabled)")
+        return true
+    }
+
+    /**
+     * Copy the orchestrator-prompt.txt file from embedded resources to .taskorchestrator/
+     * This file provides a system prompt for Claude Code orchestrator mode.
+     * Skips if file already exists (idempotent).
+     *
+     * Returns true if the file was copied, false if it already existed.
+     */
+    fun copyOrchestratorPromptFile(): Boolean {
+        val taskOrchestratorDir = getTaskOrchestratorDir()
+        val targetFile = taskOrchestratorDir.resolve(ORCHESTRATOR_PROMPT_FILE)
+
+        // Skip if file already exists (idempotent)
+        if (Files.exists(targetFile)) {
+            logger.debug("Orchestrator prompt file already exists, skipping: $ORCHESTRATOR_PROMPT_FILE")
+            return false
+        }
+
+        // Ensure directory exists
+        if (!Files.exists(taskOrchestratorDir)) {
+            throw IllegalStateException(".taskorchestrator directory does not exist. Call createTaskOrchestratorDirectory() first.")
+        }
+
+        // Read from embedded resources
+        val resourcePath = "/claude/$ORCHESTRATOR_PROMPT_FILE"
+        val resourceStream = javaClass.getResourceAsStream(resourcePath)
+            ?: throw IllegalStateException("Could not find embedded resource: $resourcePath")
+
+        // Copy to target location
+        resourceStream.use { input ->
+            Files.copy(input, targetFile, StandardCopyOption.REPLACE_EXISTING)
+        }
+
+        logger.info("Copied orchestrator prompt file: $ORCHESTRATOR_PROMPT_FILE")
         return true
     }
 

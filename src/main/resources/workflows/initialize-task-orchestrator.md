@@ -84,7 +84,7 @@ AskUserQuestion(
       },
       {
         label: "Install New Features",
-        description: "Add newly available features (hooks/subagents) without changing guidelines"
+        description: "Add newly available features (subagents/skills) without changing guidelines"
       },
       {
         label: "Full Re-initialization",
@@ -124,7 +124,7 @@ After reading resources, AI agents **MUST write** the key principles to persiste
 ```markdown
 ## Task Orchestrator - AI Initialization
 
-**Last initialized:** YYYY-MM-DD | **Version:** 1.1.0-beta | **Features:** [none|hooks|subagents|hooks,subagents]
+**Last initialized:** YYYY-MM-DD | **Version:** 1.1.0-beta | **Features:** [none|skills|subagents|skills,subagents]
 
 ### Critical Patterns
 
@@ -165,7 +165,7 @@ After reading resources, AI agents **MUST write** the key principles to persiste
 4. If section missing: Append new section at end of file
 5. If no file exists: Create your AI's standard documentation file with initialization section
 6. Update version field to current version (1.1.0-beta)
-7. Update Features field based on Step 7 selections (none, hooks, subagents, or hooks,subagents)
+7. Update Features field based on Step 7 selections (none, skills, subagents, or skills,subagents)
 8. **Verify**: Read the file back to confirm successful write
 9. **Report**: Tell user where initialization was saved (specific file path and section)
 
@@ -417,93 +417,71 @@ If `.claude/` directory exists, offer optional Claude Code features using AskUse
 ```
 AskUserQuestion(
   questions: [{
-    question: "Claude Code detected! Which optional features would you like?",
+    question: "Claude Code detected! Would you like to use the Task Orchestrator plugin with Skills and Subagents?",
     header: "Features",
     multiSelect: false,
     options: [
       {
-        label: "Hooks Only",
-        description: "Lightweight automation (session start, template reminders)"
+        label: "Yes",
+        description: "Install plugin for Skills (lightweight) and Subagents (deep work)"
       },
       {
-        label: "Sub-agents Only",
-        description: "Specialist routing for complex features (3+ tasks)"
-      },
-      {
-        label: "Both",
-        description: "Recommended for complex projects with 4+ tasks per feature"
-      },
-      {
-        label: "Neither",
-        description: "Manual workflow only, no automation"
+        label: "No",
+        description: "Manual workflow only, direct tool calls"
       }
     ]
   }]
 )
 ```
 
-**Option [1] or [3]: Install Hooks**
+**If user chooses "Yes": Install Plugin**
 
-If user chooses hooks:
-1. Check if `.claude/settings.local.json` exists
-2. If exists: Read current content
-3. Merge Task Orchestrator hooks into existing config:
-   ```json
-   {
-     "hooks": {
-       "SessionStart": [{
-         "matcher": "*",
-         "hooks": [{
-           "type": "command",
-           "command": "bash",
-           "args": ["-c", "echo '{\"message\": \"💡 Task Orchestrator: Loading project context with get_overview()...\"}'"]
-         }]
-       }],
-       "PreToolUse": [{
-         "matcher": "mcp__task-orchestrator__create_task|mcp__task-orchestrator__create_feature",
-         "hooks": [{
-           "type": "command",
-           "command": "bash",
-           "args": ["-c", "if ! echo \"${'$'}TOOL_INPUT\" | grep -q '\\\"templateIds\\\"'; then echo '{\\\"message\\\": \\\"💡 Tip: Consider running list_templates() to discover available templates.\\\"}'; fi"]
-         }]
-       }]
-     }
-   }
+1. Check if plugin is already installed:
    ```
-4. Write merged config back to `.claude/settings.local.json`
-5. Verify file was written successfully
+   /plugin list
+   ```
 
-**Option [2] or [3]: Install Sub-Agents and Skills**
+2. If NOT installed, guide user to install:
+   ```
+   /plugin marketplace add jpicklyk/task-orchestrator
+   /plugin install task-orchestrator
+   /restart
+   ```
 
-If user chooses sub-agents:
-1. Run the `setup_claude_orchestration` tool
-2. This creates `.claude/agents/` directory with 8 subagent definitions:
-   - backend-engineer.md
-   - bug-triage-specialist.md
-   - database-engineer.md
-   - feature-architect.md
-   - frontend-developer.md
-   - planning-specialist.md
-   - technical-writer.md
-   - test-engineer.md
-3. This also creates `.claude/skills/` directory with 6 skill definitions:
-   - dependency-analysis (analyze dependencies, identify blockers)
-   - dependency-orchestration (manage dependency creation/updates)
-   - feature-orchestration (coordinate feature lifecycle)
-   - hook-builder (interactive hook creation tool)
-   - status-progression (guide status transitions)
-   - task-orchestration (coordinate task lifecycle)
-4. Verify agent and skill files were created successfully
+   **For local development:**
+   ```
+   /plugin marketplace add ./
+   /plugin install task-orchestrator@task-orchestrator-marketplace
+   /restart
+   ```
+
+3. Verify plugin installation:
+   - Check for `.claude/plugins/task-orchestrator/` directory
+   - Verify agents are available
+   - Verify skills are available
+
+**What the Plugin Provides:**
+- **Skills** (10+ skills): Lightweight coordination workflows
+  - feature-orchestration, task-orchestration, dependency-analysis
+  - status-progression, hook-builder, skill-builder, subagent-builder
+  - backend-implementation, database-implementation, frontend-implementation
+  - documentation-implementation, testing-implementation
+- **Subagents** (4 agents): Specialist implementations
+  - Feature Architect (Opus) - Feature design
+  - Planning Specialist (Sonnet) - Task breakdown
+  - Implementation Specialist (Haiku) - Standard implementation
+  - Senior Engineer (Sonnet) - Complex problems, debugging
 
 **Skills vs Subagents**:
 - Skills: Lightweight coordination (2-5 tool calls, 500-800 tokens)
-- Subagents: Complex implementation (2000+ tool calls, deep work)
+- Subagents: Complex implementation (2000+ tokens, deep reasoning)
 
-**Option [4]: Skip Both**
+**If user chooses "No": Skip Plugin**
 
 If user declines:
-- Note that workflows and templates still work (universal features)
-- User can manually install later if needed
+- Note that MCP tools still work (manage_container, query_container, etc.)
+- User can manually install plugin later if needed
+- Direct tool calls are always available
 
 ### Step 8: Initialization Complete - Final Report
 

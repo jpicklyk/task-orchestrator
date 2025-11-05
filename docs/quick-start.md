@@ -428,6 +428,144 @@ You: See 7 summaries (2,800 tokens) - NOT 79k
 
 ---
 
+## Orchestrator Mode (Optional - Claude Code Only)
+
+**Orchestrator Mode** enables Claude Code to naturally act as a **Technical Project Manager**, automatically coordinating feature development through specialist agents without requiring manual workflow invocation.
+
+### What is Orchestrator Mode?
+
+Instead of manually running `/coordinate_feature_development` or remembering when to delegate to specialists, Orchestrator Mode makes Claude Code:
+- ✅ **Automatically assess complexity** of user requests
+- ✅ **Route to appropriate specialists** (Feature Architect, Planning Specialist, Implementation Specialist)
+- ✅ **Monitor progress efficiently** using token-optimized operations
+- ✅ **Handle escalations** when specialists encounter blockers
+- ✅ **Coordinate parallel execution** through dependency-aware batching
+
+**Key Principle**: You (Claude) coordinate, specialists execute. You route and monitor; specialists implement code.
+
+### When to Use Orchestrator Mode
+
+**Use Orchestrator Mode if**:
+- ✅ You want **natural orchestration** without manual `/coordinate_feature_development` invocation
+- ✅ You prefer Claude Code to **default to delegation** rather than implementing directly
+- ✅ You have **complex projects** with multiple features and cross-domain work
+- ✅ You want Claude Code to **think like a technical project manager** by default
+
+**Skip Orchestrator Mode if**:
+- ❌ You prefer manual control over when to delegate
+- ❌ You want Claude Code to implement simple tasks directly without routing overhead
+- ❌ You're just learning Task Orchestrator basics
+
+### Setup: Enable Orchestrator Mode
+
+**Step 1: Run setup_project Tool**
+
+```
+run setup_project tool to initialize task orchestrator configuration
+```
+
+This creates `.taskorchestrator/orchestrator-prompt.txt` along with other configuration files.
+
+**Step 2: Start Claude Code with System Prompt**
+
+When starting Claude Code, include the orchestrator prompt:
+
+```bash
+claude --system-prompt-file .taskorchestrator/orchestrator-prompt.txt
+```
+
+**That's it!** Claude Code now operates in Orchestrator Mode for this session.
+
+### How Orchestrator Mode Works
+
+When you make requests, Claude Code follows this decision framework:
+
+**Level 1: Work Type Classification**
+- Coordination requests → Uses Skills (lightweight, 2-5 tool calls)
+  - "What's next?" → Feature Orchestration Skill
+  - "What's blocking?" → Dependency Analysis Skill
+- Implementation requests → Launches Subagents (deep reasoning + code)
+  - "Create feature for X" → Feature Architect
+  - "Implement X" → Routes to appropriate specialist via recommend_agent
+
+**Level 2: Complexity Assessment (for features)**
+- Simple features (< 200 chars, < 3 tasks) → Feature Orchestration Skill creates directly
+- Complex features (≥ 200 chars, ≥ 5 tasks) → Launches Feature Architect (Opus)
+
+**Level 3: Specialist Routing (for tasks)**
+- Uses `recommend_agent(taskId)` to automatically route based on task tags
+- Backend/Frontend/Database/Testing/Docs → Implementation Specialist (domain-specific)
+- Bug/Error/Blocker → Senior Engineer
+- No recommendation → Implementation Specialist (generalist)
+
+### Example: With vs Without Orchestrator Mode
+
+**Without Orchestrator Mode (Manual)**:
+```
+You: "I need to create an authentication system"
+AI: [Waits for explicit direction]
+You: "/coordinate_feature_development"
+AI: [Loads workflow, asks for details]
+You: [Provides feature description]
+AI: [Follows workflow steps explicitly]
+```
+
+**With Orchestrator Mode (Natural)**:
+```
+You: "I need to create an authentication system"
+AI: [Assesses: Complex feature]
+    [Routes: Feature Architect]
+    [Launches Feature Architect automatically]
+    "Launching Feature Architect (Opus) to formalize requirements...
+     Feature created (ID: abc-123).
+
+     Launching Planning Specialist for task breakdown...
+     8 tasks created with dependencies.
+
+     Ready to execute. Say 'What's next?' to begin implementation."
+```
+
+The orchestrator mode enables natural conversation without needing to remember workflow commands.
+
+### Token Efficiency in Orchestrator Mode
+
+Orchestrator Mode is **token-efficient** because:
+- Uses `overview` operations for status checks (93% reduction vs full reads)
+- Returns minimal status updates (not full context)
+- Delegates detailed coordination to Skills (60-82% savings vs doing it directly)
+- Launches specialists who work autonomously (no back-and-forth)
+
+**Example Token Comparison**:
+```
+Manual approach: 18,000 tokens (read full feature + all tasks + make decisions)
+Orchestrator Mode: 1,200 tokens (overview + route decision + launch specialist)
+
+Savings: 93% token reduction
+```
+
+### Disabling Orchestrator Mode
+
+To return to manual mode, simply start Claude Code without the system prompt:
+
+```bash
+claude
+```
+
+The orchestrator prompt is **session-specific**. Each new Claude Code session can choose whether to enable orchestrator mode.
+
+### Compatibility
+
+- **Works with**: All Task Orchestrator features (Skills, Subagents, Hooks, coordinate_feature_development)
+- **Enhances**: Natural delegation patterns, automatic routing decisions
+- **Replaces**: Session-start hook communication style (fully integrated into system prompt)
+- **Doesn't replace**: You can still manually invoke workflows or implement directly if you prefer
+
+The orchestrator prompt is a **coordination layer** that makes Claude Code default to delegation and routing patterns, but you retain full control to override when needed.
+
+**Note:** The orchestrator system prompt is fully self-contained, including all orchestration logic and communication style guidance (phase labels, status indicators, format preferences).
+
+---
+
 ## Decision Guide: When to Use What
 
 ### Use Basic Setup (MCP Protocol Only)

@@ -19,23 +19,18 @@ task-orchestrator/
 │       │   ├── implementation-specialist.md
 │       │   ├── planning-specialist.md
 │       │   └── senior-engineer.md
-│       ├── skills/                          # Skills (10+ skills)
-│       │   ├── dependency-analysis/
-│       │   ├── dependency-orchestration/
-│       │   ├── feature-orchestration/
-│       │   ├── status-progression/
-│       │   ├── task-orchestration/
-│       │   ├── backend-implementation/
-│       │   ├── database-implementation/
-│       │   ├── documentation-implementation/
-│       │   ├── frontend-implementation/
-│       │   ├── testing-implementation/
-│       │   └── ... (and builder skills)
-│       ├── hooks/
-│       │   └── hooks.json                   # Hook definitions
-│       └── hooks-handlers/
-│           ├── session-start.js             # SessionStart hook (Node.js - cross-platform)
-│           └── session-start.sh             # SessionStart hook (legacy bash)
+│       └── skills/                          # Skills (10+ skills)
+│           ├── dependency-analysis/
+│           ├── dependency-orchestration/
+│           ├── feature-orchestration/
+│           ├── status-progression/
+│           ├── task-orchestration/
+│           ├── backend-implementation/
+│           ├── database-implementation/
+│           ├── documentation-implementation/
+│           ├── frontend-implementation/
+│           ├── testing-implementation/
+│           └── ... (and builder skills)
 │
 └── src/main/resources/                      # Source files (development)
     ├── claude/
@@ -120,7 +115,6 @@ When a user runs `/plugin install task-orchestrator@task-orchestrator-marketplac
    - MCP server from `.mcp.json`
    - Subagents from `agents/`
    - Skills from `skills/`
-   - Hooks from `hooks/`
 
 ## Maintenance
 
@@ -149,37 +143,3 @@ The `.gitignore` file should:
 - ❌ **Ignore** `.taskorchestrator/` directory (user configuration)
 
 This ensures the plugin source is versioned while user customizations remain local.
-
-## Cross-Platform Support
-
-### Hooks
-
-The plugin hooks use **Node.js** for cross-platform compatibility:
-
-**Why Node.js?**
-- ✅ Guaranteed to be available (Claude Code is built on it)
-- ✅ Works on Windows, macOS, and Linux
-- ✅ No additional dependencies required
-
-**Hook Implementation:**
-- **session-start.js** - Node.js script (primary, cross-platform)
-- **session-start.sh** - Bash script (legacy, Unix/macOS/Git Bash only)
-
-The `hooks/hooks.json` file uses the Node.js version:
-```json
-{
-  "type": "command",
-  "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks-handlers/session-start.js"
-}
-```
-
-**Testing Hooks:**
-```bash
-# Test the Node.js hook (works everywhere)
-node claude-plugins/task-orchestrator/hooks-handlers/session-start.js
-
-# Test the bash hook (Unix/macOS/Git Bash only)
-bash claude-plugins/task-orchestrator/hooks-handlers/session-start.sh
-```
-
-Both scripts produce identical JSON output with the Task Orchestrator communication style.

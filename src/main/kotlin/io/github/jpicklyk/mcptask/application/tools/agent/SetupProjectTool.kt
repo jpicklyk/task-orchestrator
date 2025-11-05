@@ -32,10 +32,12 @@ class SetupProjectTool : BaseToolDefinition() {
         - `.taskorchestrator/` - Core configuration directory
         - `.taskorchestrator/config.yaml` - Orchestrator configuration (status progression, validation rules)
         - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
+        - `.taskorchestrator/orchestrator-prompt.txt` - System prompt for Claude Code orchestrator mode
 
         Configuration Files:
         - config.yaml: Status workflows, validation rules, quality gates, parallelism settings
         - agent-mapping.yaml: Maps task tags to appropriate agents (used with Claude Code)
+        - orchestrator-prompt.txt: System prompt enabling natural task orchestration (optional)
 
         Parameters: None required
 
@@ -53,6 +55,7 @@ class SetupProjectTool : BaseToolDefinition() {
         After setup:
         - Edit .taskorchestrator/config.yaml to customize status workflows
         - Commit .taskorchestrator/ directory for team sharing
+        - Enable orchestrator mode: claude --system-prompt-file .taskorchestrator/orchestrator-prompt.txt
 
         For detailed examples and patterns: task-orchestrator://docs/tools/setup-project
         """
@@ -101,6 +104,12 @@ class SetupProjectTool : BaseToolDefinition() {
                                         "description" to JsonPrimitive("Whether agent-mapping.yaml was newly created")
                                     )
                                 ),
+                                "orchestratorPromptCreated" to JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("boolean"),
+                                        "description" to JsonPrimitive("Whether orchestrator-prompt.txt was newly created")
+                                    )
+                                ),
                                 "directory" to JsonObject(
                                     mapOf(
                                         "type" to JsonPrimitive("string"),
@@ -138,7 +147,11 @@ class SetupProjectTool : BaseToolDefinition() {
             logger.info("Copying agent-mapping.yaml configuration file...")
             val agentMappingCopied = configManager.copyAgentMappingFile()
 
-            // Step 4: Check for version updates (if files already existed)
+            // Step 4: Copy orchestrator-prompt.txt file (Claude Code orchestrator mode)
+            logger.info("Copying orchestrator-prompt.txt system prompt file...")
+            val orchestratorPromptCopied = configManager.copyOrchestratorPromptFile()
+
+            // Step 5: Check for version updates (if files already existed)
             val versionStatus = configManager.getConfigVersionStatus()
             val outdatedConfigs = versionStatus.filter { it.value.first }
 
@@ -163,10 +176,22 @@ class SetupProjectTool : BaseToolDefinition() {
                     append("Agent-mapping.yaml already exists. ")
                 }
 
-                if (directoryCreated || configCopied || agentMappingCopied) {
+                if (orchestratorPromptCopied) {
+                    append("Created orchestrator-prompt.txt. ")
+                } else {
+                    append("Orchestrator-prompt.txt already exists. ")
+                }
+
+                if (directoryCreated || configCopied || agentMappingCopied || orchestratorPromptCopied) {
                     append("Core configuration is ready.")
                 } else {
                     append("All configuration files already present.")
+                }
+
+                // Add usage instructions for orchestrator mode
+                if (orchestratorPromptCopied) {
+                    append("\n\n💡 Orchestrator Mode: To enable natural task orchestration, start Claude with:")
+                    append("\n   claude --system-prompt-file .taskorchestrator/orchestrator-prompt.txt")
                 }
 
                 // Report version status if any configs are outdated
@@ -191,12 +216,16 @@ class SetupProjectTool : BaseToolDefinition() {
                     put("directoryCreated", directoryCreated)
                     put("configCreated", configCopied)
                     put("agentMappingCreated", agentMappingCopied)
+                    put("orchestratorPromptCreated", orchestratorPromptCopied)
                     put("directory", configManager.getTaskOrchestratorDir().toString())
                     put("configPath", configManager.getTaskOrchestratorDir().resolve(
                         TaskOrchestratorConfigManager.CONFIG_FILE
                     ).toString())
                     put("agentMappingPath", configManager.getTaskOrchestratorDir().resolve(
                         TaskOrchestratorConfigManager.AGENT_MAPPING_FILE
+                    ).toString())
+                    put("orchestratorPromptPath", configManager.getTaskOrchestratorDir().resolve(
+                        TaskOrchestratorConfigManager.ORCHESTRATOR_PROMPT_FILE
                     ).toString())
                     put("hasOutdatedConfigs", outdatedConfigs.isNotEmpty())
                     put("currentVersion", TaskOrchestratorConfigManager.CURRENT_CONFIG_VERSION)

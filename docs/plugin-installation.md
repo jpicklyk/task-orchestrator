@@ -138,9 +138,6 @@ The Task Orchestrator plugin includes:
 - status-progression - Status workflow validation
 - Plus implementation skills and builder tools
 
-### 🪝 Hooks
-- SessionStart - Project context and overview at session start
-
 ## Verification Steps
 
 ### Check Plugin Installation
@@ -228,23 +225,6 @@ recommend_agent(taskId="your-task-id")
    ```
 
 3. **Restart Claude Code**
-
-### Hooks Not Running
-
-1. **Check hooks configuration:**
-   ```bash
-   cat .claude-plugin/task-orchestrator/hooks/hooks.json
-   ```
-
-2. **Verify hook handler exists:**
-   ```bash
-   ls .claude-plugin/task-orchestrator/hooks-handlers/session-start.sh
-   ```
-
-3. **Make hook handler executable:**
-   ```bash
-   chmod +x .claude-plugin/task-orchestrator/hooks-handlers/session-start.sh
-   ```
 
 ## Updating the Plugin
 

@@ -1,12 +1,26 @@
 ---
 name: project-setup-workflow
 description: AI-agnostic guide for setting up Task Orchestrator with existing or new projects
-version: "2.0.1"
+version: "2.1.0"
 ---
 
 # Project Setup Workflow (AI-Agnostic)
 
 This workflow helps you set up Task Orchestrator for project management, whether you're working with an existing codebase or starting a brand new project. It works with any AI agent by using abstract storage patterns rather than prescribing specific files.
+
+## Version 2.1 Updates
+
+**Breaking Changes from v2.0:**
+- ✅ Uses v2.0 consolidated tools (`manage_container`, `query_container`, `query_templates`)
+- ✅ Plugin-based Claude Code integration (removed `setup_claude_orchestration` tool)
+- ✅ Removed all references to deprecated v1.0 tools
+- ✅ Added mandatory template discovery pattern
+- ✅ Corrected configuration file names
+- ✅ Reorganized step numbering for logical flow
+
+**Migration:** If using v1.0 documentation, update all tool calls to v2.0 syntax.
+
+---
 
 ## Understanding Storage Categories
 
@@ -27,7 +41,7 @@ Task Orchestrator uses three storage layers:
 **3. Task Orchestrator Database** (managed by MCP):
 - Purpose: Structured work planning and tracking
 - Content: Features, tasks, dependencies, progress, templates
-- Access: Through MCP tools (get_overview, create_task, etc.)
+- Access: Through MCP tools (query_container, manage_container, etc.)
 
 ## Key Principle: AI Agent Agnostic
 
@@ -39,11 +53,44 @@ Your AI agent should:
 - Store local context in gitignored files
 - Report where it stored information
 
-## Step 0: Initialize Task Orchestrator Configuration (REQUIRED FIRST)
+## Step 1: Check AI Initialization (Optional but Recommended)
+
+**RECOMMENDED**: Verify AI has been initialized with Task Orchestrator guidelines.
+
+**Check your memory** (CLAUDE.md, .cursorrules, etc.) for "Task Orchestrator - AI Initialization" section:
+
+**If NOT found or uncertain**, use AskUserQuestion:
+```
+AskUserQuestion(
+  questions: [{
+    question: "AI initialization recommended before project setup. The initialize_task_orchestrator workflow teaches template discovery patterns, intent recognition, and quality standards. How would you like to proceed?",
+    header: "Initialization",
+    multiSelect: false,
+    options: [
+      {
+        label: "Initialize First",
+        description: "Run initialize_task_orchestrator to teach AI patterns (recommended)"
+      },
+      {
+        label: "Skip Initialization",
+        description: "Continue with project setup, use tools directly"
+      }
+    ]
+  }]
+)
+```
+
+**If user chooses "Initialize First"**: Pause this workflow, run `initialize_task_orchestrator`, then resume here.
+
+**If user chooses "Skip Initialization" or initialization already done**: Continue to Step 2.
+
+---
+
+## Step 2: Initialize Task Orchestrator Configuration (REQUIRED FIRST)
 
 **Before setting up your project**, you MUST initialize Task Orchestrator's core configuration.
 
-### Step 0.1: Run setup_project Tool
+### Step 2.1: Run setup_project Tool
 
 **Execute the setup_project tool** to create core Task Orchestrator configuration:
 
@@ -53,50 +100,35 @@ setup_project()
 
 **What this creates**:
 - `.taskorchestrator/` directory
-- `.taskorchestrator/config.yaml` - Orchestrator configuration
-- `.taskorchestrator/status-workflow-config.yaml` - Workflow definitions
+- `.taskorchestrator/config.yaml` - Orchestrator configuration (status workflows, validation rules)
 - `.taskorchestrator/agent-mapping.yaml` - Agent routing configuration
+- `.taskorchestrator/orchestrator-prompt.txt` - System prompt for Claude Code orchestrator mode (optional)
 
 **This is idempotent**: Safe to run multiple times, skips existing files.
 
 **Verify success**: Tool should report success and list created/skipped files.
 
-### Step 0.2: Detect Claude Code Usage
+### Step 2.2: Claude Code Integration (Optional)
 
-**Check if the user is using Claude Code** (enables optional advanced features):
+**If using Claude Code**, Skills and Subagents are available via plugin architecture:
 
-**Detection methods** (try in order):
-1. Check for `.claude/` directory in project root (indicates Claude Code setup)
-2. Ask user: "Are you using Claude Code for this project? (enables sub-agents and skills) [Y/n]"
+**What's Included:**
+- **Plugin:** `.claude/plugins/task-orchestrator/` (auto-discovered)
+- **Skills:** Available through plugin (feature-orchestration, task-orchestration, dependency-analysis, status-progression, etc.)
+- **Subagents:** Available through plugin (Feature Architect, Planning Specialist, Implementation Specialist, etc.)
 
-**Based on detection**:
-- **If Claude Code detected/confirmed**: Continue to Step 0.3
-- **If NOT Claude Code**: Skip to Step 1 (basic setup complete)
+**No additional setup required** - Plugin is auto-discovered by Claude Code when MCP server is configured in `claude_desktop_config.json`.
 
-### Step 0.3: Run setup_claude_orchestration Tool (Claude Code Only)
+**Verify plugin:**
+- Skills auto-activate from natural language ("What's next?", "Complete feature")
+- Subagents accessible via Task tool
+- See plugin documentation for details
 
-**If Claude Code is being used**, execute the setup_claude_orchestration tool:
-
-```
-setup_claude_orchestration()
-```
-
-**What this creates** (Claude Code specific):
-- `.claude/agents/task-orchestrator/` - 4 specialized subagent definitions
-- `.claude/skills/` - 6 Skills for lightweight coordination workflows
-- `.claude/output-styles/` - Task Orchestrator output style
-
-**Prerequisite check**: This tool will verify `.taskorchestrator/` exists (from Step 0.1).
-
-**This is idempotent**: Safe to run multiple times, skips existing files.
-
-**Verify success**: Tool should report success and list created/skipped files.
-
-**Note**: If user is not using Claude Code, this step is skipped and they use Task Orchestrator via direct tool calls.
+**Note:** If user is not using Claude Code, they use Task Orchestrator via direct tool calls only.
 
 ---
 
-**After Step 0 completion**, report to user:
+**After Step 2 completion**, report to user:
 
 ```
 ✅ Task Orchestrator configuration initialized!
@@ -104,15 +136,15 @@ setup_claude_orchestration()
 Core setup complete:
 - Configuration files created in .taskorchestrator/
 [If Claude Code:]
-- Claude Code integration enabled
-- Subagents and Skills available in .claude/
+- Claude Code plugin integration available
+- Skills and Subagents ready to use
 
 Ready to proceed with project setup...
 ```
 
 ---
 
-## Step 1: Detect Scenario
+## Step 3: Detect Scenario
 
 **Determine which setup scenario applies:**
 
@@ -153,44 +185,13 @@ AskUserQuestion(
 )
 ```
 
-## Step 2: Check AI Initialization (Recommended)
-
-**RECOMMENDED**: Verify AI has been initialized with Task Orchestrator guidelines.
-
-**Check your memory** (CLAUDE.md, .cursorrules, etc.) for "Task Orchestrator - AI Initialization" section:
-
-**If NOT found or uncertain**, use AskUserQuestion:
-```
-AskUserQuestion(
-  questions: [{
-    question: "AI initialization recommended before project setup. The initialize_task_orchestrator workflow teaches template discovery patterns, intent recognition, and quality standards. How would you like to proceed?",
-    header: "Initialization",
-    multiSelect: false,
-    options: [
-      {
-        label: "Initialize First",
-        description: "Run initialize_task_orchestrator to teach AI patterns (recommended)"
-      },
-      {
-        label: "Skip Initialization",
-        description: "Continue with project setup, use tools directly"
-      }
-    ]
-  }]
-)
-```
-
-**If user chooses "Initialize First"**: Pause this workflow, run `initialize_task_orchestrator`, then resume here.
-
-**If user chooses "Skip Initialization" or initialization already done**: Continue to Step 0 (setup tools).
-
 ---
 
 ## SCENARIO A: Existing Codebase
 
 Use this path when project documentation and code already exist.
 
-### Step 3A: Review Existing Documentation
+### Step 4A: Review Existing Documentation
 
 **Read existing project documentation** to understand the codebase:
 
@@ -204,13 +205,18 @@ Use file system tools to read:
 - What technologies are being used?
 - What features/components already exist?
 
-### Step 3.5A: Check for Existing Projects (REQUIRED)
+### Step 5A: Check for Existing Projects (REQUIRED)
 
 **Before creating a new project**, search for existing projects:
 
-Use search_projects:
-- Search by project name extracted from documentation
-- Check if any results match
+**Use query_container:**
+```javascript
+query_container(
+  operation="search",
+  containerType="project",
+  query="[project name from documentation]"
+)
+```
 
 **If existing project found**, use AskUserQuestion:
 ```
@@ -234,30 +240,32 @@ AskUserQuestion(
 ```
 
 - **If "Yes, Same Project"**:
-  - Skip project creation (Step 4A)
+  - Skip project creation (Step 6A)
   - Use the existing project UUID
-  - Jump to Step 8A (save existing UUID to local memory)
+  - Jump to Step 10A (save existing UUID to local memory)
   - Report: "Recovered existing project UUID to local memory"
 
 - **If "No, Different Project"**:
   - Ask user to provide a different name to avoid confusion
-  - Continue to Step 4A with new name
+  - Continue to Step 6A with new name
 
 **If no existing project found**:
-- Continue to Step 4A (create new project)
+- Continue to Step 6A (create new project)
 
-### Step 4A: Create Lightweight Project Entity
+### Step 6A: Create Lightweight Project Entity
 
 **Create minimal project container** in Task Orchestrator:
 
-Use create_project:
-```json
-{
-  "name": "[Project name from docs]",
-  "summary": "[1-2 sentence description from docs]",
-  "status": "in-development",
-  "tags": "[main-tech-stack,project-type]"
-}
+**Use manage_container:**
+```javascript
+manage_container(
+  operation="create",
+  containerType="project",
+  name="[Project name from docs]",
+  summary="[1-2 sentence description from docs]",
+  status="in-development",
+  tags="[main-tech-stack,project-type]"
+)
 ```
 
 **Keep it simple**:
@@ -266,7 +274,36 @@ Use create_project:
 - Status: Likely "in-development" since code exists
 - **DO NOT create project sections** - docs already exist in files
 
-### Step 5A: Identify Features from Codebase
+### Step 7A: Discover Available Templates (REQUIRED)
+
+**BEFORE creating features or tasks**, discover available templates:
+
+**Use query_templates:**
+```javascript
+// For feature templates
+query_templates(
+  operation="list",
+  targetEntityType="FEATURE",
+  isEnabled=true
+)
+
+// For task templates
+query_templates(
+  operation="list",
+  targetEntityType="TASK",
+  isEnabled=true
+)
+```
+
+**Common Templates:**
+- **Tasks:** `task-implementation-workflow`, `technical-approach`, `testing-strategy`, `bug-investigation`, `local-git-branching-workflow`, `github-pr-workflow`
+- **Features:** `requirements-specification`, `context-and-background`, `definition-of-done`
+
+**CRITICAL:** Never assume templates exist. Always discover first, then apply by ID.
+
+**Store template IDs** for use in subsequent steps.
+
+### Step 8A: Identify Features from Codebase
 
 **Analyze existing structure** to identify features:
 
@@ -296,27 +333,29 @@ AskUserQuestion(
 )
 ```
 
-### Step 6A: Create Features
+### Step 9A: Create Features
 
-**For each confirmed feature**, use create_feature:
+**For each confirmed feature**, use manage_container:
 
-```json
-{
-  "name": "[Feature name]",
-  "summary": "[What it does and current state]",
-  "status": "[planning/in-development/completed based on code]",
-  "priority": "medium",
-  "projectId": "[project-id-from-step-4A]",
-  "templateIds": ["requirements-specification"],
-  "tags": "[feature-area,tech-stack]"
-}
+```javascript
+manage_container(
+  operation="create",
+  containerType="feature",
+  name="[Feature name]",
+  summary="[What it does and current state]",
+  status="[planning/in-development/completed based on code]",
+  priority="medium",
+  projectId="[project-id-from-step-6A]",
+  templateIds=["[template-uuid-from-step-7A]"],
+  tags="[feature-area,tech-stack]"
+)
 ```
 
 **Minimal templates**:
-- Use just "requirements-specification" for existing features
+- Use just "requirements-specification" template ID for existing features
 - Can add more detail later if needed
 
-### Step 7A: Create Initial Tasks (Optional)
+### Step 10A: Create Initial Tasks (Optional)
 
 **Ask user** (use AskUserQuestion):
 ```
@@ -346,25 +385,27 @@ If "Yes, Create Tasks", create tasks for:
 
 **Git Detection**: Check for .git directory
 
-Use create_task:
-```json
-{
-  "title": "[Specific task]",
-  "summary": "[What to do and why]",
-  "featureId": "[feature-id]",
-  "projectId": "[project-id]",
-  "priority": "[high/medium/low]",
-  "complexity": "[3-7]",
-  "templateIds": ["task-implementation-workflow", "local-git-branching-workflow"],
-  "tags": "task-type-feature,[area]"
-}
+**Use manage_container:**
+```javascript
+manage_container(
+  operation="create",
+  containerType="task",
+  title="[Specific task]",
+  summary="[What to do and why]",
+  featureId="[feature-id]",
+  projectId="[project-id]",
+  priority="[high/medium/low]",
+  complexity=[3-7],
+  templateIds=["[template-uuids-from-step-7A]"],
+  tags="task-type-feature,[area]"
+)
 ```
 
 **Template notes**:
-- Include "local-git-branching-workflow" if git detected
+- Include "local-git-branching-workflow" template ID if git detected
 - Ask about PR workflows if uncertain
 
-### Step 8A: Save Project UUID to Local Memory
+### Step 11A: Save Project UUID to Local Memory
 
 **REQUIRED ACTION**: Write project UUID to local developer memory.
 
@@ -377,13 +418,13 @@ Use create_task:
 ```markdown
 ## Task Orchestrator - Project Context
 
-Project UUID: [uuid-from-step-4A]
+Project UUID: [uuid-from-step-6A]
 Project Name: [name]
 Last synced: YYYY-MM-DD
 
 Quick commands:
-- View overview: get_overview()
-- View project: get_project(id="[uuid]", includeFeatures=true, includeTasks=true)
+- View overview: query_container(operation="overview", containerType="project")
+- View project: query_container(operation="get", containerType="project", id="[uuid]")
 ```
 
 **File Writing Steps**:
@@ -395,7 +436,7 @@ Quick commands:
 6. **Verify**: Read file back to confirm write
 7. **Report**: "Saved project UUID to [file-path]"
 
-### Step 9A: Ensure Local Memory is Gitignored
+### Step 12A: Ensure Local Memory is Gitignored
 
 **REQUIRED ACTION**: Verify local storage is gitignored.
 
@@ -419,7 +460,7 @@ CLAUDE.local.md
 
 **Report**: "Added [your-local-file] to .gitignore"
 
-### Step 10A: Completion
+### Step 13A: Completion
 
 **Report to user**:
 ```
@@ -431,9 +472,9 @@ Features created: [count]
 Tasks created: [count]
 
 Next steps:
-- Run get_overview() to see your project structure
+- Run query_container(operation="overview", containerType="project") to see your project structure
 - Start creating tasks for upcoming work
-- Use Task Management Skill or direct tools (manage_container) when ready to code
+- Use Skills or direct tools (manage_container) when ready to code
 
 Your existing documentation remains the source of truth in [CLAUDE.md/etc].
 Task Orchestrator now tracks your work planning and progress.
@@ -445,7 +486,7 @@ Task Orchestrator now tracks your work planning and progress.
 
 Use this path when starting a brand new project with a project plan document.
 
-### Step 3B: Get Project Plan
+### Step 4B: Get Project Plan
 
 **Ask user for project plan** (use AskUserQuestion):
 
@@ -494,9 +535,9 @@ AskUserQuestion(
   - What are success criteria?
 
 **If "Already Documented"**:
-- Skip to Step 5B (create project entity directly)
+- Skip to Step 6B (create project entity directly)
 
-### Step 4B: Extract Project Information to Shared Docs
+### Step 5B: Extract Project Information to Shared Docs
 
 **Extract key information from project plan**:
 - Project overview (what/why)
@@ -544,13 +585,18 @@ AskUserQuestion(
 
 **Important**: This file should be committed to git so all team members can see it.
 
-### Step 4.5B: Check for Existing Projects (REQUIRED)
+### Step 6B: Check for Existing Projects (REQUIRED)
 
 **Before creating a new project**, search for existing projects:
 
-Use search_projects:
-- Search by project name extracted from plan
-- Check if any results match
+**Use query_container:**
+```javascript
+query_container(
+  operation="search",
+  containerType="project",
+  query="[project name from plan]"
+)
+```
 
 **If existing project found**, use AskUserQuestion:
 ```
@@ -574,30 +620,32 @@ AskUserQuestion(
 ```
 
 - **If "Yes, Same Project"**:
-  - Skip project creation (Step 5B)
+  - Skip project creation (Step 7B)
   - Use the existing project UUID
-  - Jump to Step 8B (save existing UUID to local memory)
+  - Jump to Step 11B (save existing UUID to local memory)
   - Report: "Recovered existing project UUID to local memory"
 
 - **If "No, Different Project"**:
   - Ask user to provide a different name to avoid confusion
-  - Continue to Step 5B with new name
+  - Continue to Step 7B with new name
 
 **If no existing project found**:
-- Continue to Step 5B (create new project)
+- Continue to Step 7B (create new project)
 
-### Step 5B: Create Lightweight Project Entity
+### Step 7B: Create Lightweight Project Entity
 
 **Create minimal project container** in Task Orchestrator:
 
-Use create_project:
-```json
-{
-  "name": "[Project name from plan]",
-  "summary": "[1-2 sentence essence from plan]",
-  "status": "planning",
-  "tags": "[tech-stack,project-type]"
-}
+**Use manage_container:**
+```javascript
+manage_container(
+  operation="create",
+  containerType="project",
+  name="[Project name from plan]",
+  summary="[1-2 sentence essence from plan]",
+  status="planning",
+  tags="[tech-stack,project-type]"
+)
 ```
 
 **Keep it simple**:
@@ -606,7 +654,36 @@ Use create_project:
 - Status: "planning" for new projects
 - **DO NOT create project sections** - info already in shared docs
 
-### Step 6B: Create Features from Plan
+### Step 8B: Discover Available Templates (REQUIRED)
+
+**BEFORE creating features or tasks**, discover available templates:
+
+**Use query_templates:**
+```javascript
+// For feature templates
+query_templates(
+  operation="list",
+  targetEntityType="FEATURE",
+  isEnabled=true
+)
+
+// For task templates
+query_templates(
+  operation="list",
+  targetEntityType="TASK",
+  isEnabled=true
+)
+```
+
+**Common Templates:**
+- **Tasks:** `task-implementation-workflow`, `technical-approach`, `testing-strategy`, `bug-investigation`, `local-git-branching-workflow`, `github-pr-workflow`
+- **Features:** `requirements-specification`, `context-and-background`, `definition-of-done`
+
+**CRITICAL:** Never assume templates exist. Always discover first, then apply by ID.
+
+**Store template IDs** for use in subsequent steps.
+
+### Step 9B: Create Features from Plan
 
 **Identify 3-7 core features** from project plan:
 
@@ -631,73 +708,82 @@ AskUserQuestion(
 )
 ```
 
-**For each confirmed feature**, use create_feature:
+**For each confirmed feature**, use manage_container:
 
-```json
-{
-  "name": "[Feature name from plan]",
-  "summary": "[What it will do and why it's needed]",
-  "status": "planning",
-  "priority": "[high for foundation, medium for enhancements]",
-  "projectId": "[project-id-from-step-5B]",
-  "templateIds": ["requirements-specification"],
-  "tags": "[feature-area,user-facing/internal]"
-}
+```javascript
+manage_container(
+  operation="create",
+  containerType="feature",
+  name="[Feature name from plan]",
+  summary="[What it will do and why it's needed]",
+  status="planning",
+  priority="[high for foundation, medium for enhancements]",
+  projectId="[project-id-from-step-7B]",
+  templateIds=["[template-uuid-from-step-8B]"],
+  tags="[feature-area,user-facing/internal]"
+)
 ```
 
 **Minimal templates**:
-- Use just "requirements-specification" to start
+- Use just "requirements-specification" template ID to start
 - Keeps overhead low for new projects
 
-### Step 7B: Create Foundation Tasks
+### Step 10B: Create Foundation Tasks
 
 **Create initial implementation tasks**:
 
 **Git Detection**: Check for .git directory
-- If exists: Include git workflow templates
+- If exists: Include git workflow template IDs
 - If not: Ask if user wants to initialize git
 
 **Foundation tasks to create**:
-```json
-{
-  "title": "Project Infrastructure Setup",
-  "summary": "Initialize repository, configure build tools, set up CI/CD",
-  "projectId": "[project-id]",
-  "priority": "high",
-  "complexity": 5,
-  "templateIds": ["task-implementation-workflow", "technical-approach"],
-  "tags": "task-type-infrastructure,setup,foundation"
-}
+
+```javascript
+manage_container(
+  operation="create",
+  containerType="task",
+  title="Project Infrastructure Setup",
+  summary="Initialize repository, configure build tools, set up CI/CD",
+  projectId="[project-id]",
+  priority="high",
+  complexity=5,
+  templateIds=["[task-implementation-workflow-uuid]", "[technical-approach-uuid]"],
+  tags="task-type-infrastructure,setup,foundation"
+)
 ```
 
 **If git detected**:
-```json
-{
-  "title": "Establish Development Workflow",
-  "summary": "Set up branching strategy, PR process, commit conventions",
-  "projectId": "[project-id]",
-  "priority": "high",
-  "complexity": 3,
-  "templateIds": ["local-git-branching-workflow", "github-pr-workflow"],
-  "tags": "task-type-process,git-workflow"
-}
+```javascript
+manage_container(
+  operation="create",
+  containerType="task",
+  title="Establish Development Workflow",
+  summary="Set up branching strategy, PR process, commit conventions",
+  projectId="[project-id]",
+  priority="high",
+  complexity=3,
+  templateIds=["[local-git-branching-workflow-uuid]", "[github-pr-workflow-uuid]"],
+  tags="task-type-process,git-workflow"
+)
 ```
 
 **Create 1-2 tasks per feature** for initial work:
-```json
-{
-  "title": "[Specific implementation task]",
-  "summary": "[What to build with acceptance criteria]",
-  "featureId": "[feature-id]",
-  "projectId": "[project-id]",
-  "priority": "medium",
-  "complexity": "[3-6]",
-  "templateIds": ["task-implementation-workflow"],
-  "tags": "task-type-feature,[component]"
-}
+```javascript
+manage_container(
+  operation="create",
+  containerType="task",
+  title="[Specific implementation task]",
+  summary="[What to build with acceptance criteria]",
+  featureId="[feature-id]",
+  projectId="[project-id]",
+  priority="medium",
+  complexity=[3-6],
+  templateIds=["[task-implementation-workflow-uuid]"],
+  tags="task-type-feature,[component]"
+)
 ```
 
-### Step 8B: Save Project UUID to Local Memory
+### Step 11B: Save Project UUID to Local Memory
 
 **REQUIRED ACTION**: Write project UUID to local developer memory.
 
@@ -710,13 +796,13 @@ AskUserQuestion(
 ```markdown
 ## Task Orchestrator - Project Context
 
-Project UUID: [uuid-from-step-5B]
+Project UUID: [uuid-from-step-7B]
 Project Name: [name]
 Last synced: YYYY-MM-DD
 
 Quick commands:
-- View overview: get_overview()
-- View project: get_project(id="[uuid]", includeFeatures=true, includeTasks=true)
+- View overview: query_container(operation="overview", containerType="project")
+- View project: query_container(operation="get", containerType="project", id="[uuid]")
 ```
 
 **File Writing Steps**:
@@ -728,7 +814,7 @@ Quick commands:
 6. **Verify**: Read file back to confirm write
 7. **Report**: "Saved project UUID to [file-path]"
 
-### Step 9B: Ensure Local Memory is Gitignored
+### Step 12B: Ensure Local Memory is Gitignored
 
 **REQUIRED ACTION**: Verify local storage is gitignored.
 
@@ -750,7 +836,7 @@ CLAUDE.local.md
 
 **Report**: "Added [your-local-file] to .gitignore"
 
-### Step 10B: Completion
+### Step 13B: Completion
 
 **Report to user**:
 ```
@@ -763,7 +849,7 @@ Features created: [count]
 Foundation tasks created: [count]
 
 Next steps:
-- Run get_overview() to see your project structure
+- Run query_container(operation="overview", containerType="project") to see your project structure
 - Start with foundation tasks (infrastructure, workflow setup)
 - Begin feature implementation
 
@@ -795,6 +881,12 @@ Ready to start building! 🚀
 - Provide WHAT to store, not WHERE
 - Work with any AI tool (Claude, Cursor, Copilot, etc.)
 - Report actual storage locations to user
+
+**Template Discovery**:
+- ALWAYS run query_templates before creating entities
+- Never assume templates exist
+- Apply templates by UUID from discovery results
+- Store template IDs for reuse
 
 **Gitignore Discipline**:
 - Always ensure local memory is gitignored

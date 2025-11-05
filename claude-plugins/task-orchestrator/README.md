@@ -27,9 +27,6 @@ Lightweight coordination workflows (2-5 tool calls, 60-82% token savings):
 - **testing-implementation** - Test writing and validation patterns
 - Plus: **hook-builder**, **skill-builder**, **subagent-builder** for customization
 
-### Hooks
-- **SessionStart** - Provides project context and task overview at session start
-
 ## Installation
 
 ### Via Plugin Marketplace (Recommended for GitHub Installation)
@@ -206,46 +203,6 @@ The MCP server runs in Docker with volume mounts:
 - `mcp-task-data:/app/data` - SQLite database persistence
 - Project mount for config file access
 
-## Tools Overview
-
-### Unified Container Tools (v2.0)
-- **manage_container** - Create, update, delete, setStatus, bulkUpdate
-- **query_container** - Get, search, export, overview operations
-
-### Section Management
-- **manage_sections** - Add, update, delete, reorder, bulk operations
-- **query_sections** - Read sections with filtering and token optimization
-
-### Dependency Management
-- **manage_dependency** - Create/delete task dependencies
-- **query_dependencies** - Query with filtering and task info
-
-### Workflow Optimization
-- **get_next_task** - Intelligent task recommendations
-- **get_blocked_tasks** - Dependency blocking analysis
-- **get_next_status** - Status progression recommendations
-
-### Templates & Configuration
-- **query_templates**, **manage_template**, **apply_template**
-- **query_workflow_state**, **get_next_status**
-
-## Token Efficiency
-
-**v2.0 Consolidation** - 68% token reduction:
-- 56 tools → 18 unified tools
-- ~84k → ~36k characters across all tool definitions
-
-**Scoped Overview Pattern** - 85-95% token savings:
-```javascript
-// Instead of get with includeSections=true (18.5k tokens)
-query_container(operation="overview", containerType="feature", id="...")
-// Returns hierarchical view without sections (1.2k tokens)
-```
-
-**Skills vs Direct Work** - 60-82% token savings:
-- Skills load only when needed (~500-600 tokens)
-- Direct MCP tool calls have minimal overhead
-- Use Skills for repetitive coordination patterns
 
 ## Documentation
 
