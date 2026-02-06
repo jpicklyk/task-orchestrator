@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
 
@@ -64,7 +64,7 @@ class GetNextTaskTool : BaseToolDefinition() {
         For detailed examples and patterns: task-orchestrator://docs/tools/get-next-task
         """
 
-    override val parameterSchema: Tool.Input = Tool.Input(
+    override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "projectId" to JsonObject(
@@ -102,7 +102,7 @@ class GetNextTaskTool : BaseToolDefinition() {
         required = listOf()
     )
 
-    override val outputSchema: Tool.Output = Tool.Output(
+    override val outputSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "success" to JsonObject(

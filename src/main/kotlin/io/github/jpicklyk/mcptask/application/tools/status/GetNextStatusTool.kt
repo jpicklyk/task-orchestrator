@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -73,7 +73,7 @@ class GetNextStatusTool(
         For detailed examples: task-orchestrator://docs/tools/get-next-status
     """.trimIndent()
 
-    override val parameterSchema: Tool.Input = Tool.Input(
+    override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "containerId" to JsonObject(
@@ -108,7 +108,7 @@ class GetNextStatusTool(
         required = listOf("containerId", "containerType")
     )
 
-    override val outputSchema: Tool.Output = Tool.Output(
+    override val outputSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "success" to JsonObject(

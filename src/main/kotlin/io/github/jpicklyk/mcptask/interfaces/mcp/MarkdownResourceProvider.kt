@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.domain.rendering.MarkdownRenderer
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
-import io.modelcontextprotocol.kotlin.sdk.ReadResourceResult
-import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
+import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import org.slf4j.LoggerFactory
 

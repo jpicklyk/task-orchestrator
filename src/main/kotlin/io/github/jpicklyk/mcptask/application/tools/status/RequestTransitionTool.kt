@@ -13,7 +13,7 @@ import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -74,7 +74,7 @@ Returns:
 Use get_next_status for read-only recommendations without applying changes.
 Related: manage_container (setStatus), get_next_status"""
 
-    override val parameterSchema: Tool.Input = Tool.Input(
+    override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "containerId" to JsonObject(
@@ -108,7 +108,7 @@ Related: manage_container (setStatus), get_next_status"""
         required = listOf("containerId", "containerType", "trigger")
     )
 
-    override val outputSchema: Tool.Output = Tool.Output(
+    override val outputSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),

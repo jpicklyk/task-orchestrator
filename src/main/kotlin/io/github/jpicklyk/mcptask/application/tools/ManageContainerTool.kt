@@ -13,7 +13,7 @@ import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.time.Instant
 import java.util.*
@@ -37,7 +37,7 @@ class ManageContainerTool(
 
     override val title: String = "Manage Container"
 
-    override val outputSchema: Tool.Output = Tool.Output(
+    override val outputSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -79,7 +79,7 @@ Related: query_tasks, get_overview
 Docs: task-orchestrator://docs/tools/manage-container
 """
 
-    override val parameterSchema: Tool.Input = Tool.Input(
+    override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "operation" to JsonObject(

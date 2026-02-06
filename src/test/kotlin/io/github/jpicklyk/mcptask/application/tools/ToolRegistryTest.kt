@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -142,7 +142,7 @@ class ToolRegistryTest {
         return object : ToolDefinition {
             override val name: String = name
             override val description: String = description
-            override val parameterSchema: Tool.Input = Tool.Input(
+            override val parameterSchema: ToolSchema = ToolSchema(
                 properties = JsonObject(mapOf("type" to JsonPrimitive("object")))
             )
             override val category: ToolCategory = category

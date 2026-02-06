@@ -1,8 +1,9 @@
 package io.github.jpicklyk.mcptask.application.tools
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
@@ -104,13 +105,13 @@ class ToolRegistry(
             ) { request ->
                 try {
                     // Validate parameters
-                    definition.validateParams(request.arguments)
+                    definition.validateParams(request.arguments ?: JsonObject(emptyMap()))
 
                     // Execute the tool using the shared execution context
                     CallToolResult(
                         listOf(
                             TextContent(
-                                definition.execute(request.arguments, executionContext).toString()
+                                definition.execute(request.arguments ?: JsonObject(emptyMap()), executionContext).toString()
                             )
                         )
                     )

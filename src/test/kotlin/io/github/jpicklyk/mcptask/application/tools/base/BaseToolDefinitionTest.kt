@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.test.util.ResponseAssertions
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -502,7 +502,7 @@ class BaseToolDefinitionTest {
         override val name: String = "test_base_tool"
         override val description: String = "Test base tool for unit testing"
         override val category: ToolCategory = ToolCategory.SYSTEM
-        override val parameterSchema: Tool.Input = Tool.Input(
+        override val parameterSchema: ToolSchema = ToolSchema(
             properties = JsonObject(mapOf("type" to JsonPrimitive("object")))
         )
 

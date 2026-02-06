@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
@@ -253,7 +253,7 @@ class SimpleLockAwareToolDefinitionTest {
         override val name: String = "test-tool"
         override val description: String = "Test tool for locking behavior"
         override val category: ToolCategory = ToolCategory.SYSTEM
-        override val parameterSchema: Tool.Input = Tool.Input(
+        override val parameterSchema: ToolSchema = ToolSchema(
             properties = JsonObject(mapOf()),
             required = emptyList()
         )

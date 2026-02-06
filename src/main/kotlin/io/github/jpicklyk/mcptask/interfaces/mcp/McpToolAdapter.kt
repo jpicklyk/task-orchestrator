@@ -3,9 +3,10 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 
 /**
@@ -128,7 +129,7 @@ class McpToolAdapter {
         ) { request ->
             try {
                 // Preprocess and normalize parameters to handle various formats
-                val preprocessedParams = preprocessParameters(request.arguments)
+                val preprocessedParams = preprocessParameters(request.arguments ?: JsonObject(emptyMap()))
 
                 // Log the processed parameters for debugging
                 logger.debug("Processed parameters for tool '{}': {}", toolDefinition.name, preprocessedParams)

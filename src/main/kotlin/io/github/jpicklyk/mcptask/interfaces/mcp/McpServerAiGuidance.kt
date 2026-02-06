@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.interfaces.mcp
 
-import io.modelcontextprotocol.kotlin.sdk.GetPromptResult
-import io.modelcontextprotocol.kotlin.sdk.PromptMessage
-import io.modelcontextprotocol.kotlin.sdk.Role
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.GetPromptResult
+import io.modelcontextprotocol.kotlin.sdk.types.PromptMessage
+import io.modelcontextprotocol.kotlin.sdk.types.Role
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.serialization.json.JsonObject
 
@@ -131,7 +131,7 @@ Use specialized tools for maximum efficiency:
                 description = "Essential workflow patterns for Task Orchestrator",
                 messages = listOf(
                     PromptMessage(
-                        role = Role.assistant,
+                        role = Role.Assistant,
                         content = TextContent(
                             text = """
                             # Task Orchestrator - Essential Workflow Patterns
@@ -187,7 +187,7 @@ Use specialized tools for maximum efficiency:
                         )
                     )
                 ),
-                _meta = JsonObject(emptyMap())
+                meta = JsonObject(emptyMap())
             )
         }
     }

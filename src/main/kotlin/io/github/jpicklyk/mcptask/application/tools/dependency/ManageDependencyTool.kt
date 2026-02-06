@@ -13,7 +13,7 @@ import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
 
@@ -34,7 +34,7 @@ class ManageDependencyTool(
 
     override val title: String = "Manage Task Dependency"
 
-    override val outputSchema: Tool.Output = Tool.Output(
+    override val outputSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -81,7 +81,7 @@ Related: get_task_dependencies, manage_container, query_tasks
 Docs: task-orchestrator://docs/tools/manage-dependency
 """
 
-    override val parameterSchema: Tool.Input = Tool.Input(
+    override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "operation" to JsonObject(

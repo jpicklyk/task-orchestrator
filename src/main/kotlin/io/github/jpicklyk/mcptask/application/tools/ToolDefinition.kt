@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools
 
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
 
 /**
@@ -27,14 +27,14 @@ interface ToolDefinition {
     /**
      * The parameter schema defining the expected input for this tool.
      */
-    val parameterSchema: Tool.Input
+    val parameterSchema: ToolSchema
 
     /**
      * Optional output schema defining the structure of the tool's response.
      * Enables better integration with agent workflow systems (n8n, Zapier, etc.).
      * If not specified, defaults to null.
      */
-    val outputSchema: Tool.Output? get() = null
+    val outputSchema: ToolSchema? get() = null
 
     /**
      * Categorization for organizing tools in documentation and UI.

@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.test.mock
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 
@@ -14,7 +14,7 @@ class MockToolDefinition(
     override val name: String = "mock_tool",
     override val description: String = "Mock tool for testing",
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT,
-    override val parameterSchema: Tool.Input = Tool.Input(properties = JsonObject(emptyMap()), required = emptyList()),
+    override val parameterSchema: ToolSchema = ToolSchema(properties = JsonObject(emptyMap()), required = emptyList()),
     private val mockResponse: JsonElement = buildJsonObject {
         put("success", true)
         put("message", "Mock response")

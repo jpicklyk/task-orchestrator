@@ -10,7 +10,7 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
 
@@ -31,7 +31,7 @@ class ApplyTemplateTool(
 
     override val title: String = "Apply Template to Entity"
 
-    override val outputSchema: Tool.Output = Tool.Output(
+    override val outputSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -101,7 +101,7 @@ class ApplyTemplateTool(
         For detailed examples and patterns: task-orchestrator://docs/tools/apply-template
     """
 
-    override val parameterSchema: Tool.Input = Tool.Input(
+    override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
                 "templateIds" to JsonObject(
