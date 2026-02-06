@@ -1,0 +1,136 @@
+---
+layout: default
+title: Claude Code Plugin
+---
+
+# Claude Code Plugin
+
+The MCP Task Orchestrator ships a Claude Code plugin that adds skills, hooks, and workflows to enhance your experience with the MCP server. The plugin is distributed via the project's built-in marketplace.
+
+## What the Plugin Provides
+
+| Component | Description |
+|-----------|-------------|
+| **SessionStart hook** | Automatically prompts `query_container(operation="overview")` at the start of each session |
+| **task-orchestration skill** | Task creation, updates, completion patterns, and section management |
+| **feature-orchestration skill** | Feature lifecycle, task breakdown, overview queries, and bulk operations |
+| **status-progression skill** | Workflow triggers, transitions, emergency statuses, and cascade events |
+| **dependency-analysis skill** | Blocking analysis, prerequisite management, and work ordering |
+
+## Installation
+
+### From GitHub (recommended for MCP consumers)
+
+Add the marketplace and install the plugin:
+
+```
+/plugin marketplace add jpicklyk/task-orchestrator
+/plugin install task-orchestrator@task-orchestrator-marketplace
+```
+
+### From a Local Clone
+
+If you've cloned the repository:
+
+```
+/plugin marketplace add .
+/plugin install task-orchestrator@task-orchestrator-marketplace
+```
+
+### For Development/Testing
+
+Load the plugin directly without installation:
+
+```bash
+claude --plugin-dir ./claude-plugins/task-orchestrator
+```
+
+### For Project Developers
+
+If you're working on the task-orchestrator codebase, the plugin is auto-discovered via `extraKnownMarketplaces` in `.claude/settings.json`. You'll be prompted to install it when you trust the project.
+
+## Plugin Structure
+
+```
+claude-plugins/task-orchestrator/
+├── .claude-plugin/
+│   └── plugin.json          # Plugin manifest (name, version, metadata)
+├── skills/
+│   ├── task-orchestration/
+│   │   └── SKILL.md         # Task lifecycle patterns
+│   ├── feature-orchestration/
+│   │   └── SKILL.md         # Feature management patterns
+│   ├── status-progression/
+│   │   └── SKILL.md         # Status workflow guidance
+│   └── dependency-analysis/
+│       └── SKILL.md         # Dependency and blocker patterns
+├── hooks/
+│   └── hooks.json           # SessionStart hook configuration
+└── scripts/
+    └── session-start.sh     # Hook script (overview prompt)
+```
+
+## Skills Overview
+
+### task-orchestration
+
+Activated when working with individual tasks. Covers:
+- Creating tasks with templates (`query_templates` -> `manage_container`)
+- Partial updates for efficiency (only send changed fields)
+- Section management (`query_sections`, `manage_sections`)
+- Status progression with named triggers
+- Tag conventions that drive workflow selection
+
+### feature-orchestration
+
+Activated when managing features and their child tasks. Covers:
+- Feature creation with templates
+- Breaking features into tasks
+- Progress tracking with `query_container(operation="overview")`
+- Completion workflow (verify all tasks done, check sections, complete)
+- Bulk operations for multiple tasks
+
+### status-progression
+
+Activated when changing entity status. Covers:
+- `get_next_status` for read-only readiness checks
+- `request_transition` with named triggers (start, complete, cancel, block, hold)
+- Status flows per entity type (task, feature, project)
+- Emergency transitions and cascade events
+- Status roles (queue, work, review, blocked, terminal)
+
+### dependency-analysis
+
+Activated when working with task dependencies. Covers:
+- Creating dependencies with direction (BLOCKS, IS_BLOCKED_BY, RELATES_TO)
+- Querying dependencies by direction (incoming, outgoing)
+- Finding blocked tasks (`get_blocked_tasks`)
+- Resolving blocker chains
+- Smart task ordering with `get_next_task`
+
+## Updating the Plugin
+
+To get the latest version:
+
+```
+/plugin update task-orchestrator@task-orchestrator-marketplace
+```
+
+## Uninstalling
+
+```
+/plugin uninstall task-orchestrator@task-orchestrator-marketplace
+```
+
+## Prerequisites
+
+- Claude Code version 1.0.33 or later
+- MCP Task Orchestrator server configured and running
+
+The plugin enhances Claude's use of the MCP tools but does not configure the MCP server itself. See the [Quick Start Guide](quick-start.md) for MCP server setup.
+
+## Marketplace
+
+The plugin marketplace is defined at `.claude-plugin/marketplace.json` in the repository root. It follows the standard Claude Code marketplace format and can be added by pointing to the GitHub repository.
+
+For marketplace development details, see the [Claude Code Plugin Marketplaces documentation](https://code.claude.com/docs/en/plugin-marketplaces).

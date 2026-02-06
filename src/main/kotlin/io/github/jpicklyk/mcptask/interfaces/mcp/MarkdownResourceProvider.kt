@@ -15,9 +15,9 @@ import org.slf4j.LoggerFactory
  * resource system is designed for static/discoverable resources rather than dynamic
  * entity retrieval with UUID parameters.
  *
- * For markdown views of specific entities, use the get_task, get_feature, or get_project
- * tools with includeSections=true, and the response will include markdown formatting
- * guidance.
+ * For markdown views of specific entities, use query_container(operation="get") with the
+ * appropriate containerType and includeSections=true, and the response will include
+ * markdown formatting guidance.
  */
 object MarkdownResourceProvider {
     private val logger = LoggerFactory.getLogger(MarkdownResourceProvider::class.java)
@@ -54,22 +54,22 @@ Task Orchestrator entities (Tasks, Features, Projects) can be rendered as markdo
 
 ## How to Get Markdown Views
 
-### Using Markdown Transformation Tools
+### Using query_container with Export
 
-The recommended approach is to use the dedicated markdown transformation tools:
+The recommended approach is to use query_container with the export operation:
 
 ```
-# Transform a task to markdown
-task_to_markdown --id "uuid"
+# Export a task to markdown
+query_container(operation="export", containerType="task", id="uuid", format="markdown")
 
-# Transform a feature to markdown
-feature_to_markdown --id "uuid"
+# Export a feature to markdown
+query_container(operation="export", containerType="feature", id="uuid", format="markdown")
 
-# Transform a project to markdown
-project_to_markdown --id "uuid"
+# Export a project to markdown
+query_container(operation="export", containerType="project", id="uuid", format="markdown")
 ```
 
-These tools return the complete entity as a markdown document with YAML frontmatter, ready for:
+These operations return the complete entity as a markdown document with YAML frontmatter, ready for:
 - File export and documentation generation
 - Display in markdown-capable systems
 - Version control and diff-friendly storage
@@ -77,22 +77,22 @@ These tools return the complete entity as a markdown document with YAML frontmat
 
 ### Inspecting Entity Data
 
-For structured JSON inspection of entities, use the standard get tools:
+For structured JSON inspection of entities, use the get operation:
 
 ```
 # Get task details in JSON format
-get_task --id "uuid" --includeSections true
+query_container(operation="get", containerType="task", id="uuid", includeSections=true)
 
 # Get feature details in JSON format
-get_feature --id "uuid" --includeSections true
+query_container(operation="get", containerType="feature", id="uuid", includeSections=true)
 
 # Get project details in JSON format
-get_project --id "uuid" --includeSections true
+query_container(operation="get", containerType="project", id="uuid", includeSections=true)
 ```
 
 ### Markdown Format
 
-The markdown transformation tools produce documents with:
+The markdown export produces documents with:
 
 **YAML Frontmatter**:
 ```yaml

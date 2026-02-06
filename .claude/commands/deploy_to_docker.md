@@ -1,3 +1,7 @@
+---
+description: Build and deploy the MCP Task Orchestrator Docker image with multiple configuration modes
+---
+
 # Deploy to Docker
 
 Build and deploy the MCP Task Orchestrator Docker image with the specified tag.

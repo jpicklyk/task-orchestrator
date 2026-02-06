@@ -99,7 +99,7 @@ Templates provide **structured documentation patterns** and **workflow guidance*
 ### Dynamic Template Discovery
 **Always check templates before creating tasks or features**:
 ```
-1. Use `list_templates --targetEntityType TASK` or `FEATURE`
+1. Use `query_templates --targetEntityType TASK` or `FEATURE`
 2. Review available templates and their descriptions
 3. Select appropriate templates based on work type
 4. Apply templates via `templateIds` parameter during creation
@@ -163,7 +163,7 @@ With guidelines internalized, AI agents can recognize patterns:
 ### Principle 1: Template-First Approach
 **Why**: Templates ensure consistent documentation and provide workflow guidance
 **When**: Always check available templates before creating tasks or features
-**How**: Use `list_templates` filtered by entity type
+**How**: Use `query_templates` filtered by entity type
 
 ### Principle 2: Progressive Detail
 **Why**: Avoid overwhelming upfront documentation requirements
@@ -173,7 +173,7 @@ With guidelines internalized, AI agents can recognize patterns:
 ### Principle 3: Status-Driven Lifecycle
 **Why**: Clear status tracking enables progress visibility
 **When**: Update status as work transitions between phases
-**How**: pending → in-progress → completed (use `update_task`)
+**How**: pending → in-progress → completed (use `manage_container(operation="setStatus")`)
 
 ### Principle 4: Context Efficiency
 **Why**: Reduce token usage for better AI agent performance
@@ -187,7 +187,7 @@ With guidelines internalized, AI agents can recognize patterns:
 
 ## Best Practices
 
-1. **Start every session** with `get_overview` to understand current state
+1. **Start every session** with `query_container(operation="overview")` to understand current state
 2. **Use templates consistently** for documentation patterns
 3. **Apply meaningful tags** for filtering and categorization
 4. **Set appropriate complexity** (1-10) for estimation and prioritization
@@ -205,8 +205,8 @@ With guidelines internalized, AI agents can recognize patterns:
 
 **For AI Agents**:
 1. Read and internalize these guidelines into your memory system
-2. Use `get_overview` to understand current project state
-3. Check `list_templates` to see available documentation patterns
+2. Use `query_container(operation="overview")` to understand current project state
+3. Check `query_templates` to see available documentation patterns
 4. Follow workflow prompts for complex scenarios
 5. Apply patterns naturally based on user requests
 
@@ -251,21 +251,21 @@ This overview focuses on WHEN and WHY to use Task Orchestrator. For specific HOW
 - May vary between environments
 - User-created templates can exist alongside built-in ones
 
-**Always discover templates dynamically** using `list_templates` before applying them.
+**Always discover templates dynamically** using `query_templates` before applying them.
 
 ## Why Template Discovery Matters
 
 ### The Problem with Assumptions
 ```
 ❌ WRONG: Assuming templates exist
-create_task(..., templateIds: ["task-implementation-workflow-uuid"])
+manage_container(operation="create", containerType="task",..., templateIds: ["task-implementation-workflow-uuid"])
 // Fails if template disabled, deleted, or has different UUID
 
 ✅ CORRECT: Discovering templates first
-list_templates(targetEntityType: "TASK", isEnabled: true)
+query_templates(targetEntityType: "TASK", isEnabled: true)
 // Review available templates
 // Select appropriate template IDs from results
-create_task(..., templateIds: [discovered-uuid])
+manage_container(operation="create", containerType="task",..., templateIds: [discovered-uuid])
 ```
 
 ### Dynamic Template Ecosystem
@@ -282,9 +282,9 @@ Templates can change for valid reasons:
 
 **Step 1: Filter by Entity Type**
 ```
-list_templates --targetEntityType TASK --isEnabled true
+query_templates --targetEntityType TASK --isEnabled true
 // or
-list_templates --targetEntityType FEATURE --isEnabled true
+query_templates --targetEntityType FEATURE --isEnabled true
 ```
 
 **Step 2: Review Template Descriptions**
@@ -304,7 +304,7 @@ Match templates to your needs:
 
 **Step 4: Apply During Creation**
 ```
-create_task(
+manage_container(operation="create", containerType="task",
     title: "...",
     summary: "...",
     templateIds: [selected-uuids-from-discovery]
@@ -324,7 +324,7 @@ Templates fall into three main categories:
 - Guide AI through complex workflows
 - Focus on HOW to execute tasks
 
-**Common Examples** (discover via list_templates):
+**Common Examples** (discover via query_templates):
 - Local Git Branching Workflow
 - GitHub PR Workflow
 - Task Implementation Workflow
@@ -345,7 +345,7 @@ Templates fall into three main categories:
 - Focus on WHAT to document
 - Create consistent structure
 
-**Common Examples** (discover via list_templates):
+**Common Examples** (discover via query_templates):
 - Technical Approach
 - Requirements Specification
 - Context & Background
@@ -365,7 +365,7 @@ Templates fall into three main categories:
 - Provide validation checklists
 - Focus on quality assurance
 
-**Common Examples** (discover via list_templates):
+**Common Examples** (discover via query_templates):
 - Testing Strategy
 - Definition of Done
 
@@ -418,10 +418,10 @@ Templates fall into three main categories:
 ### Pattern 1: Minimal Task
 ```
 // For simple, straightforward tasks (complexity 1-3)
-templates = list_templates(targetEntityType: "TASK", tags: "implementation")
+templates = query_templates(targetEntityType: "TASK", tags: "implementation")
 selected = find template matching "Task Implementation"
 
-create_task(
+manage_container(operation="create", containerType="task",
     templateIds: [selected.id]
 )
 ```
@@ -429,11 +429,11 @@ create_task(
 ### Pattern 2: Development Task with Git
 ```
 // For standard development work (complexity 4-6)
-templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 implementation = find "Task Implementation Workflow"
 git = find "Local Git Branching Workflow"
 
-create_task(
+manage_container(operation="create", containerType="task",
     templateIds: [implementation.id, git.id]
 )
 ```
@@ -441,13 +441,13 @@ create_task(
 ### Pattern 3: Complex Feature Task
 ```
 // For complex tasks requiring architecture (complexity 7-10)
-templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 implementation = find "Task Implementation"
 technical = find "Technical Approach"
 git = find "Local Git Branching"
 testing = find "Testing Strategy"
 
-create_task(
+manage_container(operation="create", containerType="task",
     templateIds: [implementation.id, technical.id, git.id, testing.id]
 )
 ```
@@ -455,12 +455,12 @@ create_task(
 ### Pattern 4: Feature with Full Documentation
 ```
 // For well-documented features
-templates = list_templates(targetEntityType: "FEATURE", isEnabled: true)
+templates = query_templates(targetEntityType: "FEATURE", isEnabled: true)
 context = find "Context & Background"
 requirements = find "Requirements Specification"
 technical = find "Technical Approach"
 
-create_feature(
+manage_container(operation="create", containerType="feature",
     templateIds: [context.id, requirements.id, technical.id]
 )
 ```
@@ -468,11 +468,11 @@ create_feature(
 ### Pattern 5: Bug Investigation
 ```
 // For systematic bug resolution
-templates = list_templates(targetEntityType: "TASK", tags: "bug")
+templates = query_templates(targetEntityType: "TASK", tags: "bug")
 bug_workflow = find "Bug Investigation Workflow"
 git = find "Local Git Branching"
 
-create_task(
+manage_container(operation="create", containerType="task",
     templateIds: [bug_workflow.id, git.id]
 )
 ```
@@ -512,26 +512,26 @@ create_task(
 ### ❌ Mistake 1: Hardcoding Template IDs
 ```
 // NEVER do this
-create_task(templateIds: ["550e8400-e29b-41d4-a716-446655440000"])
+manage_container(operation="create", containerType="task",templateIds: ["550e8400-e29b-41d4-a716-446655440000"])
 ```
 
 ### ✅ Solution: Always Discover
 ```
-templates = list_templates(targetEntityType: "TASK")
+templates = query_templates(targetEntityType: "TASK")
 selected = templates.find(name: "Task Implementation Workflow")
-create_task(templateIds: [selected.id])
+manage_container(operation="create", containerType="task",templateIds: [selected.id])
 ```
 
 ### ❌ Mistake 2: Assuming Template Names
 ```
 // Templates might be renamed
-templates = list_templates()
+templates = query_templates()
 task_template = templates.find(name: "Task Template")  // Might not exist
 ```
 
 ### ✅ Solution: Use Descriptions and Tags
 ```
-templates = list_templates(targetEntityType: "TASK", tags: "implementation")
+templates = query_templates(targetEntityType: "TASK", tags: "implementation")
 // Review descriptions to find right template
 selected = templates.find_by_purpose(...)
 ```
@@ -539,18 +539,18 @@ selected = templates.find_by_purpose(...)
 ### ❌ Mistake 3: Ignoring Disabled Templates
 ```
 // Disabled templates won't work
-templates = list_templates(targetEntityType: "TASK")  // Includes disabled
+templates = query_templates(targetEntityType: "TASK")  // Includes disabled
 ```
 
 ### ✅ Solution: Filter for Enabled
 ```
-templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 ```
 
 ### ❌ Mistake 4: Over-templating
 ```
 // Too many templates creates noise
-create_task(templateIds: [all_discovered_templates])
+manage_container(operation="create", containerType="task",templateIds: [all_discovered_templates])
 ```
 
 ### ✅ Solution: Select Relevant Templates
@@ -561,7 +561,7 @@ create_task(templateIds: [all_discovered_templates])
 ## Best Practices
 
 1. **Always Start with Discovery**
-   - Never skip `list_templates`
+   - Never skip `query_templates`
    - Check availability before applying
    - Review current template ecosystem
 
@@ -595,7 +595,7 @@ create_task(templateIds: [all_discovered_templates])
 
 Template discovery is **mandatory, not optional**:
 - Templates are database-driven and dynamic
-- Always use `list_templates` before applying
+- Always use `query_templates` before applying
 - Never hardcode template IDs or names
 - Select based on description, tags, and purpose
 - Apply 2-4 relevant templates per entity
@@ -684,17 +684,17 @@ This resource teaches AI agents to recognize natural language user requests and 
 **Execution**:
 ```
 Step 1: Check current state
-get_overview()
+query_container(operation="overview")
 
 Step 2: Discover available templates
-templates = list_templates(targetEntityType: "FEATURE", isEnabled: true)
+templates = query_templates(targetEntityType: "FEATURE", isEnabled: true)
 
 Step 3: Select relevant templates
 context_template = find template with "Context" or "Background"
 requirements_template = find template with "Requirements"
 
 Step 4: Create feature with templates
-create_feature(
+manage_container(operation="create", containerType="feature",
     name: [extract feature name from user request],
     summary: [comprehensive description based on user input],
     status: "planning",
@@ -712,9 +712,9 @@ Step 5: Confirm creation and suggest next steps
 User: "Create a feature for OAuth authentication with Google and GitHub"
 
 AI applies pattern:
-1. get_overview() - check existing work
-2. list_templates(targetEntityType: "FEATURE") - discover templates
-3. create_feature(
+1. query_container(operation="overview") - check existing work
+2. query_templates(targetEntityType: "FEATURE") - discover templates
+3. manage_container(operation="create", containerType="feature",
      name: "OAuth Authentication Integration",
      summary: "Implement OAuth 2.0 authentication with Google and GitHub providers...",
      priority: "high",
@@ -731,11 +731,11 @@ AI applies pattern:
 **Execution**:
 ```
 Step 1: Understand context
-get_overview() - see current work
+query_container(operation="overview") - see current work
 Detect git usage: check for .git directory
 
 Step 2: Discover templates
-templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 
 Step 3: Select templates based on task type
 implementation = find "Task Implementation Workflow"
@@ -750,7 +750,7 @@ Analyze requirements:
 - High (7-10): Complex architecture, multiple integrations
 
 Step 5: Create task
-create_task(
+manage_container(operation="create", containerType="task",
     title: [specific, actionable title],
     summary: [detailed description with acceptance criteria],
     complexity: [assessed complexity],
@@ -760,7 +760,7 @@ create_task(
 )
 
 Step 6: Update status when starting
-update_task(id: task-id, status: "in_progress")
+manage_container(operation="setStatus", containerType="task", id="task-id", status="in_progress")
 ```
 
 **Example**:
@@ -768,11 +768,11 @@ update_task(id: task-id, status: "in_progress")
 User: "Implement API endpoints for user profile management"
 
 AI applies pattern:
-1. get_overview() - check current state
+1. query_container(operation="overview") - check current state
 2. Check for .git → detected
-3. list_templates(targetEntityType: "TASK")
+3. query_templates(targetEntityType: "TASK")
 4. Assess complexity: Medium (4-6) - API + validation + tests
-5. create_task(
+5. manage_container(operation="create", containerType="task",
      title: "Implement user profile management API endpoints",
      summary: "Create REST API endpoints for user profile CRUD operations. Include: GET /profile, PUT /profile, validation, error handling, tests",
      complexity: 5,
@@ -790,10 +790,10 @@ AI applies pattern:
 **Execution**:
 ```
 Step 1: Check existing bugs
-search_tasks(tag: "task-type-bug", status: "pending")
+query_container(operation="search", containerType="task",tag: "task-type-bug", status: "pending")
 
 Step 2: Discover bug investigation templates
-templates = list_templates(targetEntityType: "TASK", tags: "bug")
+templates = query_templates(targetEntityType: "TASK", tags: "bug")
 bug_workflow = find "Bug Investigation Workflow"
 git_workflow = find "Local Git Branching"
 
@@ -804,7 +804,7 @@ Medium: Feature partially broken, workaround exists
 Low: Minor issue, cosmetic problem
 
 Step 4: Create bug task
-create_task(
+manage_container(operation="create", containerType="task",
     title: [clear bug description with impact],
     summary: [symptoms, reproduction steps, initial impact],
     priority: [based on severity assessment],
@@ -822,10 +822,10 @@ Follow bug investigation template sections
 User: "The login page is showing a blank screen after submitting credentials"
 
 AI applies pattern:
-1. search_tasks(tag: "task-type-bug") - check existing bugs
-2. list_templates(tags: "bug")
+1. query_container(operation="search", containerType="task",tag: "task-type-bug") - check existing bugs
+2. query_templates(tags: "bug")
 3. Assess: High severity (login is critical, affects all users)
-4. create_task(
+4. manage_container(operation="create", containerType="task",
      title: "Login page blank screen after credential submission",
      summary: "Symptoms: Blank white screen appears after entering credentials and clicking login. User session not established. Reproduction: Navigate to /login, enter valid credentials, click submit. Expected: Dashboard loads. Actual: Blank screen.",
      priority: "high",
@@ -843,10 +843,10 @@ AI applies pattern:
 **Execution**:
 ```
 Step 1: Get comprehensive overview
-overview = get_overview()
+overview = query_container(operation="overview")
 
 Step 2: Search for high-priority pending work
-high_priority = search_tasks(
+high_priority = query_container(operation="search", containerType="task",
     status: "pending",
     priority: "high",
     sortBy: "complexity",
@@ -855,7 +855,7 @@ high_priority = search_tasks(
 
 Step 3: Check for blockers
 For each high-priority task:
-    dependencies = get_task_dependencies(taskId: task-id, direction: "incoming")
+    dependencies = query_dependencies(taskId: task-id, direction: "incoming")
     If blocked: skip
     If unblocked: candidate
 
@@ -874,8 +874,8 @@ Present top 3 unblocked, ready tasks with reasoning
 User: "What should I work on next?"
 
 AI applies pattern:
-1. get_overview() - get project state
-2. search_tasks(status: "pending", priority: "high")
+1. query_container(operation="overview") - get project state
+2. query_container(operation="search", containerType="task",status: "pending", priority: "high")
 3. Check dependencies for each
 4. Assess:
    - Task A: Unblocked, has templates, clear criteria ✓
@@ -903,7 +903,7 @@ IS_BLOCKED_BY: Task A cannot start until Task B completes
 RELATES_TO: Tasks are related but no strict ordering
 
 Step 3: Create dependency
-create_dependency(
+manage_dependency(operation="create",
     fromTaskId: [source task],
     toTaskId: [target task],
     type: [relationship type]
@@ -922,10 +922,10 @@ Suggest appropriate task ordering
 User: "The API implementation needs to wait for the database schema task to complete"
 
 AI applies pattern:
-1. search_tasks(query: "API implementation") → Task A
-2. search_tasks(query: "database schema") → Task B
+1. query_container(operation="search", containerType="task",query: "API implementation") → Task A
+2. query_container(operation="search", containerType="task",query: "database schema") → Task B
 3. Relationship: Task B BLOCKS Task A
-4. create_dependency(
+4. manage_dependency(operation="create",
      fromTaskId: task-B-id,
      toTaskId: task-A-id,
      type: "BLOCKS"
@@ -940,7 +940,7 @@ AI applies pattern:
 **Execution**:
 ```
 Step 1: Understand feature scope
-get_feature(id: feature-id, includeSections: true)
+query_container(operation="get", containerType="feature",id: feature-id, includeSections: true)
 
 Step 2: Identify natural boundaries
 Analyze by:
@@ -949,11 +949,11 @@ Analyze by:
 - Skill set (different expertise required)
 
 Step 3: Discover task templates
-templates = list_templates(targetEntityType: "TASK", isEnabled: true)
+templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 
 Step 4: Create tasks for each component
 For each component:
-    create_task(
+    manage_container(operation="create", containerType="task",
         title: [specific component implementation],
         summary: [clear scope and criteria],
         featureId: feature-id,
@@ -963,10 +963,10 @@ For each component:
     )
 
 Step 5: Establish dependencies
-create_dependency between tasks with ordering requirements
+manage_dependency(operation="create") between tasks with ordering requirements
 
 Step 6: Verify breakdown
-get_feature(id: feature-id, includeTasks: true)
+query_container(operation="get", containerType="feature",id: feature-id, includeTasks: true)
 Ensure total complexity manageable
 ```
 
@@ -975,14 +975,14 @@ Ensure total complexity manageable
 User: "Break down the OAuth feature into implementation tasks"
 
 AI applies pattern:
-1. get_feature(id: oauth-feature-id, includeSections: true)
+1. query_container(operation="get", containerType="feature",id: oauth-feature-id, includeSections: true)
 2. Identify components:
    - Database: User OAuth tokens table
    - Backend: OAuth providers integration
    - Backend: Token management endpoints
    - Frontend: OAuth login buttons
    - Testing: Integration test suite
-3. list_templates(targetEntityType: "TASK")
+3. query_templates(targetEntityType: "TASK")
 4. Create 5 tasks:
    - "Create OAuth tokens database schema" (complexity 3)
    - "Integrate Google OAuth provider" (complexity 5)
@@ -1034,8 +1034,8 @@ Pattern recognition → Template discovery → Pattern execution with templates
 
 **Example flow**:
 1. Recognize: "Create feature" intent
-2. Discover: list_templates(targetEntityType: "FEATURE")
-3. Execute: create_feature with discovered templates
+2. Discover: query_templates(targetEntityType: "FEATURE")
+3. Execute: manage_container(operation="create", containerType="feature") with discovered templates
 ```
 
 ### Natural Language Flexibility
@@ -1100,14 +1100,14 @@ AI: "This sounds like either:
 
 ## Best Practices
 
-1. **Always start with get_overview**
+1. **Always start with query_container(operation="overview")**
    - Understand current project state
    - Check for existing related work
    - Avoid duplicate creation
 
 2. **Template discovery is mandatory**
    - Never assume templates
-   - Always use list_templates
+   - Always use query_templates
    - Apply relevant templates
 
 3. **Provide context-aware responses**
@@ -1122,7 +1122,7 @@ AI: "This sounds like either:
 
 5. **Track progress and status**
    - Update task status as work progresses
-   - Use get_task to verify before completing
+   - Use query_container(operation="get", containerType="task") to verify before completing
    - Ensure template compliance
 
 6. **Learn from patterns**

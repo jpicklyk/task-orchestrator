@@ -317,7 +317,7 @@ class McpServer(
             
             INTEGRATION FEATURES:
             • Automatic template application during entity creation
-            • Bulk operations for efficiency (bulk_create_sections, bulk_update_sections)
+            • Bulk operations for efficiency (manage_sections with bulkCreate, bulkUpdate, bulkDelete)
             • Context-efficient search and overview tools
             • Git workflow prompts with MCP tool integration
             • Real-time status tracking and progress monitoring

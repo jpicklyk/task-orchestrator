@@ -33,10 +33,8 @@ AI agents often waste 90%+ tokens by sending entire entities with unchanged fiel
 **All update tools support partial updates. Only 'id' is required.**
 
 Tools supporting partial updates:
-- `update_task` - Only 'id' required, all other fields optional
-- `update_feature` - Only 'id' required, all other fields optional
-- `update_project` - Only 'id' required, all other fields optional
-- `update_section` - Only 'id' required, all other fields optional
+- `manage_container(operation="update")` - Only 'id' required, all other fields optional (works for tasks, features, projects)
+- `manage_sections(operation="update")` - Only 'id' required, all other fields optional
 
 ### Examples
 
@@ -82,18 +80,18 @@ Tools supporting partial updates:
 
 **DON'T DO THIS**:
 ```
-1. Call get_task to fetch entity
+1. Call query_container(operation="get") to fetch entity
 2. Modify one field
-3. Send entire entity back to update_task
+3. Send entire entity back to manage_container(operation="update")
 Result: Wasted 90%+ tokens!
 ```
 
 ### For Section Updates
 
 Use specialized tools for maximum efficiency:
-- `update_section_text` - For content changes (send only text snippets)
-- `update_section_metadata` - For metadata only (excludes content)
-- `update_section` - For full updates (still supports partial updates)
+- `manage_sections(operation="updateText")` - For content changes (send only text snippets)
+- `manage_sections(operation="updateMetadata")` - For metadata only (excludes content)
+- `manage_sections(operation="update")` - For full updates (still supports partial updates)
 
 ### Remember
 - Partial updates = 90-95% token savings
@@ -143,8 +141,8 @@ Use specialized tools for maximum efficiency:
                             
                             ## Essential Workflow
                             
-                            1. **Start with Overview**: `get_overview` to see current state
-                            2. **Template-Driven Creation**: `list_templates` → `create_task`/`create_feature` with templateIds
+                            1. **Start with Overview**: `query_container(operation="overview")` to see current state
+                            2. **Template-Driven Creation**: `query_templates` → `manage_container(operation="create")` with templateIds
                             3. **Status Management**: pending → in-progress → completed
                             4. **Progressive Enhancement**: Add sections, dependencies as needed
                             
@@ -152,26 +150,26 @@ Use specialized tools for maximum efficiency:
                             
                             ```
                             # See current work
-                            get_overview
-                            
+                            query_container(operation="overview")
+
                             # Find templates
-                            list_templates --targetEntityType TASK
-                            
+                            query_templates(targetEntityType="TASK")
+
                             # Create with template
-                            create_task --title "..." --summary "..." --templateIds ["uuid"]
-                            
+                            manage_container(operation="create", containerType="task", title="...", summary="...", templateIds=["uuid"])
+
                             # Update status when starting work
-                            update_task --id "uuid" --status "in_progress"
+                            manage_container(operation="setStatus", containerType="task", id="uuid", status="in_progress")
                             ```
                             
                             ## Key Patterns
                             
-                            - **Always start sessions** with `get_overview`
+                            - **Always start sessions** with `query_container(operation="overview")`
                             - **Use templates** for consistent documentation
                             - **Tag consistently**: task-type-feature, task-type-bug, etc.
                             - **Set complexity** (1-10) for estimation
                             - **Use bulk operations** for multiple sections
-                            - **Check template guidance** with `get_sections` before marking complete
+                            - **Check template guidance** with `query_sections` before marking complete
                             
                             ## Template Categories
                             - **Workflow**: Git branching, PR workflows, implementation

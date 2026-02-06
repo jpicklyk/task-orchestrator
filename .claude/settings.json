@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "task-orchestrator-marketplace": {
+      "source": "./claude-plugins/task-orchestrator"
+    }
+  },
+  "enabledPlugins": {
+    "task-orchestrator@task-orchestrator-marketplace": true
+  }
+}

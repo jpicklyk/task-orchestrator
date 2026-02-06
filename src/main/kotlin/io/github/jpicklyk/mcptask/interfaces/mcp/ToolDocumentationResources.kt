@@ -43,6 +43,10 @@ object ToolDocumentationResources {
         // Workflow Optimization (2 tools)
         addGetNextTaskDocumentation(server)
         addGetBlockedTasksDocumentation(server)
+
+        // Status Progression (2 tools)
+        addGetNextStatusDocumentation(server)
+        addRequestTransitionDocumentation(server)
     }
 
     /**
@@ -276,6 +280,46 @@ object ToolDocumentationResources {
                         uri = "task-orchestrator://docs/tools/get-blocked-tasks",
                         mimeType = "text/markdown",
                         text = loadDocumentation("get-blocked-tasks.md")
+                    )
+                )
+            )
+        }
+    }
+
+    // ========== Status Progression ==========
+
+    private fun addGetNextStatusDocumentation(server: Server) {
+        server.addResource(
+            uri = "task-orchestrator://docs/tools/get-next-status",
+            name = "get_next_status Tool Documentation",
+            description = "Detailed documentation for get_next_status - read-only status progression recommendations with role annotations",
+            mimeType = "text/markdown"
+        ) { _ ->
+            ReadResourceResult(
+                contents = listOf(
+                    TextResourceContents(
+                        uri = "task-orchestrator://docs/tools/get-next-status",
+                        mimeType = "text/markdown",
+                        text = loadDocumentation("get-next-status.md")
+                    )
+                )
+            )
+        }
+    }
+
+    private fun addRequestTransitionDocumentation(server: Server) {
+        server.addResource(
+            uri = "task-orchestrator://docs/tools/request-transition",
+            name = "request_transition Tool Documentation",
+            description = "Detailed documentation for request_transition - trigger-based status transitions with validation",
+            mimeType = "text/markdown"
+        ) { _ ->
+            ReadResourceResult(
+                contents = listOf(
+                    TextResourceContents(
+                        uri = "task-orchestrator://docs/tools/request-transition",
+                        mimeType = "text/markdown",
+                        text = loadDocumentation("request-transition.md")
                     )
                 )
             )
