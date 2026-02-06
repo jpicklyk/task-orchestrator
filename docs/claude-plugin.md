@@ -16,6 +16,7 @@ The MCP Task Orchestrator ships a Claude Code plugin that adds skills, hooks, an
 | **feature-orchestration skill** | Feature lifecycle, task breakdown, overview queries, and bulk operations |
 | **status-progression skill** | Workflow triggers, transitions, emergency statuses, and cascade events |
 | **dependency-analysis skill** | Blocking analysis, prerequisite management, and work ordering |
+| **Task Orchestrator output style** | Optional orchestrator mode — strips coding instructions, adds delegation patterns for subagents and agent teams |
 
 ## Installation
 
@@ -66,6 +67,8 @@ claude-plugins/task-orchestrator/
 │       └── SKILL.md         # Dependency and blocker patterns
 ├── hooks/
 │   └── hooks.json           # SessionStart hook configuration
+├── output-styles/
+│   └── orchestrator.md      # Team orchestrator output style
 └── scripts/
     └── session-start.sh     # Hook script (overview prompt)
 ```
@@ -107,6 +110,39 @@ Activated when working with task dependencies. Covers:
 - Finding blocked tasks (`get_blocked_tasks`)
 - Resolving blocker chains
 - Smart task ordering with `get_next_task`
+
+## Output Style: Task Orchestrator
+
+The plugin includes an optional **Task Orchestrator** output style that transforms the main Claude session into a pure orchestrator. When activated, coding instructions are stripped and replaced with orchestration patterns — the main agent plans, delegates, tracks, and reports while subagents or agent team teammates handle implementation.
+
+### What It Does
+
+- **Strips coding instructions** from the main agent's system prompt (default output style behavior)
+- **Adds orchestration patterns**: phase management, delegation, status reporting
+- **Supports both delegation models**: standard subagents (Task tool) and experimental agent teams (TeamCreate)
+- **Distinguishes two systems**: MCP task orchestrator for persistent tracking vs Claude Code delegation for session-scoped execution
+- **MCP-aware**: references current v2.0 tools and workflow patterns
+
+### How to Activate
+
+```
+/output-style task-orchestrator:orchestrator
+```
+
+Or select it from the `/output-style` menu.
+
+### When to Use
+
+- When using **subagents** where the main session coordinates and spawned agents implement
+- When using **agent teams** where the main session coordinates and teammates code
+- When you want Claude to **never write code directly** and instead delegate all implementation
+- For **project management sessions** focused on planning, tracking, and reviewing work
+
+### When NOT to Use
+
+- When you're coding directly in the main session (use the Default output style instead)
+- When working solo without teams or subagents
+- Skills and hooks remain active regardless of output style choice
 
 ## Updating the Plugin
 

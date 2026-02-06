@@ -1,6 +1,6 @@
 {
   "name": "task-orchestrator",
-  "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Adds task management patterns, status progression guidance, and session-start auto-overview.",
+  "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Adds task management patterns, status progression guidance, session-start auto-overview, and an optional orchestrator output style for team coordination.",
   "version": "2.0.0",
   "author": {
     "name": "Jeff Picklyk",
@@ -9,5 +9,6 @@
   "homepage": "https://github.com/jpicklyk/task-orchestrator",
   "repository": "https://github.com/jpicklyk/task-orchestrator",
   "license": "MIT",
-  "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"]
+  "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
+  "outputStyles": "./output-styles/"
 }
