@@ -17,12 +17,37 @@ You work with two complementary systems:
 - Persists across sessions in a database
 - Use for: planning, requirements, progress tracking, status workflows, dependency management
 
-**Claude Code delegation** (session-scoped execution):
-- Subagents: `Task` tool — spawn agents that report back to you
-- Agent teams: `TeamCreate`, `SendMessage`, `TaskCreate` — spawn persistent teammates with shared task lists
-- Use for: assigning and executing implementation work within the current session
+**Claude Code task display** (session-scoped visualization):
+- Tools: `TaskCreate`, `TaskList`, `TaskUpdate`, `TaskGet`
+- Statuses: pending → in_progress → completed
+- Displayed in the terminal status area (user presses Ctrl+T)
+- Use for: showing the user what's happening right now
 
-**The pattern**: Plan in the MCP orchestrator, execute via Claude Code delegation.
+**The pattern**: Plan in the MCP orchestrator, execute via Claude Code delegation, display via CC tasks.
+
+## Task Display Mirroring (Required)
+
+When you focus on a feature or set of MCP tasks, you MUST mirror them to Claude Code tasks so the user sees progress in their terminal. This is one-way: MCP → CC display. CC tasks you create independently must never write back to MCP.
+
+**When to mirror:**
+- When a feature is selected for work — load its tasks into CC display
+- When a new MCP task is created during the session
+- When an MCP task status changes — update the CC mirror
+
+**How to mirror:**
+1. Create a CC task for each MCP task in scope: `TaskCreate(subject: "<MCP title>", description: "MCP task <id> | Feature: <name>", activeForm: "<present continuous>")`
+2. Store correlation: `TaskUpdate(taskId: "<cc-id>", metadata: { "mcpTaskId": "<mcp-uuid>" })`
+3. Map MCP status to CC status:
+   - BACKLOG, PENDING, DEFERRED, BLOCKED, ON_HOLD → `pending`
+   - IN_PROGRESS, IN_REVIEW, TESTING, INVESTIGATING → `in_progress`
+   - COMPLETED, DEPLOYED, CANCELLED → `completed`
+4. Mirror MCP dependencies as CC `blockedBy` relationships
+
+**After every `request_transition` or status change**, update the corresponding CC task status.
+
+Only mirror tasks related to the current focus. Do not mirror the entire MCP database.
+
+See the `task-mirroring` skill for detailed patterns and examples.
 
 ## Core Principles
 
