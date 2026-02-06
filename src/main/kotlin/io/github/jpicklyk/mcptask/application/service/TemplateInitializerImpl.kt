@@ -45,14 +45,14 @@ class TemplateInitializerImpl(
         val templateNames = listOf(
             // Workflow templates
             "Local Git Branching Workflow",
-            "GitHub PR Workflow", 
-            "Task Implementation Workflow",
-            "Bug Investigation Workflow",
+            "GitHub PR Workflow",
+            "Task Implementation",
+            "Bug Investigation",
             // Documentation and quality templates
             "Technical Approach",
             "Requirements Specification",
             "Context & Background",
-            "Testing Strategy",
+            "Test Plan",
             "Definition of Done"
         )
 
@@ -74,13 +74,13 @@ class TemplateInitializerImpl(
             // Workflow templates
             "Local Git Branching Workflow" -> createLocalGitBranchingWorkflowTemplate()
             "GitHub PR Workflow" -> createGitHubPRWorkflowTemplate()
-            "Task Implementation Workflow" -> createTaskImplementationWorkflowTemplate()
-            "Bug Investigation Workflow" -> createBugInvestigationWorkflowTemplate()
-            // New documentation and quality templates
+            "Task Implementation" -> createTaskImplementationTemplate()
+            "Bug Investigation" -> createBugInvestigationTemplate()
+            // Documentation and quality templates
             "Technical Approach" -> createTechnicalApproachTemplate()
             "Requirements Specification" -> createRequirementsSpecificationTemplate()
             "Context & Background" -> createContextBackgroundTemplate()
-            "Testing Strategy" -> createTestingStrategyTemplate()
+            "Test Plan" -> createTestPlanTemplate()
             "Definition of Done" -> createDefinitionOfDoneTemplate()
             else -> {
                 logger.warn("Unknown template name: $templateName")
@@ -151,27 +151,27 @@ class TemplateInitializerImpl(
     }
 
     /**
-     * Creates the Task Implementation Workflow template.
+     * Creates the Task Implementation template.
      */
-    private fun createTaskImplementationWorkflowTemplate(): Boolean {
+    private fun createTaskImplementationTemplate(): Boolean {
         try {
             val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.TaskImplementationWorkflowTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Task Implementation Workflow")
+            return createTemplateWithSections(template, sections, "Task Implementation")
         } catch (e: Exception) {
-            logger.error("Failed to create Task Implementation Workflow template", e)
+            logger.error("Failed to create Task Implementation template", e)
             return false
         }
     }
 
     /**
-     * Creates the Bug Investigation Workflow template.
+     * Creates the Bug Investigation template.
      */
-    private fun createBugInvestigationWorkflowTemplate(): Boolean {
+    private fun createBugInvestigationTemplate(): Boolean {
         try {
             val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.BugInvestigationWorkflowTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Bug Investigation Workflow")
+            return createTemplateWithSections(template, sections, "Bug Investigation")
         } catch (e: Exception) {
-            logger.error("Failed to create Bug Investigation Workflow template", e)
+            logger.error("Failed to create Bug Investigation template", e)
             return false
         }
     }
@@ -216,14 +216,14 @@ class TemplateInitializerImpl(
     }
 
     /**
-     * Creates the Testing Strategy template.
+     * Creates the Test Plan template.
      */
-    private fun createTestingStrategyTemplate(): Boolean {
+    private fun createTestPlanTemplate(): Boolean {
         try {
             val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.TestingStrategyTemplateCreator.create()
-            return createTemplateWithSections(template, sections, "Testing Strategy")
+            return createTemplateWithSections(template, sections, "Test Plan")
         } catch (e: Exception) {
-            logger.error("Failed to create Testing Strategy template", e)
+            logger.error("Failed to create Test Plan template", e)
             return false
         }
     }

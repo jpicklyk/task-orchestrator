@@ -17,25 +17,21 @@ import java.sql.Connection
 /**
  * Tests for template data initialization that creates 9 built-in templates.
  *
- * This tests the FRESH INSTALL scenario for v2.0.0 where the single
- * V1__Initial_Schema.sql migration creates the complete schema AND
- * initializes all 9 built-in templates with their sections.
+ * This tests the FRESH INSTALL scenario where Flyway migrations create the complete
+ * schema AND initialize all 9 built-in templates with their sections.
  *
- * Expected Templates (9):
- * 1. Definition of Done (TASK)
- * 2. Local Git Branching Workflow (TASK)
- * 3. GitHub PR Workflow (TASK)
- * 4. Context & Background (FEATURE)
- * 5. Testing Strategy (TASK)
- * 6. Requirements Specification (FEATURE)
- * 7. Technical Approach (TASK)
- * 8. Task Implementation Workflow (TASK)
- * 9. Bug Investigation Workflow (TASK)
+ * After V9 (template realignment), templates are:
+ * 1. Definition of Done (TASK) - 2 sections
+ * 2. Local Git Branching Workflow (TASK) - 3 sections
+ * 3. GitHub PR Workflow (TASK) - 3 sections
+ * 4. Context & Background (FEATURE) - 3 sections
+ * 5. Test Plan (TASK) - 2 sections (was "Testing Strategy" with 3)
+ * 6. Requirements Specification (FEATURE) - 3 sections
+ * 7. Technical Approach (TASK) - 2 sections (was 3)
+ * 8. Task Implementation (TASK) - 3 sections (was "Task Implementation Workflow")
+ * 9. Bug Investigation (TASK) - 3 sections (was "Bug Investigation Workflow")
  *
- * Total sections expected: 26 (Definition of Done has 2, all others have 3)
- *
- * Note: Since v2.0 hasn't been released yet, templates are included in V1
- * for maximum simplicity. Only one migration file needed for fresh installs.
+ * Total sections expected: 24 (was 26 before V9 removed 2 redundant sections)
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class TemplateDataMigrationTest {
@@ -58,11 +54,7 @@ class TemplateDataMigrationTest {
         )
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
 
-        // Apply V1 migration using Flyway
-        // V1__Initial_Schema.sql contains the complete v2.0.0 baseline:
-        // - All database schema (12 tables, indexes, constraints)
-        // - Template initialization (9 templates, 26 sections)
-        // - Backward compatibility (migration_test_table)
+        // Apply all migrations using Flyway
         try {
             Flyway.configure()
                 .dataSource("jdbc:sqlite:${tempFile.absolutePath}", null, null)
@@ -161,11 +153,11 @@ class TemplateDataMigrationTest {
             "Local Git Branching Workflow" to "TASK",
             "GitHub PR Workflow" to "TASK",
             "Context & Background" to "FEATURE",
-            "Testing Strategy" to "TASK",
+            "Test Plan" to "TASK",
             "Requirements Specification" to "FEATURE",
             "Technical Approach" to "TASK",
-            "Task Implementation Workflow" to "TASK",
-            "Bug Investigation Workflow" to "TASK"
+            "Task Implementation" to "TASK",
+            "Bug Investigation" to "TASK"
         )
 
         val connection = database.connector().connection as Connection
@@ -200,15 +192,7 @@ class TemplateDataMigrationTest {
 
     /**
      * Test that each template has the expected number of sections.
-     * Definition of Done: 2 sections
-     * Local Git Branching Workflow: 3 sections
-     * GitHub PR Workflow: 3 sections
-     * Context & Background: 3 sections
-     * Testing Strategy: 3 sections
-     * Requirements Specification: 3 sections
-     * Technical Approach: 3 sections
-     * Task Implementation Workflow: 3 sections
-     * Bug Investigation Workflow: 3 sections
+     * After V9: Technical Approach and Test Plan have 2 sections each (was 3).
      */
     @Test
     fun `test all templates have correct section counts`() {
@@ -220,11 +204,11 @@ class TemplateDataMigrationTest {
             "Local Git Branching Workflow" to 3,
             "GitHub PR Workflow" to 3,
             "Context & Background" to 3,
-            "Testing Strategy" to 3,
+            "Test Plan" to 2,
             "Requirements Specification" to 3,
-            "Technical Approach" to 3,
-            "Task Implementation Workflow" to 3,
-            "Bug Investigation Workflow" to 3
+            "Technical Approach" to 2,
+            "Task Implementation" to 3,
+            "Bug Investigation" to 3
         )
 
         val connection = database.connector().connection as Connection
@@ -247,10 +231,11 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that the total number of template sections is 26.
+     * Test that the total number of template sections is 24.
+     * (Was 26, V9 removed Technical Decision Log and Testing Checkpoints)
      */
     @Test
-    fun `test total template sections count is 26`() {
+    fun `test total template sections count is 24`() {
         val connection = database.connector().connection as Connection
         val statement = connection.createStatement()
 
@@ -263,11 +248,11 @@ class TemplateDataMigrationTest {
 
         statement.close()
 
-        assertEquals(26, totalSections, "Should have 26 total template sections")
+        assertEquals(24, totalSections, "Should have 24 total template sections")
     }
 
     /**
-     * Test that Definition of Done has correct section titles.
+     * Test that Definition of Done has correct section titles (renamed in V9).
      */
     @Test
     fun `test Definition of Done has correct sections`() {
@@ -275,8 +260,8 @@ class TemplateDataMigrationTest {
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val expectedSections = listOf(
-            "Implementation Complete",
-            "Production Ready"
+            "Completion Checklist",
+            "Production Readiness"
         )
 
         val connection = database.connector().connection as Connection
@@ -402,17 +387,16 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that Testing Strategy has correct section titles.
+     * Test that Test Plan has correct section titles (renamed from "Testing Strategy" in V9, deleted "Testing Checkpoints").
      */
     @Test
-    fun `test Testing Strategy has correct sections`() {
+    fun `test Test Plan has correct sections`() {
         val schemaManager = FlywayDatabaseSchemaManager(database)
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val expectedSections = listOf(
             "Test Coverage",
-            "Acceptance Criteria",
-            "Testing Checkpoints"
+            "Acceptance Criteria"
         )
 
         val connection = database.connector().connection as Connection
@@ -421,7 +405,7 @@ class TemplateDataMigrationTest {
         val result = statement.executeQuery("""
             SELECT title, ordinal FROM template_sections ts
             JOIN templates t ON ts.template_id = t.id
-            WHERE t.name = 'Testing Strategy'
+            WHERE t.name = 'Test Plan'
             ORDER BY ordinal
         """)
 
@@ -432,7 +416,7 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(expectedSections, sections, "Testing Strategy should have expected sections in order")
+        assertEquals(expectedSections, sections, "Test Plan should have expected sections in order")
     }
 
     /**
@@ -470,7 +454,7 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that Technical Approach has correct section titles.
+     * Test that Technical Approach has correct section titles (renamed and reduced from 3 to 2 in V9).
      */
     @Test
     fun `test Technical Approach has correct sections`() {
@@ -478,9 +462,8 @@ class TemplateDataMigrationTest {
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val expectedSections = listOf(
-            "Implementation Planning Checklist",
-            "Technical Decision Log",
-            "Integration Points Checklist"
+            "Technical Decisions",
+            "Integration Considerations"
         )
 
         val connection = database.connector().connection as Connection
@@ -504,17 +487,17 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that Task Implementation Workflow has correct section titles.
+     * Test that Task Implementation has correct section titles (renamed from "Task Implementation Workflow" in V9).
      */
     @Test
-    fun `test Task Implementation Workflow has correct sections`() {
+    fun `test Task Implementation has correct sections`() {
         val schemaManager = FlywayDatabaseSchemaManager(database)
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val expectedSections = listOf(
-            "Implementation Analysis",
-            "Step-by-Step Implementation",
-            "Testing & Validation"
+            "Analysis & Approach",
+            "Implementation Notes",
+            "Verification & Results"
         )
 
         val connection = database.connector().connection as Connection
@@ -523,7 +506,7 @@ class TemplateDataMigrationTest {
         val result = statement.executeQuery("""
             SELECT title, ordinal FROM template_sections ts
             JOIN templates t ON ts.template_id = t.id
-            WHERE t.name = 'Task Implementation Workflow'
+            WHERE t.name = 'Task Implementation'
             ORDER BY ordinal
         """)
 
@@ -534,21 +517,21 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(expectedSections, sections, "Task Implementation Workflow should have expected sections in order")
+        assertEquals(expectedSections, sections, "Task Implementation should have expected sections in order")
     }
 
     /**
-     * Test that Bug Investigation Workflow has correct section titles.
+     * Test that Bug Investigation has correct section titles (renamed from "Bug Investigation Workflow" in V9).
      */
     @Test
-    fun `test Bug Investigation Workflow has correct sections`() {
+    fun `test Bug Investigation has correct sections`() {
         val schemaManager = FlywayDatabaseSchemaManager(database)
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
         val expectedSections = listOf(
-            "Investigation Process",
-            "Root Cause Analysis",
-            "Fix Implementation & Verification"
+            "Investigation Findings",
+            "Root Cause",
+            "Fix & Verification"
         )
 
         val connection = database.connector().connection as Connection
@@ -557,7 +540,7 @@ class TemplateDataMigrationTest {
         val result = statement.executeQuery("""
             SELECT title, ordinal FROM template_sections ts
             JOIN templates t ON ts.template_id = t.id
-            WHERE t.name = 'Bug Investigation Workflow'
+            WHERE t.name = 'Bug Investigation'
             ORDER BY ordinal
         """)
 
@@ -568,7 +551,7 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(expectedSections, sections, "Bug Investigation Workflow should have expected sections in order")
+        assertEquals(expectedSections, sections, "Bug Investigation should have expected sections in order")
     }
 
     /**
@@ -600,10 +583,10 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(26, titled, "All 26 sections should have a title")
-        assertEquals(26, described, "All 26 sections should have usage description")
-        assertEquals(26, contentProvided, "All 26 sections should have content")
-        assertEquals(26, formatSet, "All 26 sections should have content format set")
+        assertEquals(24, titled, "All 24 sections should have a title")
+        assertEquals(24, described, "All 24 sections should have usage description")
+        assertEquals(24, contentProvided, "All 24 sections should have content")
+        assertEquals(24, formatSet, "All 24 sections should have content format set")
     }
 
     /**
