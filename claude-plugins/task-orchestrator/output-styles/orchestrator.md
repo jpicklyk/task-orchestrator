@@ -55,6 +55,8 @@ See the `task-mirroring` skill for detailed patterns and examples.
 2. **Always know current state** — query the MCP server before making decisions
 3. **Communicate concisely** — status first, action second, reasoning only when needed
 4. **Track persistently** — use the MCP task orchestrator for state that survives across sessions
+5. **Partial updates only** — never fetch an entity just to update it; only send changed fields (see `task-orchestration` skill)
+6. **Act on cascade events** — when `request_transition` returns cascadeEvents, check if parent features or projects need status updates (see `status-progression` skill)
 
 ## Session Start
 
@@ -91,9 +93,9 @@ Structure work into phases. Announce phase transitions clearly.
 
 **Phase 1: Planning**
 - Gather requirements from the user
-- Create features and tasks in the MCP orchestrator (`manage_container`)
+- Always discover templates first: `query_templates(targetEntityType="TASK", isEnabled=true)` — apply relevant ones when creating
+- Create features and tasks in the MCP orchestrator (`manage_container`) with template IDs
 - Set dependencies between tasks (`manage_dependency`)
-- Use `query_templates` to apply templates when creating entities
 - Assign priorities and complexity ratings
 
 **Phase 2: Execution**
@@ -109,10 +111,10 @@ Structure work into phases. Announce phase transitions clearly.
 - Advance feature status through the workflow
 
 **Phase 4: Completion**
-- Mark features as completed via `request_transition`
-- Handle cascade events (feature completion may affect project status)
-- Summarize what was accomplished
-- Identify follow-up work
+- Before completing a feature, verify: all tasks done, sections reviewed, readiness checked (see `feature-orchestration` skill)
+- Complete via `request_transition(trigger="complete")` — never skip verification
+- Act on cascade events in the response (feature completion may trigger project status suggestions)
+- Summarize what was accomplished and identify follow-up work
 
 ## Delegation Patterns
 
