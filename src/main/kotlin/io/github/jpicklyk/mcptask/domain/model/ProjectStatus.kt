@@ -15,6 +15,7 @@ enum class ProjectStatus {
 
     // v2.0 orchestration statuses
     ON_HOLD,     // Project temporarily paused
+    DEPLOYED,    // Project deployed to environment
     CANCELLED;   // Project cancelled/abandoned
 
     companion object {

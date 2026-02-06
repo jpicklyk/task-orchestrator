@@ -10,11 +10,15 @@ The MCP Task Orchestrator includes a comprehensive **AI Guidelines and Initializ
 ## Table of Contents
 
 - [Overview](#overview)
-- [AI Agent Orchestration System](#ai-agent-orchestration-system)
-- [Three-Layer Guidance Architecture](#three-layer-guidance-architecture)
+- [MCP Tools Reference](#mcp-tools-reference)
+- [Guidance Architecture](#guidance-architecture)
   - [Layer 1: MCP Resources (Internalized Knowledge)](#layer-1-mcp-resources-internalized-knowledge)
-  - [Layer 2: Workflow Prompts (Explicit Guidance)](#layer-2-workflow-prompts-explicit-guidance)
-  - [Layer 3: Dynamic Templates (Database-Driven)](#layer-3-dynamic-templates-database-driven)
+  - [Layer 2: Dynamic Templates (Database-Driven)](#layer-2-dynamic-templates-database-driven)
+- [Orchestration Patterns and Decision Gates](#orchestration-patterns-and-decision-gates)
+  - [Session Start Routine](#session-start-routine)
+  - [Template Discovery Workflow](#template-discovery-workflow-universal---all-mcp-clients)
+  - [Dependency-Aware Workflows](#dependency-aware-workflows)
+  - [Quality Standards](#quality-standards)
 - [Dual Workflow Model](#dual-workflow-model)
   - [Mode 1: Autonomous Pattern Application](#mode-1-autonomous-pattern-application)
   - [Mode 2: Explicit Workflow Invocation](#mode-2-explicit-workflow-invocation)
@@ -48,100 +52,46 @@ The AI Guidelines system provides AI agents with comprehensive knowledge about h
 
 ---
 
-## AI Agent Orchestration System
+## MCP Tools Reference
 
-The Task Orchestrator implements a **hybrid architecture** combining Skills (lightweight coordination), Hooks (zero-token automation), and Subagents (deep implementation) for maximum efficiency.
+The Task Orchestrator exposes 12 MCP tools organized into categories:
 
-### Quick Overview
+### Container Management (unified CRUD for Projects/Features/Tasks)
+- **`manage_container`** - Write operations: create, update, delete, setStatus, bulkUpdate
+- **`query_container`** - Read operations: get, search, export, overview
 
-```
-Orchestrator (Main AI)
-  ↓
-Skills (Coordination: 300-600 tokens)
-  ├─ Task Management - Route tasks, update status, check dependencies
-  ├─ Feature Management - Coordinate features, recommend next task
-  └─ Dependency Analysis - Identify blockers, analyze dependencies
-  ↓
-Specialists (Implementation: 1500-3000 tokens)
-  ├─ Backend Engineer - REST APIs, services, business logic
-  ├─ Frontend Developer - UI components, user experience
-  ├─ Database Engineer - Schemas, migrations, queries
-  ├─ Test Engineer - Test suites, quality assurance
-  ├─ Technical Writer - Documentation, user guides
-  ├─ Feature Architect (Opus) - Feature design, requirements
-  ├─ Planning Specialist - Task breakdown, dependency mapping
-  └─ Bug Triage Specialist - Bug investigation, root cause analysis
-```
+### Section Management
+- **`manage_sections`** - Write operations: add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete
+- **`query_sections`** - Read operations with filtering
 
-### Key Concepts
+### Template Management
+- **`query_templates`** - Browse and search templates
+- **`manage_template`** - Create, update, delete templates
+- **`apply_template`** - Apply template to entity
 
-- **Skills-First Coordination**: Use Skills for 2-5 tool workflows (77% token savings vs subagents)
-- **Direct Specialist Launch**: Orchestrator launches specialists directly (no manager intermediaries)
-- **Self-Service Dependencies**: Specialists read their own dependencies via `query_dependencies`
-- **Context Isolation**: Each subagent starts with clean context, preventing token accumulation
-- **Summary Sections**: Token-efficient knowledge transfer (~300-500 tokens) between tasks
-- **Automatic Routing**: `recommend_agent` identifies specialists based on task tags
+### Dependency Management
+- **`query_dependencies`** - Query task dependencies
+- **`manage_dependency`** - Create, update, delete dependencies
 
-### When to Use Agent Orchestration
+### Workflow Optimization
+- **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
+- **`get_blocked_tasks`** - Dependency blocking analysis
 
-**Use Skills for coordination when**:
-- Completing tasks (read → add_section → set_status)
-- Routing tasks to specialists
-- Checking dependencies before work
-- Recommending next task in feature
-- Simple 2-5 tool workflows
-
-**Use Subagents for implementation when**:
-- Writing code (APIs, services, components)
-- Creating database schemas and migrations
-- Implementing complex business logic
-- Writing comprehensive test suites
-- Architecture and design decisions
-
-**Benefits**:
-- **77% token reduction** for coordination (Skills vs subagent managers)
-- **97% orchestrator context reduction** (briefs only vs. full context)
-- **Automatic specialist selection** based on task tags
-- **Self-service dependency reading** - specialists get what they need
-- **Scales indefinitely** - O(1) context growth instead of O(n)
-
-### Complete Documentation
-
-See these guides for detailed information:
-- **[Agent Architecture](agent-architecture.md)** - Complete agent coordination, hybrid architecture, and specialist patterns
-- **[Skills Guide](skills-guide.md)** - Task Management, Feature Management, Dependency Analysis Skills
-- **[Hooks Guide](hooks-guide.md)** - Zero-token automation patterns
+### Status Progression
+- **`get_next_status`** - Read-only status progression recommendations based on workflow configuration
+- **`request_transition`** - Trigger-based status transitions with validation (start, complete, cancel, block, hold)
 
 ---
 
 ## Orchestration Patterns and Decision Gates
 
-This section teaches AI assistants how to effectively use task-orchestrator's orchestration features including template discovery, Skills for coordination, sub-agent coordination, and proactive routing decisions.
-
-### 4-Tier Hybrid Architecture
-
-Task Orchestrator uses a hybrid architecture that matches the right tool to the right job:
-
-| Tier | Purpose | Token Cost | When to Use |
-|------|---------|------------|-------------|
-| **Direct Tools** | Single operations | 50-100 | One tool call with known parameters |
-| **Skills** | Coordination | 300-600 | 2-5 tool calls, repetitive workflows |
-| **Subagents** | Implementation | 1500-3000 | Code generation, complex reasoning |
-| **Hooks** | Automation | 0 | Scripted side effects (git, tests) |
-
-**Decision Rule**:
-```
-Can script it? → Hook (0 tokens)
-Can coordinate (2-5 tools)? → Skill (300-600 tokens)
-Need reasoning/code? → Subagent (1500-3000 tokens)
-Single operation? → Direct Tool (50-100 tokens)
-```
+This section teaches AI assistants how to effectively use task-orchestrator's 12 tools including template discovery, dependency-aware workflows, and proactive task management.
 
 ### Session Start Routine
 
 **ALWAYS start every session with these steps:**
 
-1. **Run `get_overview()` first** to understand current state
+1. **Run `query_container(operation="overview")` first** to understand current state
    - Identify active projects, features, and tasks
    - Check for in-progress work
    - Review priorities and dependencies
@@ -158,7 +108,7 @@ Single operation? → Direct Tool (50-100 tokens)
 
 **Example Session Start**:
 ```
-1. get_overview()
+1. query_container(operation="overview")
 2. Analyze results
 3. Report to user: "You have 2 in-progress tasks, 5 pending high-priority items, and 1 blocked task"
 4. Ask: "Would you like to continue [task X] or start something new?"
@@ -172,24 +122,24 @@ Single operation? → Direct Tool (50-100 tokens)
 
 **ALWAYS Required Pattern** (never skip):
 
-1. **ALWAYS run `list_templates` first** - NEVER assume templates exist
+1. **ALWAYS run `query_templates` first** - NEVER assume templates exist
 2. **Filter by `targetEntityType`** - TASK or FEATURE
 3. **Filter by `isEnabled=true`** - Only show active templates
 4. **Apply via `templateIds` parameter** during creation
-5. **Templates work with both direct execution AND sub-agent execution**
+5. **Templates work with any MCP-compatible AI client**
 
 **Example Workflow**:
 ```
 User: "Create a feature for authentication"
 
 AI Workflow:
-1. list_templates --targetEntityType FEATURE --isEnabled true
+1. query_templates(targetEntityType="FEATURE", isEnabled=true)
 2. Review available templates:
    - Context & Background (context-and-background)
    - Requirements Specification (requirements-specification)
    - Technical Approach (technical-approach)
 3. Select appropriate templates based on work type
-4. create_feature with templateIds parameter:
+4. manage_container(operation="create", containerType="feature") with templateIds parameter:
    {
      "name": "User Authentication",
      "templateIds": ["context-and-background", "requirements-specification"]
@@ -202,10 +152,6 @@ AI Workflow:
 - Technical Approach template → creates "Technical Approach" section
 - Testing Strategy template → creates "Testing Strategy" section
 
-**Templates Work Two Ways**:
-- ✅ **Direct execution**: You read templates, implement yourself
-- ✅ **Sub-agent execution**: Specialists read templates, implement for you
-
 **Why This Matters**:
 - Templates are **database-driven**, not hardcoded
 - Templates vary by project and team
@@ -214,258 +160,22 @@ AI Workflow:
 
 ---
 
-### Skills for Coordination Operations
+### Dependency-Aware Workflows
 
-**Skills are lightweight capabilities** that execute 2-5 tool calls efficiently, achieving 60-82% token savings vs subagents for coordination operations.
+When working on tasks that have dependencies, follow this pattern to get proper context:
 
-**When to Use Skills**:
-- ✅ Task status management ("mark task complete")
-- ✅ Task routing ("which specialist should handle this?")
-- ✅ Feature coordination ("what's the next task?")
-- ✅ Dependency analysis ("what's blocking progress?")
-- ✅ Repetitive workflows (completing tasks, checking status)
-
-**When NOT to Use Skills**:
-- ❌ Code implementation (use subagents)
-- ❌ Complex reasoning or planning (use subagents)
-- ❌ Single tool calls (use direct tools)
-
-#### Available Skills
-
-**Task Management Skill** (300-600 tokens):
-- Route tasks to specialists via `recommend_agent`
-- Complete tasks with summary creation
-- Update task status efficiently
-- Check task dependencies before starting
-
-**Example**:
-```
-User: "Mark task T4 complete"
-
-→ Task Management Skill activates (450 tokens)
-  1. query_container(operation="get", containerType="task", id="T4", includeSections=true)
-  2. manage_sections(operation="add", entityType="TASK", title="Summary", content="...")
-  3. manage_container(operation="setStatus", containerType="task", id="T4", status="completed")
-  4. Returns: "Task completed. Summary created."
-
-vs Subagent approach: 1500 tokens (70% savings)
-```
-
-**Feature Management Skill** (300-600 tokens):
-- Recommend next unblocked task in feature
-- Check feature progress and task counts
-- Complete features with quality gates
-- List blocked tasks in feature
-
-**Example**:
-```
-User: "What should I work on next in this feature?"
-
-→ Feature Management Skill activates (300 tokens)
-  1. query_container(operation="get", containerType="feature", includeTasks=true, includeTaskDependencies=true)
-  2. get_next_task(featureId="...", limit=1)
-  3. Returns: "Task T5: Add authentication tests (high priority, unblocked)"
-
-vs Subagent approach: 1400 tokens (78% savings)
-```
-
-**Dependency Analysis Skill** (300-500 tokens):
-- Find all blocked tasks in feature/project
-- Show complete dependency chains
-- Identify bottleneck tasks (blocking multiple others)
-- Recommend resolution order
-
-**Example**:
-```
-User: "What's blocking progress on this feature?"
-
-→ Dependency Analysis Skill activates (350 tokens)
-  1. get_blocked_tasks(featureId="...")
-  2. For each blocker: analyze impact
-  3. Returns: "3 tasks blocked by T2 (Create API endpoints). Complete T2 to unblock high-priority work."
-
-vs Manual coordination: 1200 tokens (71% savings)
-```
-
-#### Skills Invocation Patterns
-
-**Pattern 1: Feature Workflow Coordination**
-```
-Step 1: "What's next?" → Feature Management Skill (300 tokens)
-Step 2: "Work on that task" → Task Management Skill routes (300 tokens)
-Step 3: Backend Engineer implements (2000 tokens)
-Step 4: "Mark complete" → Task Management Skill (450 tokens)
-Step 5: Hook auto-commits (0 tokens)
-
-Total: 3050 tokens vs 6200 without Skills (51% savings)
-```
-
-**Pattern 2: Task Completion with Automation**
-```
-User: "Complete task T1"
-
-→ Task Management Skill (450 tokens):
-  - Reads task details
-  - Creates Summary section
-  - Sets status to completed
-
-→ Hook triggers automatically (0 tokens):
-  - Creates git commit
-  - Runs tests
-  - Sends notification
-
-Total: 450 tokens (hook adds zero tokens)
-```
-
-**Pattern 3: Dependency-Aware Routing**
-```
-User: "Start work on task T3"
-
-→ Task Management Skill (400 tokens):
-  1. Checks dependencies via get_task_dependencies
-  2. Verifies all blockers are completed
-  3. Calls recommend_agent for specialist routing
-  4. Returns: "Route to Frontend Developer (dependencies satisfied)"
-
-vs Subagent coordination: 1300 tokens (69% savings)
-```
-
-#### Token Efficiency Analysis
-
-| Operation | Direct Tools | Skills | Subagents | Best Choice |
-|-----------|-------------|--------|-----------|-------------|
-| Single query | 50-100 | N/A | N/A | Direct Tool |
-| Mark complete | N/A | 450 | 1500 | **Skill** (70% savings) |
-| Route task | N/A | 300 | 1300 | **Skill** (77% savings) |
-| What's next? | N/A | 300 | 1400 | **Skill** (78% savings) |
-| Implement API | N/A | N/A | 2000 | Subagent (only option) |
-| Check blockers | N/A | 350 | 1200 | **Skill** (71% savings) |
-
-**Key Insight**: Skills are optimal for coordination operations (2-5 tools), while subagents remain essential for implementation.
-
-#### Skills + Hooks Integration
-
-**Hooks add zero-token automation** to Skill operations:
-
-```
-Task Management Skill completes task (450 tokens)
-  ↓
-PostToolUse Hook triggers on set_status (0 tokens)
-  ↓
-Hook creates git commit automatically (0 tokens)
-  ↓
-Total: 450 tokens vs 1500 with subagent handling git (70% savings)
-```
-
-**Common Hook Patterns**:
-- **Auto-commit**: Git commit when tasks complete (0 tokens)
-- **Test gate**: Run tests before feature completion (0 tokens)
-- **Notifications**: Slack/email on events (0 tokens)
-- **Metrics**: Log completion times (0 tokens)
-
-**Skills don't invoke hooks manually** - hooks observe tool calls and activate automatically.
-
-#### Decision Matrix: Direct Tools vs Skills vs Subagents
-
-**Use Direct Tools when**:
-- Single MCP tool call needed
-- All parameters known
-- No coordination required
-- Example: `manage_container(operation="create", containerType="task", title="...", templateIds=["..."])`
-
-**Use Skills when**:
-- 2-5 tool calls in sequence
-- Coordination operation
-- Repetitive workflow
-- Token efficiency matters
-- Example: "Complete this task" (query_container + manage_sections + manage_container)
-
-**Use Subagents when**:
-- Code generation needed
-- Complex reasoning required
-- Multi-step workflows with backtracking
-- Specialist expertise needed
-- Example: "Implement authentication API" (Backend Engineer)
-
-**Workflow Example - Full Feature**:
-```
-1. "What's next?" → Feature Management Skill (300 tokens)
-2. "Work on T4" → Task Management Skill routes (300 tokens)
-3. Backend Engineer implements → Subagent (2000 tokens)
-4. "Mark complete" → Task Management Skill (450 tokens)
-5. Auto-commit → Hook (0 tokens)
-
-Repeat for 5 tasks:
-- Skills coordination: 5250 tokens
-- Subagent implementation: 10000 tokens
-- Hooks automation: 0 tokens
-Total: 15250 tokens
-
-vs Subagent-only approach:
-- Coordination: 14000 tokens
-- Implementation: 10000 tokens
-Total: 24000 tokens
-
-Savings: 36% overall, 63% on coordination
-```
-
----
-
-### Sub-Agent Coordination Patterns (Claude Code Only)
-
-**IMPORTANT**: Sub-agent orchestration ONLY works in Claude Code (requires `.claude/agents/` directory). Other AI clients (Cursor, Windsurf, Claude Desktop) should use templates and workflow prompts directly.
-
-#### When to Launch Specialists
-
-**Launch specialists directly when**:
-- Task requires code implementation
-- Task has specialist tags (backend, frontend, database, testing, docs)
-- Complex reasoning or architecture decisions needed
-- Multi-step workflows requiring expertise
-
-**How to Launch**:
-```
-User: "Implement the user login API task"
-
-AI: [Checks task tags: backend, api, authentication]
-    [Calls recommend_agent(taskId) → "Backend Engineer"]
-    [Launches Backend Engineer directly]
-
-Launch: Backend Engineer subagent with task ID
-Specialist: Reads task, reads dependencies, implements, returns brief
-```
-
-**Streamlined Pattern** (no managers):
-```
-Orchestrator → Specialist (direct)
-```
-
-vs Old Pattern (deprecated):
-```
-Orchestrator → Task Manager → Specialist (extra hop)
-```
-
-**Token Savings**: 1500 tokens per task (no manager overhead)
-
-#### Self-Service Dependency Reading
-
-**How Specialists Get Dependency Context**:
-
-Specialists read their own dependencies directly - no intermediary needed.
-
-**Specialist Workflow**:
 1. Read task: `query_container(operation="get", containerType="task", id="...", includeSections=true)`
 2. Check dependencies: `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
 3. For each completed dependency:
-   - Read its "Summary" section (300-500 tokens)
-   - Read "Files Changed" section for context
+   - Read its "Summary" section for context
+   - Read "Files Changed" section for implementation details
    - Understand what was built before
 4. Implement current task with dependency awareness
-5. Create Summary and Files Changed sections for next task
+5. Create Summary and Files Changed sections for the next task in the chain
 
 **Example Flow**:
 ```
-T2 (API Implementation) - Backend Engineer launches:
+T2 (API Implementation) depends on T1 (Database Schema):
 
 Step 1: Read task T2 (login API requirements)
 
@@ -482,34 +192,24 @@ Step 5: Create Summary: "Implemented login endpoint in UserController.kt..."
 ```
 
 **Benefits**:
-- **Self-service**: Specialists get what they need directly
-- **No intermediary**: Eliminates manager token overhead (1500 tokens saved)
-- **97% token reduction**: 300-500 token summaries vs 15k+ full context
+- **Self-service**: Get exactly the context needed directly
+- **Token-efficient**: 300-500 token summaries vs 15k+ full context
 - **Focused context**: Only relevant dependency information
-- **Automatic**: Built into specialist workflow pattern
 
 ---
 
-### Decision Gates (Proactive Agent Routing)
+### Decision Gates (Proactive Workflow Choices)
 
-**These gates help you proactively route work to specialized agents.**
+**These gates help you proactively choose the right approach for user requests.**
 
 #### Before Creating a Feature
 
 **Decision Gate**:
 ```
-❓ Did user say "create/start/build a feature for..."?
-❓ Did user provide rich context (3+ paragraphs about a feature)?
-
-→ YES? Launch Feature Architect agent (Opus)
-→ NO? Proceed with direct create_feature tool
+Did user provide rich context (3+ paragraphs about a feature)?
+→ YES? Discover templates, create feature with comprehensive documentation
+→ NO? Create feature with basic templates, ask for more details
 ```
-
-**Why**:
-- Feature Architect specializes in feature design
-- Analyzes requirements comprehensively
-- Creates well-structured features
-- Applies appropriate templates automatically
 
 **Example**:
 ```
@@ -517,251 +217,44 @@ User: "I want to build a feature for user authentication with OAuth2,
       password reset, and session management"
 
 AI: [Detects rich feature context]
-    "This is a complex feature with multiple components. I'll launch
-     the Feature Architect to design it properly."
-
-Launch: Feature Architect agent
-```
-
-#### Before Working on a Task - Use Skills First
-
-**Decision Gate**:
-```
-❓ Is this simple coordination (complete task, route task, check dependencies)?
-
-→ YES? Use appropriate Skill (300-600 tokens)
-  - Task completion → Task Management Skill
-  - Task routing → Task Management Skill + recommend_agent
-  - Dependency check → Dependency Analysis Skill
-
-→ NO (needs implementation)? Launch specialist directly (1500-3000 tokens)
-  - Check recommend_agent(taskId) for specialist recommendation
-  - Launch specialist with task ID
-```
-
-**Why Skills First**:
-- 77% token savings vs launching subagent managers
-- Faster execution (no agent launch overhead)
-- Perfect for 2-5 tool workflows
-- Reserve subagents for actual implementation
-
-**Example - Coordination**:
-```
-User: "Route task T1 to the right specialist"
-
-AI: [Coordination task - use Skill]
-    "I'll use the Task Management Skill for routing."
-
-Skill executes:
-  1. query_container(operation="get", containerType="task", id=T1, includeSections=true)
-  2. recommend_agent(taskId=T1) → "Backend Engineer"
-  3. Returns: "Backend Engineer recommended for T1"
-
-Cost: 500 tokens (vs 1500 for Task Manager subagent)
-```
-
-**Example - Implementation**:
-```
-User: "Implement the database schema task"
-
-AI: [Implementation task - launch specialist]
-    [Checks task tags: database, schema, backend]
-    [Calls recommend_agent(taskId)]
-    [Result: Database Engineer]
-    "This needs implementation. I'll launch Database Engineer."
-
-Launch: Database Engineer specialist (direct, no manager)
-Cost: 2000 tokens (implementation work)
+    1. query_templates(targetEntityType="FEATURE", isEnabled=true)
+    2. manage_container(operation="create", containerType="feature", ...)
+       with appropriate templates (context-and-background, requirements-specification)
+    3. Break down into tasks with dependencies
 ```
 
 #### When User Reports a Bug
 
 **Decision Gate**:
 ```
-❓ User says: "broken", "error", "crash", "doesn't work", "failing"?
-
-→ YES? Launch Bug Triage Specialist agent
-→ NO? If it's a feature request, use Feature Architect
+User says: "broken", "error", "crash", "doesn't work", "failing"?
+→ YES? Create bug task with Bug Investigation template
+→ NO? If it's a feature request, create feature instead
 ```
-
-**Why**:
-- Bug Triage Specialist systematically investigates
-- Applies Bug Investigation template
-- Documents root cause before implementation
-- Ensures proper regression testing
 
 **Example**:
 ```
 User: "The login is broken - users are getting timeout errors"
 
 AI: [Detects bug keywords: "broken", "errors"]
-    "This sounds like a bug that needs systematic investigation.
-     I'll launch the Bug Triage Specialist."
-
-Launch: Bug Triage Specialist agent
+    1. query_templates(targetEntityType="TASK", isEnabled=true)
+    2. manage_container(operation="create", containerType="task", ...)
+       with Bug Investigation template applied
+    3. Guide user through investigation sections
 ```
 
-#### After Feature Architect Creates Feature
+#### Before Working on a Task
 
 **Decision Gate**:
 ```
-❓ Does the feature need task breakdown?
+Does the task have unresolved dependencies?
+→ YES? Check dependency status, work on blockers first
+→ NO? Proceed with implementation
 
-→ YES? Launch Planning Specialist agent (Sonnet - cost optimized)
-→ NO? If it's a simple feature (1-2 tasks), create tasks yourself
+Is task status tracking needed?
+→ YES? Use request_transition(trigger="start") to begin work
+→ NO? Proceed directly
 ```
-
-**Why**:
-- Planning Specialist (Sonnet) excels at structured task decomposition
-- Creates well-sequenced task breakdown (70% cheaper than Opus)
-- Applies appropriate templates to each task
-- Establishes dependency relationships
-- **Self-service**: Reads feature directly, no context passing needed
-
-**Example**:
-```
-Feature Architect (Opus) creates "User Authentication" feature
-Returns: "Created feature abc-123. Launch Planning Specialist for task breakdown."
-
-AI: [Reviews feature complexity]
-    [Feature requires: DB, API, Frontend, Tests, Docs]
-    "This feature needs structured task breakdown.
-     I'll launch Planning Specialist (Sonnet)."
-
-Launch: Planning Specialist agent with feature ID
-Planning Specialist:
-  1. Reads feature via query_container(id="abc-123")
-  2. Creates task breakdown with templates
-  3. Establishes dependencies
-  4. Returns brief summary
-```
-
----
-
-### Specialist Routing Decisions
-
-#### How `recommend_agent` Analyzes Tasks
-
-**Recommendation Algorithm**:
-
-1. **Analyze task tags** for specialist indicators:
-   - `backend`, `api`, `server` → Backend Engineer
-   - `frontend`, `ui`, `react` → Frontend Engineer
-   - `database`, `schema`, `sql` → Database Engineer
-   - `testing`, `test`, `qa` → Test Engineer
-   - `documentation`, `docs`, `technical-writing` → Technical Writer
-   - `planning`, `breakdown`, `architecture` → Planning Specialist
-
-2. **Check task type** from tags:
-   - `task-type-bug` → Bug Triage Specialist
-   - `task-type-feature` → Appropriate domain specialist
-
-3. **Consider complexity and context**:
-   - Simple tasks (complexity 1-3) → May not need specialist
-   - Complex tasks (complexity 7+) → Always recommend specialist
-   - Tasks with dependencies → Specialist reads dependencies directly
-
-**Example**:
-```
-Task: "Implement user authentication API endpoints"
-Tags: backend, api, authentication, high-priority
-Complexity: 7
-
-recommend_agent returns: "Backend Engineer"
-
-Reasoning:
-- "backend" and "api" tags indicate backend work
-- Complexity 7 warrants specialist attention
-- Authentication is complex domain requiring expertise
-```
-
-#### When to Launch Specialists Directly
-
-**Launch specialist when**:
-- Task clearly requires specialist expertise (complexity 7+)
-- Task has specialist tags
-- Task requires code implementation or architecture decisions
-- `recommend_agent` suggests specialist
-
-**Use Skills when**:
-- Task completion/status updates (Task Management Skill)
-- Task routing decisions (Task Management Skill + recommend_agent)
-- Dependency checking (Dependency Analysis Skill)
-- Simple coordination workflows (2-5 tools)
-
-**Work yourself when**:
-- Simple task (complexity 1-3)
-- No specialist tags
-- Standalone task not part of feature
-- Quick documentation or admin tasks
-
-**Example Decision Flow**:
-```
-Task: "Update README with installation instructions"
-Tags: documentation, simple
-Complexity: 2
-
-AI Decision: Work yourself
-Reasoning: Simple documentation, low complexity, no coordination needed
-
----
-
-Task: "Implement OAuth2 token refresh flow"
-Tags: backend, api, security, authentication
-Complexity: 8
-
-AI Decision: Launch Backend Engineer specialist (direct)
-Reasoning: Complex backend work, security-critical, needs implementation
-```
-
-#### Self-Service Dependency Reading (Specialists)
-
-**When a specialist launches**, they read dependencies themselves:
-
-1. **Check for dependencies**:
-   - `query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)`
-   - Identifies completed dependency tasks
-
-2. **Read dependency summaries**:
-   - For each completed dependency, read "Summary" section (300-500 tokens)
-   - Read "Files Changed" section for implementation context
-   - Extracts key information: what was completed, files changed, notes
-
-3. **Implement with context**:
-   - Uses dependency context to inform implementation
-   - Builds on previous work correctly
-   - Creates own Summary and Files Changed for next task
-
-**Example**:
-```
-Task: "Implement user authentication API"
-Dependency: "Design database schema for users" (completed)
-
-Backend Engineer (self-service):
-
-Step 1: query_dependencies(taskId=current, direction="incoming")
-  → Returns: T1 (Database Schema) - completed
-
-Step 2: Read T1 Summary section
-  → "Created users table with columns: id, email, password_hash, created_at.
-     Added indexes on email. Migration file: V5__users_table.sql"
-
-Step 3: Read T1 Files Changed section
-  → "src/main/resources/db/migration/V5__users_table.sql"
-
-Step 4: Implement API using schema from T1
-  → Implements UserController.kt with login endpoint
-  → Uses database schema defined in migration
-
-Step 5: Create Summary and Files Changed
-  → For next task to read
-```
-
-**Benefits**:
-- **No intermediary**: Specialist reads directly (eliminates 1500 token manager overhead)
-- **Self-service**: Specialist gets exactly what they need
-- **97% token reduction**: 300-500 token summaries vs 15k+ full context
-- **Focused context**: Only relevant dependency information
 
 ---
 
@@ -859,29 +352,9 @@ Acceptance Criteria:
 
 ---
 
-### Decision Guide: Templates vs Sub-Agents vs Skills
+### Decision Guide: Choosing the Right Approach
 
-**Use Templates + Workflow Prompts ONLY when**:
-- Simple tasks (1-3 tasks total)
-- Single-agent work (you're doing everything yourself)
-- Not using Claude Code (using Cursor, Windsurf, Claude Desktop, etc.)
-- Learning the system (workflows teach best practices)
-
-**Add Skills when** (Claude Code only):
-- Coordination workflows (completing tasks, routing, dependency checks)
-- Repetitive operations (2-5 tool calls)
-- Want 77% token savings vs subagent coordination
-- Quick status updates and progress tracking
-
-**Add Sub-Agent Orchestration when**:
-- Complex features (4+ related tasks with dependencies)
-- Using Claude Code (only tool with sub-agent support)
-- Need code implementation, architecture decisions
-- Specialist expertise valuable (backend, frontend, database, testing)
-
-**Example Comparison**:
-
-**Simple (Templates only)**:
+**Simple Tasks** (1-3 tasks total):
 ```
 You: manage_container(operation="create", containerType="task", templateIds=["technical-approach", "testing-strategy"])
 You: Read technical-approach section
@@ -890,57 +363,33 @@ You: Read testing-strategy section
 You: Write tests yourself
 ```
 
-**Coordination (Templates + Skills)**:
+**Multi-Task Features** (4+ related tasks with dependencies):
 ```
-You: Create feature with 4 tasks, apply templates
-User: "What's next?"
-Feature Management Skill: Recommends T1 (300 tokens)
-User: "Work on T1"
-Task Management Skill: Routes to Database Engineer (500 tokens)
-You: Launch Database Engineer specialist
-Database Engineer: Implements, returns brief (2000 tokens)
-User: "Complete T1"
-Task Management Skill: Creates summary, marks complete (450 tokens)
-[Repeat for T2-T4 with automatic dependency reading]
-
-Total coordination: ~4,000 tokens (Skills)
-vs Old pattern: ~12,000 tokens (Feature/Task Manager subagents)
-Savings: 67%
+You: Create feature with templates
+You: Break down into tasks with dependencies
+You: get_next_task(featureId="...") to find what's ready
+You: Work on recommended task
+You: request_transition(trigger="complete") when done
+You: Repeat until feature is complete
 ```
 
-**Complex Implementation (Templates + Skills + Specialists)**:
+**Dependency-Aware Implementation**:
 ```
 You: Create feature with 8 tasks, apply templates
 
-Specialist launches:
-Database Engineer:
-  - Reads task T1 "Technical Approach" section
-  - Checks dependencies (none)
-  - Implements schema
-  - Creates Summary and Files Changed sections
-  - Returns brief
-
-Backend Engineer:
-  - Reads task T2 "Technical Approach" section
-  - query_dependencies(T2) → finds T1 (completed)
-  - Reads T1 Summary (database schema info)
-  - Implements API using schema
-  - Creates Summary and Files Changed
-  - Returns brief
-
-Skills handle coordination:
-- Task completion (450 tokens each)
-- Next task recommendations (300 tokens)
-- Dependency checking (350 tokens)
-
-Result: Skills for coordination (77% savings), Specialists for implementation (self-service dependencies)
+For each task in dependency order:
+  - Read task "Technical Approach" section
+  - query_dependencies(taskId=T2, direction="incoming") → check blockers
+  - Read completed dependency Summaries for context
+  - Implement task
+  - Create Summary and Files Changed sections for next task
 ```
 
 ---
 
-## Three-Layer Guidance Architecture
+## Guidance Architecture
 
-The system uses three complementary layers to provide comprehensive guidance:
+The system uses two complementary layers to provide comprehensive guidance:
 
 ### Layer 1: MCP Resources (Internalized Knowledge)
 
@@ -955,7 +404,7 @@ The system uses three complementary layers to provide comprehensive guidance:
 | `task-orchestrator://guidelines/usage-overview` | Usage Overview | High-level introduction and core concepts |
 | `task-orchestrator://guidelines/template-strategy` | Template Strategy | Dynamic template discovery and application |
 | `task-orchestrator://guidelines/task-management` | Task Management Patterns | 6 executable workflow patterns for common scenarios |
-| `task-orchestrator://guidelines/workflow-integration` | Workflow Integration | How the three layers work together |
+| `task-orchestrator://guidelines/workflow-integration` | Workflow Integration | How the guidance layers work together |
 
 **Characteristics**:
 - Always available through MCP resource protocol
@@ -963,30 +412,11 @@ The system uses three complementary layers to provide comprehensive guidance:
 - Optimized for AI memory systems (concise but comprehensive)
 - No user action required - AI fetches automatically
 
-### Layer 2: Workflow Prompts (Explicit Guidance)
-
-**Purpose**: Provide detailed step-by-step workflows when users explicitly need guidance or when AI determines structured guidance would help.
-
-**How It Works**: User or AI invokes a workflow prompt by name, receiving comprehensive instructions for completing a specific scenario.
-
-**Available Approaches (v2.0)**:
-- `initialize_task_orchestrator` - AI initialization workflow
-- **Skills** - Feature Management, Task Management, Dependency Analysis (Claude Code)
-- **Direct Tools** - manage_container, query_container for API-based operations
-- `project_setup_workflow` - New project initialization (legacy support)
-
-**Characteristics**:
-- User or AI invokable
-- Step-by-step instructions
-- Includes tool usage examples
-- Quality validation checklists
-- See [Workflow Prompts documentation](workflow-prompts.md) for details
-
-### Layer 3: Dynamic Templates (Database-Driven)
+### Layer 2: Dynamic Templates (Database-Driven)
 
 **Purpose**: Provide reusable documentation structures discovered and applied dynamically by AI.
 
-**How It Works**: AI uses `list_templates` to discover available templates, then applies them during task/feature creation for consistent documentation.
+**How It Works**: AI uses `query_templates` to discover available templates, then applies them during task/feature creation for consistent documentation.
 
 **Template Categories**:
 - **AI Workflow Instructions**: Git workflows, implementation workflows
@@ -995,7 +425,7 @@ The system uses three complementary layers to provide comprehensive guidance:
 
 **Characteristics**:
 - Database-stored, not hardcoded
-- Discoverable via `list_templates` tool
+- Discoverable via `query_templates` tool
 - Applied via `templateIds` parameter
 - Composable (multiple templates can be combined)
 - See [Templates documentation](templates.md) for details
@@ -1010,9 +440,9 @@ The system uses three complementary layers to provide comprehensive guidance:
 
 | Tag Category | Tags | When to Read | Who Reads |
 |--------------|------|--------------|-----------|
-| **Contextual** | `context`, `requirements`, `acceptance-criteria` | During planning and requirements gathering | Planning Specialist, Feature Architect |
-| **Actionable** | `workflow-instruction`, `checklist`, `commands`, `guidance`, `process` | During implementation and execution | Implementation Specialist |
-| **Reference** | `reference`, `technical-details` | As needed for deep technical details | Any role, situationally |
+| **Contextual** | `context`, `requirements`, `acceptance-criteria` | During planning and requirements gathering | Planning phase |
+| **Actionable** | `workflow-instruction`, `checklist`, `commands`, `guidance`, `process` | During implementation and execution | Implementation phase |
+| **Reference** | `reference`, `technical-details` | As needed for deep technical details | Any phase, situationally |
 
 **Token-Efficient Reading Patterns**:
 
@@ -1044,11 +474,10 @@ sections = query_sections(
 
 **Decision Matrix** - Which Tags to Read:
 
-| Your Role | Reading From | Tags to Read | Tags to Skip |
+| Your Phase | Reading From | Tags to Read | Tags to Skip |
 |-----------|--------------|--------------|--------------|
-| **Planning Specialist** | Feature | `context`, `requirements`, `acceptance-criteria` | `workflow-instruction`, `checklist`, `commands` (execution details) |
-| **Implementation Specialist** | Task | `workflow-instruction`, `checklist`, `commands`, `guidance`, `process` | `context`, `requirements` (already in task description) |
-| **Feature Architect** | N/A (creates, doesn't read) | N/A | N/A |
+| **Planning** | Feature | `context`, `requirements`, `acceptance-criteria` | `workflow-instruction`, `checklist`, `commands` (execution details) |
+| **Implementation** | Task | `workflow-instruction`, `checklist`, `commands`, `guidance`, `process` | `context`, `requirements` (already in task description) |
 
 **Best Practices**:
 - ✅ Always use tag filtering when reading sections (never read all sections)
@@ -1059,7 +488,7 @@ sections = query_sections(
 
 **Example - Complete Workflow**:
 ```javascript
-// Step 1: Planning Specialist breaks down feature
+// Step 1: Planning phase - break down feature
 feature = query_container(operation="overview", containerType="feature", id=featureId)
 // Gets metadata only (~1,200 tokens)
 
@@ -1072,7 +501,7 @@ sections = query_sections(
 // Gets planning-relevant sections only (~2-3k tokens)
 // Total: ~3,200-4,200 tokens (vs 7,000+ with all sections)
 
-// Step 2: Implementation Specialist implements task
+// Step 2: Implementation phase - implement task
 task = query_container(operation="get", containerType="task", id=taskId, includeSections=false)
 // Gets task metadata + description (~300-500 tokens)
 
@@ -1086,11 +515,10 @@ sections = query_sections(
 // Total: ~1,100-2,000 tokens (vs 3,000-5,000 with all sections)
 ```
 
-**Integration with Subagents**:
-- Feature Architect creates features with tagged sections
-- Planning Specialist reads features using contextual tags
-- Implementation Specialist reads tasks using actionable tags
-- All subagents automatically use tag filtering (built into their workflows)
+**Integration with Workflows**:
+- During planning, read features using contextual tags
+- During implementation, read tasks using actionable tags
+- Always use tag filtering for token-efficient section reading
 
 See [Templates - Template Philosophy](templates.md#template-philosophy) for comprehensive architecture details.
 
@@ -1109,18 +537,18 @@ The system supports two complementary modes of operation:
 **User Request**: "Help me plan this authentication feature"
 
 **AI Response** (autonomously):
-1. Runs `get_overview` to understand current state
-2. Runs `list_templates --targetEntityType FEATURE` to find templates
+1. Runs `query_container(operation="overview")` to understand current state
+2. Runs `query_templates(targetEntityType="FEATURE")` to find templates
 3. Selects appropriate templates (Context & Background, Requirements Specification)
-4. Runs `create_feature` with selected templates
+4. Runs `manage_container(operation="create", containerType="feature")` with selected templates
 5. Confirms creation and next steps
 
 **User Request**: "I need to break down this complex API implementation task"
 
 **AI Response** (autonomously):
-1. Runs `get_task` to understand the task
+1. Runs `query_container(operation="get", containerType="task")` to understand the task
 2. Analyzes complexity and identifies logical breakdown
-3. Creates subtasks using `create_task` with appropriate templates
+3. Creates subtasks using `manage_container(operation="create", containerType="task")` with appropriate templates
 4. Creates dependencies between tasks
 5. Summarizes the breakdown
 
@@ -1138,7 +566,7 @@ The system supports two complementary modes of operation:
 
 ```
 User: "Walk me through setting up a new project"
-AI: [Invokes project_setup_workflow prompt]
+AI: [Uses query_templates and manage_container to create project with templates]
 ```
 
 **Benefits**:
@@ -1148,9 +576,9 @@ AI: [Invokes project_setup_workflow prompt]
 - Useful for learning/training scenarios
 
 **Integration**: Both modes complement each other. AI can:
-- Start autonomous but escalate to explicit workflow if complexity warrants
-- Use workflow prompts as references while working autonomously
-- Suggest workflow invocation when user seems uncertain
+- Start autonomous but escalate to explicit guidance if complexity warrants
+- Use MCP resources as references while working autonomously
+- Suggest structured workflow when user seems uncertain
 
 ---
 
@@ -1213,7 +641,7 @@ AI confirms it can:
 - Recognize workflow patterns
 - Discover templates dynamically
 - Apply best practices autonomously
-- Integrate all three layers
+- Integrate both guidance layers
 
 ---
 
@@ -1293,9 +721,8 @@ AI confirms it can:
 **URI**: `task-orchestrator://guidelines/workflow-integration`
 
 **Content**:
-- How three layers work together
+- How guidance layers work together
 - When to use autonomous vs. explicit mode
-- All workflow prompt descriptions
 - Custom workflow extension points
 
 **When to Reference**: Understanding system architecture, advanced usage
@@ -1318,13 +745,13 @@ After initialization, AI agents internalize comprehensive guidance from all reso
 - "I need to organize work for Y functionality"
 
 **Workflow Steps**:
-1. Run get_overview to understand current project state
-2. Run list_templates --targetEntityType FEATURE --isEnabled true
+1. Run query_container(operation="overview") to understand current project state
+2. Run query_templates(targetEntityType="FEATURE", isEnabled=true)
 3. Analyze templates and select appropriate ones:
    - Context & Background (business justification)
    - Requirements Specification (detailed requirements)
    - Technical Approach (if complex/architectural)
-4. Run create_feature with templateIds parameter
+4. Run manage_container(operation="create", containerType="feature") with templateIds parameter
 5. Confirm creation and suggest next steps
 
 **Quality Checks**:
@@ -1340,7 +767,7 @@ AI Response: "I'll create the User Authentication feature with comprehensive
 documentation. Applying Context & Background and Requirements Specification
 templates for complete coverage..."
 
-[AI executes: get_overview → list_templates → create_feature]
+[AI executes: query_container(operation="overview") → query_templates → manage_container(operation="create")]
 
 AI Confirms: "Created User Authentication feature with:
 - Context & Background section for business justification
@@ -1350,7 +777,7 @@ AI Confirms: "Created User Authentication feature with:
 
 </details>
 
-This pattern is just one of six available in the task-management resource. AI uses these patterns to recognize user intent and execute workflows autonomously without requiring explicit workflow invocation.
+This pattern is just one of several available in the task-management resource. AI uses these patterns to recognize user intent and execute workflows autonomously without requiring explicit workflow invocation.
 
 ---
 
@@ -1408,13 +835,13 @@ Create custom templates in the database that match your team's workflows:
 }
 ```
 
-AI will discover these templates via `list_templates` and suggest them appropriately.
+AI will discover these templates via `query_templates` and suggest them appropriately.
 
 ---
 
 ## Memory-Based Configuration for AI Agents (v2.0)
 
-AI agents should check memory for configuration before applying defaults, enabling teams to customize their Task Orchestrator workflows and tool usage without code changes. This applies to Skills, direct tool invocation, and any custom workflows.
+AI agents should check memory for configuration before applying defaults, enabling teams to customize their Task Orchestrator workflows and tool usage without code changes. This applies to direct tool invocation and any custom workflows.
 
 ### Memory Architecture
 
@@ -1509,7 +936,7 @@ When expanding branch naming variables:
 
 **Expansion Process**:
 ```
-1. Retrieve task details with get_task
+1. Retrieve task details with query_container(operation="get", containerType="task")
 2. Detect work type from tags (task-type-bug, task-type-feature, etc.)
 3. Load branch naming pattern from memory for detected type
 4. Extract variable values from task data
@@ -1693,9 +1120,9 @@ When no configuration exists, guide users through setup:
 
 ---
 
-### Integration with v2.0 Tools and Skills
+### Integration with Tools
 
-#### Task Implementation (Skills/Direct Tools)
+#### Task Implementation
 
 When implementing tasks, check memory at these points:
 
@@ -1707,7 +1134,7 @@ When implementing tasks, check memory at these points:
 
 #### Feature Creation Memory Integration
 
-When creating features or using Feature Management Skill, check memory for:
+When creating features, check memory for:
 
 **Configuration Schema**:
 ```markdown
@@ -1756,7 +1183,7 @@ AI: [Checks memory - found feature_default_templates]
 
 #### Project Setup Workflow Memory Integration
 
-**project_setup_workflow** can use memory for:
+Project setup workflows can use memory for:
 
 **Configuration Schema**:
 ```markdown
@@ -1819,7 +1246,7 @@ AI: [Checks memory - found project_standard_features and foundation_tasks]
 
 #### Bug Handling Pattern
 
-**For bugs** (task-type-bug), Task Management Skill and direct tools provide specialized handling:
+**For bugs** (task-type-bug), the tools provide specialized handling:
 
 **Bug Detection**:
 ```
@@ -1950,7 +1377,6 @@ AI: "Fix complete with 5 regression tests:
 ### Related Documentation
 
 - **[Memory Customization](ai-guidelines#memory-based-configuration-for-ai-agents-v20)** - Configuration for AI agents
-- **[Skills Guide](skills-guide.md)** - Using Skills for autonomous task coordination
 - **[Templates Guide](templates.md)** - Understanding template validation requirements
 
 ---
@@ -1959,13 +1385,13 @@ AI: "Fix complete with 5 regression tests:
 
 ### For AI Agents
 
-1. **Always start sessions with get_overview**
+1. **Always start sessions with `query_container(operation="overview")`**
    - Understand current project state
    - Identify in-progress work
    - Plan new work in context
 
 2. **Discover templates dynamically**
-   - Use `list_templates` before creating tasks/features
+   - Use `query_templates` before creating tasks/features
    - Select templates based on work type
    - Combine multiple templates when appropriate
 
@@ -1982,7 +1408,7 @@ AI: "Fix complete with 5 regression tests:
 5. **Update task status regularly**
    - Mark tasks as in-progress when starting
    - Mark completed when finished
-   - Use get_overview to track progress
+   - Use query_container(operation="overview") to track progress
 
 6. **Handle bugs with regression testing**
    - Detect bugs from task-type-bug or task-type-hotfix tags
@@ -1992,12 +1418,13 @@ AI: "Fix complete with 5 regression tests:
    - Enforce test documentation (BUG/ROOT CAUSE/FIX comments)
    - Cannot complete bug fix without comprehensive tests
 
-7. **Use Task Management Skill for all work types (Claude Code)**
-   - Tasks, features, AND bugs use same Skills-based approach
-   - Skills automatically adapt based on work type detection
+7. **Use the 12 MCP tools consistently for all work types**
+   - Tasks, features, AND bugs use the same tool-based approach
+   - Use `manage_container` and `query_container` for all entity operations
+   - Use `get_next_task` and `get_blocked_tasks` for workflow optimization
+   - Use `request_transition` for status changes with validation
    - Bug-specific guidance kicks in for task-type-bug
    - Memory configuration applies to all work types
-   - Or use direct tools (manage_container, query_container) for API-based coordination
 
 ### For Development Teams
 
@@ -2125,30 +1552,30 @@ query_container(operation="get", containerType="feature", id="...")
 
 **Problem**: Loading all section content consumes 5,000-15,000 tokens when only metadata or specific sections are needed.
 
-**Solution**: Use the two-step workflow with `get_sections` for 85-99% token savings.
+**Solution**: Use the two-step workflow with `query_sections` for 85-99% token savings.
 
 ### When to Use Selective Loading
 
 **Validation Workflows** (Browse before validating):
 ```
-1. get_sections --entityType TASK --entityId [id] --includeContent false
+1. query_sections --entityType TASK --entityId [id] --includeContent false
 2. Review section structure (titles, formats, ordinals)
 3. Determine which sections need validation
-4. get_sections --entityType TASK --entityId [id] --sectionIds [needed-ids]
+4. query_sections --entityType TASK --entityId [id] --sectionIds [needed-ids]
 5. Validate only the critical sections
 ```
 
 **Finding Specific Content** (Browse then fetch):
 ```
-1. get_sections --entityType TASK --entityId [id] --includeContent false
+1. query_sections --entityType TASK --entityId [id] --includeContent false
 2. Identify section by title (e.g., "Technical Approach")
-3. get_sections --entityType TASK --entityId [id] --sectionIds [approach-section-id]
+3. query_sections --entityType TASK --entityId [id] --sectionIds [approach-section-id]
 4. Work with specific content
 ```
 
 **Understanding Structure** (Metadata only):
 ```
-1. get_sections --entityType TASK --entityId [id] --includeContent false
+1. query_sections --entityType TASK --entityId [id] --includeContent false
 2. Get complete picture of documentation organization
 3. Use titles and usageDescription to understand content
 4. No need to load content if structure answers the question
@@ -2169,20 +1596,20 @@ query_container(operation="get", containerType="feature", id="...")
 
 **Task Completion Validation**:
 ```
-Before: get_sections (loads all 5-10 sections fully)
+Before: query_sections (loads all 5-10 sections fully)
 After:
-1. get_sections --includeContent false (browse structure)
+1. query_sections --includeContent false (browse structure)
 2. Identify required sections from template
-3. get_sections --sectionIds [ids] (fetch only what's needed)
+3. query_sections --sectionIds [ids] (fetch only what's needed)
 ```
 
 **Bug Investigation**:
 ```
 Before: Load all task sections to find reproduction steps
 After:
-1. get_sections --includeContent false
+1. query_sections --includeContent false
 2. Find "Reproduction Steps" section by title
-3. get_sections --sectionIds [repro-section-id]
+3. query_sections --sectionIds [repro-section-id]
 ```
 
 ### AI Agent Guidelines
@@ -2195,426 +1622,102 @@ After:
 
 ---
 
-## Simple Status Updates
+## Status Updates
 
-### Use `set_status` for Status-Only Changes
+### Using `manage_container` and `request_transition` for Status Changes
 
-**Problem**: Using `update_task`, `update_feature`, or `update_project` for simple status updates wastes tokens with unnecessary parameter fields.
+**Two approaches for status changes:**
 
-**Solution**: Use `set_status` for all status-only updates - simpler, more efficient, and works universally across all entity types.
+1. **`request_transition`** - Use named triggers for workflow-validated status transitions:
+   ```
+   request_transition(containerId="uuid", containerType="task", trigger="start")
+   request_transition(containerId="uuid", containerType="task", trigger="complete")
+   ```
+   Triggers: `start`, `complete`, `cancel`, `block`, `hold`
 
-### When to Use `set_status`
+2. **`manage_container(operation="setStatus")`** - Direct status setting:
+   ```
+   manage_container(operation="setStatus", containerType="task", id="uuid", status="completed")
+   ```
 
-✅ **Use `set_status` when**:
+### When to Use Each
+
+✅ **Use `request_transition` when**:
+- Following workflow-defined status progressions
+- Want trigger-based validation
+- Prefer semantic triggers over raw status values
+
+✅ **Use `manage_container(operation="setStatus")` when**:
 - Only changing status (no other fields)
 - User says "mark as completed", "set to in-progress", etc.
-- Workflow transitions where only status changes
 - Quick status updates during work
 
-❌ **Don't use `set_status` when**:
+✅ **Use `manage_container(operation="update")` when**:
 - Updating multiple fields simultaneously (status + priority + complexity)
 - Changing tags or associations
-- Updating 3+ entities (use `bulk_update_tasks` instead)
 
-### Efficiency Comparison
-
-**Status-Only Update**:
-```
-❌ INEFFICIENT: update_task with many unused parameters
-{
-  "id": "task-uuid",
-  "status": "completed",
-  "title": "",    // Unnecessary - not changing
-  "summary": "",  // Unnecessary - not changing
-  ...
-}
-
-✅ EFFICIENT: set_status with only what's needed
-{
-  "id": "task-uuid",
-  "status": "completed"
-}
-
-Token Savings: ~60% (2 params vs 10+ params)
-```
-
-### Auto-Detection Benefits
-
-`set_status` automatically detects whether the ID is a task, feature, or project:
-
-```
-AI doesn't need to know entity type:
-  set_status --id [any-entity-id] --status completed
-
-Works for:
-  - Tasks (pending, in-progress, completed, cancelled, deferred)
-  - Features (planning, in-development, completed, archived)
-  - Projects (planning, in-development, completed, archived)
-```
-
-### Smart Task Features
-
-For tasks, `set_status` provides blocking dependency warnings:
-
-```json
-Response when completing a blocking task:
-{
-  "entityType": "TASK",
-  "status": "completed",
-  "blockingTasksCount": 2,
-  "warning": "This task blocks 2 other task(s)"
-}
-```
-
-This helps AI agents understand workflow implications when marking tasks complete.
-
-### Status Format Flexibility
-
-`set_status` accepts multiple status formats (auto-normalized):
-- `in-progress`, `in_progress`, `inprogress` → all accepted
-- `in-development`, `in_development`, `indevelopment` → all accepted
-- Case-insensitive: `COMPLETED`, `completed`, `Completed` → all work
+✅ **Use `manage_container(operation="bulkUpdate")` when**:
+- Updating 3+ entities at once
 
 ### AI Decision Tree
 
 ```
 User requests status update?
+  ├─ Workflow-validated transition? → Use request_transition with trigger
   ├─ Only status changing?
-  │  ├─ Single entity? → Use set_status
-  │  └─ 3+ entities? → Use bulk_update_tasks
-  └─ Multiple fields changing? → Use update_task/update_feature/update_project
+  │  ├─ Single entity? → Use manage_container(operation="setStatus")
+  │  └─ 3+ entities? → Use manage_container(operation="bulkUpdate")
+  └─ Multiple fields changing? → Use manage_container(operation="update")
 ```
 
 ### Example AI Patterns
 
+**Trigger-Based Transition**:
+```
+User: "Start working on task X"
+AI: request_transition(containerId=X, containerType="task", trigger="start")
+```
+
 **Simple Status Update**:
 ```
 User: "Mark task X as done"
-AI: set_status --id X --status completed
+AI: manage_container(operation="setStatus", containerType="task", id=X, status="completed")
 ```
 
 **Multi-Field Update**:
 ```
 User: "Update task X to high priority and mark as in-progress"
-AI: update_task --id X --priority high --status in-progress
+AI: manage_container(operation="update", containerType="task", id=X, priority="high", status="in-progress")
 ```
 
 **Bulk Status Update**:
 ```
 User: "Mark all these tasks as completed"
-AI: bulk_update_tasks (if 3+ tasks)
+AI: manage_container(operation="bulkUpdate", containerType="task", containers=[...]) (if 3+ tasks)
 ```
 
 ---
 
-## Tag Discovery and Search Patterns
+## Tag-Based Search Patterns
 
-### Use `list_tags` Before Tag-Based Searches
+### Searching by Tags
 
-**Problem**: Searching by tags without knowing what tags exist leads to failed searches and poor user experience.
+Use `query_container(operation="search")` with tag parameters to find entities by tag:
 
-**Solution**: Use `list_tags` to discover available tags before performing tag-based searches.
-
-### When to Use `list_tags`
-
-✅ **Use `list_tags` when**:
-- User asks about tags ("what tags are we using?")
-- Before searching by tag (discover available options)
-- User mentions a concept but doesn't specify exact tag
-- Tag cleanup or standardization tasks
-- Understanding project categorization
-
-❌ **Don't use `list_tags` when**:
-- User provides exact tag to search for
-- Tag is clearly standard (implementation, bug, feature, etc.)
-- Already used list_tags in recent conversation
-
-### Tag Discovery Workflow
-
-**User Says**: "Show me all bug-related tasks"
-
-**AI Workflow**:
-```
-1. list_tags (discover what tags exist)
-2. Analyze results for bug-related tags:
-   - "bug" (15 tasks)
-   - "bugfix" (8 tasks)
-   - "debugging" (3 tasks)
-3. search_tasks --tag "bug" (use most common tag)
-4. Present results to user
-```
-
-**Why This Works**:
-- Confirms tags actually exist before searching
-- Uses most common tag variation
-- Finds related tags user might not know about
-- Provides better results than guessing
-
-### Tag Analytics and Cleanup
-
-**User Says**: "What are our most common tags?"
-
-**AI Response**:
-```
-list_tags --sortBy count --sortDirection desc
-
-Shows:
-- "implementation" (45 uses)
-- "bug" (32 uses)
-- "feature" (28 uses)
-- etc.
-```
-
-**User Says**: "Are we using consistent tags?"
-
-**AI Workflow**:
-```
-1. list_tags --sortBy name (alphabetical for review)
-2. Identify variations:
-   - "bug", "bugs", "bugfix" (should be standardized)
-   - "test", "testing", "tests" (should be standardized)
-3. Suggest tag standardization with rename_tag (Phase 2)
-```
-
-### Entity Type Filtering
-
-**Use Case**: Understanding what tags are used for specific entity types
-
-```
-Task tags only:
-list_tags --entityTypes ["TASK"]
-
-Task and Feature tags:
-list_tags --entityTypes ["TASK", "FEATURE"]
-
-All entity types (default):
-list_tags
-```
-
-### AI Decision Tree
-
-```
-User mentions searching by topic/category?
-  ├─ Exact tag provided by user? → search_tasks with that tag
-  ├─ Vague topic mentioned?
-  │  ├─ Run list_tags to discover relevant tags
-  │  └─ Search with most appropriate tag found
-  └─ User asks about tags? → list_tags (possibly sorted/filtered)
-```
-
-### Response Interpretation
-
-**Tag Usage Counts Help Prioritize**:
-```json
-{
-  "tag": "urgent",
-  "totalCount": 15,
-  "byEntityType": {
-    "TASK": 12,
-    "FEATURE": 3
-  }
-}
-```
-
-**AI Insights**:
-- Most "urgent" tags on tasks (12) vs features (3)
-- Could suggest focusing on urgent tasks
-- Can explain distribution to user
-
-### Common Patterns
-
-**Tag-Based Search**:
 ```
 User: "Show authentication tasks"
-AI:
-1. list_tags
-2. Find "authentication", "auth", "oauth" tags
-3. search_tasks --tag "authentication"
+AI: query_container(operation="search", containerType="task", tags="authentication")
 ```
 
-**Tag Review**:
-```
-User: "What tags do we have?"
-AI: list_tags --sortBy name --sortDirection asc
-(Alphabetical list for easy review)
-```
+### Consistent Tagging
 
-**Popular Tags**:
-```
-User: "What are our main focus areas?"
-AI: list_tags --sortBy count --sortDirection desc
-(Shows most used tags first = main focus areas)
-```
+When creating entities, use consistent tag conventions:
 
----
-
-## Tag Management and Standardization Patterns
-
-### Use `get_tag_usage` for Impact Analysis
-
-**Problem**: Renaming or removing tags without understanding their usage can cause confusion and inconsistency.
-
-**Solution**: Use `get_tag_usage` to find all entities using a tag before making changes.
-
-### When to Use `get_tag_usage`
-
-✅ **Use `get_tag_usage` when**:
-- User wants to rename a tag
-- Before removing/consolidating tags
-- User asks "where is tag X used?"
-- Impact analysis for tag changes
-- Finding all work related to a specific topic
-- Tag cleanup and organization
-
-❌ **Don't use `get_tag_usage` when**:
-- User is just browsing tags (use `list_tags` instead)
-- User wants to know what tags exist (use `list_tags`)
-- No tag changes are planned
-
-### Tag Impact Analysis Workflow
-
-**User Says**: "I want to rename 'api' to 'rest-api'"
-
-**AI Workflow**:
-```
-1. get_tag_usage --tag "api"
-2. Analyze results:
-   - 15 tasks use this tag
-   - 3 features use this tag
-   - 1 project uses this tag
-3. Show impact to user: "This will affect 19 entities (15 tasks, 3 features, 1 project)"
-4. Confirm with user
-5. rename_tag --oldTag "api" --newTag "rest-api"
-6. Confirm completion: "Successfully renamed tag in 19 entities"
-```
-
-**User Says**: "Is tag 'deprecated' still being used?"
-
-**AI Workflow**:
-```
-1. get_tag_usage --tag "deprecated"
-2. If found: "Yes, still used by X tasks: [list]"
-3. If not found: "No entities are using tag 'deprecated'"
-```
-
-### Use `rename_tag` for Bulk Tag Updates
-
-**Problem**: Manually updating tags across many entities is time-consuming and error-prone.
-
-**Solution**: Use `rename_tag` for bulk tag renaming across all entities in one operation.
-
-### When to Use `rename_tag`
-
-✅ **Use `rename_tag` when**:
-- Fixing tag typos project-wide
-- Standardizing tag naming conventions
-- Consolidating duplicate or similar tags
-- User explicitly requests tag rename
-- Following tag standardization recommendations
-
-❌ **Don't use `rename_tag` when**:
-- Only one or two entities need updating (use `update_task`/`update_feature` instead)
-- User hasn't confirmed the change
-- Tag doesn't actually exist (check with `list_tags` or `get_tag_usage` first)
-
-### Tag Standardization Workflow
-
-**User Says**: "I misspelled 'authentication' as 'authentcation' everywhere"
-
-**AI Workflow**:
-```
-1. get_tag_usage --tag "authentcation" (verify it exists)
-2. Show impact: "Found in 12 tasks, 3 features, 1 project"
-3. rename_tag --oldTag "authentcation" --newTag "authentication"
-4. Confirm: "Successfully renamed tag in 16 entities"
-```
-
-**User Says**: "Merge 'rest-api' and 'api' tags into just 'api'"
-
-**AI Workflow**:
-```
-1. get_tag_usage --tag "rest-api"
-2. get_tag_usage --tag "api"
-3. Explain overlap: "'rest-api' used by 8 entities, 'api' used by 15 entities, some overlap"
-4. Confirm consolidation approach
-5. rename_tag --oldTag "rest-api" --newTag "api"
-6. Report: "Merged tags - updated 8 entities, 3 already had 'api' tag"
-```
-
-### Dry Run Pattern for Safety
-
-**User Says**: "What would happen if I rename 'frontend' to 'ui'?"
-
-**AI Workflow**:
-```
-1. rename_tag --oldTag "frontend" --newTag "ui" --dryRun true
-2. Show preview: "Would affect 23 entities (18 tasks, 4 features, 1 project)"
-3. Ask if user wants to proceed
-4. If yes: rename_tag --oldTag "frontend" --newTag "ui" (without dryRun)
-```
-
-### Tag Management Examples
-
-**Case Standardization**:
-```
-User: "Make all 'API' tags lowercase for consistency"
-AI:
-1. get_tag_usage --tag "API"
-2. Show usage: "Found 'API' in 12 entities"
-3. rename_tag --oldTag "API" --newTag "api"
-```
-
-**Typo Correction**:
-```
-User: "Fix 'implmentation' typo"
-AI:
-1. get_tag_usage --tag "implmentation"
-2. rename_tag --oldTag "implmentation" --newTag "implementation"
-```
-
-**Tag Consolidation**:
-```
-User: "Are we using consistent tags for bugs?"
-AI:
-1. list_tags --sortBy name
-2. Identify variations: "bug", "bugs", "bugfix"
-3. Suggest consolidation: "Recommend merging to 'bug' for consistency"
-4. If user agrees:
-   - rename_tag --oldTag "bugs" --newTag "bug"
-   - rename_tag --oldTag "bugfix" --newTag "bug"
-```
-
-### AI Decision Tree for Tag Operations
-
-```
-User wants to change tags?
-  ├─ Rename/fix tag?
-  │  ├─ Check impact: get_tag_usage --tag "oldtag"
-  │  ├─ Show user what will be affected
-  │  ├─ Confirm with user
-  │  └─ rename_tag --oldTag "old" --newTag "new"
-  ├─ Check tag usage?
-  │  └─ get_tag_usage --tag "tagname"
-  ├─ Browse all tags?
-  │  └─ list_tags (not get_tag_usage)
-  └─ Uncertain about impact?
-     └─ rename_tag --dryRun true (preview changes)
-```
-
-### Response Interpretation
-
-**Tag Usage Response**:
-- `totalCount: 0` → Tag not in use, safe to skip rename
-- `totalCount: 1-5` → Low impact, can proceed quickly
-- `totalCount: 20+` → High impact, recommend dry run first
-- `entities.TASK` present → Affects active work
-- `entities.TEMPLATE` present → Affects future work patterns
-
-**Rename Response**:
-- `failedUpdates: 0` → Complete success
-- `failedUpdates > 0` → Partial success, investigate failures
-- `dryRun: true` → Preview only, no actual changes
-- `byEntityType` → Shows distribution of updates
+**Tag Categories**:
+- **Work Type**: `task-type-feature`, `task-type-bug`, `task-type-hotfix`, `task-type-enhancement`
+- **Domain**: `backend`, `frontend`, `database`, `infrastructure`
+- **Technology**: `kotlin`, `react`, `sql`, `docker`
+- **Priority Indicators**: `urgent`, `critical`, `high-priority`
 
 ---
 
@@ -2636,7 +1739,7 @@ User wants to change tags?
 - Team asks what to prioritize for maximum impact
 
 ❌ **Don't use `get_blocked_tasks` when**:
-- Checking specific task dependencies (use `get_task_dependencies` instead)
+- Checking specific task dependencies (use `query_dependencies` instead)
 - User asks about completed work
 - No dependency system in use
 
@@ -2670,7 +1773,7 @@ User wants to change tags?
 **AI Workflow**:
 ```
 1. get_blocked_tasks (identify what's blocked)
-2. search_tasks --status pending (get all pending tasks)
+2. query_container(operation="search", containerType="task", status="pending") (get all pending tasks)
 3. Filter for unblocked tasks (pending tasks NOT in blocked list)
 4. Prioritize by priority and complexity
 5. Recommend unblocked, high-priority work for sprint
@@ -2688,7 +1791,7 @@ User wants to change tags?
 **AI Workflow**:
 ```
 1. get_blocked_tasks
-2. search_tasks --status in-progress
+2. query_container(operation="search", containerType="task", status="in-progress")
 3. Present:
    - In-progress tasks
    - Blocked tasks with blocker details
@@ -2745,7 +1848,7 @@ get_blocked_tasks
 User asks about project progress or blockers?
   ├─ "What's blocked?" → get_blocked_tasks
   ├─ "Why is X not done?" → Check if X has dependencies
-  │  └─ get_task_dependencies for specific task
+  │  └─ query_dependencies for specific task
   ├─ "What should we work on?"
   │  ├─ get_blocked_tasks (see what's blocked)
   │  └─ Recommend unblocking high-impact tasks
@@ -2802,8 +1905,8 @@ AI:
 
 ❌ **Don't use `get_next_task` when**:
 - User already knows what task to work on
-- Searching for specific task by name/tag (use `search_tasks`)
-- Reviewing all tasks regardless of priority (use `get_overview`)
+- Searching for specific task by name/tag (use `query_container(operation="search")`)
+- Reviewing all tasks regardless of priority (use `query_container(operation="overview")`)
 
 ### Daily Planning Workflow
 
@@ -2832,7 +1935,7 @@ AI:
 
 **AI Workflow**:
 ```
-1. update_task --id X --status completed (mark done)
+1. manage_container(operation="setStatus", containerType="task", id=X, status="completed")
 2. get_next_task --limit 3 (get fresh recommendations)
 3. Present options with context:
    - "Here are your top 3 unblocked tasks"
@@ -2923,7 +2026,7 @@ User asks about what to work on?
   ├─ "Show me easy tasks" → get_next_task --limit 10 (filter complexity ≤ 3)
   ├─ "What's most important?" → get_next_task --limit 1 (top priority)
   ├─ "Just finished task X"
-  │  ├─ update_task --status completed
+  │  ├─ manage_container(operation="setStatus", containerType="task", status="completed")
   │  └─ get_next_task --limit 3
   └─ "What's ready to start?" → get_next_task (auto-excludes blocked)
 ```
@@ -2996,17 +2099,9 @@ AI:
 
 **Problem**: Updating multiple tasks individually wastes 90-95% tokens through repeated tool calls and responses.
 
-**Solution**: Use `bulk_update_tasks` for 3+ task updates to achieve 70-95% token savings.
+**Solution**: Use `manage_container(operation="bulkUpdate")` for 3+ task updates to achieve 70-95% token savings.
 
 ### When to Use Bulk Updates
-
-**Feature Completion** (Marking multiple tasks as done):
-```
-❌ INEFFICIENT: 10 individual update_task calls
-✅ EFFICIENT: Single bulk_update_tasks call
-
-Token Savings: 95% (11,850 characters saved)
-```
 
 **Priority Adjustments** (Updating urgency across tasks):
 ```
@@ -3023,73 +2118,45 @@ manage_container(operation="bulkUpdate", containerType="task", containers=[
 ])
 ```
 
-**Status Progression** (Moving tasks through workflow):
-```
-bulk_update_tasks({
-  "tasks": [
-    {"id": "task-1", "status": "in-progress"},
-    {"id": "task-2", "status": "in-progress"},
-    {"id": "task-3", "status": "completed"},
-    {"id": "task-4", "status": "completed"}
-  ]
-})
-```
-
-### Token Savings Examples
-
-**Scenario**: Mark 10 tasks as completed after feature implementation
-
-**Individual Calls** (INEFFICIENT):
-- 10 tool calls × ~250 chars each = ~2,500 characters
-- 10 responses × ~1,000 chars each = ~10,000 characters
-- **Total: ~12,500 characters**
-
-**Bulk Operation** (EFFICIENT):
-- Single tool call with 10 updates = ~350 characters
-- Single response with minimal fields = ~300 characters
-- **Total: ~650 characters**
-- **Token Savings: 95% (11,850 characters saved!)**
-
 ### Integration with Workflows
 
 **Task Completion Pattern**:
 ```
 After completing feature implementation:
-1. search_tasks --featureId [id] --status in-progress
-2. bulk_update_tasks with all task IDs → status: completed
-3. update_feature --id [id] --status completed
+1. query_container(operation="search", containerType="task", featureId=[id], status="in-progress")
+2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → status: completed
+3. manage_container(operation="setStatus", containerType="feature", id=[id], status="completed")
 ```
 
 **Priority Triage Pattern**:
 ```
 After discovering blocker:
-1. get_task_dependencies --taskId [blocked-task]
-2. bulk_update_tasks with dependent task IDs → priority: high
-3. create_dependency relationships as needed
+1. query_dependencies(taskId=[blocked-task])
+2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → priority: high
+3. manage_dependency(operation="create", ...) as needed
 ```
 
 **Sprint Planning Pattern**:
 ```
 When starting sprint:
-1. search_tasks --status pending --priority high
-2. bulk_update_tasks with selected task IDs → status: in-progress
-3. Track progress with get_overview
+1. query_container(operation="search", containerType="task", status="pending", priority="high")
+2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → status: in-progress
+3. query_container(operation="overview") to track progress
 ```
 
 ### AI Agent Guidelines
 
 1. **Use bulk operations for 3+ task updates** - Single operation vs multiple calls
-2. **Combine with search_tasks** - Find tasks then bulk update in one call
+2. **Combine with search** - Find tasks then bulk update in one call
 3. **Minimal field updates** - Only send id + changed fields per task
 4. **Leverage partial updates** - Each task can update different fields
-5. **Atomic operations** - All succeed or detailed failure info provided
 
 ### Other Bulk Operations
 
-**Section Management**:
-- `bulk_create_sections` - Creating 2+ sections (prefer over multiple `add_section`)
-- `bulk_update_sections` - Updating multiple sections simultaneously
-- `bulk_delete_sections` - Removing multiple sections at once
+**Section Management** (via `manage_sections`):
+- `bulkCreate` - Creating 2+ sections at once
+- `bulkUpdate` - Updating multiple sections simultaneously
+- `bulkDelete` - Removing multiple sections at once
 
 **Performance Benefit**: Single database transaction, reduced network overhead, 70-95% token savings
 
@@ -3122,11 +2189,11 @@ When starting sprint:
 **Solutions**:
 1. Verify templates exist:
    ```
-   list_templates --isEnabled true
+   query_templates(isEnabled=true)
    ```
 
 2. Check AI is querying templates:
-   - AI should run `list_templates` before creating tasks/features
+   - AI should run `query_templates` before creating tasks/features
    - If not, remind: "Check for applicable templates first"
 
 3. Validate template targeting:
@@ -3166,10 +2233,10 @@ When starting sprint:
 
 ## Additional Resources
 
-- [Workflow Prompts Documentation](workflow-prompts.md) - Detailed workflow prompt references
 - [Templates Documentation](templates.md) - Template system guide
 - [Quick Start Guide](quick-start.md) - Getting started with Task Orchestrator
 - [API Reference](api-reference.md) - Complete tool documentation
+- [Status Progression Guide](status-progression.md) - Status workflow guide with examples
 
 ---
 

@@ -27,8 +27,8 @@ Welcome to the comprehensive documentation for MCP Task Orchestrator - an AI-nat
     <p>9 built-in workflow templates (instructions, frameworks, quality gates)</p>
   </div>
   <div class="grid-item">
-    <h3>🔄 <a href="workflow-prompts">Workflow Prompts</a></h3>
-    <p>6 workflow automations for common scenarios</p>
+    <h3>🔄 <a href="status-progression">Status Progression</a></h3>
+    <p>Status workflow guide with examples</p>
   </div>
   <div class="grid-item">
     <h3>🆘 <a href="troubleshooting">Troubleshooting</a></h3>
@@ -46,8 +46,8 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 - **📊 Hierarchical Organization**: Projects → Features → Tasks with dependencies
 - **🎯 Context-Efficient**: Progressive loading and token optimization
 - **📋 Template-Driven**: 9 built-in workflow templates with decision frameworks and quality gates
-- **🔄 Workflow Automation**: 6 comprehensive workflow prompts
-- **⚡ Complete API**: Comprehensive MCP tools for full project orchestration
+- **🔄 Status Workflows**: Configurable status progression with workflow validation
+- **⚡ Complete API**: 12 MCP tools for full project orchestration
 
 ## Core Concepts
 
@@ -73,7 +73,7 @@ New to Task Orchestrator? Follow this path for the best experience:
 2. **[AI Guidelines](ai-guidelines)** (5 minutes) - Understand how Claude uses the system autonomously
 3. **Create your first project** - Ask Claude: *"Create a new project for my web application"*
 4. **[Templates](templates)** (10 minutes) - Learn about workflow templates and decision frameworks
-5. **[Workflow Prompts](workflow-prompts)** - Explore workflow automations for complex scenarios
+5. **[Status Progression](status-progression)** - Understand configurable status workflows
 
 ## Documentation Structure
 
@@ -84,8 +84,8 @@ New to Task Orchestrator? Follow this path for the best experience:
 
 ### For Power Users
 - **[Templates System](templates)** - Built-in template reference and customization
-- **[Workflow Prompts](workflow-prompts)** - 6 comprehensive workflow automations
-- **[API Reference](api-reference)** - Complete tool documentation
+- **[Status Progression](status-progression)** - Configurable status workflows
+- **[API Reference](api-reference)** - Complete tool documentation (12 MCP tools)
 
 ### For Developers
 - **[Developer Guides](developer-guides)** - Architecture, contributing, and development setup

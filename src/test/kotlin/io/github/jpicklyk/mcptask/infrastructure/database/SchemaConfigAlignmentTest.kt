@@ -60,6 +60,7 @@ class SchemaConfigAlignmentTest {
                         'PLANNING',
                         'IN_DEVELOPMENT',
                         'ON_HOLD',
+                        'DEPLOYED',
                         'CANCELLED',
                         'COMPLETED',
                         'ARCHIVED'
@@ -318,7 +319,7 @@ class SchemaConfigAlignmentTest {
         }
     }
 
-    // ========== PROJECT STATUS ALIGNMENT TESTS (6 statuses) ==========
+    // ========== PROJECT STATUS ALIGNMENT TESTS (7 statuses) ==========
 
     @Test
     fun `project statuses - database CHECK constraint matches config YAML allowed_statuses`() {
@@ -332,8 +333,8 @@ class SchemaConfigAlignmentTest {
         )
 
         // Verify count
-        assertEquals(6, dbStatuses.size, "Expected 6 project statuses in database CHECK constraint")
-        assertEquals(6, configStatuses.size, "Expected 6 project statuses in config.yaml")
+        assertEquals(7, dbStatuses.size, "Expected 7 project statuses in database CHECK constraint")
+        assertEquals(7, configStatuses.size, "Expected 7 project statuses in config.yaml")
     }
 
     @Test
@@ -348,8 +349,8 @@ class SchemaConfigAlignmentTest {
         )
 
         // Verify count
-        assertEquals(6, enumStatuses.size, "Expected 6 values in ProjectStatus enum")
-        assertEquals(6, configStatuses.size, "Expected 6 values in config.yaml")
+        assertEquals(7, enumStatuses.size, "Expected 7 values in ProjectStatus enum")
+        assertEquals(7, configStatuses.size, "Expected 7 values in config.yaml")
     }
 
     @Test
@@ -364,8 +365,8 @@ class SchemaConfigAlignmentTest {
         )
 
         // Verify count
-        assertEquals(6, dbStatuses.size, "Expected 6 project statuses in database")
-        assertEquals(6, enumStatuses.size, "Expected 6 project statuses in enum")
+        assertEquals(7, dbStatuses.size, "Expected 7 project statuses in database")
+        assertEquals(7, enumStatuses.size, "Expected 7 project statuses in enum")
     }
 
     @Test
@@ -402,10 +403,10 @@ class SchemaConfigAlignmentTest {
 
         assertEquals(14, taskCount, "Expected 14 task statuses")
         assertEquals(11, featureCount, "Expected 11 feature statuses")
-        assertEquals(6, projectCount, "Expected 6 project statuses")
+        assertEquals(7, projectCount, "Expected 7 project statuses")
 
         val totalCount = taskCount + featureCount + projectCount
-        assertEquals(31, totalCount, "Expected total of 31 statuses across all entities (14 + 11 + 6)")
+        assertEquals(32, totalCount, "Expected total of 32 statuses across all entities (14 + 11 + 7)")
     }
 
     @Test
@@ -416,10 +417,10 @@ class SchemaConfigAlignmentTest {
 
         assertEquals(11, taskCount, "Expected 11 task statuses in config")
         assertEquals(10, featureCount, "Expected 10 feature statuses in config")
-        assertEquals(6, projectCount, "Expected 6 project statuses in config")
+        assertEquals(7, projectCount, "Expected 7 project statuses in config")
 
         val totalCount = taskCount + featureCount + projectCount
-        assertEquals(27, totalCount, "Expected total of 27 statuses in config across all entities (11 + 10 + 6)")
+        assertEquals(28, totalCount, "Expected total of 28 statuses in config across all entities (11 + 10 + 7)")
     }
 
     @Test
@@ -437,14 +438,14 @@ class SchemaConfigAlignmentTest {
 
         // Expected overlaps:
         // Tasks ∩ Features: TESTING, BLOCKED, ON_HOLD, DEPLOYED, COMPLETED
-        // Tasks ∩ Projects: ON_HOLD, CANCELLED, COMPLETED
-        // Features ∩ Projects: PLANNING, IN_DEVELOPMENT, ON_HOLD, COMPLETED, ARCHIVED
+        // Tasks ∩ Projects: ON_HOLD, DEPLOYED, CANCELLED, COMPLETED
+        // Features ∩ Projects: PLANNING, IN_DEVELOPMENT, ON_HOLD, DEPLOYED, COMPLETED, ARCHIVED
 
         assertEquals(setOf("TESTING", "BLOCKED", "ON_HOLD", "DEPLOYED", "COMPLETED"), taskFeatureOverlap,
             "Task-Feature overlap should only include shared statuses")
-        assertEquals(setOf("ON_HOLD", "CANCELLED", "COMPLETED"), taskProjectOverlap,
+        assertEquals(setOf("ON_HOLD", "DEPLOYED", "CANCELLED", "COMPLETED"), taskProjectOverlap,
             "Task-Project overlap should only include shared statuses")
-        assertEquals(setOf("PLANNING", "IN_DEVELOPMENT", "ON_HOLD", "COMPLETED", "ARCHIVED"), featureProjectOverlap,
+        assertEquals(setOf("PLANNING", "IN_DEVELOPMENT", "ON_HOLD", "DEPLOYED", "COMPLETED", "ARCHIVED"), featureProjectOverlap,
             "Feature-Project overlap should only include shared statuses")
     }
 

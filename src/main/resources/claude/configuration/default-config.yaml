@@ -2,12 +2,7 @@
 # This file configures orchestration behavior, status progressions, and quality gates
 # Version: 2.0.0
 #
-# IMPLEMENTATION STATUS LEGEND:
-# ✅ IMPLEMENTED - Feature is actively used by the codebase
-# ⚠️ PARTIAL - Feature is partially implemented or referenced
-# ❌ NOT IMPLEMENTED YET - Configuration defined for future use
-#
-# See: docs/configuration-status.md for detailed implementation status
+# All sections in this file are actively used by the codebase.
 
 version: "2.0.0"
 
@@ -18,8 +13,6 @@ version: "2.0.0"
 # Progression typically moves forward, but can move backward for rework
 #
 # IMPLEMENTATION: StatusValidator.kt loads and enforces these workflows
-# NOTE: This config activates v2.0 mode when setup_claude_orchestration tool is run.
-# Without this config, system uses legacy v1.0 enum-based validation.
 
 status_progression:
   features:
@@ -199,9 +192,9 @@ status_progression:
       deferred: terminal
 
   projects:
-    # All valid project statuses (v2.0) - 6 total statuses
+    # All valid project statuses (v2.0) - 7 total statuses
     # Valid project statuses (defined by ProjectStatus enum):
-    # planning, in-development, on-hold, cancelled, completed, archived
+    # planning, in-development, on-hold, deployed, cancelled, completed, archived
     #
     # PLANNING: Defining project scope, features, timeline, and resource allocation.
     #           Use when: Project initiated and high-level planning underway.
@@ -215,6 +208,10 @@ status_progression:
     #          Use when: Project work intentionally suspended (waiting for funding, stakeholder decisions, etc.).
     #          Emergency status: Can be entered from any state.
     #          Next steps: Resume when conditions improve, return to PLANNING or IN_DEVELOPMENT.
+    #
+    # DEPLOYED: Project deployed to production or staging environment.
+    #           Use when: Project has been released to an environment.
+    #           Terminal status: No further progression.
     #
     # CANCELLED: Project cancelled or abandoned (requirements changed, no longer viable, superseded by another project).
     #            Use when: Project will not be completed and is permanently stopped.
@@ -232,13 +229,14 @@ status_progression:
     # Default project flow
     default_flow: [planning, in-development, completed, archived]
 
-    # No alternative flows needed (projects are high-level)
+    # Alternative flows
+    with_deploy_flow: [planning, in-development, completed, deployed, archived]
 
     # Emergency transitions
     emergency_transitions: [on-hold, cancelled]
 
     # Terminal statuses
-    terminal_statuses: [completed, archived, cancelled]
+    terminal_statuses: [completed, archived, cancelled, deployed]
 
     # Status roles - semantic annotations for AI context
     # Roles: queue (waiting), work (active), blocked (impediment), terminal (done)
@@ -246,6 +244,7 @@ status_progression:
       planning: queue
       in-development: work
       on-hold: blocked
+      deployed: terminal
       cancelled: terminal
       completed: terminal
       archived: terminal
@@ -322,66 +321,3 @@ status_validation:
   # Recommendation: Keep true to prevent incomplete work from being marked complete.
   #                 Set false only for testing or if managing prerequisites externally.
   validate_prerequisites: true
-
-# ============================================================================
-# PARALLEL EXECUTION SETTINGS (❌ NOT IMPLEMENTED YET)
-# ============================================================================
-# Configure how tasks are executed in parallel based on dependencies
-#
-# PLANNED: Future parallel execution engine for concurrent task processing
-# CURRENT: No code reads these settings; parallel execution is manual
-
-parallelism:
-  enabled: true                    # Enable parallel task execution
-  max_parallel_tasks: 5            # Maximum concurrent tasks
-  auto_launch: true                # Auto-launch parallel batches (false = suggest only)
-  monitor_interval: 30             # Progress check interval (seconds)
-
-# ============================================================================
-# WORKFLOW AUTOMATION (❌ NOT IMPLEMENTED YET)
-# ============================================================================
-# Configure automatic workflow behaviors
-#
-# PLANNED: Automated task creation, specialist assignment, status progression
-# CURRENT: No automation engine reads these settings; all actions are manual
-
-automation:
-  # Feature and task creation
-  auto_create_tasks: true          # Auto-create tasks for simple features
-  auto_assign_specialists: true    # Auto-assign specialists based on tags
-  auto_progress_status: true       # Auto-progress status when conditions met
-  auto_complete_features: false    # Require manual confirmation for completion
-
-  # Template management
-  templates:
-    auto_discover: true            # Auto-discover available templates
-    auto_apply: true               # Auto-apply templates to new entities
-    required: []                   # Required template names
-    # Example:
-    # required:
-    #   - "Technical Approach"
-    #   - "Testing Strategy"
-
-# ============================================================================
-# FEATURE-SPECIFIC SETTINGS
-# ============================================================================
-
-# Complexity thresholds for routing decisions (⚠️ REFERENCED but not loaded)
-# NOTE: These values are documented in Skills but not loaded by backend code
-complexity:
-  simple_threshold: 4              # Complexity ≤ 4 = simple task
-  moderate_threshold: 7            # Complexity 5-7 = moderate task
-  complex_threshold: 10            # Complexity 8-10 = complex task
-
-# Feature creation thresholds (⚠️ REFERENCED but not loaded)
-# NOTE: These values are documented in Skills but not loaded by backend code
-feature_creation:
-  simple_max_tasks: 3              # Max tasks for "simple" feature
-  simple_max_description: 200      # Max chars for "simple" feature
-  complex_min_tasks: 5             # Min tasks for "complex" feature
-
-# Dependency management (❌ NOT IMPLEMENTED YET)
-dependencies:
-  auto_detect_circular: true       # Auto-detect circular dependencies
-  warn_on_deep_chains: true        # Warn when dependency chains > 5 levels
-  max_dependency_depth: 10         # Maximum allowed dependency depth

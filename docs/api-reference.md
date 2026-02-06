@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference (v2.0)
 
-The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
+The MCP Task Orchestrator v2.0 provides **12 MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
 
 > **Migration from v1.x**: See [v2.0 Migration Guide](migration/v2.0-migration-guide.md) for complete migration instructions.
 
@@ -26,18 +26,11 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 - [Dependency Tools](#dependency-tools)
   - [query_dependencies](#query_dependencies) 🔍
   - [manage_dependency](#manage_dependency) ✏️
-- [Tag Tools](#tag-tools)
-  - [list_tags](#list_tags) 🔍
-  - [get_tag_usage](#get_tag_usage) 🔍
-  - [rename_tag](#rename_tag) ✏️
-- [System Tools](#system-tools)
-  - [setup_project](#setup_project) ✏️
-- [Agent Tools](#agent-tools) (Claude Code Only - Plugin Installation)
-  - [get_agent_definition](#get_agent_definition) 🔍
-  - [recommend_agent](#recommend_agent) 🔍
 - [Workflow Tools](#workflow-tools)
+  - [get_next_task](#get_next_task) 🔍
+  - [get_blocked_tasks](#get_blocked_tasks) 🔍
   - [get_next_status](#get_next_status) 🔍
-  - [query_workflow_state](#query_workflow_state) 🔍
+  - [request_transition](#request_transition) ✏️
 - [Permission Model](#permission-model)
 - [Best Practices](#best-practices)
 
@@ -49,7 +42,7 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 
 ### Massive Consolidation
 
-**v1.x: 56 tools** → **v2.0: 18 tools** (68% reduction)
+**v1.x: 56 tools** → **v2.0: 12 tools** (79% reduction)
 
 | Category | v1.x Tools | v2.0 Tools | Reduction |
 |----------|------------|------------|-----------|
@@ -57,7 +50,7 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 | Sections | 11 tools | 2 tools | 82% |
 | Templates | 9 tools | 3 tools | 67% |
 | Dependencies | 3 tools | 2 tools | 33% |
-| Tags, Agents (plugin-only), Workflow | 6 tools | 6 tools | 0% |
+| Workflow & Status | 6 tools | 3 tools | 50% |
 
 ### Key Improvements
 
@@ -95,18 +88,11 @@ The MCP Task Orchestrator v2.0 provides **19 consolidated MCP tools** for AI-dri
 | **Dependency Tools** |
 | `query_dependencies` | 🔍 READ | (single operation with filtering) | Read task dependencies |
 | `manage_dependency` | ✏️ WRITE | create, delete | Dependency management |
-| **Tag Tools** |
-| `list_tags` | 🔍 READ | (single operation) | List all unique tags |
-| `get_tag_usage` | 🔍 READ | (single operation) | Find entities using tag |
-| `rename_tag` | ✏️ WRITE | (single operation) | Bulk rename tags |
-| **System Tools** |
-| `setup_project` | ✏️ WRITE | (single operation) | Initialize Task Orchestrator project config |
-| **Agent Tools** (Claude Code - via Plugin) |
-| `get_agent_definition` | 🔍 READ | (single operation) | Get agent metadata |
-| `recommend_agent` | 🔍 READ | (single operation) | Route task to skill/agent |
 | **Workflow Tools** |
-| `get_next_status` | 🔍 READ | (single operation) | Status progression recommendations |
-| `query_workflow_state` | 🔍 READ | (single operation) | Query complete workflow state |
+| `get_next_task` | 🔍 READ | (single operation) | Intelligent task recommendation with dependency checking |
+| `get_blocked_tasks` | 🔍 READ | (single operation) | Dependency blocking analysis |
+| `get_next_status` | 🔍 READ | (single operation) | Status progression recommendations with role annotations |
+| `request_transition` | ✏️ WRITE | (single operation) | Trigger-based status transitions with validation |
 
 ---
 
@@ -1905,361 +1891,6 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
 
 ---
 
-## Tag Tools
-
-Tags provide categorization and organization across all entities.
-
-### list_tags
-
-**Permission**: 🔍 READ-ONLY
-
-**Purpose**: List all unique tags with usage counts
-
-#### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `entityTypes` | array | No | Filter: `PROJECT`, `FEATURE`, `TASK`, `TEMPLATE` |
-| `sortBy` | enum | No | `count` or `name` (default: `count`) |
-| `sortDirection` | enum | No | `asc` or `desc` (default: `desc`) |
-
-#### Example - All Tags by Usage
-
-```json
-{
-  "sortBy": "count",
-  "sortDirection": "desc"
-}
-```
-
-#### Example - Task Tags Alphabetically
-
-```json
-{
-  "entityTypes": ["TASK"],
-  "sortBy": "name",
-  "sortDirection": "asc"
-}
-```
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Found 25 unique tags",
-  "data": {
-    "tags": [
-      {
-        "tag": "backend",
-        "totalCount": 45,
-        "byEntityType": {
-          "TASK": 32,
-          "FEATURE": 10,
-          "TEMPLATE": 3
-        }
-      },
-      {
-        "tag": "api",
-        "totalCount": 38,
-        "byEntityType": {
-          "TASK": 28,
-          "FEATURE": 8,
-          "TEMPLATE": 2
-        }
-      }
-    ],
-    "totalTags": 25
-  }
-}
-```
-
----
-
-### get_tag_usage
-
-**Permission**: 🔍 READ-ONLY
-
-**Purpose**: Find all entities using a specific tag
-
-#### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tag` | string | **Yes** | Tag to search for (case-insensitive) |
-| `entityTypes` | string | No | Comma-separated types to filter |
-
-#### Example - Find All Entities with Tag
-
-```json
-{
-  "tag": "authentication"
-}
-```
-
-#### Example - Find Only Tasks
-
-```json
-{
-  "tag": "api",
-  "entityTypes": "TASK"
-}
-```
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Found 12 entities with tag 'authentication'",
-  "data": {
-    "tag": "authentication",
-    "totalCount": 12,
-    "entities": {
-      "TASK": [
-        {
-          "id": "task-uuid",
-          "title": "Implement OAuth login",
-          "status": "in-progress",
-          "priority": "high",
-          "complexity": 7
-        }
-      ],
-      "FEATURE": [
-        {
-          "id": "feature-uuid",
-          "name": "User Authentication",
-          "status": "in-development",
-          "priority": "high"
-        }
-      ]
-    }
-  }
-}
-```
-
----
-
-### rename_tag
-
-**Permission**: ✏️ WRITE
-
-**Purpose**: Bulk rename tag across all entities
-
-#### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `oldTag` | string | **Yes** | Current tag name (case-insensitive) |
-| `newTag` | string | **Yes** | New tag name |
-| `entityTypes` | string | No | Comma-separated types to update |
-| `dryRun` | boolean | No | Preview changes without applying (default: false) |
-
-#### Example - Rename Tag
-
-```json
-{
-  "oldTag": "authentcation",
-  "newTag": "authentication"
-}
-```
-
-#### Example - Rename in Tasks Only
-
-```json
-{
-  "oldTag": "api",
-  "newTag": "rest-api",
-  "entityTypes": "TASK"
-}
-```
-
-#### Example - Preview Changes
-
-```json
-{
-  "oldTag": "frontend",
-  "newTag": "ui",
-  "dryRun": true
-}
-```
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Successfully renamed tag in 12 entities",
-  "data": {
-    "oldTag": "authentcation",
-    "newTag": "authentication",
-    "totalUpdated": 12,
-    "byEntityType": {
-      "TASK": 8,
-      "FEATURE": 3,
-      "PROJECT": 1
-    },
-    "failedUpdates": 0,
-    "dryRun": false
-  }
-}
-```
-
----
-
-## System Tools
-
-System tools manage Task Orchestrator project initialization and configuration.
-
-### setup_project
-
-**Permission**: ✏️ WRITE
-
-**Purpose**: Initialize Task Orchestrator project configuration files
-
-Creates `.taskorchestrator/` directory with:
-- `config.yaml` - Core orchestrator configuration
-- `status-workflow-config.yaml` - Workflow definitions
-- `agent-mapping.yaml` - Agent routing configuration
-- `orchestration/` - Workflow automation files
-
-**Parameters**: None required
-
-**Key Features**:
-- Idempotent (safe to run multiple times)
-- Won't overwrite customizations
-- Detects outdated configurations
-
-**Detailed Documentation**: [setup_project](tools/setup-project.md)
-
----
-
-## Agent Tools
-
-Agent tools support Claude Code agent orchestration (Skills and Subagents).
-
-> **Note**: Agent tools are automatically installed when you use the plugin marketplace. Other MCP clients don't support agent orchestration. For Claude Code, install via: `/plugin install task-orchestrator`
-
-### get_agent_definition
-
-**Permission**: 🔍 READ-ONLY
-
-**Purpose**: Retrieve agent metadata
-
-#### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `agentName` | string | **Yes** | Agent filename (without .md extension) |
-
-#### Example
-
-```json
-{
-  "agentName": "backend-engineer"
-}
-```
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Agent definition retrieved successfully",
-  "data": {
-    "name": "Backend Engineer",
-    "file": "backend-engineer.md",
-    "model": "sonnet",
-    "tools": ["Write", "Edit", "Read", "Bash"],
-    "description": "Specialist for backend implementation tasks",
-    "capabilities": [
-      "API development",
-      "Database integration",
-      "Authentication systems",
-      "Business logic implementation"
-    ]
-  }
-}
-```
-
----
-
-### recommend_agent
-
-**Permission**: 🔍 READ-ONLY
-
-**Purpose**: Get routing recommendation (Skill vs Subagent)
-
-#### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `taskId` | UUID | **Yes** | Task to analyze for routing |
-
-#### Example
-
-```json
-{
-  "taskId": "640522b7-810e-49a2-865c-3725f5d39608"
-}
-```
-
-#### Response - Skill Recommendation
-
-```json
-{
-  "success": true,
-  "message": "Routing recommendation generated",
-  "data": {
-    "recommended": true,
-    "recommendationType": "SKILL",
-    "agent": "Task Management Skill",
-    "reason": "Task requires lightweight coordination for routing",
-    "matchedTags": ["task-routing", "coordination"],
-    "sectionTags": ["requirements", "context"],
-    "taskId": "640522b7-810e-49a2-865c-3725f5d39608",
-    "taskTitle": "Route task to specialist",
-    "nextAction": {
-      "instruction": "Use the Task Management Skill directly",
-      "tool": "Skill",
-      "parameters": {
-        "skill": "Task Management Skill",
-        "prompt": "Route this task to appropriate specialist"
-      }
-    }
-  }
-}
-```
-
-#### Response - Subagent Recommendation
-
-```json
-{
-  "success": true,
-  "message": "Routing recommendation generated",
-  "data": {
-    "recommended": true,
-    "recommendationType": "SUBAGENT",
-    "agent": "Backend Engineer",
-    "reason": "Task requires complex backend implementation work",
-    "matchedTags": ["backend", "api-implementation"],
-    "sectionTags": ["implementation", "technical-approach"],
-    "taskId": "640522b7-810e-49a2-865c-3725f5d39608",
-    "taskTitle": "Implement REST API endpoints",
-    "nextAction": {
-      "instruction": "Launch Backend Engineer subagent",
-      "tool": "Task",
-      "parameters": {
-        "agent": "backend-engineer",
-        "prompt": "Implement the REST API endpoints described in task"
-      }
-    }
-  }
-}
-```
-
----
-
 ## Workflow Tools
 
 Workflow tools provide intelligent recommendations for task management and status progression.
@@ -2476,87 +2107,6 @@ manage_container(operation="setStatus", containerType="task",
 
 ---
 
-### query_workflow_state
-
-**Permission**: 🔍 READ-ONLY
-
-**Purpose**: Query comprehensive workflow state for any container
-
-**Parameters**:
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `containerType` | enum | **Yes** | Type: `task`, `feature`, or `project` |
-| `id` | UUID | **Yes** | Container ID to query workflow state for |
-
-#### What It Returns
-
-Complete workflow state including:
-- **Current status** and **active workflow flow** (based on entity tags)
-- **Allowed transitions** from current status (based on config)
-- **Detected cascade events** that may trigger related entity updates
-- **Prerequisites for each transition** (what must be met before transitioning)
-
-#### Use Cases
-
-1. **Pre-flight check** - Verify prerequisites before status changes
-2. **Cascade preview** - See what will happen when you complete a task
-3. **Debug workflow issues** - Understand why status change failed
-4. **Discover allowed transitions** - See all valid next statuses
-
-#### Example Request
-
-```json
-{
-  "containerType": "task",
-  "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
-}
-```
-
-#### Example Response
-
-```json
-{
-  "success": true,
-  "message": "Workflow state retrieved successfully",
-  "data": {
-    "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-    "containerType": "task",
-    "currentStatus": "in-progress",
-    "activeFlow": "default_flow",
-    "allowedTransitions": ["testing", "in-review", "blocked", "on-hold"],
-    "detectedEvents": [],
-    "prerequisites": {
-      "testing": {
-        "met": false,
-        "requirements": [
-          "Summary must be 300-500 characters",
-          "No incomplete blocking dependencies"
-        ],
-        "blockingReasons": [
-          "Summary too short: 50 characters (need 300-500)"
-        ]
-      },
-      "blocked": {
-        "met": true,
-        "requirements": ["Emergency transition - no prerequisites"]
-      }
-    }
-  }
-}
-```
-
-#### Related Tools
-
-- `get_next_status` - Get intelligent recommendations (uses query_workflow_state internally)
-- `manage_container` (setStatus) - Apply status changes after validation
-
-#### Detailed Documentation
-
-**[query_workflow_state](tools/query-workflow-state.md)** - Complete reference with examples
-
----
-
 ## Permission Model
 
 ### Read vs Write Separation
@@ -2574,10 +2124,8 @@ v2.0 introduces **clear permission separation** between read and write operation
 - `query_sections` - Read sections with filtering
 - `query_templates` - Read template definitions
 - `query_dependencies` - Read dependency relationships
-- `list_tags` - List all tags
-- `get_tag_usage` - Find tag usage
-- `get_agent_definition` - Read agent metadata
-- `recommend_agent` - Get routing recommendation
+- `get_next_task` - Intelligent task recommendation
+- `get_blocked_tasks` - Dependency blocking analysis
 - `get_next_status` - Status progression recommendations
 
 **Characteristics**:
@@ -2592,9 +2140,8 @@ v2.0 introduces **clear permission separation** between read and write operation
 - `manage_sections` - Add/update/delete sections
 - `manage_template` - Create/update/delete templates
 - `manage_dependency` - Create/delete dependencies
-- `rename_tag` - Bulk rename tags
 - `apply_template` - Apply templates to entities
-- `setup_project` - Initialize project configuration
+- `request_transition` - Trigger-based status transitions
 
 **Characteristics**:
 - ✅ Automatic locking
@@ -2836,7 +2383,6 @@ AI Workflow:
 - **[v2.0 Migration Guide](migration/v2.0-migration-guide.md)** - Complete migration instructions
 - **[AI Guidelines](ai-guidelines.md)** - AI usage patterns and workflows
 - **[Templates Guide](templates.md)** - Template system documentation
-- **[Workflow Prompts](workflow-prompts.md)** - Workflow automation
 - **[Quick Start](quick-start.md)** - Getting started guide
 
 ---
@@ -2845,4 +2391,4 @@ AI Workflow:
 
 **Last Updated**: 2025-11-03
 **Version**: 2.0.0
-**Tool Count**: 18 tools (68% reduction from v1.x)
+**Tool Count**: 12 tools (79% reduction from v1.x)
