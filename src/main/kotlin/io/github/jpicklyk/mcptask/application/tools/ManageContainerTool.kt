@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools
 
+import io.github.jpicklyk.mcptask.application.service.CompletionCleanupService
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
@@ -418,6 +419,28 @@ Docs: task-orchestrator://docs/tools/manage-container
             projectRepository = context.projectRepository(),
             statusValidator = statusValidator
         )
+    }
+
+    /**
+     * Runs completion cleanup for a feature transition.
+     * The cleanup service internally checks if the status is terminal and if cleanup is enabled.
+     */
+    private suspend fun runCompletionCleanup(
+        featureId: UUID,
+        targetStatus: String,
+        context: ToolExecutionContext
+    ): io.github.jpicklyk.mcptask.application.service.CleanupResult? {
+        return try {
+            val cleanupService = CompletionCleanupService(
+                taskRepository = context.taskRepository(),
+                sectionRepository = context.sectionRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            cleanupService.cleanupFeatureTasks(featureId, targetStatus)
+        } catch (e: Exception) {
+            logger.warn("Failed to run completion cleanup for feature $featureId: ${e.message}")
+            null
+        }
     }
 
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -1298,8 +1321,17 @@ Docs: task-orchestrator://docs/tools/manage-container
                     ContainerType.FEATURE
                 )
 
+                // Run completion cleanup for feature status changes
+                val cleanupResult = runCompletionCleanup(updatedFeature.id, statusStr, context)
+
+                val finalMessage = if (cleanupResult != null && cleanupResult.performed) {
+                    "$successMessage. Cleanup: ${cleanupResult.tasksDeleted} task(s) deleted, ${cleanupResult.tasksRetained} retained."
+                } else {
+                    successMessage
+                }
+
                 successResponse(
-                    message = successMessage,
+                    message = finalMessage,
                     data = buildJsonObject {
                         put("id", updatedFeature.id.toString())
                         put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
@@ -1323,6 +1355,21 @@ Docs: task-orchestrator://docs/tools/manage-container
                                     }
                                 }
                             ))
+                        }
+                        if (cleanupResult != null && cleanupResult.performed) {
+                            put("cleanup", buildJsonObject {
+                                put("performed", true)
+                                put("tasksDeleted", cleanupResult.tasksDeleted)
+                                put("tasksRetained", cleanupResult.tasksRetained)
+                                if (cleanupResult.retainedTaskIds.isNotEmpty()) {
+                                    put("retainedTaskIds", JsonArray(
+                                        cleanupResult.retainedTaskIds.map { JsonPrimitive(it.toString()) }
+                                    ))
+                                }
+                                put("sectionsDeleted", cleanupResult.sectionsDeleted)
+                                put("dependenciesDeleted", cleanupResult.dependenciesDeleted)
+                                put("reason", cleanupResult.reason)
+                            })
                         }
                     }
                 )

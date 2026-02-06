@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools.status
 
+import io.github.jpicklyk.mcptask.application.service.CompletionCleanupService
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.WorkflowConfigLoaderImpl
 import io.github.jpicklyk.mcptask.application.service.WorkflowServiceImpl
@@ -230,6 +231,11 @@ Related: manage_container (setStatus), get_next_status"""
                     // Detect cascade events
                     val cascadeEvents = detectCascades(containerId, containerType, context)
 
+                    // Run completion cleanup for feature transitions
+                    val cleanupResult = if (containerType == "feature") {
+                        runCompletionCleanup(containerId, targetStatus, context)
+                    } else null
+
                     val advisory = if (validationResult is StatusValidator.ValidationResult.ValidWithAdvisory) {
                         validationResult.advisory
                     } else null
@@ -240,6 +246,9 @@ Related: manage_container (setStatus), get_next_status"""
                             if (summary != null) append(" ($summary)")
                             if (advisory != null) append(". Advisory: $advisory")
                             if (cascadeEvents.isNotEmpty()) append(". ${cascadeEvents.size} cascade event(s) detected.")
+                            if (cleanupResult != null && cleanupResult.performed) {
+                                append(". Cleanup: ${cleanupResult.tasksDeleted} task(s) deleted, ${cleanupResult.tasksRetained} retained.")
+                            }
                         },
                         data = buildJsonObject {
                             put("containerId", containerId.toString())
@@ -262,6 +271,21 @@ Related: manage_container (setStatus), get_next_status"""
                                         }
                                     }
                                 ))
+                            }
+                            if (cleanupResult != null && cleanupResult.performed) {
+                                put("cleanup", buildJsonObject {
+                                    put("performed", true)
+                                    put("tasksDeleted", cleanupResult.tasksDeleted)
+                                    put("tasksRetained", cleanupResult.tasksRetained)
+                                    if (cleanupResult.retainedTaskIds.isNotEmpty()) {
+                                        put("retainedTaskIds", JsonArray(
+                                            cleanupResult.retainedTaskIds.map { JsonPrimitive(it.toString()) }
+                                        ))
+                                    }
+                                    put("sectionsDeleted", cleanupResult.sectionsDeleted)
+                                    put("dependenciesDeleted", cleanupResult.dependenciesDeleted)
+                                    put("reason", cleanupResult.reason)
+                                })
                             }
                         }
                     )
@@ -447,6 +471,28 @@ Related: manage_container (setStatus), get_next_status"""
         return try {
             ProjectStatus.valueOf(normalized)
         } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    /**
+     * Runs completion cleanup for a feature transition.
+     * The cleanup service internally checks if the status is terminal and if cleanup is enabled.
+     */
+    private suspend fun runCompletionCleanup(
+        featureId: UUID,
+        targetStatus: String,
+        context: ToolExecutionContext
+    ): io.github.jpicklyk.mcptask.application.service.CleanupResult? {
+        return try {
+            val cleanupService = CompletionCleanupService(
+                taskRepository = context.taskRepository(),
+                sectionRepository = context.sectionRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            cleanupService.cleanupFeatureTasks(featureId, targetStatus)
+        } catch (e: Exception) {
+            logger.warn("Failed to run completion cleanup for feature $featureId: ${e.message}")
             null
         }
     }

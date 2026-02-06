@@ -321,3 +321,30 @@ status_validation:
   # Recommendation: Keep true to prevent incomplete work from being marked complete.
   #                 Set false only for testing or if managing prerequisites externally.
   validate_prerequisites: true
+
+# ============================================================================
+# COMPLETION CLEANUP CONFIGURATION
+# ============================================================================
+# When a feature reaches a terminal status (defined in status_progression.features.terminal_statuses),
+# automatically delete child tasks. Features and projects are preserved — they contain
+# the durable record of work. Tasks are transient work items that served their purpose.
+#
+# IMPLEMENTATION: CompletionCleanupService runs synchronously during status transitions
+# in both request_transition and manage_container(setStatus) tools.
+#
+# What gets cleaned up:
+# - Child tasks of the feature (with their sections and dependencies)
+#
+# What is NOT cleaned up:
+# - The feature itself and its sections (preserved for long-term context)
+# - Bug-tagged tasks (retained for diagnostic value, configurable via retain_tags)
+# - Standalone tasks with no featureId
+# - Projects (never deleted)
+
+completion_cleanup:
+  # Master switch for automatic cleanup. Set to false to keep all tasks indefinitely.
+  enabled: true
+
+  # Tasks with any of these tags survive cleanup. Checked case-insensitively against task tags.
+  # Common patterns: bug reports, critical fixes, hotfixes that have diagnostic value.
+  retain_tags: [bug, bugfix, fix, hotfix, critical]
