@@ -7,6 +7,11 @@ FROM eclipse-temurin:23-jdk AS builder
 
 WORKDIR /app
 
+# Git is needed at Gradle configuration time (build.gradle.kts calculates version from git rev-list)
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+COPY .git .git
+
 # Gradle wrapper and build configuration (cached aggressively)
 COPY gradlew gradlew.bat ./
 COPY gradle gradle
@@ -15,11 +20,6 @@ RUN chmod +x gradlew
 
 # Download dependencies (cached until build files change)
 RUN ./gradlew dependencies --no-daemon
-
-# Git for version calculation (git rev-list --count HEAD)
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
-COPY .git .git
 
 # Source code and runtime docs (change frequently, placed last for cache)
 COPY src src
@@ -44,7 +44,10 @@ LABEL org.opencontainers.image.title="MCP Task Orchestrator" \
 WORKDIR /app
 
 # Create non-root user and required directories
-RUN groupadd -r -g 1001 appgroup \
+# shadow-utils provides groupadd/useradd on AL2023 minimal images
+RUN dnf install -y shadow-utils \
+    && dnf clean all \
+    && groupadd -r -g 1001 appgroup \
     && useradd -r -u 1001 -g appgroup -d /app -s /sbin/nologin appuser \
     && mkdir -p /app/data /app/logs \
     && chown -R appuser:appgroup /app
