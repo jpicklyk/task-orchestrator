@@ -276,7 +276,7 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Database schema:** `src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/database/schema/`
 - **Migrations:** `src/main/resources/db/migration/`
 - **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
-- **Workflow config:** `src/main/resources/claude/configuration/default-config.yaml`
+- **Workflow config:** `src/main/resources/configuration/default-config.yaml`
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
 
 ## Tool Development Guidelines

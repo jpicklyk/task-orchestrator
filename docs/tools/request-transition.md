@@ -263,7 +263,7 @@ Emergency transition - works from any status without following the normal flow.
 ## References
 
 - **Source code**: `src/main/kotlin/io/github/jpicklyk/mcptask/application/tools/status/RequestTransitionTool.kt`
-- **Workflow config**: `src/main/resources/claude/configuration/default-config.yaml`
+- **Workflow config**: `src/main/resources/configuration/default-config.yaml`
 - **Status validation**: `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/StatusValidator.kt`
 - **Tests**: `src/test/kotlin/io/github/jpicklyk/mcptask/application/tools/status/RequestTransitionToolTest.kt`
 

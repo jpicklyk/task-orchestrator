@@ -140,7 +140,7 @@ class SchemaConfigAlignmentTest {
         }
 
         // Load config.yaml using SnakeYAML
-        val configYaml = javaClass.classLoader.getResourceAsStream("claude/configuration/default-config.yaml")
+        val configYaml = javaClass.classLoader.getResourceAsStream("configuration/default-config.yaml")
             ?: throw IllegalStateException("Could not load default-config.yaml")
 
         val yaml = Yaml()

@@ -55,7 +55,7 @@ class ValidationPipelineIntegrationTest {
         val configFile = configDir.resolve("config.yaml")
 
         // Load the production default-config.yaml from main resources
-        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("claude/configuration/default-config.yaml")
+        val defaultConfigResource = this::class.java.classLoader.getResourceAsStream("configuration/default-config.yaml")
         if (defaultConfigResource != null) {
             Files.copy(defaultConfigResource, configFile, StandardCopyOption.REPLACE_EXISTING)
             println("Copied default-config.yaml from main resources to $configFile")
