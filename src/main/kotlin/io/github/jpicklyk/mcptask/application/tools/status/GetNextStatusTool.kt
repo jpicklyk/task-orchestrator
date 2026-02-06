@@ -282,6 +282,8 @@ class GetNextStatusTool(
                         put("currentPosition", recommendation.currentPosition)
                         put("matchedTags", JsonArray(recommendation.matchedTags.map { JsonPrimitive(it) }))
                         put("reason", recommendation.reason)
+                        if (recommendation.currentRole != null) put("currentRole", recommendation.currentRole)
+                        if (recommendation.nextRole != null) put("nextRole", recommendation.nextRole)
                     }
                 }
                 is NextStatusRecommendation.Blocked -> {

@@ -92,6 +92,20 @@ status_progression:
     # Terminal statuses
     terminal_statuses: [completed, archived]
 
+    # Status roles - semantic annotations for AI context
+    # Roles: queue (waiting), work (active), review (validation), blocked (impediment), terminal (done)
+    status_roles:
+      draft: queue
+      planning: queue
+      in-development: work
+      testing: review
+      validating: review
+      pending-review: review
+      blocked: blocked
+      on-hold: blocked
+      completed: terminal
+      archived: terminal
+
   tasks:
     # All valid task statuses (v2.0) - 11 total statuses
     # Valid task statuses (defined by TaskStatus enum):
@@ -167,6 +181,23 @@ status_progression:
     # Terminal statuses (no progression from these)
     terminal_statuses: [completed, cancelled, deferred]
 
+    # Status roles - semantic annotations for AI context
+    # Roles: queue (waiting), work (active), review (validation), blocked (impediment), terminal (done)
+    status_roles:
+      backlog: queue
+      pending: queue
+      in-progress: work
+      in-review: review
+      changes-requested: work
+      testing: review
+      ready-for-qa: review
+      investigating: work
+      blocked: blocked
+      on-hold: blocked
+      completed: terminal
+      cancelled: terminal
+      deferred: terminal
+
   projects:
     # All valid project statuses (v2.0) - 6 total statuses
     # Valid project statuses (defined by ProjectStatus enum):
@@ -208,6 +239,16 @@ status_progression:
 
     # Terminal statuses
     terminal_statuses: [completed, archived, cancelled]
+
+    # Status roles - semantic annotations for AI context
+    # Roles: queue (waiting), work (active), blocked (impediment), terminal (done)
+    status_roles:
+      planning: queue
+      in-development: work
+      on-hold: blocked
+      cancelled: terminal
+      completed: terminal
+      archived: terminal
 
 # ============================================================================
 # STATUS VALIDATION RULES (✅ IMPLEMENTED)

@@ -123,6 +123,8 @@ sealed class NextStatusRecommendation {
      * @property currentPosition Index of current status in flow (0-based)
      * @property matchedTags Tags that matched to determine flow (empty if default flow)
      * @property reason Human-readable explanation of recommendation
+     * @property currentRole Semantic role of current status (queue, work, review, blocked, terminal)
+     * @property nextRole Semantic role of recommended next status
      */
     data class Ready(
         val recommendedStatus: String,
@@ -130,7 +132,9 @@ sealed class NextStatusRecommendation {
         val flowSequence: List<String>,
         val currentPosition: Int,
         val matchedTags: List<String>,
-        val reason: String
+        val reason: String,
+        val currentRole: String? = null,
+        val nextRole: String? = null
     ) : NextStatusRecommendation()
 
     /**
