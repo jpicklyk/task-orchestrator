@@ -37,34 +37,35 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 java -jar build/libs/mcp-task-orchestrator-*.jar
 
 # Run with environment variables
-DATABASE_PATH=data/tasks.db USE_FLYWAY=true MCP_DEBUG=true java -jar build/libs/mcp-task-orchestrator-*.jar
+DATABASE_PATH=data/tasks.db USE_FLYWAY=true LOG_LEVEL=DEBUG java -jar build/libs/mcp-task-orchestrator-*.jar
 ```
 
 ### Docker Development
 ```bash
 # Build Docker image (from project root)
-docker build -t mcp-task-orchestrator:dev .
+docker build -t task-orchestrator:dev .
+
+# Or use the build scripts
+./scripts/docker-build.sh                          # Linux/macOS/Git Bash
+scripts\docker-build.bat                           # Windows CMD
 
 # Run Docker container (basic - database only)
-docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
+docker run --rm -i -v mcp-task-data:/app/data task-orchestrator:dev
 
 # Run with project mount (recommended - enables config reading)
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project \
+  -v D:/Projects/task-orchestrator:/project:ro \
   -e AGENT_CONFIG_DIR=/project \
-  mcp-task-orchestrator:dev
-
-# Clean and rebuild Docker
-./scripts/docker-clean-and-build.bat
+  task-orchestrator:dev
 
 # Debug with logs
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project \
+  -v D:/Projects/task-orchestrator:/project:ro \
   -e AGENT_CONFIG_DIR=/project \
-  -e MCP_DEBUG=true \
-  mcp-task-orchestrator:dev
+  -e LOG_LEVEL=DEBUG \
+  task-orchestrator:dev
 ```
 
 ## Architecture
@@ -229,8 +230,12 @@ See [database-migrations.md](docs/developer-guides/database-migrations.md) for p
 **Environment Variables:**
 - `DATABASE_PATH` - SQLite database file path (default: `data/tasks.db`)
 - `USE_FLYWAY` - Enable Flyway migrations (default: `true` in Docker)
-- `MCP_DEBUG` - Enable debug logging
+- `LOG_LEVEL` - Logging verbosity: DEBUG, INFO, WARN, ERROR (default: `INFO`)
 - `AGENT_CONFIG_DIR` - Directory containing `.taskorchestrator/` config folder (default: current working directory)
+- `DATABASE_MAX_CONNECTIONS` - Connection pool size (default: `10`)
+- `DATABASE_SHOW_SQL` - Log SQL statements (default: `false`)
+- `MCP_SERVER_NAME` - Custom server name for MCP identity (default: `mcp-task-orchestrator`)
+- `FLYWAY_REPAIR` - Run Flyway repair and exit (default: `false`)
 
 **Schema Management:**
 - **Flyway** (Production) - Versioned SQL migrations with history tracking
@@ -277,6 +282,9 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Migrations:** `src/main/resources/db/migration/`
 - **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
 - **Workflow config:** `src/main/resources/configuration/default-config.yaml`
+- **Docker:** `Dockerfile`, `.dockerignore`, `docker-compose.yml`
+- **Build scripts:** `scripts/docker-build.sh`, `scripts/docker-build.bat`
+- **CI/CD:** `.github/workflows/docker-publish.yml`
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
 
 ## Tool Development Guidelines

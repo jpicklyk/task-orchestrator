@@ -1,0 +1,44 @@
+# Build outputs
+build/
+out/
+
+# Gradle cache
+.gradle/
+
+# Logs
+logs/
+
+# Data directory
+data/
+
+# IDE files
+.idea/
+.vscode/
+*.iws
+*.iml
+*.ipr
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (prevent recursion)
+docker-compose.yml
+docker-compose*.yml
+
+# Claude Code local config (not needed in build)
+CLAUDE.local.md
+.claude/plugins/
+.claude/skills/
+.claude/agents/
+.claude/settings.local.json
+
+# Runtime config (not needed in build)
+.taskorchestrator/
+
+# Plans and doc research
+plans/
+doc_research/
+
+# Scripts (not needed in container)
+scripts/

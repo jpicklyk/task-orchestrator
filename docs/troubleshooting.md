@@ -186,7 +186,7 @@ Top 5 most common issues with one-line fixes:
    ```bash
    # Run container with debug output
    docker run --rm -i -v mcp-task-data:/app/data \
-     --env MCP_DEBUG=true mcp-task-orchestrator
+     --env LOG_LEVEL=DEBUG ghcr.io/jpicklyk/task-orchestrator:latest
    ```
 
 2. **Verify Volume Permissions**
@@ -428,14 +428,14 @@ Top 5 most common issues with one-line fixes:
 1. **Enable Debug Mode**
    ```bash
    # Add debug flag to Docker args
-   --env MCP_DEBUG=true
+   --env LOG_LEVEL=DEBUG
    ```
 
 2. **Check Application Logs**
    ```bash
    # View detailed logs
    docker run --rm -i -v mcp-task-data:/app/data \
-     --env MCP_DEBUG=true mcp-task-orchestrator 2>&1 | tee debug.log
+     --env LOG_LEVEL=DEBUG ghcr.io/jpicklyk/task-orchestrator:latest 2>&1 | tee debug.log
    ```
 
 3. **Isolate the Issue**
@@ -456,7 +456,7 @@ Top 5 most common issues with one-line fixes:
    ```bash
    # Log all input/output
    docker run --rm -i -v mcp-task-data:/app/data \
-     --env MCP_DEBUG=true mcp-task-orchestrator > debug.out 2>&1
+     --env LOG_LEVEL=DEBUG ghcr.io/jpicklyk/task-orchestrator:latest > debug.out 2>&1
    ```
 
 2. **Validate Individual Messages**
@@ -558,8 +558,8 @@ Add debug environment variable to your configuration:
       "args": [
         "run", "--rm", "-i",
         "--volume", "mcp-task-data:/app/data",
-        "--env", "MCP_DEBUG=true",
-        "mcp-task-orchestrator"
+        "--env", "LOG_LEVEL=DEBUG",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
   }
@@ -641,7 +641,7 @@ When reporting issues, include:
    ```bash
    # Capture debug output
    docker run --rm -i -v mcp-task-data:/app/data \
-     --env MCP_DEBUG=true mcp-task-orchestrator > debug.log 2>&1
+     --env LOG_LEVEL=DEBUG ghcr.io/jpicklyk/task-orchestrator:latest > debug.log 2>&1
    ```
 
 ### Support Channels

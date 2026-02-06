@@ -79,8 +79,8 @@ docker build -t mcp-task-orchestrator:dev .
 ```bash
 # Run with debug logging
 docker run --rm -i -v mcp-task-dev-data:/app/data \
-  --env MCP_DEBUG=true \
-  mcp-task-orchestrator:dev
+  --env LOG_LEVEL=DEBUG \
+  task-orchestrator:dev
 
 # Run tests with coverage
 ./gradlew test jacocoTestReport

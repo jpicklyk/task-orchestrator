@@ -357,7 +357,7 @@ AI: "Task 4: Integration tests [PENDING]. 3 tasks completed yesterday."
 **Quick Fixes**:
 - **AI can't find tools**: Restart your AI client
 - **Docker not running**: Start Docker Desktop, verify with `docker version`
-- **Connection problems**: Enable `MCP_DEBUG=true` in Docker config
+- **Connection problems**: Enable `LOG_LEVEL=DEBUG` in Docker config
 - **Skills/Sub-agents not available**: Install via plugin marketplace (requires Claude Code)
 - **coordinate_feature_development not found**: Install plugin via marketplace for full orchestration features
 

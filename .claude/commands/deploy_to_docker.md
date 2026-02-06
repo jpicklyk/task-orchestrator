@@ -134,7 +134,7 @@ AskUserQuestion(
       },
       {
         label: "With Debug Logging",
-        description: "Project mount + MCP_DEBUG=true for detailed logs"
+        description: "Project mount + LOG_LEVEL=DEBUG + DATABASE_SHOW_SQL=true"
       }
     ]
   }]
@@ -163,7 +163,8 @@ docker run --rm -i \
   -v mcp-task-data:/app/data \
   -v D:/Projects/task-orchestrator:/project \
   -e AGENT_CONFIG_DIR=/project \
-  -e MCP_DEBUG=true \
+  -e LOG_LEVEL=DEBUG \
+  -e DATABASE_SHOW_SQL=true \
   <image-tag>
 ```
 
@@ -195,10 +196,16 @@ After the container is running, suggest testing basic functionality:
 **If container fails to start:**
 - Check logs with `docker logs <container-id>`
 - Verify volume paths are correct (Windows uses forward slashes in Docker)
-- Try Option 3 (debug mode) for detailed logging
+- Try debug mode (LOG_LEVEL=DEBUG) for detailed logging
+
+**If database permission errors after upgrade to non-root image:**
+- Fix volume permissions for the non-root user (UID 1001):
+  ```bash
+  docker run --rm -v mcp-task-data:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data
+  ```
 
 **If config files not found:**
-- Ensure using Option 2 with AGENT_CONFIG_DIR set
+- Ensure using project mount option with AGENT_CONFIG_DIR set
 - Verify project path is correct: `D:/Projects/task-orchestrator`
 - Check that `.taskorchestrator/` directory exists in project
 

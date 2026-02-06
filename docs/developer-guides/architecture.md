@@ -1022,7 +1022,7 @@ For detailed sub-agent orchestration documentation, see:
 // Environment variables
 DATABASE_PATH=data/tasks.db  // Database file path
 USE_FLYWAY=true              // Enable Flyway migrations
-MCP_DEBUG=true               // Enable debug logging
+LOG_LEVEL=DEBUG              // Enable debug logging
 ```
 
 **Schema Management Strategies**:

@@ -2,24 +2,33 @@ services:
   mcp-task-orchestrator:
     build: .
     container_name: mcp-task-orchestrator
+    user: "1001:1001"
     labels:
-      - "mcp.client=claude-desktop"  # Important for Claude Desktop discovery
+      - "mcp.client=claude-desktop"
     volumes:
       - mcp-task-data:/app/data
-      - ./config:/app/config
+      - .:/project:ro
     environment:
       - DATABASE_PATH=/app/data/tasks.db
       - MCP_TRANSPORT=stdio
-      - LOG_LEVEL=debug  # Using debug for more verbose logging
-      - USE_FLYWAY=true  # Enable Flyway database migrations
-      - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8 -Djava.awt.headless=true
+      - LOG_LEVEL=INFO
+      - USE_FLYWAY=true
+      - AGENT_CONFIG_DIR=/project
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
     restart: unless-stopped
-    stdin_open: true  # Required for STDIO communication
-    tty: true
+    stdin_open: true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
 volumes:
   mcp-task-data:

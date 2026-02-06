@@ -107,13 +107,16 @@ cd task-orchestrator
 **Windows**:
 ```bash
 # Use the provided build script
-./scripts/docker-clean-and-build.bat
+scripts\docker-build.bat
 ```
 
-**macOS / Linux**:
+**macOS / Linux / Git Bash**:
 ```bash
-# Manual build
-docker build -t mcp-task-orchestrator:dev .
+# Use the provided build script
+./scripts/docker-build.sh
+
+# Or manual build
+docker build -t task-orchestrator:dev .
 ```
 
 ### Step 3: Create Development Volume
@@ -127,12 +130,12 @@ docker volume create mcp-task-dev-data
 
 ```bash
 # Run development image
-docker run --rm -i -v mcp-task-dev-data:/app/data mcp-task-orchestrator:dev
+docker run --rm -i -v mcp-task-dev-data:/app/data task-orchestrator:dev
 
 # Or with debug logging
 docker run --rm -i -v mcp-task-dev-data:/app/data \
-  --env MCP_DEBUG=true \
-  mcp-task-orchestrator:dev
+  --env LOG_LEVEL=DEBUG \
+  task-orchestrator:dev
 ```
 
 ### Step 5: Configure for Development
@@ -151,8 +154,8 @@ Update `claude_desktop_config.json` to use dev image:
         "--volume",
         "mcp-task-dev-data:/app/data",
         "--env",
-        "MCP_DEBUG=true",
-        "mcp-task-orchestrator:dev"
+        "LOG_LEVEL=DEBUG",
+        "task-orchestrator:dev"
       ]
     }
   }
@@ -185,16 +188,16 @@ git checkout v1.0.0
 
 #### 2. Build Docker Image
 
-**Using Build Script (Windows)**:
-```batch
-# Clean and build
-scripts\docker-clean-and-build.bat
+**Using Build Script**:
+```bash
+# Linux/macOS/Git Bash
+./scripts/docker-build.sh
 
-# This script:
-# 1. Removes old containers/volumes
-# 2. Builds fresh image
-# 3. Creates new data volume
-# 4. Runs verification test
+# Windows CMD
+scripts\docker-build.bat
+
+# With options
+./scripts/docker-build.sh task-orchestrator:v2.0 --clean --no-cache
 ```
 
 **Manual Docker Build**:
@@ -278,7 +281,7 @@ notepad %APPDATA%\Claude\claude_desktop_config.json
 ```batch
 # Use Windows batch script
 cd task-orchestrator
-scripts\docker-clean-and-build.bat
+scripts\docker-build.bat
 ```
 
 ### macOS
@@ -362,10 +365,14 @@ docker build -t mcp-task-orchestrator:dev .
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `MCP_DEBUG` | Enable debug logging | `false` | `true` |
 | `DATABASE_PATH` | SQLite database file path | `/app/data/tasks.db` | `/app/data/my-tasks.db` |
-| `MCP_SERVER_NAME` | Server identifier in MCP | `mcp-task-orchestrator` | `task-orchestrator-dev` |
 | `LOG_LEVEL` | Logging verbosity | `INFO` | `DEBUG`, `WARN`, `ERROR` |
+| `AGENT_CONFIG_DIR` | Directory containing `.taskorchestrator/` | Current working dir | `/project` |
+| `USE_FLYWAY` | Enable Flyway migrations | `true` | `false` |
+| `MCP_SERVER_NAME` | Server identifier in MCP | `mcp-task-orchestrator` | `task-orchestrator-dev` |
+| `DATABASE_MAX_CONNECTIONS` | Connection pool size | `10` | `20` |
+| `DATABASE_SHOW_SQL` | Log SQL statements | `false` | `true` |
+| `FLYWAY_REPAIR` | Run Flyway repair and exit | `false` | `true` |
 
 ### Claude Desktop Configuration
 
@@ -403,11 +410,9 @@ docker build -t mcp-task-orchestrator:dev .
         "--volume",
         "mcp-task-data:/app/data",
         "--env",
-        "MCP_DEBUG=true",
+        "LOG_LEVEL=DEBUG",
         "--env",
         "DATABASE_PATH=/app/data/my-tasks.db",
-        "--env",
-        "LOG_LEVEL=DEBUG",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
@@ -429,8 +434,8 @@ docker build -t mcp-task-orchestrator:dev .
         "--volume",
         "mcp-task-dev-data:/app/data",
         "--env",
-        "MCP_DEBUG=true",
-        "mcp-task-orchestrator:dev"
+        "LOG_LEVEL=DEBUG",
+        "task-orchestrator:dev"
       ]
     }
   }
@@ -563,6 +568,9 @@ docker volume ls
 # Inspect volume
 docker volume inspect mcp-task-data
 
+# Fix permissions for non-root container (UID 1001)
+docker run --rm -v mcp-task-data:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data
+
 # Remove and recreate if corrupted
 docker volume rm mcp-task-data
 docker volume create mcp-task-data
@@ -649,7 +657,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
 # Run with debug logging
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  --env MCP_DEBUG=true \
   --env LOG_LEVEL=DEBUG \
   ghcr.io/jpicklyk/task-orchestrator:latest
 ```
