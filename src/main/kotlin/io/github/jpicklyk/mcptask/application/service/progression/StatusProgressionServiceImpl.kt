@@ -13,7 +13,7 @@ import java.util.UUID
  * Implementation of StatusProgressionService that provides intelligent status progression recommendations.
  *
  * This service integrates with StatusValidator for prerequisite validation and config loading.
- * Implements config caching with 60-second timeout following AgentRecommendationServiceImpl pattern.
+ * Implements config caching with 60-second timeout with 60-second cache timeout.
  *
  * Key responsibilities:
  * - Load and cache workflow configuration from .taskorchestrator/config.yaml
@@ -35,7 +35,7 @@ class StatusProgressionServiceImpl(
     private val logger = LoggerFactory.getLogger(StatusProgressionServiceImpl::class.java)
     private val yaml = Yaml()
 
-    // Cached config to avoid repeated file reads (following AgentRecommendationServiceImpl pattern)
+    // Cached config to avoid repeated file reads (with 60-second cache timeout)
     @Volatile
     private var cachedConfig: Map<String, Any?>? = null
     @Volatile
@@ -164,6 +164,11 @@ class StatusProgressionServiceImpl(
             }
         }
 
+        // Resolve status roles from config
+        val statusRoles = getStatusRoles(statusProgression)
+        val currentRole = statusRoles[normalizedCurrentStatus]
+        val nextRole = statusRoles[normalizeStatus(nextStatus)]
+
         // Ready to progress
         return NextStatusRecommendation.Ready(
             recommendedStatus = nextStatus,
@@ -171,7 +176,9 @@ class StatusProgressionServiceImpl(
             flowSequence = flowSequence,
             currentPosition = currentPosition,
             matchedTags = matchedTags,
-            reason = "Next status in $activeFlowName workflow. Transition from '$currentStatus' → '$nextStatus'."
+            reason = "Next status in $activeFlowName workflow. Transition from '$currentStatus' → '$nextStatus'.",
+            currentRole = currentRole,
+            nextRole = nextRole
         )
     }
 
@@ -317,7 +324,7 @@ class StatusProgressionServiceImpl(
     // ========== PRIVATE HELPER METHODS (duplicated from StatusValidator for independence) ==========
 
     /**
-     * Load and cache config following AgentRecommendationServiceImpl pattern.
+     * Load and cache config with 60-second cache timeout.
      * Returns null if file doesn't exist or can't be parsed.
      */
     private fun loadConfig(): Map<String, Any?>? {
@@ -520,6 +527,34 @@ class StatusProgressionServiceImpl(
     @Suppress("UNCHECKED_CAST")
     private fun getEmergencyTransitions(statusProgression: Map<String, Any?>): List<String> {
         return statusProgression["emergency_transitions"] as? List<String> ?: emptyList()
+    }
+
+    /**
+     * Gets status role mappings from config.
+     * Returns a map of normalized status name to role (queue, work, review, blocked, terminal).
+     * If no status_roles defined, infers roles from terminal_statuses and emergency_transitions.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun getStatusRoles(statusProgression: Map<String, Any?>): Map<String, String> {
+        val rolesConfig = statusProgression["status_roles"] as? Map<String, String>
+        if (rolesConfig != null) {
+            return rolesConfig.mapKeys { normalizeStatus(it.key) }
+        }
+
+        // Infer roles from config structure when status_roles is not defined
+        val terminalStatuses = (statusProgression["terminal_statuses"] as? List<String>)?.map { normalizeStatus(it) }?.toSet() ?: emptySet()
+        val emergencyStatuses = (statusProgression["emergency_transitions"] as? List<String>)?.map { normalizeStatus(it) }?.toSet() ?: emptySet()
+
+        val inferred = mutableMapOf<String, String>()
+        for (status in terminalStatuses) {
+            inferred[status] = "terminal"
+        }
+        for (status in emergencyStatuses) {
+            if (status !in inferred) {
+                inferred[status] = "blocked"
+            }
+        }
+        return inferred
     }
 
     /**

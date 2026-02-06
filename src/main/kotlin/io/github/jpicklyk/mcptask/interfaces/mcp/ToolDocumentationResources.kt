@@ -40,19 +40,9 @@ object ToolDocumentationResources {
         addQueryDependenciesDocumentation(server)
         addManageDependencyDocumentation(server)
 
-        // Tag Management (3 tools - unchanged in v2.0)
-        addListTagsDocumentation(server)
-        addGetTagUsageDocumentation(server)
-        addRenameTagDocumentation(server)
-
-        // Workflow Optimization (2 tools - unchanged in v2.0)
+        // Workflow Optimization (2 tools)
         addGetNextTaskDocumentation(server)
         addGetBlockedTasksDocumentation(server)
-
-        // Agent Orchestration (3 tools - unchanged in v2.0)
-        addSetupClaudeAgentsDocumentation(server)
-        addGetAgentDefinitionDocumentation(server)
-        addRecommendAgentDocumentation(server)
     }
 
     /**
@@ -252,66 +242,7 @@ object ToolDocumentationResources {
         }
     }
 
-    // ========== Tag Management (Unchanged in v2.0) ==========
-
-    private fun addListTagsDocumentation(server: Server) {
-        server.addResource(
-            uri = "task-orchestrator://docs/tools/list-tags",
-            name = "list_tags Tool Documentation",
-            description = "Detailed documentation for list_tags - discover all tags used across the system",
-            mimeType = "text/markdown"
-        ) { _ ->
-            ReadResourceResult(
-                contents = listOf(
-                    TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/list-tags",
-                        mimeType = "text/markdown",
-                        text = loadDocumentation("list-tags.md")
-                    )
-                )
-            )
-        }
-    }
-
-    private fun addGetTagUsageDocumentation(server: Server) {
-        server.addResource(
-            uri = "task-orchestrator://docs/tools/get-tag-usage",
-            name = "get_tag_usage Tool Documentation",
-            description = "Detailed documentation for get_tag_usage - analyze tag usage across entities",
-            mimeType = "text/markdown"
-        ) { _ ->
-            ReadResourceResult(
-                contents = listOf(
-                    TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/get-tag-usage",
-                        mimeType = "text/markdown",
-                        text = loadDocumentation("get-tag-usage.md")
-                    )
-                )
-            )
-        }
-    }
-
-    private fun addRenameTagDocumentation(server: Server) {
-        server.addResource(
-            uri = "task-orchestrator://docs/tools/rename-tag",
-            name = "rename_tag Tool Documentation",
-            description = "Detailed documentation for rename_tag - rename tags across all entities",
-            mimeType = "text/markdown"
-        ) { _ ->
-            ReadResourceResult(
-                contents = listOf(
-                    TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/rename-tag",
-                        mimeType = "text/markdown",
-                        text = loadDocumentation("rename-tag.md")
-                    )
-                )
-            )
-        }
-    }
-
-    // ========== Workflow Optimization (Unchanged in v2.0) ==========
+    // ========== Workflow Optimization ==========
 
     private fun addGetNextTaskDocumentation(server: Server) {
         server.addResource(
@@ -351,64 +282,4 @@ object ToolDocumentationResources {
         }
     }
 
-    // ========== System Setup Tools (v2.0) ==========
-
-    private fun addSetupClaudeAgentsDocumentation(server: Server) {
-        // Note: setup_claude_agents removed in v2.0
-        // setup_project provides core Task Orchestrator project initialization
-        server.addResource(
-            uri = "task-orchestrator://docs/tools/setup-project",
-            name = "setup_project Tool Documentation",
-            description = "Detailed documentation for setup_project - initialize Task Orchestrator project configuration",
-            mimeType = "text/markdown"
-        ) { _ ->
-            ReadResourceResult(
-                contents = listOf(
-                    TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/setup-project",
-                        mimeType = "text/markdown",
-                        text = loadDocumentation("setup-project.md")
-                    )
-                )
-            )
-        }
-    }
-
-    private fun addGetAgentDefinitionDocumentation(server: Server) {
-        server.addResource(
-            uri = "task-orchestrator://docs/tools/get-agent-definition",
-            name = "get_agent_definition Tool Documentation",
-            description = "Detailed documentation for get_agent_definition - retrieve agent definitions",
-            mimeType = "text/markdown"
-        ) { _ ->
-            ReadResourceResult(
-                contents = listOf(
-                    TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/get-agent-definition",
-                        mimeType = "text/markdown",
-                        text = loadDocumentation("get-agent-definition.md")
-                    )
-                )
-            )
-        }
-    }
-
-    private fun addRecommendAgentDocumentation(server: Server) {
-        server.addResource(
-            uri = "task-orchestrator://docs/tools/recommend-agent",
-            name = "recommend_agent Tool Documentation",
-            description = "Detailed documentation for recommend_agent - get agent recommendations for tasks",
-            mimeType = "text/markdown"
-        ) { _ ->
-            ReadResourceResult(
-                contents = listOf(
-                    TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/recommend-agent",
-                        mimeType = "text/markdown",
-                        text = loadDocumentation("recommend-agent.md")
-                    )
-                )
-            )
-        }
-    }
 }

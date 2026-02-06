@@ -3,29 +3,23 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializer
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
-import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationService
-import io.github.jpicklyk.mcptask.application.service.agent.AgentRecommendationServiceImpl
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionServiceImpl
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.AgentDirectoryManager
-import io.github.jpicklyk.mcptask.infrastructure.filesystem.TaskOrchestratorConfigManager
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
-import io.github.jpicklyk.mcptask.application.tools.QueryWorkflowStateTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
 import io.github.jpicklyk.mcptask.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
 import io.github.jpicklyk.mcptask.application.tools.section.QuerySectionsTool
-import io.github.jpicklyk.mcptask.application.tools.tag.*
 import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
 import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
 import io.github.jpicklyk.mcptask.application.tools.status.GetNextStatusTool
+import io.github.jpicklyk.mcptask.application.tools.status.RequestTransitionTool
 import io.github.jpicklyk.mcptask.application.tools.template.ApplyTemplateTool
 import io.github.jpicklyk.mcptask.application.tools.template.ManageTemplateTool
-import io.github.jpicklyk.mcptask.application.tools.agent.*
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
@@ -57,9 +51,6 @@ class McpServer(
     private lateinit var toolExecutionContext: ToolExecutionContext
     private val toolAdapter = McpToolAdapter()
     private lateinit var templateInitializer: TemplateInitializer
-    private lateinit var agentDirectoryManager: AgentDirectoryManager
-    private lateinit var configManager: TaskOrchestratorConfigManager
-    private lateinit var agentRecommendationService: AgentRecommendationService
     private lateinit var statusValidator: StatusValidator
     private lateinit var statusProgressionService: StatusProgressionService
     
@@ -84,11 +75,6 @@ class McpServer(
 
         // Initialize templates
         initializeTemplates()
-
-        // Initialize agent directory manager and recommendation service
-        agentDirectoryManager = AgentDirectoryManager()
-        configManager = TaskOrchestratorConfigManager()
-        agentRecommendationService = AgentRecommendationServiceImpl(agentDirectoryManager)
 
         // Initialize status progression services
         statusValidator = StatusValidator()
@@ -164,18 +150,6 @@ class McpServer(
 
         // Configure markdown resources
         server.configureMarkdownResources(repositoryProvider)
-
-        // Configure agent resources
-        AgentResources.configure(
-            server,
-            agentDirectoryManager,
-            agentRecommendationService,
-            repositoryProvider.taskRepository()
-        )
-
-        // Skills and Hooks resources removed - .claude/ directory setup no longer supported
-        // Skills are now user-managed in .claude/ directory if using Claude Code
-        // SkillsAndHooksResources.configure(server, configManager)
 
         // Configure tool documentation resources
         ToolDocumentationResources.configure(server)
@@ -260,23 +234,13 @@ class McpServer(
             QueryDependenciesTool(null, null),
             ManageDependencyTool(null, null),
 
-            // Tag management - Discovery and organization
-            ListTagsTool(),
-            GetTagUsageTool(),
-            RenameTagTool(),
-
             // Workflow optimization - Task recommendations and blocking analysis
             GetNextTaskTool(),
             GetBlockedTasksTool(),
 
             // Status progression - Intelligent workflow recommendations
             GetNextStatusTool(statusProgressionService),
-            QueryWorkflowStateTool(),
-
-            // Orchestration - AI workflow automation and coordination
-            SetupProjectTool(),
-            GetAgentDefinitionTool(),
-            RecommendAgentTool()
+            RequestTransitionTool(statusProgressionService)
         )
     }
 

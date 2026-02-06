@@ -72,24 +72,20 @@ object TaskOrchestratorResources {
 - Work is transient and won't be referenced later
 - External project management tools are already in use
 
-## Available Workflows
+## Available Tools
 
-Task Orchestrator provides **user-invokable workflow prompts** for common scenarios:
+Task Orchestrator provides consolidated tools for all scenarios:
 
-### Feature Development Workflows (v2.0)
-- **`coordinate_feature_development`**: End-to-end feature orchestration with Claude Code Skills
-- **Direct tool calls**: Using consolidated v2.0 tools (manage_container, query_container)
-- **Template discovery**: Automatic template application during entity creation
+### Core Operations
+- **`manage_container`**: Create, update, delete, setStatus for projects/features/tasks
+- **`query_container`**: Get, search, export, overview for projects/features/tasks
+- **`get_next_status`**: Intelligent status progression recommendations
+- **Template discovery**: Always discover and apply templates during creation
 
-### Project Organization Workflows
-- **`project_setup_workflow`**: Initialize new projects with structure
-
-### How Modern Workflows Work
-In v2.0, workflows use **two complementary approaches**:
-1. **Direct tool invocation**: Use consolidated tools for straightforward operations
-2. **Skill-based coordination**: Invoke Skills for complex workflows requiring reasoning
-3. **Template discovery**: Always discover and apply templates during creation
-4. Best practices are embedded in tool descriptions and Skills
+### How Workflows Work
+1. **Direct tool invocation**: Use consolidated tools for all operations
+2. **Template discovery**: Always discover and apply templates during creation
+3. Best practices are embedded in tool descriptions
 
 ## Template Discovery and Application
 
@@ -1152,14 +1148,13 @@ Task management patterns enable AI agents to:
     }
 
     /**
-     * Adds the workflow integration resource explaining the relationship between
-     * guidelines, workflow prompts, and templates in the dual workflow usage model.
+     * Adds the workflow integration resource explaining template-driven workflows.
      */
     private fun addWorkflowIntegrationResource(server: Server) {
         server.addResource(
             uri = "task-orchestrator://guidelines/workflow-integration",
             name = "Workflow Integration Guide",
-            description = "Explains the dual workflow model: when to apply patterns autonomously vs when to invoke workflow prompts explicitly",
+            description = "Explains how to use Task Orchestrator tools with templates for effective workflow management",
             mimeType = "text/markdown"
         ) { _ ->
             ReadResourceResult(
@@ -1170,392 +1165,52 @@ Task management patterns enable AI agents to:
                         text = """
 # Workflow Integration Guide
 
-## Understanding the Three-Layer System
+## Two-Layer System
 
-Task Orchestrator provides a comprehensive three-layer guidance system for AI agents:
+Task Orchestrator provides a two-layer guidance system:
 
-### Layer 1: MCP Resources (This Document and Related Guidelines)
-**Purpose**: Internalized knowledge for autonomous AI operation
+### Layer 1: MCP Resources (Guidelines)
+**Purpose**: Discoverable reference documentation for AI agents
 
-- **What**: Discoverable reference documentation via `task-orchestrator://guidelines/*` URIs
-- **Audience**: AI agents (for internalization and pattern recognition)
-- **Format**: Markdown documents with principles, patterns, and decision frameworks
-- **Access**: Read once and internalize for session or store in AI memory systems
-- **Usage**: AI agents reference these to understand WHEN/WHY/HOW to use tools
+- **What**: Reference docs via `task-orchestrator://guidelines/*` URIs
+- **Available Resources**:
+  1. `usage-overview` - When to use Task Orchestrator vs other systems
+  2. `template-strategy` - Template discovery and selection patterns
+  3. `task-management` - Intent recognition and executable workflow patterns
+  4. `workflow-integration` - This document
 
-**Available Guideline Resources**:
-1. `usage-overview` - When to use Task Orchestrator vs other systems
-2. `template-strategy` - Template discovery and selection patterns
-3. `task-management` - Intent recognition and executable workflow patterns
-4. `workflow-integration` - This document (dual model explanation)
-
-### Layer 2: Workflow Prompts (User/AI Invokable Processes)
-**Purpose**: Explicit, step-by-step guidance for complex scenarios
-
-- **What**: User or AI-invokable MCP prompts with detailed instructions
-- **Audience**: Both users and AI agents (for explicit workflow execution)
-- **Format**: Structured step-by-step procedures
-- **Access**: Invoke when needed via MCP prompt mechanism
-- **Usage**: Complex scenarios, teaching, comprehensive coverage, edge cases
-
-### Layer 3: Dynamic Templates (Database-Driven Documentation)
+### Layer 2: Dynamic Templates (Database-Driven)
 **Purpose**: Consistent documentation structure for entities
 
 - **What**: Reusable section definitions stored in database
-- **Audience**: Applied to tasks/features during creation
-- **Format**: Section templates with content samples
-- **Access**: Discovered via `list_templates`, applied via `templateIds`
+- **Access**: Discovered via `query_templates`, applied via `templateIds` during creation
 - **Usage**: Provide standardized documentation structure
 
-## The Dual Workflow Model
-
-Task Orchestrator supports two complementary modes of operation:
-
-### Mode 1: Autonomous Pattern Application
-**When AI Recognizes Intent and Applies Patterns Directly**
-
-**Characteristics**:
-- AI reads user's natural language request
-- Recognizes intent category (feature creation, task implementation, bug triage, etc.)
-- Applies appropriate pattern from internalized guidelines
-- Executes workflow autonomously without explicit prompt invocation
-- Provides streamlined, efficient interaction
-
-**Best For**:
-- Common, well-understood tasks
-- Clear user intents with standard patterns
-- Experienced users who know what they want
-- Situations where efficiency is prioritized
-- Straightforward scenarios matching known patterns
-
-**Example Flow**:
-```
-User: "Create a feature for user authentication with OAuth"
-
-AI (internally):
-1. Recognizes: Feature creation intent
-2. Applies: Feature Creation Pattern from task-management guidelines
-3. Executes: get_overview() → list_templates() → create_feature()
-4. Reports: "Created feature with appropriate templates applied"
-```
-
-**Decision Criteria for Autonomous Application**:
-- Intent is clear and matches known pattern
-- Task complexity is standard (not exceptional)
-- User expects direct action (not teaching/exploration)
-- Pattern application is straightforward
-
-### Mode 2: Explicit Workflow Invocation
-**When User/AI Invokes Specific Workflow Prompts**
-
-**Characteristics**:
-- User explicitly invokes workflow prompt (e.g., `/create_feature_workflow`)
-- OR AI suggests workflow prompt for complex scenario
-- Follows detailed step-by-step instructions from prompt
-- Provides comprehensive guidance and teaching
-- Covers edge cases and best practices explicitly
-
-**Best For**:
-- Complex, multi-phase scenarios
-- Learning and onboarding situations
-- When user wants comprehensive guidance
-- Edge cases not covered by standard patterns
-- Situations requiring detailed explanation
-
-**Example Flow**:
-```
-User: "/create_feature_workflow"
-
-AI (following prompt explicitly):
-1. Explains: Complete feature creation process
-2. Guides: Through each step with detailed instructions
-3. Teaches: Best practices and decision points
-4. Ensures: Comprehensive coverage of all aspects
-```
-
-**Decision Criteria for Workflow Invocation**:
-- User explicitly invokes workflow
-- Scenario is complex or multi-phased
-- User is learning or wants detailed guidance
-- Edge case not covered by standard patterns
-- When teaching/explanation value is important
-
-## Integration Between Layers
-
-### How the Layers Work Together
-
-**Guideline Resources → Workflow Prompts → Templates**
+## Core Workflow Pattern
 
 ```
-AI reads Guidelines (Layer 1)
-  ↓
-Internalizes patterns and decision frameworks
-  ↓
-User Request arrives
-  ↓
-AI decides: Autonomous (Mode 1) vs Workflow Invocation (Mode 2)
-  ↓
-If Autonomous:
-  - Apply internalized pattern
-  - Discover templates (Layer 3)
-  - Execute workflow directly
-  ↓
-If Workflow Invocation:
-  - Invoke appropriate Workflow Prompt (Layer 2)
-  - Follow step-by-step instructions
-  - Discover and apply templates as guided
+1. query_container(operation="overview") - Understand current state
+2. query_templates(targetEntityType="TASK") - Discover templates
+3. manage_container(operation="create", ..., templateIds=[...]) - Create with templates
+4. get_next_status(containerId, containerType) - Check progression
+5. manage_container(operation="setStatus", ...) - Apply status change
 ```
 
-**Key Integration Points**:
+## Status Workflow Management
 
-1. **Guidelines teach WHEN to use workflows**
-   - Decision frameworks for autonomous vs explicit
-   - Intent recognition → workflow mapping
-   - Complexity assessment for workflow selection
+Status progression is config-driven via `.taskorchestrator/config.yaml`:
+- **`get_next_status`**: Recommends next status based on tags and flow
+- **`manage_container(setStatus)`**: Applies status transitions
+- Flows are determined by entity tags (e.g., `bug` → `bug_fix_flow`)
+- Emergency transitions (blocked, cancelled) available from any state
 
-2. **Workflows reference templates**
-   - Each workflow specifies which templates to discover
-   - Template discovery is embedded in workflow steps
-   - Template selection guidance included
+## Best Practices
 
-3. **Templates provide structure**
-   - Applied during entity creation per workflows
-   - Discovered dynamically (never assumed)
-   - Multiple templates combined per workflow guidance
-
-## Available Workflow Prompts
-
-### 1. initialize_task_orchestrator
-**Purpose**: Guide AI agents through self-initialization
-
-**When to Use**:
-- First time AI encounters Task Orchestrator
-- Setting up AI memory with guidelines
-- Onboarding new AI agents
-
-**What It Does**:
-- Guides reading all guideline resources
-- Instructs storage in AI memory systems
-- Teaches dual workflow model
-- Verifies initialization completion
-
-**Invocation**: User or AI can invoke when initialization needed
-
-### 2. Feature Creation (v2.0 - Direct Tools with Skills)
-**Purpose**: Create features with consolidated tools and Skills (v1 `create_feature_workflow` replaced)
-
-**When to Use**:
-- User says "create feature for [description]"
-- Use Feature Management Skill for autonomous feature creation
-- Use direct tools (manage_container) for API-based creation
-
-**Autonomous Approach**:
-- Feature Management Skill automatically invokes:
-  1. list_templates(targetEntityType: FEATURE)
-  2. create_feature with discovered templates
-  3. Optionally create associated tasks
-
-**Tool-Based Approach**:
-```
-1. get_overview() - understand current state
-2. list_templates(targetEntityType: "FEATURE", isEnabled: true) - discover templates
-3. manage_container(operation: "create", containerType: "feature",
-     name: "...", summary: "...", templateIds: [...])
-```
-
-### 3. Task Decomposition (v2.0 - Direct Tools with Planning)
-**Purpose**: Break complex tasks into manageable subtasks (v1 `task_breakdown_workflow` replaced)
-
-**When to Use**:
-- Task complexity is very high (8+)
-- User says "break down this task"
-- Need to decompose large work into phases
-
-**Recommended Approach**:
-1. Analyze task scope using query_container(operation: "get", ...)
-2. Identify natural boundaries (components, phases, skills)
-3. Create subtasks using manage_container(operation: "create", containerType: "task", ...)
-4. Establish ordering via manage_dependencies()
-5. Use Task Management Skill for ongoing coordination
-
-### 4. project_setup_workflow
-**Purpose**: Initialize new project with proper structure
-
-**When to Use** (Autonomous Mode):
-- User says "set up project for [description]"
-- Clear project initialization intent
-- New project creation request
-
-**When to Invoke** (Explicit Mode):
-- New project requiring comprehensive setup
-- User wants complete project structure guidance
-- Learning project organization best practices
-- Complex project with multiple features
-
-**What It Does**:
-- Project creation with documentation
-- Feature planning and structure
-- Initial task creation
-- Template strategy setup
-- Development workflow establishment
-
-### 5. Implementation Guidance (v2.0 - Skills and Direct Tools)
-**Purpose**: Guide task/feature/bug implementation (v1 `implementation_workflow` replaced)
-
-**When to Use**:
-- User says "implement [feature/task/bug fix]"
-- Task status is "pending" and needs to move to "in-progress"
-- Need guidance on implementation approach
-
-**Skill-Based Approach** (Recommended for Claude Code):
-- **Task Management Skill**: Autonomous task implementation guidance
-  - Detects git usage automatically
-  - Applies workflow templates
-  - Updates status via Status Progression
-  - Coordinates with other tasks
-
-**Tool-Based Approach**:
-```
-1. query_container(operation: "get", containerType: "task", id: "...")
-2. Update task status to "in-progress"
-3. Use Task Management Skill or direct tools for implementation
-4. Validate via template sections
-5. mark_complete using Status Progression Skill
-```
-
-**Special Case - Bug Fixes**:
-- Create task with "bug" tag (tags: "task-type-bug")
-- Apply Bug Investigation template
-- Use Task Management Skill for systematic investigation
-
-## Decision Framework: Autonomous vs Workflow Invocation
-
-### For AI Agents
-
-**Apply Pattern Autonomously When**:
-- ✅ User intent is clear and matches known pattern
-- ✅ Standard complexity and straightforward scenario
-- ✅ User expects direct action
-- ✅ Efficiency is valued over comprehensive teaching
-- ✅ Pattern is well-established and tested
-
-**Suggest/Invoke Workflow Prompt When**:
-- ✅ Scenario is complex or multi-phased
-- ✅ User is learning or asks for guidance
-- ✅ Edge case or unusual circumstances
-- ✅ Teaching value is important
-- ✅ User explicitly requests comprehensive process
-- ✅ Uncertainty about correct approach
-
-**Hybrid Approach** (Recommended for many scenarios):
-- Apply pattern autonomously
-- Mention Skills availability if additional guidance needed
-- Example: "I've created the feature using standard templates. Use Feature Management Skill if you need step-by-step feature planning guidance."
-
-### For Users
-
-**Invoke Workflow Explicitly When You Want**:
-- Detailed step-by-step guidance
-- To learn best practices
-- Comprehensive coverage of all aspects
-- Teaching/explanation along with action
-- To understand the full process
-
-**Let AI Apply Autonomously When You Want**:
-- Quick, efficient action
-- Standard, straightforward operations
-- Trust AI to handle details
-- Focus on results over process
-
-## Custom Workflow Extension
-
-### Creating Custom Workflows
-
-Task Orchestrator supports custom workflow creation for project-specific needs:
-
-**When to Create Custom Workflows**:
-- Unique project-specific processes
-- Domain-specific workflows not covered by built-in prompts
-- Team-specific procedures requiring standardization
-- Complex multi-step processes needing documentation
-
-**How Custom Workflows Integrate**:
-- Follow same MCP prompt pattern as built-in workflows
-- Reference template discovery patterns
-- Can be invoked explicitly like built-in workflows
-- AI agents can learn custom patterns from guidelines
-
-**Extension Points**:
-- Add new MCP prompts in `WorkflowPromptsGuidance`
-- Create project-specific templates
-- Document custom patterns in CLAUDE.md or similar
-- Train AI on custom workflows through examples
-
-## Best Practices for Effective Integration
-
-### For AI Agents
-
-1. **Internalize Guidelines First**
-   - Read all guideline resources at session start
-   - Store key patterns in available memory
-   - Reference resources when uncertain
-
-2. **Apply Patterns Intelligently**
-   - Recognize intents from natural language
-   - Choose appropriate mode (autonomous vs explicit)
-   - Explain approach when applying patterns
-
-3. **Know When to Suggest Workflows**
-   - Complex scenarios benefit from explicit guidance
-   - Offer workflow prompts for learning situations
-   - Balance efficiency with comprehensiveness
-
-4. **Always Discover Templates**
-   - Never assume templates exist
-   - Use `list_templates` before applying
-   - Select templates based on workflow guidance
-
-### For Users
-
-1. **Trust Autonomous Application**
-   - AI can handle standard scenarios efficiently
-   - Autonomous mode is optimized for common tasks
-   - Saves time while maintaining quality
-
-2. **Invoke Workflows for Learning**
-   - Use workflow prompts when learning
-   - Explicit guidance teaches best practices
-   - Comprehensive coverage ensures nothing missed
-
-3. **Provide Clear Intent**
-   - Clear requests enable autonomous application
-   - Ambiguous requests may trigger workflow suggestions
-   - Specify preferences (quick vs comprehensive)
-
-## Integration Summary
-
-**The Three-Layer System Works Together**:
-
-1. **MCP Resources (Guidelines)** provide knowledge
-   - AI agents internalize patterns
-   - Decision frameworks guide mode selection
-   - Reference documentation always available
-
-2. **Workflow Prompts** provide process
-   - Explicit step-by-step guidance
-   - Comprehensive coverage of complex scenarios
-   - Teaching and best practice documentation
-
-3. **Dynamic Templates** provide structure
-   - Consistent documentation patterns
-   - Discovered and applied per workflow guidance
-   - Database-driven, never assumed
-
-**Result**: Flexible, efficient task orchestration supporting both:
-- Quick, autonomous pattern application for efficiency
-- Detailed, guided workflows for comprehensiveness
-
-This dual model serves both experienced users (autonomous efficiency) and learning users (explicit guidance) while maintaining consistency through the three-layer integration.
+1. **Always discover templates** before creating entities
+2. **Use `query_container(overview)`** for status checks (token-efficient)
+3. **Check `get_next_status`** before changing statuses
+4. **Apply meaningful tags** for flow determination
+5. **Set appropriate complexity** (1-10) for estimation
                             """.trimIndent()
                         )
                     )
