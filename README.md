@@ -51,82 +51,54 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 
 ## Quick Start
 
-### Option A: Plugin Installation (Recommended for Claude Code)
+**Prerequisite**: [Docker](https://www.docker.com/products/docker-desktop/) must be installed and running.
 
-**Easiest way** - Install everything (MCP server, skills, subagents, hooks) in one step:
+### Option A: Claude Code (Full Experience)
 
-1. **Clone this repository:**
-   ```bash
-   git clone https://github.com/jpicklyk/task-orchestrator.git
-   cd task-orchestrator
+Install the MCP server, skills, hooks, and output styles via the plugin system:
+
+1. **Add the marketplace and install:**
+   ```
+   /plugin marketplace add jpicklyk/task-orchestrator
+   /plugin install task-orchestrator
    ```
 
-2. **Add the local marketplace:**
-   ```
-   /plugin marketplace add ./
-   ```
+2. **Restart Claude Code**
 
-3. **Install the plugin:**
-   ```
-   /plugin install task-orchestrator@task-orchestrator-marketplace
-   ```
+That's it. The plugin configures the MCP server (via Docker), skills for workflow coordination, and a session-start hook that automatically loads your project overview. The server auto-initializes its database and templates on first run.
 
-4. **Restart Claude Code**
+> **Local development?** Clone the repo and use `/plugin marketplace add ./` instead. See [Contributing Guidelines](CONTRIBUTING.md) for building from source.
 
-5. **Initialize your project:**
-   ```
-   setup_project
-   ```
+### Option B: Other MCP Clients (Core MCP)
 
-**Note**: Once this repository is published on GitHub, you'll be able to use:
-```
-/plugin marketplace add jpicklyk/task-orchestrator
-/plugin install task-orchestrator
-```
+For any MCP-compatible client, pull the Docker image and configure your client:
 
-See [Plugin Installation Guide](docs/plugin-installation.md) for detailed instructions and troubleshooting.
-
-### Option B: Manual MCP Installation
-
-**For other MCP clients or custom setup:**
-
-1. **Install via Docker:**
+1. **Pull the image:**
    ```bash
    docker pull ghcr.io/jpicklyk/task-orchestrator:latest
    ```
 
-2. **Configure your AI platform:**
-
-   **Claude Code:**
-   ```bash
-   claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+2. **Configure your MCP client** with this stdio transport config:
+   ```json
+   {
+     "mcpServers": {
+       "mcp-task-orchestrator": {
+         "command": "docker",
+         "args": [
+           "run", "--rm", "-i",
+           "-v", "mcp-task-data:/app/data",
+           "ghcr.io/jpicklyk/task-orchestrator:latest"
+         ]
+       }
+     }
+   }
    ```
 
-   This single command works across all platforms (macOS, Linux, Windows).
+   See [Installation Guide](docs/installation-guide.md) for platform-specific configuration and advanced options.
 
-   **Other MCP clients**: Task Orchestrator's core MCP protocol (persistent memory, task management) works with any MCP client, but advanced features (skills, subagents, hooks) are Claude Code-specific. See [Installation Guide](docs/installation-guide.md) for configuration.
+3. **Start using the tools** — the server auto-initializes its database and seeds 9 built-in templates on first run. No additional setup required.
 
-### 3. Initialize AI & Project
-
-**First time setup** - Initialize your AI with Task Orchestrator patterns:
-```
-"Run the initialize_task_orchestrator workflow"
-```
-This writes Task Orchestrator patterns to your AI's permanent memory (CLAUDE.md, .cursorrules, etc.)
-
-**Project setup** - Initialize your project with configuration:
-```
-"Run setup_project to initialize Task Orchestrator"
-```
-
-**Quick reference** - View essential patterns anytime:
-```
-"Show me the getting_started guide"
-```
-
-**That's it!** Your AI can now create and manage tasks with persistent memory.
-
-> **🚀 Complete setup**: [Quick Start Guide](docs/quick-start.md) - Includes sub-agent setup, templates, and first feature walkthrough.
+> **Optional**: Create `.taskorchestrator/config.yaml` to customize status workflow transitions. See [Status Progression Guide](docs/status-progression.md) for details.
 
 ---
 
@@ -218,37 +190,29 @@ Requirements:
 
 ### 2. Orchestrate Into Structure
 
-Use the `coordinate_feature_development` workflow (Claude Code):
+Use the feature orchestration skill (Claude Code) or the MCP tools directly:
 ```
-"Run coordinate_feature_development with my plan file"
+"Help me break down this feature into tasks"
 ```
 
 **What happens**:
-1. **Feature Architect** (Opus) analyzes your plan → Creates feature with rich context
-2. **Planning Specialist** (Sonnet) breaks down feature → Creates dependency-aware tasks
+1. AI analyzes your plan and creates a feature with rich context
+2. Feature is broken down into dependency-aware tasks
 3. Returns structured feature ready for execution
 
-**Result**: Feature with 5-15 tasks, proper templates, clear dependencies, appropriate specialist tags.
+**Result**: Feature with 5-15 tasks, proper templates, clear dependencies, appropriate tags.
 
 ### 3. Execute Based on Dependencies
 
 AI automatically:
-- Routes tasks to specialists (**Implementation Specialist** (Haiku) by default, **Senior Engineer** (Sonnet) for complex issues)
 - Respects dependency chains (database → API → frontend)
 - Passes 300-500 token summaries between tasks (not 5k+ full contexts)
 - Triggers status events as work progresses
+- Routes to sub-agents when configured (Claude Code)
 
-**Default Specialists:**
-- **Implementation Specialist** (Haiku) - General implementation tasks (fast, cost-efficient)
-- **Senior Engineer** (Sonnet) - Complex debugging, architecture, unblocking
+**Sub-agent support** (optional, Claude Code): Configure specialist sub-agents for domain-specific routing (backend, frontend, database, testing). See [Agent Architecture Guide](docs/agent-architecture.md) for setup.
 
-**Custom Specialists** (optional via `.taskorchestrator/agent-mapping.yaml`):
-- Backend Engineer, Frontend Developer, Database Engineer, Test Engineer, Technical Writer
-- See [Agent Architecture Guide](docs/agent-architecture.md) for configuration
-
-**Your role**: Just say "What's next?" and the AI handles routing, dependencies, and coordination.
-
-> **💡 Pro Tip**: The Task Orchestrator communication style plugin is automatically active in Claude Code for clearer coordination (uses phase labels, status indicators ✅⚠️❌🔄, and concise progress updates) when installed via the plugin marketplace.
+**Your role**: Just say "What's next?" and the AI handles dependencies and coordination.
 
 ### Status Events Drive Progression
 
@@ -315,37 +279,30 @@ Task Orchestrator uses **event-driven status progression** mapped to your workfl
 
 ## Example: From Session Start to Feature Complete
 
-**Claude Code (Full Orchestration)**:
-
 ```
 You: "I have a plan for user authentication in plan.md"
-AI: "Loading Feature Orchestration Skill..."
-    "Launching Feature Architect (Opus) with plan file..."
-    → Feature created with 8 tasks
-    "Launching Planning Specialist (Sonnet)..."
-    → Tasks broken down with dependencies
+AI: Creates feature with 8 tasks, dependencies mapped
 
 You: "What's next?"
 AI: "Task 1: Database schema [PENDING]. No blockers."
-    Launches Implementation Specialist → Implements schema → Creates 400-token summary
+    → Implements schema → Creates 400-token summary
 
 You: "What's next?"
 AI: "Task 2: Authentication API [PENDING]. Dependencies satisfied."
-    Reads 400-token summary (not 5k full context)
-    Launches Implementation Specialist → Implements API → Creates summary
+    → Reads 400-token summary (not 5k full context)
+    → Implements API → Creates summary
 
 You: "What's next?"
 AI: "Task 3: Login UI [PENDING]. Backend ready."
-    Launches Implementation Specialist → Implements UI → Feature progresses
+    → Implements UI → Feature progresses
 
 [Next morning - new session]
 You: "What's next?"
 AI: "Task 4: Integration tests [PENDING]. 3 tasks completed yesterday."
-    No context rebuilding - AI remembers everything from persistent memory
+    → No context rebuilding - AI remembers everything from persistent memory
 ```
 
 **Key Benefits**:
-- **Zero manual routing**: `coordinate_feature_development` handles specialist selection
 - **Automatic dependency tracking**: AI only suggests tasks with satisfied dependencies
 - **Persistent memory**: New sessions start instantly with full context
 - **Token efficiency**: 400-token summaries instead of 5k+ full contexts
@@ -358,8 +315,7 @@ AI: "Task 4: Integration tests [PENDING]. 3 tasks completed yesterday."
 - **AI can't find tools**: Restart your AI client
 - **Docker not running**: Start Docker Desktop, verify with `docker version`
 - **Connection problems**: Enable `LOG_LEVEL=DEBUG` in Docker config
-- **Skills/Sub-agents not available**: Install via plugin marketplace (requires Claude Code)
-- **coordinate_feature_development not found**: Install plugin via marketplace for full orchestration features
+- **Skills not available**: Install via plugin marketplace (requires Claude Code)
 
 **Get Help**:
 - 📖 [Troubleshooting Guide](docs/troubleshooting.md) - Comprehensive solutions
@@ -374,7 +330,7 @@ Built with modern, reliable technologies:
 - **Kotlin 2.2.0** with Coroutines for concurrent operations
 - **SQLite + Exposed ORM** for fast, zero-config database (persistent memory system)
 - **Flyway Migrations** for versioned schema management
-- **MCP SDK 0.7.2** for standards-compliant protocol
+- **MCP SDK 0.8.3** for standards-compliant protocol
 - **Docker** for one-command deployment
 
 **Architecture Validation**: Task Orchestrator implements patterns recommended in Anthropic's context engineering research: sub-agent architectures, compaction through summarization, just-in-time context loading, and persistent external memory. Our approach prevents context accumulation rather than managing it after the fact.

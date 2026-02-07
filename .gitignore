@@ -69,3 +69,4 @@ CLAUDE.local.md
 /plans/
 
 /.claude/settings.local.json
+.mcp.json

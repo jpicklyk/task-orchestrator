@@ -10,5 +10,18 @@
   "repository": "https://github.com/jpicklyk/task-orchestrator",
   "license": "MIT",
   "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
-  "outputStyles": "./output-styles/"
+  "outputStyles": "./output-styles/",
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "mcp-task-data:/app/data",
+        "-v", "${CLAUDE_PROJECT_DIR}:/project:ro",
+        "-e", "AGENT_CONFIG_DIR=/project",
+        "-e", "USE_FLYWAY=true",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
 }
