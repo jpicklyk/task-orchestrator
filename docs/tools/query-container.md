@@ -239,7 +239,7 @@ v2.0 query_container emphasizes **token efficiency**:
   "success": true,
   "message": "Found 10 task(s)",
   "data": {
-    "containers": [
+    "items": [
       {
         "id": "task-uuid-1",
         "title": "Implement password reset flow",
@@ -257,7 +257,7 @@ v2.0 query_container emphasizes **token efficiency**:
         "featureId": "feature-uuid"
       }
     ],
-    "totalCount": 10
+    "count": 10
   }
 }
 ```
@@ -282,7 +282,7 @@ v2.0 query_container emphasizes **token efficiency**:
   "success": true,
   "message": "Found 3 feature(s)",
   "data": {
-    "containers": [
+    "items": [
       {
         "id": "feature-uuid-1",
         "name": "User Authentication System",
@@ -298,7 +298,7 @@ v2.0 query_container emphasizes **token efficiency**:
         "projectId": "project-uuid"
       }
     ],
-    "totalCount": 3
+    "count": 3
   }
 }
 ```
@@ -508,8 +508,6 @@ v2.0 query_container emphasizes **token efficiency**:
     "summary": "Transform architecture into streamlined design with 71% token reduction...",
     "tags": "v2.0, consolidation, token-optimization",
     "projectId": "project-uuid",
-    "createdAt": "2025-10-15T10:00:00Z",
-    "modifiedAt": "2025-10-19T15:00:00Z",
     "taskCounts": {
       "total": 26,
       "byStatus": {
@@ -564,8 +562,6 @@ v2.0 query_container emphasizes **token efficiency**:
     "status": "in-development",
     "summary": "Model Context Protocol server for AI-driven task management...",
     "tags": "mcp, kotlin, task-management",
-    "createdAt": "2024-12-01T10:00:00Z",
-    "modifiedAt": "2025-10-19T18:00:00Z",
     "taskCounts": {
       "total": 150,
       "byStatus": {
@@ -579,15 +575,13 @@ v2.0 query_container emphasizes **token efficiency**:
         "id": "feature-uuid-1",
         "name": "v2.0 Container-Based Tool Consolidation",
         "status": "completed",
-        "priority": "high",
-        "taskCount": 26
+        "priority": "high"
       },
       {
         "id": "feature-uuid-2",
         "name": "Scoped Overview for Query Container",
         "status": "planning",
-        "priority": "high",
-        "taskCount": 10
+        "priority": "high"
       }
     ]
   }
@@ -623,8 +617,6 @@ v2.0 query_container emphasizes **token efficiency**:
     "complexity": 7,
     "featureId": "550e8400-e29b-41d4-a716-446655440000",
     "tags": "backend, oauth, authentication",
-    "createdAt": "2025-01-18T09:00:00Z",
-    "modifiedAt": "2025-01-20T11:30:00Z",
     "dependencies": {
       "blocking": [
         {

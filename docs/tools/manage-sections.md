@@ -74,6 +74,7 @@ v2.0 `manage_sections` emphasizes **consistent operation across all entity types
 - **FEATURE** - Feature-level sections
 - **TASK** - Task-level sections
 - **TEMPLATE** - Template-level sections
+- **SECTION** - Section-level sections (nested sections)
 
 ### Content Format Options
 
@@ -110,7 +111,7 @@ v2.0 `manage_sections` emphasizes **consistent operation across all entity types
   "message": "Section added successfully",
   "data": {
     "id": "section-uuid-1",
-    "entityType": "task",
+    "entityType": "TASK",
     "entityId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
     "title": "Implementation Approach",
     "ordinal": 5,
@@ -245,7 +246,7 @@ v2.0 `manage_sections` emphasizes **consistent operation across all entity types
   "message": "Section added successfully",
   "data": {
     "id": "section-uuid-1",
-    "entityType": "task",
+    "entityType": "TASK",
     "entityId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
     "title": "Files Changed",
     "ordinal": 999,
@@ -280,7 +281,7 @@ v2.0 `manage_sections` emphasizes **consistent operation across all entity types
   "message": "Section added successfully",
   "data": {
     "id": "section-uuid-2",
-    "entityType": "feature",
+    "entityType": "FEATURE",
     "entityId": "f8a3c1e9-4b2d-4f7e-9a1c-5d6e7f8a9b0c",
     "title": "API Response Schema",
     "ordinal": 10,

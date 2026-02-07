@@ -369,15 +369,7 @@ The create operation performs extensive validation:
 }
 ```
 
-**Note**: This removes ALL dependencies where the task is the source (outgoing). To remove all where task is target (incoming), use `toTaskId` instead:
-
-```json
-{
-  "operation": "delete",
-  "toTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "deleteAll": true
-}
-```
+**Note**: When `deleteAll` is used with either `fromTaskId` or `toTaskId`, it deletes ALL dependencies involving that task in BOTH directions (incoming and outgoing). The implementation uses `findByTaskId()` which returns dependencies where the task appears as either source or target, then `deleteByTaskId()` removes them all.
 
 **Response** (when 3 dependencies deleted):
 
@@ -620,7 +612,7 @@ When a task is being deleted or significantly changed:
 
 ```json
 {
-  "containerId": "task-uuid",
+  "taskId": "task-uuid",
   "direction": "all"
 }
 ```
@@ -649,7 +641,7 @@ When a task is being deleted or significantly changed:
 
 ```json
 {
-  "containerId": "task-uuid",
+  "taskId": "task-uuid",
   "direction": "all"
 }
 ```
@@ -833,7 +825,7 @@ Response:
 ```json
 // Step 1: Query dependencies
 {
-  "containerId": "task-to-delete-uuid",
+  "taskId": "task-to-delete-uuid",
   "direction": "all"
 }
 // Response shows: 2 incoming, 1 outgoing
@@ -854,7 +846,7 @@ Response:
 
 // Step 4: Verify cleanup
 {
-  "containerId": "task-to-delete-uuid",
+  "taskId": "task-to-delete-uuid",
   "direction": "all"
 }
 // Response: 0 dependencies
@@ -889,7 +881,7 @@ Use with query_dependencies to build task workflow visualization:
 ```json
 // Get all dependencies for feature
 {
-  "containerId": "feature-uuid",
+  "taskId": "feature-uuid",
   "direction": "all"
 }
 // Response: List of all task dependencies within feature
@@ -1194,6 +1186,6 @@ All examples use consistent IDs:
 ## See Also
 
 - [API Reference](../api-reference.md) - Complete tool documentation
-- [query_dependencies Documentation](query-container.md) - Complementary read operations
+- [query_dependencies Documentation](query-dependencies.md) - Complementary read operations
 - [Quick Start Guide](../quick-start.md) - Common workflows
 - [Status Progression Guide](../status-progression.md) - How dependencies affect status

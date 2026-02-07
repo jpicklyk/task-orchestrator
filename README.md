@@ -1,4 +1,4 @@
-# MCP Task Orchestrator
+define# MCP Task Orchestrator
 
 **Stop losing context. Start building faster.**
 
@@ -55,19 +55,35 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 
 ### Option A: Claude Code (Full Experience)
 
-Install the MCP server, skills, hooks, and output styles via the plugin system:
+Install the plugin for skills, hooks, and output styles, then configure the MCP server:
 
-1. **Add the marketplace and install:**
+1. **Add the marketplace and install the plugin:**
    ```
    /plugin marketplace add jpicklyk/task-orchestrator
    /plugin install task-orchestrator
    ```
 
-2. **Restart Claude Code**
+2. **Configure the MCP server** by adding to your project's `.mcp.json`:
+   ```json
+   {
+     "mcpServers": {
+       "mcp-task-orchestrator": {
+         "command": "docker",
+         "args": [
+           "run", "--rm", "-i",
+           "-v", "mcp-task-data:/app/data",
+           "ghcr.io/jpicklyk/task-orchestrator:latest"
+         ]
+       }
+     }
+   }
+   ```
 
-That's it. The plugin configures the MCP server (via Docker), skills for workflow coordination, and a session-start hook that automatically loads your project overview. The server auto-initializes its database and templates on first run.
+3. **Restart Claude Code**
 
-> **Local development?** Clone the repo and use `/plugin marketplace add ./` instead. See [Contributing Guidelines](CONTRIBUTING.md) for building from source.
+The plugin provides skills for workflow coordination, a session-start hook that automatically loads your project overview, and an optional orchestrator output style. The MCP server auto-initializes its database and seeds 9 built-in templates on first run.
+
+> **Contributing?** See [Contributing Guidelines](CONTRIBUTING.md) for developer setup.
 
 ### Option B: Other MCP Clients (Core MCP)
 

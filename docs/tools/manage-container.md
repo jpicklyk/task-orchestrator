@@ -68,9 +68,9 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
 
 | Container Type | Valid Status Values                                  |
 |----------------|------------------------------------------------------|
-| **project**    | planning, active, in-development, in-review, completed, cancelled |
-| **feature**    | planning, in-development, in-review, completed, cancelled |
-| **task**       | pending, in-progress, in-review, completed, cancelled, blocked |
+| **project**    | planning, in-development, completed, archived, on-hold, deployed, cancelled |
+| **feature**    | planning, in-development, completed, archived, draft, on-hold, testing, validating, pending-review, blocked, deployed |
+| **task**       | pending, in-progress, completed, cancelled, deferred, backlog, in-review, changes-requested, on-hold, testing, ready-for-qa, investigating, blocked, deployed |
 
 ---
 
@@ -422,7 +422,7 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
   "containerType": "project",
   "id": "b160fbdb-07e4-42d7-8c61-8deac7d2fc17",
   "name": "MCP Task Orchestrator v2.0",
-  "status": "active"
+  "status": "in-development"
 }
 ```
 
@@ -434,7 +434,7 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
   "message": "Project updated successfully",
   "data": {
     "id": "b160fbdb-07e4-42d7-8c61-8deac7d2fc17",
-    "status": "active",
+    "status": "in-development",
     "modifiedAt": "2025-10-24T14:30:00Z"
   }
 }
@@ -480,14 +480,14 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
 ### Deletion Behavior
 
 **Without force flag**:
-- Cannot delete project with features
+- Cannot delete project with features or tasks
 - Cannot delete feature with tasks
-- Can delete task (child) without issues
+- Cannot delete task with dependencies (use force=true)
 
 **With force=true**:
 - Deletes project AND all features AND all tasks
 - Deletes feature AND all tasks
-- Deletes task regardless of dependencies
+- Deletes task and breaks dependency chains
 
 ### Example - Delete Task (Safe)
 
@@ -507,7 +507,9 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
   "message": "Task deleted successfully",
   "data": {
     "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-    "sections_deleted": 8
+    "deleted": true,
+    "sectionsDeleted": 8,
+    "dependenciesDeleted": 0
   }
 }
 ```
@@ -531,12 +533,12 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
 ```json
 {
   "success": true,
-  "message": "Feature deleted successfully with all 20 child tasks",
+  "message": "Feature deleted with 20 tasks",
   "data": {
     "id": "f8a3c1e9-4b2d-4f7e-9a1c-5d6e7f8a9b0c",
-    "tasks_deleted": 20,
-    "sections_deleted": 45,
-    "dependencies_cleaned": 8
+    "deleted": true,
+    "sectionsDeleted": 45,
+    "tasksDeleted": 20
   }
 }
 ```
@@ -558,10 +560,10 @@ v2.0 `manage_container` emphasizes **consistent parameter naming** across all co
 ```json
 {
   "success": false,
-  "message": "Cannot delete feature with 20 child tasks",
+  "message": "Cannot delete feature with existing tasks",
   "error": {
     "code": "VALIDATION_ERROR",
-    "details": "Use force=true to delete feature and all child tasks"
+    "details": "Feature has 20 tasks. Use 'force=true' to delete anyway."
   }
 }
 ```
@@ -611,9 +613,9 @@ Status changes are validated against container-type-specific workflows. Invalid 
 
 ### Valid Status Transitions
 
-**Project**: planning → active → in-development → in-review → completed/cancelled
+**Project**: planning → in-development → completed/archived/cancelled
 
-**Feature**: planning → in-development → in-review → completed/cancelled
+**Feature**: planning → in-development → testing → completed/archived/cancelled
 
 **Task**: pending → in-progress → in-review → completed/cancelled/blocked
 
@@ -637,10 +639,14 @@ Status changes are validated against container-type-specific workflows. Invalid 
   "data": {
     "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
     "status": "in-progress",
-    "modifiedAt": "2025-10-24T15:00:00Z"
+    "modifiedAt": "2025-10-24T15:00:00Z",
+    "advisory": "(optional) Advisory message if transition has warnings",
+    "cascadeEvents": "(optional) Array of downstream status events detected"
   }
 }
 ```
+
+**Note**: The `advisory` field appears when the transition is valid but has a warning. The `cascadeEvents` array appears when downstream entities may need status changes.
 
 **Token Cost**: ~150 tokens
 
@@ -664,7 +670,9 @@ Status changes are validated against container-type-specific workflows. Invalid 
   "data": {
     "id": "f8a3c1e9-4b2d-4f7e-9a1c-5d6e7f8a9b0c",
     "status": "completed",
-    "modifiedAt": "2025-10-24T15:15:00Z"
+    "modifiedAt": "2025-10-24T15:15:00Z",
+    "advisory": "(optional) Advisory message if transition has warnings",
+    "cascadeEvents": "(optional) Array of downstream status events detected"
   }
 }
 ```
@@ -675,14 +683,18 @@ Status changes are validated against container-type-specific workflows. Invalid 
 
 **Project Workflow**:
 ```
-planning → active → in-development → in-review → completed
-              ↓
-            cancelled (anytime)
+planning → in-development → completed
+  ↓                           ↓
+on-hold                    archived
+  ↓
+cancelled (anytime)
 ```
 
 **Feature Workflow**:
 ```
-planning → in-development → in-review → completed
+planning → in-development → testing → completed
+  ↓                                      ↓
+on-hold / blocked                     archived
   ↓
 cancelled (anytime)
 ```
@@ -690,8 +702,10 @@ cancelled (anytime)
 **Task Workflow**:
 ```
 pending → in-progress → in-review → completed
-  ↓          ↓
-blocked    cancelled (anytime)
+  ↓           ↓
+blocked     on-hold
+  ↓
+cancelled (anytime)
 ```
 
 ### Integration with get_next_status
@@ -769,27 +783,24 @@ Each container object must include:
 ```json
 {
   "success": true,
-  "message": "3 task(s) updated successfully",
+  "message": "3 tasks updated successfully",
   "data": {
-    "updated": 3,
-    "failed": 0,
-    "results": [
+    "items": [
       {
         "id": "task-uuid-1",
-        "status": "success",
         "modifiedAt": "2025-10-24T16:00:00Z"
       },
       {
         "id": "task-uuid-2",
-        "status": "success",
         "modifiedAt": "2025-10-24T16:00:01Z"
       },
       {
         "id": "task-uuid-3",
-        "status": "success",
         "modifiedAt": "2025-10-24T16:00:02Z"
       }
-    ]
+    ],
+    "updated": 3,
+    "failed": 0
   }
 }
 ```
@@ -824,27 +835,24 @@ Each container object must include:
 ```json
 {
   "success": true,
-  "message": "3 feature(s) updated successfully",
+  "message": "3 features updated successfully",
   "data": {
-    "updated": 3,
-    "failed": 0,
-    "results": [
+    "items": [
       {
         "id": "feature-uuid-1",
-        "status": "success",
         "modifiedAt": "2025-10-24T16:15:00Z"
       },
       {
         "id": "feature-uuid-2",
-        "status": "success",
         "modifiedAt": "2025-10-24T16:15:01Z"
       },
       {
         "id": "feature-uuid-3",
-        "status": "success",
         "modifiedAt": "2025-10-24T16:15:02Z"
       }
-    ]
+    ],
+    "updated": 3,
+    "failed": 0
   }
 }
 ```
@@ -882,11 +890,15 @@ Each container object must include:
 ```json
 {
   "success": true,
-  "message": "3 task(s) updated successfully",
+  "message": "3 tasks updated successfully",
   "data": {
+    "items": [
+      { "id": "task-uuid-1", "modifiedAt": "2025-10-24T16:00:00Z" },
+      { "id": "task-uuid-2", "modifiedAt": "2025-10-24T16:00:01Z" },
+      { "id": "task-uuid-3", "modifiedAt": "2025-10-24T16:00:02Z" }
+    ],
     "updated": 3,
-    "failed": 0,
-    "results": [...]
+    "failed": 0
   }
 }
 ```
@@ -929,26 +941,24 @@ Each container object must include:
 
 ```json
 {
-  "success": false,
-  "message": "2 of 3 container(s) updated, 1 failed",
+  "success": true,
+  "message": "1 tasks updated, 2 failed",
   "data": {
-    "updated": 2,
-    "failed": 1,
-    "results": [
+    "items": [
+      { "id": "task-uuid-1", "modifiedAt": "2025-10-24T16:30:00Z" }
+    ],
+    "updated": 1,
+    "failed": 2,
+    "failures": [
       {
-        "id": "task-uuid-1",
-        "status": "success",
-        "modifiedAt": "2025-10-24T16:30:00Z"
-      },
-      {
+        "index": 1,
         "id": "invalid-uuid",
-        "status": "error",
-        "error": "Invalid UUID format"
+        "error": { "code": "INTERNAL_ERROR", "details": "Invalid UUID format" }
       },
       {
+        "index": 2,
         "id": "task-uuid-3",
-        "status": "error",
-        "error": "Invalid status: invalid-status"
+        "error": { "code": "VALIDATION_ERROR", "details": "Invalid status: invalid-status" }
       }
     ]
   }
@@ -1135,7 +1145,7 @@ Response:
   "message": "Validation error",
   "error": {
     "code": "VALIDATION_ERROR",
-    "details": "Invalid status for feature: pending. Valid values: planning, in-development, in-review, completed, cancelled"
+    "details": "Invalid status for feature: pending. Valid values: planning, in-development, completed, archived, draft, on-hold, testing, validating, pending-review, blocked, deployed"
   }
 }
 ```

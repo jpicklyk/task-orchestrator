@@ -33,7 +33,6 @@ Get a recommendation for the next status:
 
 ```json
 {
-  "operation": "get_next_status",
   "containerId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
   "containerType": "task"
 }
@@ -55,7 +54,9 @@ Get a recommendation for the next status:
     "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
     "currentPosition": 2,
     "matchedTags": [],
-    "reason": "Ready to progress. Summary populated (420 chars). No incomplete blocking dependencies."
+    "reason": "Ready to progress. Summary populated (420 chars). No incomplete blocking dependencies.",
+    "currentRole": "work",
+    "nextRole": "review"
   }
 }
 ```
@@ -136,6 +137,8 @@ Entity can progress to next status:
 | `currentPosition` | integer | 0-based index of current status in flow |
 | `matchedTags` | array | Tags that matched to determine flow (empty if using default) |
 | `reason` | string | Human-readable explanation (e.g., "Ready to progress. Summary populated...") |
+| `currentRole` | string (optional) | Semantic role of current status (queue, work, review, blocked, terminal) |
+| `nextRole` | string (optional) | Semantic role of recommended status |
 
 **Example**: Task at position 2 of 5-status flow can move to position 3.
 
@@ -173,7 +176,7 @@ Entity is at terminal status and cannot progress further:
 **Terminal statuses vary by container type:**
 - **Task**: `completed`, `cancelled`, `deferred`
 - **Feature**: `completed`, `archived`
-- **Project**: `completed`, `archived`, `cancelled`
+- **Project**: `completed`, `archived`, `cancelled`, `deployed`
 
 ## Operations
 
@@ -250,7 +253,9 @@ status_progression:
 
 ## Prerequisite Validation
 
-When entity can progress, `get_next_status` validates prerequisites before recommending status. Prerequisites are defined in `config.yaml` under `status_validation`:
+> **Note**: `get_next_status` is read-only and does NOT perform prerequisite validation itself. It delegates to `StatusProgressionService.getNextStatus()` which checks prerequisites. For full transition validation with enforcement, use `request_transition` instead.
+
+When entity can progress, prerequisites are checked based on `config.yaml` under `status_validation`:
 
 ### Task Prerequisites
 
@@ -468,7 +473,7 @@ status_progression:
       - completed
 
     flow_mappings:
-      - tags: [bug, bugfix]
+      - tags: [bug, bugfix, fix]
         flow: bug_fix_flow
 ```
 
@@ -694,7 +699,9 @@ curl -X POST http://localhost:8000/mcp \
     "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
     "currentPosition": 3,
     "matchedTags": [],
-    "reason": "Ready to progress. Summary populated (450 chars). All tests passing."
+    "reason": "Ready to progress. Summary populated (450 chars). All tests passing.",
+    "currentRole": "review",
+    "nextRole": "terminal"
   }
 }
 ```
@@ -765,7 +772,9 @@ curl -X POST http://localhost:8000/mcp \
     "flowSequence": ["pending", "in-progress", "testing", "completed"],
     "currentPosition": 1,
     "matchedTags": ["bug"],
-    "reason": "Ready to progress. Summary populated (320 chars). No blocking dependencies. Bug fix flow detected (matched tag: bug)."
+    "reason": "Ready to progress. Summary populated (320 chars). No blocking dependencies. Bug fix flow detected (matched tag: bug).",
+    "currentRole": "work",
+    "nextRole": "review"
   }
 }
 ```
@@ -827,7 +836,7 @@ status_progression:
 
 - **Source code**: `src/main/kotlin/io/github/jpicklyk/mcptask/application/tools/status/GetNextStatusTool.kt`
 - **Service implementation**: `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/progression/StatusProgressionServiceImpl.kt`
-- **Configuration reference**: `src/main/resources/orchestration/default-config.yaml`
+- **Configuration reference**: `src/main/resources/configuration/default-config.yaml`
 - **Status validation**: `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/StatusValidator.kt`
 - **Tests**: `src/test/kotlin/io/github/jpicklyk/mcptask/application/tools/status/GetNextStatusToolTest.kt`
 

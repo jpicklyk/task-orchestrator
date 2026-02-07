@@ -1,5 +1,7 @@
 # get_blocked_tasks Tool - Detailed Documentation
 
+> **DEPRECATED**: Use `query_container` with `queryType="blocked"` instead. This tool will be removed in a future version.
+
 ## Overview
 
 Identifies tasks that are currently blocked by incomplete dependencies. Essential for workflow management, bottleneck identification, and team coordination.
@@ -357,7 +359,9 @@ byPriority.high.forEach(task => {
 ### Workflow 2: Unblock Tasks as Work Completes
 ```javascript
 // Step 1: Complete a blocker task
-await set_status({
+await manage_container({
+  operation: "setStatus",
+  containerType: "task",
   id: "blocker-task-id",
   status: "completed"
 });
@@ -406,7 +410,11 @@ console.log(`External dependencies: ${external.length}`);
 const featureId = "661e8511-f30c-41d4-a716-557788990000";
 
 // Step 1: Get feature tasks
-const featureTasks = await get_feature_tasks({ featureId });
+const featureTasks = await query_container({
+  operation: "search",
+  containerType: "task",
+  featureId: featureId
+});
 
 // Step 2: Check for blocked tasks in feature
 const blocked = await get_blocked_tasks({ featureId });
@@ -417,7 +425,7 @@ if (blocked.data.totalBlocked === 0) {
 
   if (allComplete) {
     console.log("✅ Feature ready to mark complete!");
-    await set_status({ id: featureId, status: "completed" });
+    await manage_container({ operation: "setStatus", containerType: "feature", id: featureId, status: "completed" });
   } else {
     const remaining = featureTasks.data.tasks.filter(t => t.status !== "completed");
     console.log(`⏳ ${remaining.length} unblocked tasks remaining`);
@@ -461,7 +469,7 @@ if (blocked.data.totalBlocked === 0) {
 }
 ```
 
-**Solution**: Verify projectId with `get_project` or `search_projects`
+**Solution**: Verify projectId with `query_container(operation="get", containerType="project", id=...)`
 
 ### Feature Not Found
 ```json
@@ -474,7 +482,7 @@ if (blocked.data.totalBlocked === 0) {
 }
 ```
 
-**Solution**: Verify featureId with `get_feature` or `search_features`
+**Solution**: Verify featureId with `query_container(operation="get", containerType="feature", id=...)`
 
 ### Invalid UUID Format
 ```json
@@ -562,19 +570,19 @@ const highPriorityIds = blocked.data.blockedTasks
 
 // Load full details for those specific tasks
 for (const id of highPriorityIds) {
-  const task = await get_task({ id, includeSections: true });
+  const task = await query_container({ operation: "get", containerType: "task", id: id, includeSections: true });
   // Analyze in detail
 }
 ```
 
 ## Related Tools
 
-- **get_next_task**: Find unblocked tasks to work on
-- **get_task_dependencies**: Get detailed dependency information for specific task
-- **search_tasks**: Find tasks by criteria (including status)
-- **set_status**: Update task status to unblock dependent tasks
-- **get_feature_tasks**: Get all tasks in a feature to check blockers
-- **create_dependency**: Create new dependencies between tasks
+- **get_next_task**: Find unblocked tasks to work on (deprecated; use `query_container` with `queryType="next"`)
+- **query_dependencies**: Get detailed dependency information for specific task
+- **query_container** (search): Find tasks by criteria (including status)
+- **manage_container** (setStatus): Update task status to unblock dependent tasks
+- **query_container** (search by featureId): Get all tasks in a feature to check blockers
+- **manage_dependency** (create): Create new dependencies between tasks
 
 ## See Also
 

@@ -535,7 +535,7 @@ Tags help organize templates by purpose, domain, or workflow:
 - **Status**: deprecated, experimental, mature
 
 **Query Integration**:
-- Use list_templates with tags filter to find templates by category
+- Use `query_templates` with tags filter to find templates by category
 - Helps users discover appropriate templates
 - Enable/disable templates by tag in bulk (future enhancement)
 
@@ -552,7 +552,7 @@ Tags help organize templates by purpose, domain, or workflow:
 | VALIDATION_ERROR (Invalid UUID format) | id parameter malformed | Verify id is valid UUID format |
 | VALIDATION_ERROR (Protected template) | Attempting to update protected template | Protected templates cannot be modified |
 | VALIDATION_ERROR (Built-in template) | Attempting to delete built-in template without force | Use force=true or disable instead |
-| RESOURCE_NOT_FOUND | Template with given id doesn't exist | Verify template id exists via list_templates |
+| RESOURCE_NOT_FOUND | Template with given id doesn't exist | Verify template id exists via `query_templates(operation="list")` |
 | DATABASE_ERROR | Database connection or query failure | Retry operation; check database health |
 
 ### Error Response Format
@@ -583,7 +583,7 @@ When updating a template fails:
 
 **Resolution Options**:
 1. If protected: Use disable/enable instead, or check if it's a built-in
-2. If not found: Verify template id via list_templates first
+2. If not found: Verify template id via `query_templates(operation="list")` first
 3. If validation error: Check parameter values and types
 
 ### Handling Delete Failures
@@ -593,7 +593,7 @@ Built-in template deletion specifically returns:
 ```json
 {
   "success": false,
-  "message": "Built-in templates cannot be deleted. Use 'disable_template' instead to make the template unavailable for use.",
+  "message": "Built-in templates cannot be deleted. Use manage_template(operation=\"disable\") instead to make the template unavailable for use.",
   "code": "VALIDATION_ERROR",
   "details": "Template 'Bug Investigation' (id: ...) is a built-in template and cannot be deleted."
 }
@@ -602,7 +602,7 @@ Built-in template deletion specifically returns:
 **Resolution Options**:
 1. Use disable operation instead
 2. Use force=true if deletion is truly needed
-3. Check is_built_in flag via list_templates before deletion
+3. Check isBuiltIn flag via `query_templates(operation="list")` before deletion
 
 ---
 
@@ -667,20 +667,19 @@ When created with templateIds, the task will:
 3. Guide user through required sections
 4. Maintain consistent structure
 
-### With list_templates and query_templates
+### With query_templates
 
 Discover and inspect templates:
 
 ```json
 {
-  "operation": "search",
-  "containerType": "template",
-  "query": "deployment",
+  "operation": "list",
+  "targetEntityType": "TASK",
   "tags": "devops"
 }
 ```
 
-This finds all templates matching the query and tagged with "devops".
+This finds all task templates tagged with "devops".
 
 ### Enable/Disable Workflow
 
@@ -976,17 +975,16 @@ Number ordinals explicitly:
 
 ## Related Tools
 
-### list_templates / query_templates
+### query_templates
 
 Discover and search templates:
 
 ```json
 {
-  "operation": "search",
-  "containerType": "template",
-  "query": "deployment",
+  "operation": "list",
+  "targetEntityType": "TASK",
   "tags": "devops",
-  "limit": 10
+  "isEnabled": true
 }
 ```
 
@@ -1007,15 +1005,15 @@ Apply templates to create new entities:
 
 Created task includes sections from applied templates.
 
-### get_template / query_container
+### query_templates (get)
 
 Inspect specific template:
 
 ```json
 {
   "operation": "get",
-  "containerType": "template",
-  "id": "template-id"
+  "id": "template-id",
+  "includeSections": true
 }
 ```
 
@@ -1045,7 +1043,7 @@ Works with templates like any other entity.
 ### Related Documentation
 - [Templates Guide](../templates.md) - Overview of template system
 - [manage_sections Documentation](./manage-sections.md) - Section write operations
-- [query_container Documentation](./query-container.md) - Template queries
+- [query_templates Documentation](./query-templates.md) - Template queries
 - [apply_template Guide](./apply-template.md) - How to apply templates to entities
 - [API Reference](../api-reference.md) - Complete tool listing
 

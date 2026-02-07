@@ -97,10 +97,17 @@ Progress a task to its next status:
     "newStatus": "testing",
     "trigger": "start",
     "applied": true,
+    "summary": "Beginning test phase",
+    "advisory": "Consider running integration tests before marking complete",
     "cascadeEvents": []
   }
 }
 ```
+
+**Optional response fields:**
+- `summary` (string): Echoed back from the request's `summary` parameter, if provided
+- `advisory` (string): Advisory message from the status validator, when applicable
+- `cleanup` (object): Cleanup details when a container deletion trigger fires (e.g., cancelling a feature may clean up tasks). Fields: `performed`, `tasksDeleted`, `tasksRetained`, `retainedTaskIds`, `sectionsDeleted`, `dependenciesDeleted`, `reason`
 
 ### Transition Blocked
 
@@ -159,6 +166,33 @@ When a transition causes downstream effects:
         "reason": "All tasks in feature completed"
       }
     ]
+  }
+}
+```
+
+### With Cleanup (e.g., cancelling a feature)
+
+```json
+{
+  "success": true,
+  "message": "Transitioned feature from 'in-development' to 'cancelled'. Cleanup: 3 task(s) deleted, 1 retained.",
+  "data": {
+    "containerId": "f8a3c1e9-...",
+    "containerType": "feature",
+    "previousStatus": "in-development",
+    "newStatus": "cancelled",
+    "trigger": "cancel",
+    "applied": true,
+    "summary": "Feature deprioritized",
+    "cleanup": {
+      "performed": true,
+      "tasksDeleted": 3,
+      "tasksRetained": 1,
+      "retainedTaskIds": ["a1b2c3d4-..."],
+      "sectionsDeleted": 9,
+      "dependenciesDeleted": 5,
+      "reason": "Feature cancelled - cleaning up child tasks"
+    }
   }
 }
 ```

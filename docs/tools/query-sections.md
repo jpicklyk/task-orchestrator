@@ -60,8 +60,6 @@ Each section in response includes:
 - `contentFormat` - Format: markdown, plain_text, json, or code
 - `ordinal` - Display order (0-based)
 - `tags` - Array of tags for categorization
-- `createdAt` - ISO timestamp when created
-- `modifiedAt` - ISO timestamp when last modified
 - `content` - Section content (only if `includeContent=true`)
 
 ---
@@ -92,9 +90,7 @@ Each section in response includes:
         "usageDescription": "Functional and non-functional requirements",
         "contentFormat": "markdown",
         "ordinal": 0,
-        "tags": ["backend", "api"],
-        "createdAt": "2025-10-24T10:00:00Z",
-        "modifiedAt": "2025-10-24T14:30:00Z"
+        "tags": ["backend", "api"]
       },
       {
         "id": "section-uuid-2",
@@ -102,9 +98,7 @@ Each section in response includes:
         "usageDescription": "Step-by-step implementation approach",
         "contentFormat": "markdown",
         "ordinal": 10,
-        "tags": ["implementation"],
-        "createdAt": "2025-10-24T10:15:00Z",
-        "modifiedAt": "2025-10-24T14:30:00Z"
+        "tags": ["implementation"]
       }
     ],
     "entityType": "TASK",
@@ -723,8 +717,6 @@ Excludes sections on:
         "contentFormat": "markdown|plain_text|json|code",
         "ordinal": 0,
         "tags": ["string"],
-        "createdAt": "ISO-8601 timestamp",
-        "modifiedAt": "ISO-8601 timestamp",
         "content": "string (only if includeContent=true)"
       }
     ],

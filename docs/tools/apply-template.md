@@ -396,7 +396,7 @@ await apply_template({
 }
 ```
 
-**Solution**: Verify entity exists with `get_task` or `get_feature`.
+**Solution**: Verify entity exists with `query_container(operation="get", containerType="task", id=...)` or `query_container(operation="get", containerType="feature", id=...)`.
 
 ### Template Not Found
 ```json
@@ -410,7 +410,7 @@ await apply_template({
 }
 ```
 
-**Solution**: Use `list_templates` to discover valid template IDs.
+**Solution**: Use `query_templates(operation="list")` to discover valid template IDs.
 
 ### Type Mismatch
 ```json
@@ -520,15 +520,14 @@ Validate array is non-empty before calling tool.
 
 ## Related Tools
 
-- **create_task**: Apply templates during task creation (preferred)
-- **create_feature**: Apply templates during feature creation (preferred)
-- **list_templates**: Discover available templates
-- **get_template**: Inspect template structure
-- **add_template_section**: Define template sections
-- **get_sections**: View applied sections on entity
+- **manage_container** (create with templateIds): Apply templates during task/feature creation (preferred)
+- **query_templates** (list): Discover available templates
+- **query_templates** (get): Inspect template structure
+- **manage_template** (addSection): Define template sections
+- **query_sections**: View applied sections on entity
 
 ## See Also
 
 - Template Discovery: `task-orchestrator://guidelines/template-strategy`
-- Task Creation: `task-orchestrator://docs/tools/create-task`
-- Template Management: `task-orchestrator://docs/tools/create-template`
+- Task/Feature Creation: `task-orchestrator://docs/tools/manage-container`
+- Template Management: `task-orchestrator://docs/tools/manage-template`

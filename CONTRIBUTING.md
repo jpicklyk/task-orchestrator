@@ -25,8 +25,9 @@ This project follows a simple code of conduct:
 
 - **JDK 17 or later** - Required for Kotlin development
 - **Gradle** - Build system (included via wrapper)
-- **Docker** (optional) - For testing containerized deployment
+- **Docker** - Required for running the MCP server
 - **Git** - Version control
+- **Claude Code** (recommended) - For the full development experience with skills and hooks
 
 ### Setup Development Environment
 
@@ -46,12 +47,22 @@ This project follows a simple code of conduct:
    ./gradlew test
    ```
 
-4. **Run locally**:
+4. **Build the dev Docker image**:
    ```bash
-   java -jar build/libs/mcp-task-orchestrator-*.jar
+   ./scripts/docker-build.sh
    ```
 
-See [CLAUDE.md](CLAUDE.md) for comprehensive development setup and architecture details.
+### Claude Code Setup
+
+When you clone this repository, two things are pre-configured for development:
+
+- **Plugin auto-discovery**: The `.claude-plugin/marketplace.json` at the repo root is automatically discovered by Claude Code. Install the plugin via `/plugin` and it provides skills, hooks, and an output style — without bundling an MCP server (developers run their own).
+
+- **Dev MCP server**: The `.mcp.json` at the repo root configures the MCP server to use your locally-built Docker image (`task-orchestrator:dev`). Claude Code reads this automatically on startup.
+
+After building the dev Docker image and installing the plugin, restart Claude Code. The MCP server will start automatically with your local build, and all skills and hooks will be active.
+
+See [CLAUDE.md](CLAUDE.md) for comprehensive architecture details and development patterns.
 
 ## Development Workflow
 
@@ -152,7 +163,7 @@ See [CLAUDE.md - Adding a New MCP Tool](CLAUDE.md#adding-a-new-mcp-tool) for det
 
 Skills are lightweight AI behaviors that coordinate 2-5 tool calls efficiently (300-600 tokens vs 1500-3000 for subagents).
 
-**Quick Reference**: See [`.claude/skills/README.md`](.claude/skills/README.md) for complete guide.
+Skills live in the plugin at `claude-plugins/task-orchestrator/skills/`.
 
 **Creation Methods**:
 
@@ -219,7 +230,7 @@ Skills are lightweight AI behaviors that coordinate 2-5 tool calls efficiently (
 
 Hooks are bash scripts that execute automatically when events occur (0 tokens - no LLM calls).
 
-**Quick Reference**: See [`.claude/hooks/README.md`](.claude/hooks/README.md) for complete guide.
+Hooks live in the plugin at `claude-plugins/task-orchestrator/hooks/`.
 
 **Creation Methods**:
 
@@ -382,8 +393,8 @@ When adding features, update:
 - **`docs/ai-guidelines.md`** - AI workflow integration
 - **`CLAUDE.md`** - Developer guidance (if architectural changes)
 - **README.md** - Only for major feature additions
-- **`.claude/skills/README.md`** - If Skills system changes
-- **`.claude/hooks/README.md`** - If Hooks system changes
+- **`claude-plugins/task-orchestrator/skills/`** - If Skills change
+- **`claude-plugins/task-orchestrator/hooks/`** - If Hooks change
 - **`docs/hybrid-architecture.md`** - If 4-tier architecture changes
 
 ### Documentation Style

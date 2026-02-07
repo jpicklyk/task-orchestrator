@@ -1,5 +1,7 @@
 # get_next_task Tool - Detailed Documentation
 
+> **DEPRECATED**: Use `query_container` with `queryType="next"` instead.
+
 ## Overview
 
 Recommends the next task to work on based on intelligent filtering and prioritization. Automatically excludes blocked tasks and ranks by priority and complexity to suggest optimal work order.
@@ -11,7 +13,7 @@ Recommends the next task to work on based on intelligent filtering and prioritiz
 ### Smart Task Recommendation
 
 The tool implements a sophisticated selection algorithm:
-1. **Retrieves Active Tasks**: Gets all `pending` and `in-progress` tasks
+1. **Retrieves Active Tasks**: Gets all `pending` tasks (not yet started)
 2. **Filters Blocked Tasks**: Automatically excludes tasks with incomplete dependencies
 3. **Prioritizes by Impact**: Sorts by priority (HIGH → MEDIUM → LOW)
 4. **Optimizes for Quick Wins**: Within same priority, sorts by complexity (lower first)
@@ -283,10 +285,12 @@ if (next.data.recommendations.length === 0) {
   console.log(`Recommended task: ${task.title}`);
 
   // Start work on recommended task
-  await set_status({ id: task.taskId, status: "in-progress" });
+  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
 
   // Get full task details
-  const fullTask = await get_task({
+  const fullTask = await query_container({
+    operation: "get",
+    containerType: "task",
     id: task.taskId,
     includeSections: true
   });
@@ -298,12 +302,16 @@ if (next.data.recommendations.length === 0) {
 ### Workflow 2: Task Completion Cycle
 ```javascript
 // Step 1: Complete current task
-await set_status({
+await manage_container({
+  operation: "setStatus",
+  containerType: "task",
   id: currentTaskId,
   status: "completed"
 });
 
-await update_task({
+await manage_container({
+  operation: "update",
+  containerType: "task",
   id: currentTaskId,
   summary: "Completed OAuth integration. All 12 tests passing."
 });
@@ -315,7 +323,9 @@ const next = await get_next_task({});
 if (next.data.recommendations.length > 0) {
   const nextTask = next.data.recommendations[0];
 
-  await set_status({
+  await manage_container({
+    operation: "setStatus",
+    containerType: "task",
     id: nextTask.taskId,
     status: "in-progress"
   });
@@ -391,12 +401,12 @@ while (true) {
   console.log(`Working on: ${task.title}`);
 
   // Mark in progress
-  await set_status({ id: task.taskId, status: "in-progress" });
+  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
 
   // ... do the work ...
 
   // Mark complete
-  await set_status({ id: task.taskId, status: "completed" });
+  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "completed" });
 
   // Loop to get next task
 }
@@ -513,7 +523,7 @@ console.log(`Complex (7-10): ${distribution.complex}`);
 }
 ```
 
-**Solution**: Verify projectId with `get_project` or `search_projects`
+**Solution**: Verify projectId with `query_container(operation="get", containerType="project")` or `query_container(operation="search", containerType="project")`
 
 ### Feature Not Found
 ```json
@@ -526,7 +536,7 @@ console.log(`Complex (7-10): ${distribution.complex}`);
 }
 ```
 
-**Solution**: Verify featureId with `get_feature` or `search_features`
+**Solution**: Verify featureId with `query_container(operation="get", containerType="feature")` or `query_container(operation="search", containerType="feature")`
 
 ## Best Practices
 
@@ -547,8 +557,8 @@ const next = await get_next_task({});
 const recommended = next.data.recommendations[0];
 
 // ❌ Ignoring recommendation to work on different task
-const otherTask = await get_task({ id: "some-other-task-id" });
-await set_status({ id: otherTask.id, status: "in-progress" });
+const otherTask = await query_container({ operation: "get", containerType: "task", id: "some-other-task-id" });
+await manage_container({ operation: "setStatus", containerType: "task", id: otherTask.id, status: "in-progress" });
 ```
 
 **Problem**: Algorithm chose best task based on priority and blockers
@@ -563,7 +573,7 @@ const next = await get_next_task({ limit: 5 });
 ```javascript
 const next = await get_next_task({});
 const task = next.data.recommendations[0];
-await set_status({ id: task.taskId, status: "in-progress" });
+await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
 // ❌ Crashes if no recommendations available
 ```
 
@@ -577,7 +587,7 @@ if (next.data.recommendations.length === 0) {
   // Handle blocked tasks
 } else {
   const task = next.data.recommendations[0];
-  await set_status({ id: task.taskId, status: "in-progress" });
+  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
 }
 ```
 
@@ -591,7 +601,9 @@ const next = await get_next_task({ limit: 20, includeDetails: true });
 ```javascript
 const next = await get_next_task({ limit: 3 });
 // Then get details for chosen task separately
-const task = await get_task({
+const task = await query_container({
+  operation: "get",
+  containerType: "task",
   id: next.data.recommendations[0].taskId,
   includeSections: true
 });
@@ -634,7 +646,7 @@ async function autoWorkflow(projectId) {
     if (handler) {
       console.log(`Auto-executing: ${task.title}`);
       await handler.execute(task);
-      await set_status({ id: task.taskId, status: "completed" });
+      await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "completed" });
     } else {
       console.log(`Manual task: ${task.title}`);
       // Queue for human
@@ -670,11 +682,11 @@ async function assignTasksToTeam(teamMembers) {
 ## Related Tools
 
 - **get_blocked_tasks**: See what tasks are blocked (complementary view)
-- **set_status**: Mark recommended task as in-progress
-- **get_task**: Get full task details after selecting recommendation
-- **update_task**: Update task after completion
-- **search_tasks**: Find tasks by specific criteria (alternative to recommendations)
-- **get_feature_tasks**: See all tasks in feature (for feature-focused work)
+- **manage_container(operation="setStatus")**: Mark recommended task as in-progress
+- **query_container(operation="get")**: Get full task details after selecting recommendation
+- **manage_container(operation="update")**: Update task after completion
+- **query_container(operation="search")**: Find tasks by specific criteria (alternative to recommendations)
+- **query_container(operation="search", featureId=...)**: See all tasks in feature (for feature-focused work)
 
 ## See Also
 

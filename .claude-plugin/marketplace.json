@@ -12,7 +12,7 @@
     {
       "name": "task-orchestrator",
       "version": "2.0.0",
-      "description": "Comprehensive task management with Projects → Features → Tasks hierarchy, dependency tracking, templates, and AI workflow automation",
+      "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Adds task management patterns, status progression guidance, session-start auto-overview, and an optional orchestrator output style for team coordination.",
       "author": {
         "name": "Jeff Picklyk",
         "url": "https://github.com/jpicklyk"
