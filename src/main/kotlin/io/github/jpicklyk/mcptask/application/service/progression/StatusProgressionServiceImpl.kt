@@ -65,7 +65,7 @@ class StatusProgressionServiceImpl(
             return NextStatusRecommendation.Terminal(
                 terminalStatus = currentStatus,
                 activeFlow = "unknown",
-                reason = "Configuration not found. Run setup_project to initialize workflows."
+                reason = "Configuration not available. Neither user config nor bundled defaults could be loaded."
             )
         }
 
@@ -251,7 +251,7 @@ class StatusProgressionServiceImpl(
         if (config == null) {
             logger.warn("No config found, cannot check readiness")
             return ReadinessResult.Invalid(
-                reason = "Configuration not found. Run setup_project to initialize workflows.",
+                reason = "Configuration not available. Neither user config nor bundled defaults could be loaded.",
                 allowedStatuses = emptyList()
             )
         }
@@ -344,13 +344,14 @@ class StatusProgressionServiceImpl(
 
         val configPath = getConfigPath()
 
-        // Check if config exists
+        // Check if config exists on filesystem, fall back to bundled default
         if (!Files.exists(configPath)) {
-            logger.debug("Config file not found at $configPath")
+            logger.debug("Config file not found at $configPath, attempting classpath fallback")
+            val defaultConfig = loadDefaultConfig()
             lastConfigCheck = now
-            cachedConfig = null
+            cachedConfig = defaultConfig
             cachedConfigDir = currentConfigDir
-            return null
+            return defaultConfig
         }
 
         // Load config from file
@@ -364,10 +365,33 @@ class StatusProgressionServiceImpl(
                 config
             }
         } catch (e: Exception) {
-            logger.error("Failed to load config from $configPath", e)
+            logger.error("Failed to parse config at $configPath - fix YAML syntax or delete to use defaults", e)
             lastConfigCheck = now
             cachedConfig = null
             cachedConfigDir = currentConfigDir
+            null
+        }
+    }
+
+    /**
+     * Loads the bundled default-config.yaml from the classpath as a fallback
+     * when no user-provided config file exists.
+     */
+    private fun loadDefaultConfig(): Map<String, Any?>? {
+        return try {
+            val inputStream = this::class.java.classLoader
+                .getResourceAsStream("configuration/default-config.yaml")
+            if (inputStream == null) {
+                logger.warn("Bundled default-config.yaml not found on classpath")
+                return null
+            }
+            inputStream.use { stream ->
+                val config = yaml.load<Map<String, Any?>>(stream)
+                logger.info("No user config found, using bundled default-config.yaml")
+                config
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to load bundled default-config.yaml", e)
             null
         }
     }

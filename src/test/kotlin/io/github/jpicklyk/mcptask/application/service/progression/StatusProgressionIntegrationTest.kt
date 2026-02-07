@@ -643,8 +643,8 @@ class StatusProgressionIntegrationTest {
         }
 
         @Test
-        fun `should handle missing config file`() = runBlocking {
-            // Arrange - no config file created
+        fun `should use default config when user config file missing`() = runBlocking {
+            // Arrange - no config file created, falls back to bundled default-config.yaml
 
             // Act
             val result = service.getNextStatus(
@@ -654,9 +654,10 @@ class StatusProgressionIntegrationTest {
                 containerId = null
             )
 
-            // Assert
-            assertIs<NextStatusRecommendation.Terminal>(result)
-            assertTrue(result.reason.contains("Configuration not found"))
+            // Assert - should use default_flow from bundled default-config.yaml
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("in-progress", result.recommendedStatus)
+            assertEquals("default_flow", result.activeFlow)
         }
 
         @Test

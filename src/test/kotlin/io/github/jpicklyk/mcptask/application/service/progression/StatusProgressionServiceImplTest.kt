@@ -345,8 +345,18 @@ class StatusProgressionServiceImplTest {
         }
 
         @Test
-        fun `should handle missing config gracefully`() = runBlocking {
-            // Arrange - no config file created
+        fun `should use default config when user config not present`() = runBlocking {
+            // Arrange - no config file created, falls back to bundled default-config.yaml
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
 
             // Act
             val result = service.getNextStatus(
@@ -356,9 +366,10 @@ class StatusProgressionServiceImplTest {
                 containerId = null
             )
 
-            // Assert
-            assertIs<NextStatusRecommendation.Terminal>(result)
-            assertTrue(result.reason.contains("Configuration not found"))
+            // Assert - should use default_flow from bundled default-config.yaml
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("in-progress", result.recommendedStatus)
+            assertEquals("default_flow", result.activeFlow)
         }
 
         @Test
@@ -500,8 +511,8 @@ class StatusProgressionServiceImplTest {
         }
 
         @Test
-        fun `should handle missing config`() {
-            // Arrange - no config file
+        fun `should use default config flow when user config not present`() {
+            // Arrange - no config file, falls back to bundled default-config.yaml
 
             // Act
             val result = service.getFlowPath(
@@ -510,12 +521,12 @@ class StatusProgressionServiceImplTest {
                 currentStatus = "pending"
             )
 
-            // Assert
-            assertEquals("unknown", result.activeFlow)
-            assertTrue(result.flowSequence.isEmpty())
-            assertNull(result.currentPosition)
-            assertTrue(result.terminalStatuses.isEmpty())
-            assertTrue(result.emergencyTransitions.isEmpty())
+            // Assert - should use default_flow from bundled default-config.yaml
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(listOf("backlog", "pending", "in-progress", "testing", "completed"), result.flowSequence)
+            assertEquals(1, result.currentPosition) // "pending" is at index 1
+            assertEquals(listOf("completed", "cancelled", "deferred"), result.terminalStatuses)
+            assertEquals(listOf("blocked", "on-hold", "cancelled", "deferred"), result.emergencyTransitions)
         }
 
         @Test
@@ -681,9 +692,19 @@ class StatusProgressionServiceImplTest {
         }
 
         @Test
-        fun `should handle missing config`() = runBlocking {
-            // Arrange - no config file
+        fun `should use default config for readiness when user config not present`() = runBlocking {
+            // Arrange - no config file, falls back to bundled default-config.yaml
             val taskId = UUID.randomUUID()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = taskId,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
 
             // Act
             val result = service.checkReadiness(
@@ -694,9 +715,29 @@ class StatusProgressionServiceImplTest {
                 containerId = taskId
             )
 
-            // Assert
-            assertIs<ReadinessResult.Invalid>(result)
-            assertTrue(result.reason.contains("Configuration not found"))
+            // Assert - should use default_flow from bundled default-config.yaml
+            assertIs<ReadinessResult.Ready>(result)
+        }
+    }
+
+    @Nested
+    inner class ConfigFallback {
+
+        @Test
+        fun `should not fallback to default when user config is malformed`() {
+            // Arrange - create a config file with invalid YAML
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = emptyList(),
+                currentStatus = "pending"
+            )
+
+            // Assert - should NOT use default config; malformed user config is an error
+            assertEquals("unknown", result.activeFlow)
+            assertTrue(result.flowSequence.isEmpty())
         }
     }
 
