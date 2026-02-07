@@ -8,8 +8,8 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 
 **Key Technologies:**
 - Kotlin 2.2.0 with Coroutines
-- Exposed ORM v1 for SQLite database
-- MCP SDK 0.7.2 for protocol implementation
+- Exposed ORM 1.0.0-beta-2 for SQLite database
+- MCP SDK 0.8.3 for protocol implementation
 - Flyway for database migrations
 - Gradle with Kotlin DSL
 - Docker for deployment
@@ -144,9 +144,9 @@ private fun getConfigPath(): Path {
 - `StatusProgressionServiceImpl` - Reads `.taskorchestrator/config.yaml`
 - Any future services accessing `.taskorchestrator/` configuration
 
-## MCP Tools (12 tools)
+## MCP Tools (13 tools)
 
-The server exposes 12 MCP tools organized into categories:
+The server exposes 13 MCP tools organized into categories:
 
 ### Container Management (unified CRUD for Projects/Features/Tasks)
 - **`manage_container`** - Write operations: create, update, delete, setStatus, bulkUpdate
