@@ -14,7 +14,10 @@
   },
   "extraKnownMarketplaces": {
     "task-orchestrator-marketplace": {
-      "source": "./claude-plugins/task-orchestrator"
+      "source": {
+        "source": "directory",
+        "path": "./claude-plugins/task-orchestrator"
+      }
     }
   },
   "enabledPlugins": {
