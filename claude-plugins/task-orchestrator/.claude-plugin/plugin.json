@@ -10,5 +10,7 @@
   "repository": "https://github.com/jpicklyk/task-orchestrator",
   "license": "MIT",
   "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
+  "skills": "./skills/",
+  "hooks": "./hooks/session-hooks.json",
   "outputStyles": "./output-styles/"
 }

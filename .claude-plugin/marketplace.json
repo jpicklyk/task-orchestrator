@@ -1,8 +1,7 @@
 {
   "name": "task-orchestrator-marketplace",
   "owner": {
-    "name": "Task Orchestrator",
-    "url": "https://github.com/jpicklyk/task-orchestrator"
+    "name": "Jeff Picklyk"
   },
   "metadata": {
     "description": "MCP Task Orchestrator - Hierarchical task management with AI workflows",
