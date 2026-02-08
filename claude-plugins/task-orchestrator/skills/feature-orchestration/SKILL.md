@@ -148,21 +148,6 @@ manage_container(
 
 ## Feature Status Flows
 
+See `status-progression` skill for all flows, tag-based flow selection, and emergency transitions.
+
 Default: `draft` -> `planning` -> `in-development` -> `testing` -> `validating` -> `completed`
-
-| Tags | Flow |
-|------|------|
-| `prototype`, `poc`, `spike` | rapid_prototype_flow: draft -> in-development -> completed |
-| `experiment`, `research` | experimental_flow: draft -> in-development -> archived |
-
-Emergency transitions (from any status): `blocked`, `on-hold`, `archived`
-
-## Partial Updates
-
-Only send fields that changed:
-
-```
-manage_container(operation="update", containerType="feature", id="<uuid>", status="in-development")
-```
-
-Never fetch-modify-save. Always use partial updates for efficiency.

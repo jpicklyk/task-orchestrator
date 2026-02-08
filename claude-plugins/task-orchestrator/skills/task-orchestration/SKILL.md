@@ -9,15 +9,7 @@ Patterns for managing tasks through the MCP Task Orchestrator. Tasks are the pri
 
 ## Core Workflow
 
-### 1. Start a Session
-
-Always begin by checking current state:
-
-```
-query_container(operation="overview")
-```
-
-### 2. Create Tasks with Templates
+### 1. Create Tasks with Templates
 
 Discover templates first, then create with them:
 
@@ -41,35 +33,21 @@ manage_container(
 
 Templates auto-create documentation sections (e.g., technical approach, testing strategy). Always check for relevant templates before creating.
 
-### 3. Progress Through Status
+### 2. Progress Through Status
 
-Use named triggers instead of raw status values:
+Use named triggers instead of raw status values. See `status-progression` skill for flows, triggers, and emergency transitions.
 
 ```
 request_transition(containerId="<task-uuid>", containerType="task", trigger="start")
 ```
 
-**Triggers:** `start` (next in flow), `complete`, `cancel`, `block`, `hold`
-
-Default task flow: `backlog` -> `pending` -> `in-progress` -> `testing` -> `completed`
-
-Check readiness before transitioning:
-
-```
-get_next_status(containerId="<task-uuid>", containerType="task")
-```
-
-### 4. Complete Tasks
+### 3. Complete Tasks
 
 Before marking complete:
 1. Check section templates are filled in: `query_sections(entityType="TASK", entityId="<uuid>")`
 2. Check dependencies are resolved: `query_dependencies(taskId="<uuid>")`
 3. Transition: `request_transition(containerId="<uuid>", containerType="task", trigger="complete")`
-4. If a CC mirror task exists, complete it AFTER the MCP transition:
-   `TaskUpdate(taskId: "<cc-mirror-id>", status: "completed")`
-
-> A TaskCompleted hook will block CC task completion if the MCP task
-> hasn't been transitioned, prompting you with the exact call to make.
+4. If a CC mirror task exists, update it after the MCP transition. See `task-mirroring` skill.
 
 ## Partial Updates (Critical Efficiency Pattern)
 
@@ -142,29 +120,6 @@ query_container(operation="search", containerType="task", status="in-progress", 
 
 **Multi-value status filter:** `status="pending,in-progress"` (matches either)
 **Negation:** `status="!completed,!cancelled"` (excludes these)
-
-## Emergency Transitions
-
-Block, hold, or cancel from any status:
-
-```
-request_transition(
-  containerId="<uuid>",
-  containerType="task",
-  trigger="block",
-  summary="Waiting on external API availability"
-)
-```
-
-## Tag Conventions
-
-Tags drive workflow behavior (e.g., `bug` tag selects `bug_fix_flow`):
-
-| Tags | Effect |
-|------|--------|
-| `bug`, `bugfix`, `fix` | Uses bug_fix_flow (skips backlog) |
-| `documentation`, `docs` | Uses documentation_flow (no testing) |
-| `hotfix`, `emergency` | Uses hotfix_flow (skips backlog+pending) |
 
 ## Export for External Use
 
