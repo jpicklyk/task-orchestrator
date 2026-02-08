@@ -74,6 +74,9 @@ class RequestTransitionToolTest {
 
         inProgressTask = pendingTask.copy(status = TaskStatus.IN_PROGRESS)
 
+        // Default mock for role lookups (returns null unless overridden)
+        every { mockStatusProgressionService.getRoleForStatus(any(), any(), any()) } returns null
+
         context = ToolExecutionContext(mockRepositoryProvider)
         tool = RequestTransitionTool(mockStatusProgressionService)
     }
@@ -223,6 +226,10 @@ class RequestTransitionToolTest {
                 reason = "Next status in default_flow workflow"
             )
 
+            // Mock role lookups
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
             // Mock the update
             val updatedTask = pendingTask.copy(status = TaskStatus.IN_PROGRESS)
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
@@ -245,6 +252,8 @@ class RequestTransitionToolTest {
             assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
             assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
             assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("queue", data["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("work", data["newRole"]!!.jsonPrimitive.content)
         }
 
         @Test
@@ -311,6 +320,70 @@ class RequestTransitionToolTest {
 
             val data = result["data"]!!.jsonObject
             assertFalse(data["applied"]!!.jsonPrimitive.boolean)
+        }
+
+        @Test
+        fun `request_transition response includes role boundary crossing`() = runBlocking {
+            // Setup: in-progress task transitions to blocked via "block" trigger (work -> blocked boundary)
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+
+            // Mock role lookups for work -> blocked boundary
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("blocked", "task", any()) } returns "blocked"
+
+            // Mock the update
+            val blockedTask = inProgressTask.copy(status = TaskStatus.BLOCKED)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(blockedTask)
+
+            // Mock dependency repository for prerequisite validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "block")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("in-progress", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("blocked", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("block", data["trigger"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", data["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("blocked", data["newRole"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `request_transition response omits role fields when roles are null`() = runBlocking {
+            // Setup: cancel trigger where role lookup returns null
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+
+            // getRoleForStatus returns null by default from setup
+
+            val cancelledTask = inProgressTask.copy(status = TaskStatus.CANCELLED)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTask)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "cancel")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("cancelled", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            // Roles should be absent when getRoleForStatus returns null
+            assertNull(data["previousRole"])
+            assertNull(data["newRole"])
         }
     }
 }

@@ -149,3 +149,12 @@ manage_container(operation="setStatus", containerType="task", id="<uuid>", statu
 ```
 
 Use `request_transition` for normal workflow. Use `manage_container(setStatus)` only for direct overrides.
+
+## CC Task Mirror Sync
+
+When completing an MCP task that has a mirrored CC display task:
+
+1. `request_transition(containerId="<uuid>", containerType="task", trigger="complete")`
+2. `TaskUpdate(taskId: "<cc-id>", status: "completed")`
+
+MCP first, CC second. The PostToolUse hook on `request_transition` reminds you to sync the CC mirror. The TaskCompleted hook blocks if you forget.

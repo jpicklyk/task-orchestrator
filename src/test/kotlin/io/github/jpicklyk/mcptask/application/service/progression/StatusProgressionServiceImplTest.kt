@@ -79,6 +79,17 @@ class StatusProgressionServiceImplTest {
               - tags: [documentation, docs]
                 flow: documentation_flow
 
+            status_roles:
+              backlog: queue
+              pending: queue
+              in-progress: work
+              testing: review
+              blocked: blocked
+              completed: terminal
+              cancelled: terminal
+              deferred: terminal
+              closed: terminal
+
           features:
             default_flow:
               - planning
@@ -94,6 +105,14 @@ class StatusProgressionServiceImplTest {
               - blocked
               - archived
 
+            status_roles:
+              planning: queue
+              in-development: work
+              testing: review
+              blocked: blocked
+              completed: terminal
+              cancelled: terminal
+
           projects:
             default_flow:
               - planning
@@ -106,6 +125,12 @@ class StatusProgressionServiceImplTest {
 
             emergency_transitions:
               - archived
+
+            status_roles:
+              planning: queue
+              active: work
+              completed: terminal
+              archived: terminal
     """.trimIndent()
 
     @BeforeEach
@@ -717,6 +742,202 @@ class StatusProgressionServiceImplTest {
 
             // Assert - should use default_flow from bundled default-config.yaml
             assertIs<ReadinessResult.Ready>(result)
+        }
+    }
+
+    @Nested
+    inner class GetRoleForStatus {
+
+        @Test
+        fun `getRoleForStatus returns queue for pending task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("queue", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns work for in-progress status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "in-progress",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns terminal for completed status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "completed",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("terminal", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns blocked for blocked status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "blocked",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("blocked", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns null for unknown status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "nonexistent",
+                containerType = "task"
+            )
+
+            // Assert
+            assertNull(role)
+        }
+
+        @Test
+        fun `getRoleForStatus normalizes status input`() {
+            // Arrange
+            createConfigFile()
+
+            // Act - "In Progress" should normalize: lowercase → "in progress", but note
+            // normalizeStatus replaces '_' with '-', not spaces. "IN_PROGRESS" → "in-progress"
+            val roleFromUnderscore = service.getRoleForStatus(
+                status = "IN_PROGRESS",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", roleFromUnderscore)
+        }
+
+        @Test
+        fun `getRoleForStatus works for feature container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "planning",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals("queue", role)
+        }
+
+        @Test
+        fun `getRoleForStatus works for project container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "active",
+                containerType = "project"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns null for invalid container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending",
+                containerType = "invalid"
+            )
+
+            // Assert
+            assertNull(role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns null when config is unavailable`() {
+            // Arrange - no config file, AND override user.dir to a non-existent path
+            // to prevent bundled default from loading. Actually the bundled default will
+            // still load from classpath. Let's just test with a malformed config.
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending",
+                containerType = "task"
+            )
+
+            // Assert
+            assertNull(role)
+        }
+
+        @Test
+        fun `getRoleForStatus infers roles when status_roles not defined`() {
+            // Arrange - config without explicit status_roles section
+            val configWithoutRoles = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                      - cancelled
+                    emergency_transitions:
+                      - blocked
+            """.trimIndent()
+            createConfigFile(configWithoutRoles)
+
+            // Act - terminal statuses should be inferred as "terminal"
+            val completedRole = service.getRoleForStatus(
+                status = "completed",
+                containerType = "task"
+            )
+            val blockedRole = service.getRoleForStatus(
+                status = "blocked",
+                containerType = "task"
+            )
+            val pendingRole = service.getRoleForStatus(
+                status = "pending",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("terminal", completedRole)
+            assertEquals("blocked", blockedRole)
+            assertNull(pendingRole) // Not in terminal or emergency, so not inferred
         }
     }
 

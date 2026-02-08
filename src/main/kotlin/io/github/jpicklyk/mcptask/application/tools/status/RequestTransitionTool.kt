@@ -67,9 +67,11 @@ Built-in triggers:
 - "hold" - Move to on-hold (emergency transition)
 
 Returns:
-- If applied: new status, previous status, cascade events detected
+- If applied: new status, previous status, previousRole, newRole, cascade events detected
 - If blocked: blocking reasons and prerequisites not met
 - If invalid: error with explanation
+
+Response includes `previousRole` and `newRole` fields indicating the semantic role classification (queue, work, review, blocked, terminal) before and after the transition.
 
 Use get_next_status for read-only recommendations without applying changes.
 Related: manage_container (setStatus), get_next_status"""
@@ -228,6 +230,10 @@ Related: manage_container (setStatus), get_next_status"""
                         return applyResult // Error from apply
                     }
 
+                    // Look up roles for both statuses
+                    val previousRole = statusProgressionService.getRoleForStatus(currentStatus, containerType, tags)
+                    val newRole = statusProgressionService.getRoleForStatus(targetStatus, containerType, tags)
+
                     // Detect cascade events
                     val cascadeEvents = detectCascades(containerId, containerType, context)
 
@@ -257,6 +263,8 @@ Related: manage_container (setStatus), get_next_status"""
                             put("newStatus", targetStatus)
                             put("trigger", trigger)
                             put("applied", true)
+                            previousRole?.let { put("previousRole", it) }
+                            newRole?.let { put("newRole", it) }
                             if (summary != null) put("summary", summary)
                             if (advisory != null) put("advisory", advisory)
                             if (cascadeEvents.isNotEmpty()) {

@@ -35,7 +35,8 @@ When you focus on a feature or set of MCP tasks, you MUST mirror them to Claude 
 - When an MCP task status changes — update the CC mirror
 
 **How to mirror:**
-1. Create a CC task for each MCP task in scope: `TaskCreate(subject: "<MCP title>", description: "MCP task <id> | Feature: <name>", activeForm: "<present continuous>")`
+1. Create a CC task for each MCP task in scope: `TaskCreate(subject: "[<short-hash>] <MCP title>", description: "MCP task <uuid> | Feature: <name>", activeForm: "<present continuous>")`
+   - The `[xxxxxxxx]` prefix is the first 8 characters of the MCP task UUID
 2. Store correlation: `TaskUpdate(taskId: "<cc-id>", metadata: { "mcpTaskId": "<mcp-uuid>" })`
 3. Map MCP status to CC status:
    - BACKLOG, PENDING, DEFERRED, BLOCKED, ON_HOLD → `pending`
@@ -44,6 +45,8 @@ When you focus on a feature or set of MCP tasks, you MUST mirror them to Claude 
 4. Mirror MCP dependencies as CC `blockedBy` relationships
 
 **After every `request_transition` or status change**, update the corresponding CC task status.
+
+5. **Completion order**: Always `request_transition` the MCP task before completing the CC mirror. A TaskCompleted hook enforces this.
 
 Only mirror tasks related to the current focus. Do not mirror the entire MCP database.
 

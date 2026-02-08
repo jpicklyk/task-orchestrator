@@ -65,6 +65,11 @@ Before marking complete:
 1. Check section templates are filled in: `query_sections(entityType="TASK", entityId="<uuid>")`
 2. Check dependencies are resolved: `query_dependencies(taskId="<uuid>")`
 3. Transition: `request_transition(containerId="<uuid>", containerType="task", trigger="complete")`
+4. If a CC mirror task exists, complete it AFTER the MCP transition:
+   `TaskUpdate(taskId: "<cc-mirror-id>", status: "completed")`
+
+> A TaskCompleted hook will block CC task completion if the MCP task
+> hasn't been transitioned, prompting you with the exact call to make.
 
 ## Partial Updates (Critical Efficiency Pattern)
 

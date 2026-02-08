@@ -85,6 +85,21 @@ interface StatusProgressionService {
     ): FlowPath
 
     /**
+     * Looks up the role classification for a given status.
+     * Returns the role name (queue, work, review, blocked, terminal) or null if not found.
+     *
+     * @param status Status to look up (e.g., "pending", "in-progress", "completed")
+     * @param containerType Container type ("project", "feature", or "task")
+     * @param tags Entity tags used to determine active workflow (e.g., ["bug", "backend"])
+     * @return Role name (queue, work, review, blocked, terminal) or null if status not found in roles
+     */
+    fun getRoleForStatus(
+        status: String,
+        containerType: String,
+        tags: List<String> = emptyList()
+    ): String?
+
+    /**
      * Check readiness to transition to a specific status.
      *
      * Integrates with StatusValidator to check:

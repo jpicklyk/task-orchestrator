@@ -28,11 +28,16 @@ When loading MCP tasks for a feature, create CC tasks:
 
 ```
 TaskCreate(
-  subject: "<MCP task title>",
-  description: "MCP task <short-id> | Feature: <feature-name>",
+  subject: "[<first-8-of-mcp-uuid>] <MCP task title>",
+  description: "MCP task <full-uuid> | Feature: <feature-name>",
   activeForm: "<present continuous form of the task>"
 )
 ```
+
+The `[xxxxxxxx]` prefix is the first 8 characters of the MCP task UUID. This makes mirrored tasks visually identifiable and enables the TaskCompleted hook to enforce MCP transitions.
+
+Example: MCP task `d6f36eb4-648c-422d-ad47-965d28fc42e2` becomes:
+`[d6f36eb4] Add getRoleForStatus() to StatusProgressionService`
 
 Then store the correlation in metadata:
 
@@ -47,7 +52,7 @@ TaskUpdate(
 
 | MCP Field | CC Field | Notes |
 |-----------|----------|-------|
-| `title` | `subject` | Use as-is, keep concise |
+| `title` | `subject` | Prefixed with `[first-8-of-uuid]` for hook identification |
 | `status` | `status` | Map using status table below |
 | `id` | `metadata.mcpTaskId` | For correlation |
 | `featureId` | `metadata.mcpFeatureId` | For grouping |
@@ -94,6 +99,19 @@ TaskUpdate(taskId: "<cc-mirror-id>", status: "completed")
 ### After Cascade Events
 
 When `request_transition` returns cascade events suggesting a feature status change, this is informational for the orchestrator. No CC task update needed for cascades — they affect the MCP feature, not individual CC mirror tasks.
+
+## Completing Mirror Tasks (CC → MCP)
+
+A TaskCompleted hook enforces that mirrored CC tasks trigger an MCP transition before completion is allowed.
+
+**Always transition MCP first, then complete the CC mirror:**
+
+1. `request_transition(containerId="<uuid>", containerType="task", trigger="complete")`
+2. `TaskUpdate(taskId: "<cc-mirror-id>", status: "completed")`
+
+If you complete the CC task first, the hook blocks once and provides the exact `request_transition` call. After transitioning, retry the CC completion.
+
+Non-mirrored CC tasks (no `[xxxxxxxx]` prefix in subject) are unaffected.
 
 ## Loading a Feature's Tasks
 

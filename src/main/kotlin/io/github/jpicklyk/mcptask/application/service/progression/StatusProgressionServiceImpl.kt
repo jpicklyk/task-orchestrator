@@ -238,6 +238,19 @@ class StatusProgressionServiceImpl(
         )
     }
 
+    override fun getRoleForStatus(
+        status: String,
+        containerType: String,
+        tags: List<String>
+    ): String? {
+        val normalizedStatus = normalizeStatus(status)
+        val config = loadConfig() ?: return null
+        val statusProgression = getStatusProgressionConfig(containerType, config)
+        if (statusProgression.isEmpty()) return null
+        val statusRoles = getStatusRoles(statusProgression)
+        return statusRoles[normalizedStatus]
+    }
+
     override suspend fun checkReadiness(
         currentStatus: String,
         targetStatus: String,
