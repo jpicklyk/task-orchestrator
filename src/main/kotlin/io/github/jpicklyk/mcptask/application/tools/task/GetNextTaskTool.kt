@@ -24,9 +24,7 @@ class GetNextTaskTool : BaseToolDefinition() {
 
     override val title: String = "Get Next Task Recommendation"
 
-    override val description: String = """⚠️ DEPRECATED: Use query_tasks with queryType="next" instead.
-
-        Recommends next task based on status, dependencies, priority, and complexity. Filters out blocked tasks and ranks by priority (quick wins first).
+    override val description: String = """Recommends next task based on status, dependencies, priority, and complexity. Filters out blocked tasks and ranks by priority (quick wins first).
 
         Selection Logic:
         1. Retrieves all pending tasks (not yet started)
@@ -57,9 +55,9 @@ class GetNextTaskTool : BaseToolDefinition() {
         - Automatically excludes blocked tasks
         - Default returns single top recommendation
         - Filter by project/feature for focused scope
-        - Use with update_task to mark tasks complete
+        - Use with manage_container to mark tasks complete
 
-        Related tools: get_blocked_tasks, search_tasks, update_task
+        Related tools: get_blocked_tasks, query_container, manage_container
 
         For detailed examples and patterns: task-orchestrator://docs/tools/get-next-task
         """

@@ -1,7 +1,5 @@
 # get_blocked_tasks Tool - Detailed Documentation
 
-> **DEPRECATED**: Use `query_container` with `queryType="blocked"` instead. This tool will be removed in a future version.
-
 ## Overview
 
 Identifies tasks that are currently blocked by incomplete dependencies. Essential for workflow management, bottleneck identification, and team coordination.
@@ -577,7 +575,7 @@ for (const id of highPriorityIds) {
 
 ## Related Tools
 
-- **get_next_task**: Find unblocked tasks to work on (deprecated; use `query_container` with `queryType="next"`)
+- **get_next_task**: Find unblocked tasks to work on
 - **query_dependencies**: Get detailed dependency information for specific task
 - **query_container** (search): Find tasks by criteria (including status)
 - **manage_container** (setStatus): Update task status to unblock dependent tasks

@@ -1,7 +1,5 @@
 # get_next_task Tool - Detailed Documentation
 
-> **DEPRECATED**: Use `query_container` with `queryType="next"` instead.
-
 ## Overview
 
 Recommends the next task to work on based on intelligent filtering and prioritization. Automatically excludes blocked tasks and ranks by priority and complexity to suggest optimal work order.

@@ -75,7 +75,7 @@ Parameters:
 | containers | array | No | Bulk update array (bulkUpdate only) |
 
 Usage: Consolidates create/update/delete/setStatus/bulkUpdate for all container types.
-Related: query_tasks, get_overview
+Related: query_container, get_next_task, get_blocked_tasks
 Docs: task-orchestrator://docs/tools/manage-container
 """
 
@@ -543,7 +543,12 @@ Docs: task-orchestrator://docs/tools/manage-container
             }
             is Result.Error -> errorResponse(
                 "Failed to create project: ${result.error}",
-                ErrorCodes.DATABASE_ERROR,
+                when (result.error) {
+                    is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
+                    is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
+                    is RepositoryError.ConflictError -> ErrorCodes.CONFLICT_ERROR
+                    else -> ErrorCodes.DATABASE_ERROR
+                },
                 result.error.toString()
             )
         }
@@ -627,7 +632,12 @@ Docs: task-orchestrator://docs/tools/manage-container
             }
             is Result.Error -> errorResponse(
                 "Failed to create feature: ${result.error}",
-                ErrorCodes.DATABASE_ERROR,
+                when (result.error) {
+                    is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
+                    is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
+                    is RepositoryError.ConflictError -> ErrorCodes.CONFLICT_ERROR
+                    else -> ErrorCodes.DATABASE_ERROR
+                },
                 result.error.toString()
             )
         }
@@ -728,7 +738,12 @@ Docs: task-orchestrator://docs/tools/manage-container
             }
             is Result.Error -> errorResponse(
                 "Failed to create task: ${result.error}",
-                ErrorCodes.DATABASE_ERROR,
+                when (result.error) {
+                    is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
+                    is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
+                    is RepositoryError.ConflictError -> ErrorCodes.CONFLICT_ERROR
+                    else -> ErrorCodes.DATABASE_ERROR
+                },
                 result.error.toString()
             )
         }

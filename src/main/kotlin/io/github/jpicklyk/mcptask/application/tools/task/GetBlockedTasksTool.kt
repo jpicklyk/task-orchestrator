@@ -23,9 +23,7 @@ class GetBlockedTasksTool : BaseToolDefinition() {
 
     override val title: String = "Get Blocked Tasks"
 
-    override val description: String = """⚠️ DEPRECATED: Use query_tasks with queryType="blocked" instead.
-
-        Identifies tasks blocked by incomplete dependencies. Essential for workflow management and bottleneck identification.
+    override val description: String = """Identifies tasks blocked by incomplete dependencies. Essential for workflow management and bottleneck identification.
 
         Task is Blocked When:
         1. Status is pending or in-progress (active work)
@@ -54,7 +52,7 @@ class GetBlockedTasksTool : BaseToolDefinition() {
         - Analyze blocker tasks that appear most often to find bottlenecks
         - Use with get_next_task to find unblocked work
 
-        Related tools: get_next_task, get_task_dependencies, search_tasks
+        Related tools: get_next_task, query_dependencies, query_container
 
         For detailed examples and patterns: task-orchestrator://docs/tools/get-blocked-tasks
         """

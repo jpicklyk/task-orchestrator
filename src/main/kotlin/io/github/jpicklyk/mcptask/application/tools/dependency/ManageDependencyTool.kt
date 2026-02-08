@@ -77,7 +77,7 @@ Delete Methods:
 - All for a task: Provide 'fromTaskId' OR 'toTaskId' with 'deleteAll=true'
 
 Usage: Consolidates create/delete for task dependencies with comprehensive validation.
-Related: get_task_dependencies, manage_container, query_tasks
+Related: query_dependencies, manage_container, get_blocked_tasks
 Docs: task-orchestrator://docs/tools/manage-dependency
 """
 
