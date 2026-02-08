@@ -5,149 +5,50 @@ description: Manage task dependencies, identify blockers, and resolve dependency
 
 # Dependency Analysis
 
-Patterns for managing task dependencies in the MCP Task Orchestrator. Dependencies control work ordering and block status transitions until prerequisites are met.
+Dependencies control work ordering and block status transitions until prerequisites are met.
 
 ## Dependency Types
 
-| Type | Meaning | Example |
-|------|---------|---------|
-| `BLOCKS` | Task A blocks Task B | "Design schema" blocks "Implement API" |
-| `IS_BLOCKED_BY` | Task A is blocked by Task B | Inverse of BLOCKS |
-| `RELATES_TO` | Informational link | No blocking behavior |
+| Type | Meaning | Blocking? |
+|------|---------|-----------|
+| `BLOCKS` | from-task blocks to-task | Yes |
+| `IS_BLOCKED_BY` | from-task is blocked by to-task | Yes (inverse) |
+| `RELATES_TO` | Informational link | No |
 
-`BLOCKS` and `IS_BLOCKED_BY` are directional inverses. Use whichever reads naturally.
+`BLOCKS` and `IS_BLOCKED_BY` are directional inverses — use whichever reads naturally. `fromTaskId` is the prerequisite, `toTaskId` is the dependent.
 
-## Create Dependencies
+## Querying Dependencies
 
-```
-manage_dependency(
-  operation="create",
-  fromTaskId="<design-task-uuid>",
-  toTaskId="<implement-task-uuid>",
-  type="BLOCKS"
-)
-```
+- `query_dependencies(taskId=...)` — all dependencies for a task
+- Filter with `direction="incoming"` (what blocks this task) or `direction="outgoing"` (what this task blocks)
+- Add `includeTaskInfo=true` for full task details on related tasks
 
-This means: the design task must be completed before the implementation task can be completed.
+## Finding Blocked Tasks
 
-### Dependency Direction
+- `get_blocked_tasks(featureId=...)` — all blocked tasks in a feature
+- `get_blocked_tasks(projectId=...)` — all blocked tasks across a project
+- Response includes each blocked task, its blockers, and their statuses
 
-- `fromTaskId` = the task that **blocks** (prerequisite)
-- `toTaskId` = the task that **is blocked** (dependent)
-- Type `BLOCKS`: from blocks to
-- Type `IS_BLOCKED_BY`: from is blocked by to
+## Resolving Blockers
 
-## Query Dependencies
-
-**All dependencies for a task:**
-```
-query_dependencies(taskId="<uuid>")
-```
-
-**Only incoming (what blocks this task):**
-```
-query_dependencies(taskId="<uuid>", direction="incoming")
-```
-
-**Only outgoing (what this task blocks):**
-```
-query_dependencies(taskId="<uuid>", direction="outgoing")
-```
-
-**With full task details:**
-```
-query_dependencies(taskId="<uuid>", includeTaskInfo=true)
-```
-
-## Find Blocked Tasks
-
-**All blocked tasks in a feature:**
-```
-get_blocked_tasks(featureId="<feature-uuid>", includeTaskDetails=true)
-```
-
-**All blocked tasks in a project:**
-```
-get_blocked_tasks(projectId="<project-uuid>")
-```
-
-Response includes:
-- Each blocked task with its blocking dependencies
-- The status of each blocking task
-- Which blockers are resolved vs unresolved
-
-## Resolve Blockers
-
-1. **Identify blockers:**
-   ```
-   get_blocked_tasks(featureId="<uuid>", includeTaskDetails=true)
-   ```
-
-2. **Find the blocking task and complete it:**
-   ```
-   request_transition(containerId="<blocking-task-uuid>", containerType="task", trigger="complete")
-   ```
-
-3. **The blocked task can now progress.** Check with:
-   ```
-   get_next_status(containerId="<blocked-task-uuid>", containerType="task")
-   ```
+1. Identify blockers with `get_blocked_tasks`
+2. Complete the blocking task with `request_transition(trigger="complete")`
+3. The dependent task can now progress — verify with `get_next_status`
 
 ## Smart Task Ordering
 
-`get_next_task` respects dependencies automatically:
-
-```
-get_next_task(featureId="<feature-uuid>", limit=3, includeDetails=true)
-```
-
-This returns tasks that:
-1. Are not blocked by incomplete dependencies
-2. Are in a workable status (pending, backlog)
-3. Are sorted by priority and complexity
-
-## Delete Dependencies
-
-**By dependency ID:**
-```
-manage_dependency(operation="delete", id="<dependency-uuid>")
-```
-
-**Between two specific tasks:**
-```
-manage_dependency(operation="delete", fromTaskId="<uuid-a>", toTaskId="<uuid-b>")
-```
-
-**All dependencies for a task:**
-```
-manage_dependency(operation="delete", fromTaskId="<uuid>", deleteAll=true)
-```
+`get_next_task` automatically excludes blocked tasks and sorts by priority then complexity (quick wins first). Use `featureId` or `projectId` to scope recommendations.
 
 ## Common Patterns
 
-### Linear Chain
-Tasks must execute in order:
-```
-A -> B -> C -> D
-```
-Create: A blocks B, B blocks C, C blocks D.
+**Linear chain:** A -> B -> C -> D — each task blocks the next
 
-### Fan-Out / Fan-In
-Multiple tasks can run in parallel, then converge:
-```
-     B
-A -> C -> E
-     D
-```
-Create: A blocks B, A blocks C, A blocks D, B blocks E, C blocks E, D blocks E.
+**Fan-out / Fan-in:** A blocks B, C, D (parallel work); B, C, D all block E (convergence)
 
-### Prerequisite Check Before Completion
+## Automatic Validation
 
-The `request_transition(trigger="complete")` automatically validates that all blocking dependencies are resolved. If they aren't, it returns an error with details about what's still blocking.
+`request_transition(trigger="complete")` validates that all blocking dependencies are resolved. Unresolved dependencies cause the transition to fail with details about what's still blocking.
 
-## Dependency Impact on Status
+## Deleting Dependencies
 
-- A task with **unresolved blocking dependencies** cannot be completed via `request_transition(trigger="complete")`
-- `get_next_status` reports unresolved dependencies as blockers
-- `get_next_task` excludes tasks with unresolved dependencies
-- Dependencies are directional: completing a blocker unblocks all dependent tasks
+Use `manage_dependency(operation="delete")` — by dependency ID, by task pair (`fromTaskId` + `toTaskId`), or all dependencies for a task (`deleteAll=true`).
