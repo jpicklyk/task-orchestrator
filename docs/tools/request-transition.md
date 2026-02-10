@@ -108,6 +108,7 @@ Progress a task to its next status:
 - `summary` (string): Echoed back from the request's `summary` parameter, if provided
 - `advisory` (string): Advisory message from the status validator, when applicable
 - `cleanup` (object): Cleanup details when a container deletion trigger fires (e.g., cancelling a feature may clean up tasks). Fields: `performed`, `tasksDeleted`, `tasksRetained`, `retainedTaskIds`, `sectionsDeleted`, `dependenciesDeleted`, `reason`
+- `unblockedTasks` (array): List of downstream tasks that became fully unblocked as a result of this transition. Each entry has `taskId` and `title`. Only present when `containerType` is `task`, trigger is `complete` or `cancel`, and at least one downstream task became unblocked
 
 ### Transition Blocked
 
@@ -197,6 +198,33 @@ When a transition causes downstream effects:
 }
 ```
 
+### With Unblocked Tasks (completing a blocker)
+
+When completing or cancelling a task that blocks other tasks, the response includes any downstream tasks that are now fully unblocked (all their blockers are complete or cancelled):
+
+```json
+{
+  "success": true,
+  "message": "Transitioned task from 'in-progress' to 'completed'. 2 task(s) now unblocked.",
+  "data": {
+    "containerId": "a1b2c3d4-...",
+    "containerType": "task",
+    "previousStatus": "in-progress",
+    "newStatus": "completed",
+    "trigger": "complete",
+    "applied": true,
+    "previousRole": "work",
+    "newRole": "terminal",
+    "unblockedTasks": [
+      { "taskId": "b2c3d4e5-...", "title": "Implement login endpoint" },
+      { "taskId": "c3d4e5f6-...", "title": "Write integration tests" }
+    ]
+  }
+}
+```
+
+This lets you discover newly available work without a separate `get_next_task` call. The `unblockedTasks` array only appears when `containerType` is `task`, the trigger is `complete` or `cancel`, and at least one downstream task became fully unblocked.
+
 ## Use Cases
 
 ### Use Case 1: Start Working on a Task
@@ -278,6 +306,7 @@ Emergency transition - works from any status without following the normal flow.
 - **Use `get_next_status` first** to check readiness before transitioning
 - **Include `summary`** for emergency transitions (block, hold, cancel) to explain why
 - **Check `cascadeEvents`** in the response to handle downstream effects
+- **Check `unblockedTasks`** after completing or cancelling a blocker to find newly available work
 - **Use triggers** instead of raw status values for consistent workflow compliance
 
 ### DON'T

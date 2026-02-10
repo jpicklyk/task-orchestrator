@@ -69,6 +69,7 @@ Built-in triggers:
 
 Returns:
 - If applied: new status, previous status, previousRole, newRole, cascade events detected
+- unblockedTasks array (on task completion/cancellation): downstream tasks that are now fully unblocked, with taskId and title
 - If blocked: blocking reasons and prerequisites not met
 - If invalid: error with explanation
 
@@ -266,6 +267,12 @@ Related: manage_container (setStatus), get_next_status"""
                     // Detect cascade events
                     val cascadeEvents = detectCascades(containerId, containerType, context)
 
+                    // Find newly unblocked downstream tasks
+                    val unblockedTasks = if (containerType == "task" &&
+                        (normalizeStatus(targetStatus) in listOf("completed", "cancelled"))) {
+                        findNewlyUnblockedTasks(containerId, context)
+                    } else emptyList()
+
                     // Run completion cleanup for feature transitions
                     val cleanupResult = if (containerType == "feature") {
                         runCompletionCleanup(containerId, targetStatus, context)
@@ -281,6 +288,7 @@ Related: manage_container (setStatus), get_next_status"""
                             if (summary != null) append(" ($summary)")
                             if (advisory != null) append(". Advisory: $advisory")
                             if (cascadeEvents.isNotEmpty()) append(". ${cascadeEvents.size} cascade event(s) detected.")
+                            if (unblockedTasks.isNotEmpty()) append(". ${unblockedTasks.size} task(s) now unblocked")
                             if (cleanupResult != null && cleanupResult.performed) {
                                 append(". Cleanup: ${cleanupResult.tasksDeleted} task(s) deleted, ${cleanupResult.tasksRetained} retained.")
                             }
@@ -305,6 +313,16 @@ Related: manage_container (setStatus), get_next_status"""
                                             put("targetId", ev["targetId"]!!)
                                             put("suggestedStatus", ev["suggestedStatus"]!!)
                                             put("reason", ev["reason"]!!)
+                                        }
+                                    }
+                                ))
+                            }
+                            if (unblockedTasks.isNotEmpty()) {
+                                put("unblockedTasks", JsonArray(
+                                    unblockedTasks.map { task ->
+                                        buildJsonObject {
+                                            put("taskId", task["taskId"]!!)
+                                            put("title", task["title"]!!)
                                         }
                                     }
                                 ))
@@ -455,6 +473,64 @@ Related: manage_container (setStatus), get_next_status"""
             }
         } catch (e: Exception) {
             logger.warn("Failed to detect cascade events: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Finds downstream tasks that are now fully unblocked after the given task was completed or cancelled.
+     * A downstream task is "newly unblocked" when ALL of its incoming BLOCKS dependencies
+     * point to tasks that are COMPLETED or CANCELLED, and the downstream task itself is still active.
+     */
+    private suspend fun findNewlyUnblockedTasks(
+        completedTaskId: UUID,
+        context: ToolExecutionContext
+    ): List<Map<String, String>> {
+        return try {
+            // Get outgoing dependencies from the completed/cancelled task
+            val outgoingDeps = context.dependencyRepository().findByFromTaskId(completedTaskId)
+            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
+
+            if (blocksDeps.isEmpty()) return emptyList()
+
+            val unblockedTasks = mutableListOf<Map<String, String>>()
+
+            for (dep in blocksDeps) {
+                val downstreamTaskId = dep.toTaskId
+
+                // Check if the downstream task itself is still active (not completed/cancelled)
+                val downstreamTask = context.taskRepository().getById(downstreamTaskId).getOrNull()
+                    ?: continue
+                val downstreamStatus = normalizeStatus(downstreamTask.status.name)
+                if (downstreamStatus in listOf("completed", "cancelled")) continue
+
+                // Get ALL incoming blockers for the downstream task
+                val incomingDeps = context.dependencyRepository().findByToTaskId(downstreamTaskId)
+                val incomingBlockers = incomingDeps.filter { it.type == DependencyType.BLOCKS }
+
+                // Check if ALL blockers are now completed or cancelled
+                val allBlockersResolved = incomingBlockers.all { blocker ->
+                    val blockerTask = context.taskRepository().getById(blocker.fromTaskId).getOrNull()
+                    if (blockerTask != null) {
+                        val blockerStatus = normalizeStatus(blockerTask.status.name)
+                        blockerStatus in listOf("completed", "cancelled")
+                    } else {
+                        // If blocker task doesn't exist, treat as resolved
+                        true
+                    }
+                }
+
+                if (allBlockersResolved) {
+                    unblockedTasks.add(mapOf(
+                        "taskId" to downstreamTaskId.toString(),
+                        "title" to downstreamTask.title
+                    ))
+                }
+            }
+
+            unblockedTasks
+        } catch (e: Exception) {
+            logger.warn("Failed to find newly unblocked tasks: ${e.message}")
             emptyList()
         }
     }

@@ -1678,6 +1678,8 @@ User: "Start working on task X"
 AI: request_transition(containerId=X, containerType="task", trigger="start")
 ```
 
+> **Tip:** When completing or cancelling a blocker task, check the `unblockedTasks` array in the `request_transition` response to discover downstream tasks that are now fully unblocked, without needing a separate `get_next_task` call.
+
 **Simple Status Update**:
 ```
 User: "Mark task X as done"

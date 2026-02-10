@@ -386,4 +386,333 @@ class RequestTransitionToolTest {
             assertNull(data["newRole"])
         }
     }
+
+    @Nested
+    inner class UnblockedTasksTests {
+
+        private val taskAId = UUID.randomUUID()
+        private val taskBId = UUID.randomUUID()
+        private val taskCId = UUID.randomUUID()
+
+        private fun createTask(
+            id: UUID,
+            title: String,
+            status: TaskStatus = TaskStatus.IN_PROGRESS,
+            summary: String = "A".repeat(350)
+        ): Task = Task(
+            id = id,
+            title = title,
+            description = "Description",
+            summary = summary,
+            status = status,
+            priority = Priority.HIGH,
+            complexity = 5,
+            tags = listOf("backend"),
+            featureId = featureId,
+            projectId = projectId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        @Test
+        fun `should report newly unblocked task on completion`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTaskA = taskA.copy(status = TaskStatus.COMPLETED)
+            val taskB = createTask(taskBId, "Task B", TaskStatus.PENDING)
+
+            // getById(taskAId) is called multiple times:
+            // 1. fetchEntityDetails() - needs IN_PROGRESS
+            // 2. StatusValidator.validateTaskPrerequisites for "completed" - needs task for summary check
+            // 3. applyStatusChange() - needs IN_PROGRESS to copy
+            // 4. verification gate check (trigger=complete) - needs task
+            // 5. findNewlyUnblockedTasks() blocker check - needs COMPLETED
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(taskA),       // fetchEntityDetails
+                Result.Success(taskA),       // StatusValidator prerequisite check (summary length)
+                Result.Success(taskA),       // applyStatusChange
+                Result.Success(taskA),       // verification gate check
+                Result.Success(completedTaskA) // findNewlyUnblockedTasks blocker check
+            )
+
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(completedTaskA)
+
+            // StatusValidator prerequisite checks
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // findNewlyUnblockedTasks: outgoing BLOCKS deps from Task A
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            // findNewlyUnblockedTasks: downstream task B lookup
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+
+            // findNewlyUnblockedTasks: all incoming blockers for Task B
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("completed", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify unblockedTasks
+            val unblockedTasks = data["unblockedTasks"]!!.jsonArray
+            assertEquals(1, unblockedTasks.size)
+            val unblocked = unblockedTasks[0].jsonObject
+            assertEquals(taskBId.toString(), unblocked["taskId"]!!.jsonPrimitive.content)
+            assertEquals("Task B", unblocked["title"]!!.jsonPrimitive.content)
+
+            // Verify message mentions unblocked
+            assertTrue(result["message"]!!.jsonPrimitive.content.contains("1 task(s) now unblocked"))
+        }
+
+        @Test
+        fun `should not report task still blocked by another task`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val cancelledTaskA = taskA.copy(status = TaskStatus.CANCELLED)
+            val taskB = createTask(taskBId, "Task B", TaskStatus.PENDING)
+            val taskC = createTask(taskCId, "Task C", TaskStatus.IN_PROGRESS)
+
+            // getById(taskAId) calls:
+            // 1. fetchEntityDetails - IN_PROGRESS
+            // 2. applyStatusChange - IN_PROGRESS
+            // 3. findNewlyUnblockedTasks blocker check - CANCELLED
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(taskA),
+                Result.Success(taskA),
+                Result.Success(cancelledTaskA)
+            )
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTaskA)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // outgoing BLOCKS deps from Task A -> Task B
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            // downstream Task B lookup
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+
+            // All incoming blockers for Task B: both Task A and Task C block it
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS),
+                Dependency(fromTaskId = taskCId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            // Task C is still in-progress (not resolved)
+            coEvery { mockTaskRepository.getById(taskCId) } returns Result.Success(taskC)
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "cancel")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("cancelled", data["newStatus"]!!.jsonPrimitive.content)
+
+            // unblockedTasks should not be present or should be empty
+            assertNull(data["unblockedTasks"], "Task B should NOT be unblocked since Task C still blocks it")
+        }
+
+        @Test
+        fun `should report unblocked task on cancellation`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val cancelledTaskA = taskA.copy(status = TaskStatus.CANCELLED)
+            val taskB = createTask(taskBId, "Task B", TaskStatus.PENDING)
+
+            // getById(taskAId) calls:
+            // 1. fetchEntityDetails - IN_PROGRESS
+            // 2. applyStatusChange - IN_PROGRESS
+            // 3. findNewlyUnblockedTasks blocker check - CANCELLED
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(taskA),
+                Result.Success(taskA),
+                Result.Success(cancelledTaskA)
+            )
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTaskA)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // outgoing BLOCKS deps from Task A
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            // downstream Task B lookup
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+
+            // All incoming blockers for Task B: only Task A
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "cancel")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("cancelled", data["newStatus"]!!.jsonPrimitive.content)
+
+            // Verify unblockedTasks contains Task B
+            val unblockedTasks = data["unblockedTasks"]!!.jsonArray
+            assertEquals(1, unblockedTasks.size)
+            assertEquals(taskBId.toString(), unblockedTasks[0].jsonObject["taskId"]!!.jsonPrimitive.content)
+            assertEquals("Task B", unblockedTasks[0].jsonObject["title"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `should not include unblockedTasks for feature transitions`() = runBlocking {
+            val feature = Feature(
+                id = featureId,
+                name = "Test Feature",
+                description = "Test description",
+                summary = "Test summary",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.HIGH,
+                projectId = projectId,
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            val onHoldFeature = feature.update(status = FeatureStatus.ON_HOLD)
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(onHoldFeature)
+
+            // Mock dependency repos (used by StatusValidator)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", featureId.toString())
+                put("containerType", "feature")
+                put("trigger", "hold")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // unblockedTasks should NOT be present for feature transitions
+            assertNull(data["unblockedTasks"], "Feature transitions should not include unblockedTasks")
+        }
+
+        @Test
+        fun `should handle no outgoing dependencies gracefully`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val cancelledTaskA = taskA.copy(status = TaskStatus.CANCELLED)
+
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTaskA)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // No outgoing dependencies
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "cancel")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("cancelled", data["newStatus"]!!.jsonPrimitive.content)
+
+            // No unblockedTasks field should be present (empty list is not serialized)
+            assertNull(data["unblockedTasks"], "Should not include unblockedTasks when no outgoing deps")
+        }
+
+        @Test
+        fun `should skip RELATES_TO dependencies`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val cancelledTaskA = taskA.copy(status = TaskStatus.CANCELLED)
+
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTaskA)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // Only RELATES_TO outgoing deps from Task A
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.RELATES_TO)
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "cancel")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            // No unblockedTasks since only RELATES_TO deps exist
+            assertNull(data["unblockedTasks"], "RELATES_TO deps should not produce unblockedTasks")
+        }
+
+        @Test
+        fun `should not include already-completed downstream tasks`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val cancelledTaskA = taskA.copy(status = TaskStatus.CANCELLED)
+            val taskB = createTask(taskBId, "Task B", TaskStatus.COMPLETED)
+
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTaskA)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // outgoing BLOCKS deps from Task A -> Task B
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
+                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            )
+
+            // Task B is already completed
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "cancel")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            // Task B is already completed, should not appear in unblockedTasks
+            assertNull(data["unblockedTasks"], "Already-completed downstream tasks should not be reported as unblocked")
+        }
+    }
 }
