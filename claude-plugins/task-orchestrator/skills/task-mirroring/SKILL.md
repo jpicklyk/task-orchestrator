@@ -15,18 +15,18 @@ This skill covers **bootstrapping** — loading a feature's tasks into CC displa
 ## Loading a Feature's Tasks
 
 1. `query_container(operation="overview")` for the feature to get its task list
-2. For each task, create a CC mirror:
+2. **Skip terminal-status tasks** (COMPLETED, DEPLOYED, CANCELLED, ARCHIVED) — the CC task list is a work queue, not a history log. MCP has the full record.
+3. For each remaining task, create a CC mirror:
    - Subject: `[<first-8-of-uuid>] <title>` — the prefix enables hook identification
    - Description: `MCP task <full-uuid> | Feature: <name>`
    - Metadata: `{ "mcpTaskId": "<uuid>", "mcpFeatureId": "<feature-uuid>" }`
    - Map MCP status to CC status (see below)
-3. Mirror MCP dependencies as CC `blockedBy` relationships
+4. Mirror MCP dependencies as CC `blockedBy` relationships (only among mirrored tasks)
 
 ### Status Mapping (MCP -> CC)
 
 - **pending**: BACKLOG, PENDING, DEFERRED, BLOCKED, ON_HOLD
 - **in_progress**: IN_PROGRESS, IN_REVIEW, CHANGES_REQUESTED, TESTING, READY_FOR_QA, INVESTIGATING
-- **completed**: COMPLETED, DEPLOYED, CANCELLED
 
 ## Cascade Events
 

@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
@@ -51,6 +51,16 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/create-mirror-prompt.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__mcp-task-orchestrator__get_next_task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/mirror-bootstrap-prompt.sh",
             "timeout": 5
           }
         ]

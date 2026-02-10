@@ -3,5 +3,5 @@
 # Outputs additionalContext via hookSpecificOutput to inject state-loading instructions into Claude's context.
 
 cat <<'EOF'
-{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"The task-orchestrator MCP server is connected to this project. At the start of this session, call query_container(operation=\"overview\", containerType=\"project\") and query_container(operation=\"overview\", containerType=\"feature\") to understand the current state of tracked work before proceeding. Present the results as a status table, then ask what the user wants to work on."}}
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Before responding to the user's message, you MUST first follow your Session Start instructions from your output style. Do not skip this step, even if the user has already sent a message."}}
 EOF
