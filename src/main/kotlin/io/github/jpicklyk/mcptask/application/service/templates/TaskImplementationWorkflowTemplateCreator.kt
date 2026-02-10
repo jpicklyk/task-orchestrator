@@ -70,6 +70,16 @@ object TaskImplementationWorkflowTemplateCreator {
                 ordinal = 2,
                 isRequired = true,
                 tags = listOf("testing", "validation")
+            ),
+            TemplateSection(
+                templateId = templateId,
+                title = "Verification",
+                usageDescription = "Define one or more acceptance criteria as a JSON array. Each criterion describes a condition that must be verified before this task can be completed. Format: [{\"criteria\": \"description\", \"pass\": false}, ...] Set pass to true only after personally confirming each condition. The MCP server will block completion until all criteria pass.",
+                contentSample = """[{"criteria": "Unit tests pass for new/modified code", "pass": false}, {"criteria": "No regressions in existing test suite", "pass": false}]""",
+                contentFormat = ContentFormat.JSON,
+                ordinal = 3,
+                isRequired = true,
+                tags = listOf("verification", "acceptance-criteria", "quality")
             )
         )
 

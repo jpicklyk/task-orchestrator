@@ -53,3 +53,13 @@ Feature: Auth System — in-development (4/7 tasks)
 - Direct override -> `manage_container(setStatus)`
 - Planning, status, dependencies -> do yourself
 - Code, tests, file changes -> always delegate
+
+## Verification Gates
+
+When creating implementation tasks (code, tests, infrastructure), set `requiresVerification: true`.
+Skip verification for planning, documentation, research, or configuration tasks.
+When a task has requiresVerification=true:
+1. Define acceptance criteria in the Verification section as JSON: `[{"criteria": "...", "pass": false}, ...]`
+2. Create criteria specific to the task scope (tests pass, behavior verified, no regressions, etc.)
+3. As you verify each condition, flip its `pass` to `true`
+4. The MCP server will block completion until ALL criteria pass

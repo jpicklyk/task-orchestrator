@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.application.service.CompletionCleanupService
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
+import io.github.jpicklyk.mcptask.application.service.VerificationGateService
 import io.github.jpicklyk.mcptask.application.service.WorkflowConfigLoaderImpl
 import io.github.jpicklyk.mcptask.application.service.WorkflowService
 import io.github.jpicklyk.mcptask.application.service.WorkflowServiceImpl
@@ -69,6 +70,7 @@ Parameters:
 | projectId | UUID | No | Parent project ID (feature/task) |
 | featureId | UUID | No | Parent feature ID (task only) |
 | templateIds | array | No | Templates to apply (create only) |
+| requiresVerification | boolean | No | Require verification gate before completion (default: false, feature/task only) |
 | tags | string | No | Comma-separated tags |
 | deleteSections | boolean | No | Delete sections (default: true) |
 | force | boolean | No | Force delete with dependencies |
@@ -180,6 +182,12 @@ Docs: task-orchestrator://docs/tools/manage-container
                         "type" to JsonPrimitive("array"),
                         "description" to JsonPrimitive("Template IDs to apply (create only)"),
                         "items" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid")))
+                    )
+                ),
+                "requiresVerification" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("Require verification section before completing (default: false)")
                     )
                 ),
                 "deleteSections" to JsonObject(
@@ -581,6 +589,7 @@ Docs: task-orchestrator://docs/tools/manage-container
 
         // Get template IDs
         val templateIds = extractTemplateIds(params)
+        val requiresVerification = optionalBoolean(params, "requiresVerification", false)
 
         val feature = Feature(
             name = name,
@@ -589,6 +598,7 @@ Docs: task-orchestrator://docs/tools/manage-container
             status = status,
             priority = priority,
             projectId = projectId,
+            requiresVerification = requiresVerification,
             tags = tags
         )
 
@@ -685,6 +695,7 @@ Docs: task-orchestrator://docs/tools/manage-container
 
         // Get template IDs
         val templateIds = extractTemplateIds(params)
+        val requiresVerification = optionalBoolean(params, "requiresVerification", false)
 
         val task = Task(
             title = title,
@@ -695,6 +706,7 @@ Docs: task-orchestrator://docs/tools/manage-container
             complexity = complexity,
             projectId = projectId,
             featureId = featureId,
+            requiresVerification = requiresVerification,
             tags = tags
         )
 
@@ -820,6 +832,8 @@ Docs: task-orchestrator://docs/tools/manage-container
         } ?: existing.projectId
         val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
 
+        val requiresVerification = optionalBoolean(params, "requiresVerification", existing.requiresVerification)
+
         // Validate project exists if changed
         if (projectId != null && projectId != existing.projectId) {
             when (context.repositoryProvider.projectRepository().getById(projectId)) {
@@ -839,6 +853,7 @@ Docs: task-orchestrator://docs/tools/manage-container
             status = status,
             priority = priority,
             projectId = projectId,
+            requiresVerification = requiresVerification,
             tags = tags
         )
 
@@ -874,6 +889,8 @@ Docs: task-orchestrator://docs/tools/manage-container
         } ?: existing.featureId
         val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
 
+        val requiresVerification = optionalBoolean(params, "requiresVerification", existing.requiresVerification)
+
         // Validate feature exists if changed
         if (featureId != null && featureId != existing.featureId) {
             when (context.repositoryProvider.featureRepository().getById(featureId)) {
@@ -894,6 +911,7 @@ Docs: task-orchestrator://docs/tools/manage-container
             priority = priority,
             complexity = complexity,
             featureId = featureId,
+            requiresVerification = requiresVerification,
             tags = tags,
             modifiedAt = Instant.now()
         )
@@ -1312,6 +1330,25 @@ Docs: task-orchestrator://docs/tools/manage-container
             )
         }
 
+        // Verification gate check: block completion if verification criteria not met
+        if (statusStr.uppercase().replace('-', '_') == "COMPLETED" && existing.requiresVerification) {
+            val gateResult = VerificationGateService.checkVerificationSection(id, "feature", context)
+            if (gateResult is VerificationGateService.VerificationCheckResult.Failed) {
+                return errorResponse(
+                    message = "Completion blocked: ${gateResult.reason}",
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    additionalData = buildJsonObject {
+                        put("gate", "verification")
+                        if (gateResult.failingCriteria.isNotEmpty()) {
+                            put("failingCriteria", JsonArray(
+                                gateResult.failingCriteria.map { JsonPrimitive(it) }
+                            ))
+                        }
+                    }
+                )
+            }
+        }
+
         // Parse and update
         val status = parseFeatureStatus(statusStr)
         val updated = existing.update(status = status)
@@ -1432,6 +1469,25 @@ Docs: task-orchestrator://docs/tools/manage-container
                     }
                 }
             )
+        }
+
+        // Verification gate check: block completion if verification criteria not met
+        if (statusStr.uppercase().replace('-', '_') == "COMPLETED" && existing.requiresVerification) {
+            val gateResult = VerificationGateService.checkVerificationSection(id, "task", context)
+            if (gateResult is VerificationGateService.VerificationCheckResult.Failed) {
+                return errorResponse(
+                    message = "Completion blocked: ${gateResult.reason}",
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    additionalData = buildJsonObject {
+                        put("gate", "verification")
+                        if (gateResult.failingCriteria.isNotEmpty()) {
+                            put("failingCriteria", JsonArray(
+                                gateResult.failingCriteria.map { JsonPrimitive(it) }
+                            ))
+                        }
+                    }
+                )
+            }
         }
 
         // Parse and update
@@ -1656,6 +1712,9 @@ Docs: task-orchestrator://docs/tools/manage-container
             else it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotEmpty() }
         } ?: existing.tags
 
+        val requiresVerification = containerParams["requiresVerification"]?.jsonPrimitive?.boolean
+            ?: existing.requiresVerification
+
         val updated = existing.update(
             name = name,
             description = description,
@@ -1663,6 +1722,7 @@ Docs: task-orchestrator://docs/tools/manage-container
             status = status,
             priority = priority,
             projectId = projectId,
+            requiresVerification = requiresVerification,
             tags = tags
         )
 
@@ -1699,6 +1759,8 @@ Docs: task-orchestrator://docs/tools/manage-container
             if (it.isEmpty()) emptyList()
             else it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotEmpty() }
         } ?: existing.tags
+        val requiresVerification = containerParams["requiresVerification"]?.jsonPrimitive?.boolean
+            ?: existing.requiresVerification
 
         val updated = existing.copy(
             title = title,
@@ -1708,6 +1770,7 @@ Docs: task-orchestrator://docs/tools/manage-container
             priority = priority,
             complexity = complexity,
             featureId = featureId,
+            requiresVerification = requiresVerification,
             tags = tags,
             modifiedAt = Instant.now()
         )

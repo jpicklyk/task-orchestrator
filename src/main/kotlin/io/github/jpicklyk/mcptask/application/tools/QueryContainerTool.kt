@@ -1075,6 +1075,7 @@ Docs: task-orchestrator://docs/tools/query-container
             put("status", feature.status.name.lowercase().replace('_', '-'))
             put("priority", feature.priority.name.lowercase())
             feature.projectId?.let { put("projectId", it.toString()) }
+            put("requiresVerification", feature.requiresVerification)
             put("tags", JsonArray(feature.tags.map { JsonPrimitive(it) }))
             put("createdAt", feature.createdAt.toString())
             put("modifiedAt", feature.modifiedAt.toString())
@@ -1100,6 +1101,7 @@ Docs: task-orchestrator://docs/tools/query-container
             put("complexity", task.complexity)
             task.projectId?.let { put("projectId", it.toString()) }
             task.featureId?.let { put("featureId", it.toString()) }
+            put("requiresVerification", task.requiresVerification)
             put("tags", JsonArray(task.tags.map { JsonPrimitive(it) }))
             put("createdAt", task.createdAt.toString())
             put("modifiedAt", task.modifiedAt.toString())
@@ -1154,6 +1156,7 @@ Docs: task-orchestrator://docs/tools/query-container
             put("status", feature.status.name.lowercase().replace('_', '-'))
             put("priority", feature.priority.name.lowercase())
             feature.projectId?.let { put("projectId", it.toString()) }
+            put("requiresVerification", feature.requiresVerification)
 
             if (summaryLength > 0) {
                 val summary = feature.summary
@@ -1178,6 +1181,7 @@ Docs: task-orchestrator://docs/tools/query-container
             put("priority", task.priority.name.lowercase())
             put("complexity", task.complexity)
             task.featureId?.let { put("featureId", it.toString()) }
+            put("requiresVerification", task.requiresVerification)
 
             if (summaryLength > 0) {
                 val summary = task.summary
@@ -1391,6 +1395,7 @@ Docs: task-orchestrator://docs/tools/query-container
             put("priority", task.priority.name.lowercase())
             put("complexity", task.complexity)
             task.featureId?.let { put("featureId", it.toString()) }
+            put("requiresVerification", task.requiresVerification)
         }
     }
 
@@ -1409,6 +1414,7 @@ Docs: task-orchestrator://docs/tools/query-container
             put("status", feature.status.name.lowercase().replace('_', '-'))
             put("priority", feature.priority.name.lowercase())
             feature.projectId?.let { put("projectId", it.toString()) }
+            put("requiresVerification", feature.requiresVerification)
         }
     }
 

@@ -21,6 +21,8 @@ data class Feature(
     val priority: Priority = Priority.MEDIUM,
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
+    /** Whether this feature requires verification before completion */
+    val requiresVerification: Boolean = false,
     val tags: List<String> = emptyList(),
     /** Optimistic concurrency version */
     val version: Long = 1
@@ -60,6 +62,7 @@ data class Feature(
         summary: String = this.summary,
         status: FeatureStatus = this.status,
         priority: Priority = this.priority,
+        requiresVerification: Boolean = this.requiresVerification,
         tags: List<String> = this.tags
     ): Feature {
         // Ensure we always generate a new timestamp that's definitely after the current modifiedAt
@@ -73,6 +76,7 @@ data class Feature(
             summary = summary,
             status = status,
             priority = priority,
+            requiresVerification = requiresVerification,
             modifiedAt = newModifiedAt,
             tags = tags
         ).also { it.validate() }

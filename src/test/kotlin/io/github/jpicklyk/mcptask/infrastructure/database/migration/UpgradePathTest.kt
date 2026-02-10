@@ -47,9 +47,9 @@ class UpgradePathTest {
         val result = schemaManager.updateSchema()
         assertTrue(result, "Migration should succeed")
 
-        // Verify we reach version 9 (V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9)
+        // Verify we reach version 11 (V1 through V11)
         val currentVersion = schemaManager.getCurrentVersion()
-        assertEquals(9, currentVersion, "Should reach version 9 after all migrations")
+        assertEquals(11, currentVersion, "Should reach version 11 after all migrations")
 
         // Verify v2.0 features are present
         val connection = database.connector().connection as Connection

@@ -100,6 +100,43 @@ Use specialized tools for maximum efficiency:
 """
 
     /**
+     * Verification gate guidance for AI agents.
+     * Explains how the requiresVerification flag and verification sections work.
+     */
+    private const val VERIFICATION_GATE_GUIDE = """
+## VERIFICATION GATES
+
+Entities with `requiresVerification=true` cannot be completed until a Verification section passes all criteria.
+
+### How It Works
+1. Create a Verification section with JSON acceptance criteria: `[{"criteria": "description", "pass": false}, ...]`
+2. As you verify each condition, update the criterion's `pass` to `true`
+3. The MCP server blocks `setStatus(completed)` and `request_transition(trigger="complete")` until ALL criteria pass
+
+### When to Use
+- **Use** for implementation tasks, bug fixes, features with formal requirements
+- **Skip** for planning, documentation, research, or configuration tasks
+- Templates with a Verification section auto-enable the gate via `apply_template`
+
+### Gate Checks (5 sequential gates)
+1. Section titled "Verification" must exist
+2. Content must not be blank
+3. Content must be valid JSON array of criteria objects
+4. At least one criterion must be defined
+5. All criteria must have `pass: true`
+
+### Example Criteria
+```json
+[
+  {"criteria": "Unit tests pass for new service", "pass": true},
+  {"criteria": "No regressions in existing tests", "pass": false}
+]
+```
+
+If completion is blocked, the response includes which specific criteria failed.
+"""
+
+    /**
      * Configures AI guidance for the MCP server.
      * 
      * Note: This previously contained instruction "prompts" that were actually documentation.
@@ -183,6 +220,8 @@ Use specialized tools for maximum efficiency:
                             - Status workflows are config-driven via `.taskorchestrator/config.yaml`
 
                             $UPDATE_EFFICIENCY_GUIDE
+
+                            $VERIFICATION_GATE_GUIDE
                             """.trimIndent()
                         )
                     )

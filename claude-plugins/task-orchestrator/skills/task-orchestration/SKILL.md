@@ -14,6 +14,17 @@ Tasks are the primary work items, organized under Features (optional) and Projec
 3. **Progress status** with `request_transition(trigger="start")`. See `status-progression` skill for flows and triggers.
 4. **Complete** with `request_transition(trigger="complete")` — check sections are filled and dependencies resolved first. Update CC mirror after. See `task-mirroring` skill.
 
+## Verification Gates
+
+Templates with a Verification section (Task Implementation, Bug Investigation) auto-enable `requiresVerification: true` when applied. The completion workflow becomes:
+
+1. Agent defines acceptance criteria in the Verification section as JSON
+2. Agent performs the work
+3. Agent verifies each criterion and flips `pass` to `true`
+4. `request_transition(trigger="complete")` checks all criteria pass
+
+Set `requiresVerification: true` manually when creating tasks without templates that warrant verification (code changes, infrastructure, tests).
+
 ## Partial Updates
 
 **Never fetch an entity just to update it.** Use `manage_container(operation="update")` with only the changed fields. Token savings: 90-95% vs sending the full entity.

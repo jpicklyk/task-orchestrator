@@ -55,6 +55,7 @@ class SQLiteTaskRepository(
             complexity = row[TaskTable.complexity],
             createdAt = row[TaskTable.createdAt],
             modifiedAt = row[TaskTable.modifiedAt],
+            requiresVerification = row[TaskTable.requiresVerification],
             tags = emptyList(), // Tags are loaded separately
             version = row[TaskTable.version]
         )
@@ -104,6 +105,7 @@ class SQLiteTaskRepository(
             it[complexity] = entity.complexity
             it[createdAt] = entity.createdAt
             it[modifiedAt] = entity.modifiedAt
+            it[requiresVerification] = entity.requiresVerification
             it[version] = entity.version
         }
     }
@@ -122,6 +124,7 @@ class SQLiteTaskRepository(
             it[priority] = entity.priority
             it[complexity] = entity.complexity
             it[modifiedAt] = entity.modifiedAt
+            it[requiresVerification] = entity.requiresVerification
             it[version] = entity.version + 1
         }
     }

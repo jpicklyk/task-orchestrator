@@ -20,18 +20,18 @@ import java.sql.Connection
  * This tests the FRESH INSTALL scenario where Flyway migrations create the complete
  * schema AND initialize all 9 built-in templates with their sections.
  *
- * After V9 (template realignment), templates are:
- * 1. Definition of Done (TASK) - 2 sections
+ * After V11 (verification gate), templates are:
+ * 1. Definition of Done (TASK) - 2 sections [DISABLED by V11]
  * 2. Local Git Branching Workflow (TASK) - 3 sections
  * 3. GitHub PR Workflow (TASK) - 3 sections
  * 4. Context & Background (FEATURE) - 3 sections
- * 5. Test Plan (TASK) - 2 sections (was "Testing Strategy" with 3)
- * 6. Requirements Specification (FEATURE) - 3 sections
- * 7. Technical Approach (TASK) - 2 sections (was 3)
- * 8. Task Implementation (TASK) - 3 sections (was "Task Implementation Workflow")
- * 9. Bug Investigation (TASK) - 3 sections (was "Bug Investigation Workflow")
+ * 5. Test Plan (TASK) - 2 sections
+ * 6. Requirements Specification (FEATURE) - 4 sections (V11 added Verification)
+ * 7. Technical Approach (TASK) - 2 sections
+ * 8. Task Implementation (TASK) - 4 sections (V11 added Verification)
+ * 9. Bug Investigation (TASK) - 4 sections (V11 added Verification)
  *
- * Total sections expected: 24 (was 26 before V9 removed 2 redundant sections)
+ * Total sections expected: 27 (was 24, V11 added 3 Verification sections)
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class TemplateDataMigrationTest {
@@ -114,7 +114,8 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that all 9 templates have correct properties (isBuiltIn=true, isEnabled=true).
+     * Test that all 9 templates have correct properties.
+     * After V11: Definition of Done is disabled (superseded by Verification Gate).
      */
     @Test
     fun `test all templates have correct built-in and enabled flags`() {
@@ -122,22 +123,25 @@ class TemplateDataMigrationTest {
         val connection = database.connector().connection as Connection
         val statement = connection.createStatement()
 
-        // Verify all built-in templates are enabled
+        // Verify built-in template counts (1 disabled by V11)
         val result = statement.executeQuery("""
             SELECT
                 COUNT(CASE WHEN is_built_in = 1 AND is_enabled = 1 THEN 1 END) as enabled_count,
+                COUNT(CASE WHEN is_built_in = 1 AND is_enabled = 0 THEN 1 END) as disabled_count,
                 COUNT(CASE WHEN is_built_in = 1 THEN 1 END) as total_count
             FROM templates
         """)
         result.next()
         val enabledCount = result.getInt("enabled_count")
+        val disabledCount = result.getInt("disabled_count")
         val totalCount = result.getInt("total_count")
         result.close()
 
         statement.close()
 
         assertEquals(9, totalCount, "Should have 9 built-in templates")
-        assertEquals(9, enabledCount, "All 9 built-in templates should be enabled")
+        assertEquals(8, enabledCount, "8 built-in templates should be enabled")
+        assertEquals(1, disabledCount, "1 built-in template should be disabled (Definition of Done)")
     }
 
     /**
@@ -184,7 +188,11 @@ class TemplateDataMigrationTest {
             assertEquals(expectedType, targetType, "Template target type should be $expectedType")
             assertTrue(isBuiltIn, "Template should be marked as built-in")
             assertTrue(isProtected, "Template should be marked as protected")
-            assertTrue(isEnabled, "Template should be marked as enabled")
+            if (templateName == "Definition of Done") {
+                assertTrue(!isEnabled, "Definition of Done should be disabled (superseded by Verification Gate)")
+            } else {
+                assertTrue(isEnabled, "Template '$templateName' should be marked as enabled")
+            }
         }
 
         statement.close()
@@ -205,10 +213,10 @@ class TemplateDataMigrationTest {
             "GitHub PR Workflow" to 3,
             "Context & Background" to 3,
             "Test Plan" to 2,
-            "Requirements Specification" to 3,
+            "Requirements Specification" to 4,
             "Technical Approach" to 2,
-            "Task Implementation" to 3,
-            "Bug Investigation" to 3
+            "Task Implementation" to 4,
+            "Bug Investigation" to 4
         )
 
         val connection = database.connector().connection as Connection
@@ -235,7 +243,7 @@ class TemplateDataMigrationTest {
      * (Was 26, V9 removed Technical Decision Log and Testing Checkpoints)
      */
     @Test
-    fun `test total template sections count is 24`() {
+    fun `test total template sections count is 27`() {
         val connection = database.connector().connection as Connection
         val statement = connection.createStatement()
 
@@ -248,7 +256,7 @@ class TemplateDataMigrationTest {
 
         statement.close()
 
-        assertEquals(24, totalSections, "Should have 24 total template sections")
+        assertEquals(27, totalSections, "Should have 27 total template sections (24 original + 3 Verification)")
     }
 
     /**
@@ -430,7 +438,8 @@ class TemplateDataMigrationTest {
         val expectedSections = listOf(
             "Must-Have Requirements",
             "Nice-to-Have Features",
-            "Constraints & Non-Functional Requirements"
+            "Constraints & Non-Functional Requirements",
+            "Verification"
         )
 
         val connection = database.connector().connection as Connection
@@ -497,7 +506,8 @@ class TemplateDataMigrationTest {
         val expectedSections = listOf(
             "Analysis & Approach",
             "Implementation Notes",
-            "Verification & Results"
+            "Verification & Results",
+            "Verification"
         )
 
         val connection = database.connector().connection as Connection
@@ -531,7 +541,8 @@ class TemplateDataMigrationTest {
         val expectedSections = listOf(
             "Investigation Findings",
             "Root Cause",
-            "Fix & Verification"
+            "Fix & Verification",
+            "Verification"
         )
 
         val connection = database.connector().connection as Connection
@@ -583,10 +594,10 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(24, titled, "All 24 sections should have a title")
-        assertEquals(24, described, "All 24 sections should have usage description")
-        assertEquals(24, contentProvided, "All 24 sections should have content")
-        assertEquals(24, formatSet, "All 24 sections should have content format set")
+        assertEquals(27, titled, "All 27 sections should have a title")
+        assertEquals(27, described, "All 27 sections should have usage description")
+        assertEquals(27, contentProvided, "All 27 sections should have content")
+        assertEquals(27, formatSet, "All 27 sections should have content format set")
     }
 
     /**

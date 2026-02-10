@@ -7,11 +7,13 @@ import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefi
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.domain.model.EntityType
+import io.github.jpicklyk.mcptask.domain.model.Section
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
+import java.time.Instant
 import java.util.*
 
 /**
@@ -224,13 +226,18 @@ class ApplyTemplateTool(
             }
             
             // Check if we're applying a single template or multiple templates
-            return if (templateIds.size == 1) {
+            val result = if (templateIds.size == 1) {
                 // Single template application
                 applySingleTemplate(templateIds.first(), entityType, entityId, context)
             } else {
                 // Multiple template application
                 applyMultipleTemplates(templateIds, entityType, entityId, context)
             }
+
+            // Post-apply: auto-set requiresVerification if a Verification section was created
+            autoSetVerificationFlag(entityType, entityId, context)
+
+            return result
         } catch (e: Exception) {
             // Handle unexpected exceptions
             logger.error("Error applying template", e)
@@ -330,6 +337,55 @@ class ApplyTemplateTool(
         }
     }
     
+    /**
+     * Auto-sets requiresVerification=true on an entity if any of its sections
+     * has a title matching "Verification" (case-insensitive).
+     *
+     * This is called after template application to ensure the verification gate
+     * is activated when a template includes a Verification section.
+     */
+    private suspend fun autoSetVerificationFlag(
+        entityType: EntityType,
+        entityId: UUID,
+        context: ToolExecutionContext
+    ) {
+        try {
+            val sectionsResult = context.sectionRepository().getSectionsForEntity(entityType, entityId)
+            val hasVerificationSection = when (sectionsResult) {
+                is Result.Success -> sectionsResult.data.any {
+                    it.title.equals("Verification", ignoreCase = true)
+                }
+                is Result.Error -> false
+            }
+
+            if (hasVerificationSection) {
+                when (entityType) {
+                    EntityType.TASK -> {
+                        val task = context.taskRepository().getById(entityId).getOrNull()
+                        if (task != null && !task.requiresVerification) {
+                            context.taskRepository().update(
+                                task.copy(requiresVerification = true, modifiedAt = Instant.now())
+                            )
+                            logger.info("Auto-set requiresVerification=true on task $entityId (Verification section detected)")
+                        }
+                    }
+                    EntityType.FEATURE -> {
+                        val feature = context.featureRepository().getById(entityId).getOrNull()
+                        if (feature != null && !feature.requiresVerification) {
+                            context.featureRepository().update(
+                                feature.update(requiresVerification = true)
+                            )
+                            logger.info("Auto-set requiresVerification=true on feature $entityId (Verification section detected)")
+                        }
+                    }
+                    else -> { /* Projects don't support verification gates */ }
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to auto-set verification flag for $entityType $entityId: ${e.message}")
+        }
+    }
+
     /**
      * Apply multiple templates to an entity
      */

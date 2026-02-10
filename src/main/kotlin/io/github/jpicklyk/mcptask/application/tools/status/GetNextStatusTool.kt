@@ -245,12 +245,14 @@ class GetNextStatusTool(
             val containerId = UUID.fromString(paramsObj["containerId"]!!.jsonPrimitive.content)
             val containerType = paramsObj["containerType"]!!.jsonPrimitive.content
 
-            // Fetch entity to get current status and tags
-            val (currentStatus, entityTags) = fetchEntityDetails(containerId, containerType, context)
+            // Fetch entity to get current status, tags, and verification flag
+            val entityInfo = fetchEntityDetails(containerId, containerType, context)
                 ?: return errorResponse(
                     message = "$containerType with ID $containerId not found",
                     code = ErrorCodes.RESOURCE_NOT_FOUND
                 )
+            val (currentStatus, entityTags) = entityInfo
+            val entityRequiresVerification = fetchRequiresVerification(containerId, containerType, context)
 
             // Use provided status/tags or fall back to entity's values
             val statusToUse = paramsObj["currentStatus"]?.jsonPrimitive?.content ?: currentStatus
@@ -284,6 +286,7 @@ class GetNextStatusTool(
                         put("reason", recommendation.reason)
                         if (recommendation.currentRole != null) put("currentRole", recommendation.currentRole)
                         if (recommendation.nextRole != null) put("nextRole", recommendation.nextRole)
+                        if (entityRequiresVerification) put("verificationGateActive", true)
                     }
                 }
                 is NextStatusRecommendation.Blocked -> {
@@ -331,6 +334,32 @@ class GetNextStatusTool(
                 code = ErrorCodes.INTERNAL_ERROR,
                 details = e.message ?: "Unknown error"
             )
+        }
+    }
+
+    /**
+     * Fetches the requiresVerification flag for an entity.
+     * Returns false if entity not found or container type doesn't support verification.
+     */
+    private suspend fun fetchRequiresVerification(
+        containerId: UUID,
+        containerType: String,
+        context: ToolExecutionContext
+    ): Boolean {
+        return when (containerType) {
+            "task" -> {
+                when (val result = context.taskRepository().getById(containerId)) {
+                    is Result.Success -> result.data.requiresVerification
+                    is Result.Error -> false
+                }
+            }
+            "feature" -> {
+                when (val result = context.featureRepository().getById(containerId)) {
+                    is Result.Success -> result.data.requiresVerification
+                    is Result.Error -> false
+                }
+            }
+            else -> false
         }
     }
 

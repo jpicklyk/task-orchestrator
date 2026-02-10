@@ -70,6 +70,16 @@ Include requirements for: core functionality, data handling, integrations, and b
                 ordinal = 2,
                 isRequired = true,
                 tags = listOf("constraints", "non-functional", "performance", "security", "requirements")
+            ),
+            TemplateSection(
+                templateId = templateId,
+                title = "Verification",
+                usageDescription = "Define acceptance criteria for this feature as a JSON array. Feature criteria verify that child tasks integrate correctly and the feature works end-to-end. Format: [{\"criteria\": \"description\", \"pass\": false}, ...] Set pass to true only after verifying each condition across the completed tasks. The MCP server will block feature completion until all criteria pass.",
+                contentSample = """[{"criteria": "All child tasks completed", "pass": false}, {"criteria": "End-to-end flow works as specified", "pass": false}, {"criteria": "No regressions in existing test suite", "pass": false}]""",
+                contentFormat = ContentFormat.JSON,
+                ordinal = 3,
+                isRequired = true,
+                tags = listOf("verification", "acceptance-criteria", "quality")
             )
         )
 

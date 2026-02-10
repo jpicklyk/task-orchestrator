@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.application.tools.status
 
 import io.github.jpicklyk.mcptask.application.service.CompletionCleanupService
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
+import io.github.jpicklyk.mcptask.application.service.VerificationGateService
 import io.github.jpicklyk.mcptask.application.service.WorkflowConfigLoaderImpl
 import io.github.jpicklyk.mcptask.application.service.WorkflowServiceImpl
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
@@ -224,6 +225,34 @@ Related: manage_container (setStatus), get_next_status"""
                 }
                 is StatusValidator.ValidationResult.Valid,
                 is StatusValidator.ValidationResult.ValidWithAdvisory -> {
+                    // Verification gate check: block completion if verification criteria not met
+                    if (trigger == "complete") {
+                        val requiresVerification = when (containerType) {
+                            "task" -> context.taskRepository().getById(containerId).getOrNull()?.requiresVerification ?: false
+                            "feature" -> context.featureRepository().getById(containerId).getOrNull()?.requiresVerification ?: false
+                            else -> false
+                        }
+                        if (requiresVerification) {
+                            val gateResult = VerificationGateService.checkVerificationSection(containerId, containerType, context)
+                            if (gateResult is VerificationGateService.VerificationCheckResult.Failed) {
+                                return errorResponse(
+                                    message = "Completion blocked: ${gateResult.reason}",
+                                    code = ErrorCodes.VALIDATION_ERROR,
+                                    additionalData = buildJsonObject {
+                                        put("gate", "verification")
+                                        put("containerId", containerId.toString())
+                                        put("containerType", containerType)
+                                        if (gateResult.failingCriteria.isNotEmpty()) {
+                                            put("failingCriteria", JsonArray(
+                                                gateResult.failingCriteria.map { JsonPrimitive(it) }
+                                            ))
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     // Apply the status change
                     val applyResult = applyStatusChange(containerId, containerType, targetStatus, context)
                     if (applyResult != null) {

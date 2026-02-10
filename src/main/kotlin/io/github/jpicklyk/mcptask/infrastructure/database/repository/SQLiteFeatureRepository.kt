@@ -56,6 +56,7 @@ class SQLiteFeatureRepository(
             priority = row[FeaturesTable.priority],
             createdAt = row[FeaturesTable.createdAt],
             modifiedAt = row[FeaturesTable.modifiedAt],
+            requiresVerification = row[FeaturesTable.requiresVerification],
             tags = emptyList(), // Tags are loaded separately
             version = row[FeaturesTable.version]
         )
@@ -100,6 +101,7 @@ class SQLiteFeatureRepository(
             it[priority] = entity.priority
             it[createdAt] = entity.createdAt
             it[modifiedAt] = entity.modifiedAt
+            it[requiresVerification] = entity.requiresVerification
             it[version] = entity.version
         }
     }
@@ -115,6 +117,7 @@ class SQLiteFeatureRepository(
             it[summary] = entity.summary
             it[status] = entity.status
             it[priority] = entity.priority
+            it[requiresVerification] = entity.requiresVerification
             it[modifiedAt] = entity.modifiedAt
             it[version] = entity.version + 1
         }

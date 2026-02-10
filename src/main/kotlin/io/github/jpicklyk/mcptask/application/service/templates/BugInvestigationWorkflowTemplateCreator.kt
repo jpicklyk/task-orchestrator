@@ -70,6 +70,16 @@ object BugInvestigationWorkflowTemplateCreator {
                 ordinal = 2,
                 isRequired = true,
                 tags = listOf("fix-implementation", "verification", "testing")
+            ),
+            TemplateSection(
+                templateId = templateId,
+                title = "Verification",
+                usageDescription = "Define one or more acceptance criteria as a JSON array. Each criterion describes a condition that must be verified before this bug fix can be completed. Format: [{\"criteria\": \"description\", \"pass\": false}, ...] Set pass to true only after personally confirming each condition. The MCP server will block completion until all criteria pass.",
+                contentSample = """[{"criteria": "Bug can no longer be reproduced", "pass": false}, {"criteria": "Regression test added", "pass": false}, {"criteria": "No side effects in related functionality", "pass": false}]""",
+                contentFormat = ContentFormat.JSON,
+                ordinal = 3,
+                isRequired = true,
+                tags = listOf("verification", "acceptance-criteria", "quality")
             )
         )
 

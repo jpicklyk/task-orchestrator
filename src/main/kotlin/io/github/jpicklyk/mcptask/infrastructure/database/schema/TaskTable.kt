@@ -34,6 +34,9 @@ object TaskTable : UUIDTable("tasks") {
     val lastModifiedBy = text("last_modified_by").nullable()
     val lockStatus = enumerationByName("lock_status", 20, TaskLockStatus::class).default(TaskLockStatus.UNLOCKED)
     
+    // Verification gate
+    val requiresVerification = bool("requires_verification").default(false)
+
     // Search optimization
     val searchVector = text("search_vector").nullable()
     

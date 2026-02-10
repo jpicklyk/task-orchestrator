@@ -21,7 +21,7 @@ object DefinitionOfDoneTemplateCreator {
             targetEntityType = EntityType.TASK,
             isBuiltIn = true,
             isProtected = true,
-            isEnabled = true,
+            isEnabled = false,
             createdBy = "System",
             tags = listOf("completion", "done", "checklist", "handoff", "quality")
         )

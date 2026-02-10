@@ -23,6 +23,9 @@ object FeaturesTable : UUIDTable("features") {
     // Tags are now handled by the unified EntityTagsTable
     // val tags = text("tags").default("")
 
+    // Verification gate
+    val requiresVerification = bool("requires_verification").default(false)
+
     // Optimistic locking
     val version = long("version").default(1)
 

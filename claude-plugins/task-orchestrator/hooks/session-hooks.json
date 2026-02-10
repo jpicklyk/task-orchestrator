@@ -12,7 +12,29 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-planning.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/post-planning.sh",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "matcher": "mcp__mcp-task-orchestrator__request_transition",
         "hooks": [

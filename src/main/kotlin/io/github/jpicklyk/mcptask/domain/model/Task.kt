@@ -50,7 +50,10 @@ data class Task(
     
     /** Current lock state for quick reference */
     val lockStatus: TaskLockStatus = TaskLockStatus.UNLOCKED,
-    
+
+    /** Whether this task requires verification before completion */
+    val requiresVerification: Boolean = false,
+
     /** Optional tags for categorization */
     val tags: List<String> = emptyList()
 ) {
