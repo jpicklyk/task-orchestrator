@@ -41,6 +41,7 @@ try:
 
     result = {
         'hookSpecificOutput': {
+            'hookEventName': 'PostToolUse',
             'additionalContext': (
                 f'New MCP task created: [{short_id}] {task_title}. '
                 f'Create a CC mirror task: TaskCreate(subject=\"[{short_id}] {task_title}\", '

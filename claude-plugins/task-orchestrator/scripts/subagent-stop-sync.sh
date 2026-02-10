@@ -2,8 +2,13 @@
 # SubagentStop hook: When a subagent finishes, checks if it referenced MCP tasks
 # and prompts the orchestrator to update MCP task status.
 #
+# NOTE: SubagentStop uses Stop decision control (decision/reason only).
+# additionalContext is NOT documented for this event. We use it best-effort
+# since there's no other mechanism to inject post-subagent context.
+# If CC ignores it, the orchestrator output style still covers this behavior.
+#
 # Input (stdin): JSON with agent_id, agent_type, agent_transcript_path, stop_hook_active
-# Output: JSON with additionalContext if MCP references found, or empty for no-op
+# Output: JSON with hookSpecificOutput if MCP references found, or empty for no-op
 
 python3 -c "
 import sys, json, re, os
@@ -69,6 +74,7 @@ try:
 
     result = {
         'hookSpecificOutput': {
+            'hookEventName': 'SubagentStop',
             'additionalContext': (
                 f'Subagent ({agent_type}) completed and referenced MCP task-orchestrator entities: '
                 f'{uuid_str}. Review the subagent results and update MCP task status if work was '

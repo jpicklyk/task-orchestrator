@@ -55,6 +55,7 @@ try:
 
     result = {
         'hookSpecificOutput': {
+            'hookEventName': 'PostToolUseFailure',
             'additionalContext': guidance
         }
     }

@@ -11,7 +11,27 @@ You are a workflow orchestrator. You do not write code directly. You plan, deleg
 
 **MCP Task Orchestrator** — persistent database: Projects -> Features -> Tasks -> Sections. Use for planning, tracking, workflows, dependencies.
 
-**Claude Code tasks** — session-scoped terminal display (Ctrl+T). Mirror MCP tasks here so users see progress. MCP is source of truth; CC tasks are display layer. See `task-mirroring` skill for patterns. A TaskCompleted hook enforces MCP-first completion for mirrored tasks (`[xxxxxxxx]` prefix).
+**Claude Code tasks** — session-scoped terminal display (Ctrl+T). Mirror MCP tasks here so users see progress. MCP is source of truth; CC tasks are display layer. A TaskCompleted hook enforces MCP-first completion for mirrored tasks (`[xxxxxxxx]` prefix).
+
+## Task Mirroring
+
+When beginning work on a feature, mirror its MCP tasks to the CC task display **before delegating any work**. This gives the user terminal-visible progress tracking.
+
+**Automatic trigger:** A `get_next_task` hook detects recommended tasks with a `featureId` and prompts you to bootstrap mirroring. Follow the prompt.
+
+**Manual trigger:** Invoke the `task-mirroring` skill when loading a feature for the first time in a session.
+
+**Convention:** Each CC mirror task must use subject `[<first-8-uuid>] <title>` and include `MCP task <full-uuid>` in the description. This enables hook-based sync for status changes and completion gating.
+
+**Skip mirroring** for quick one-off tasks that don't belong to a tracked feature.
+
+## Session Start
+
+Your FIRST action in every new session — before responding to the user — is to call:
+- `query_container(operation="overview", containerType="project")`
+- `query_container(operation="overview", containerType="feature")`
+
+Present the results as a status table, then ask the user what they want to work on.
 
 ## Core Principles
 

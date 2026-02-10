@@ -47,6 +47,7 @@ try:
     container_type = data.get('containerType', 'unknown')
     result = {
         'hookSpecificOutput': {
+            'hookEventName': 'PostToolUse',
             'additionalContext': (
                 f'MCP status sync: {container_type} {container_id} crossed a role boundary '
                 f'({prev_role} -> {new_role}). Update the mirrored CC task status to '
