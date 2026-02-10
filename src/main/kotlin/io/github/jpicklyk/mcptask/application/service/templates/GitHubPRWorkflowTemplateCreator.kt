@@ -21,7 +21,7 @@ object GitHubPRWorkflowTemplateCreator {
             targetEntityType = EntityType.TASK,
             isBuiltIn = true,
             isProtected = true,
-            isEnabled = true,
+            isEnabled = false,
             createdBy = "System",
             tags = listOf("github", "pull-request", "workflow", "ai-optimized", "mcp-tools", "git")
         )

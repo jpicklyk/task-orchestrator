@@ -17,13 +17,15 @@ class TemplateInitializerImpl(
     private val logger = LoggerFactory.getLogger(TemplateInitializerImpl::class.java)
 
     /**
-     * Initialize the templates if they don't already exist.
-     * This ensures that the system always has a set of useful templates.
+     * Initialize the templates, creating any that don't already exist.
+     * This is incremental: existing templates are skipped, new templates are created.
+     * This ensures that when new templates are added to the code, existing databases
+     * pick them up on the next startup.
      */
     override fun initializeTemplates() {
         logger.info("Initializing predefined templates")
 
-        // Get existing templates
+        // Get existing built-in templates
         val existingTemplates = runBlocking {
             val result = templateRepository.getAllTemplates(isBuiltIn = true)
             if (result is Result.Success) {
@@ -33,13 +35,8 @@ class TemplateInitializerImpl(
             }
         }
 
-        // If we already have built-in templates, skip initialization
-        if (existingTemplates.isNotEmpty()) {
-            logger.info("Found ${existingTemplates.size} existing built-in templates, skipping initialization")
-            return
-        }
-
-        logger.info("Creating predefined templates")
+        // Build a set of existing template names for fast lookup
+        val existingNames = existingTemplates.map { it.name }.toSet()
 
         // Initialize each template individually - only templates that have actual creators
         val templateNames = listOf(
@@ -53,17 +50,25 @@ class TemplateInitializerImpl(
             "Requirements Specification",
             "Context & Background",
             "Test Plan",
-            "Definition of Done"
+            "Definition of Done",
+            // Planning templates
+            "Feature Plan",
+            "Codebase Exploration",
+            "Design Decision",
+            "Implementation Specification"
         )
 
-        var initializedCount = 0
+        var createdCount = 0
+        var skippedCount = 0
         templateNames.forEach { templateName ->
-            if (initializeTemplate(templateName)) {
-                initializedCount++
+            if (templateName in existingNames) {
+                skippedCount++
+            } else if (initializeTemplate(templateName)) {
+                createdCount++
             }
         }
 
-        logger.info("$initializedCount/${templateNames.size} predefined templates initialized")
+        logger.info("Template initialization complete: $createdCount created, $skippedCount already existed, ${templateNames.size} total")
     }
 
     /**
@@ -82,6 +87,11 @@ class TemplateInitializerImpl(
             "Context & Background" -> createContextBackgroundTemplate()
             "Test Plan" -> createTestPlanTemplate()
             "Definition of Done" -> createDefinitionOfDoneTemplate()
+            // Planning templates
+            "Feature Plan" -> createFeaturePlanTemplate()
+            "Codebase Exploration" -> createCodebaseExplorationTemplate()
+            "Design Decision" -> createDesignDecisionTemplate()
+            "Implementation Specification" -> createImplementationSpecificationTemplate()
             else -> {
                 logger.warn("Unknown template name: $templateName")
                 false
@@ -237,6 +247,58 @@ class TemplateInitializerImpl(
             return createTemplateWithSections(template, sections, "Definition of Done")
         } catch (e: Exception) {
             logger.error("Failed to create Definition of Done template", e)
+            return false
+        }
+    }
+
+    /**
+     * Creates the Feature Plan template.
+     */
+    private fun createFeaturePlanTemplate(): Boolean {
+        try {
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.FeaturePlanTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Feature Plan")
+        } catch (e: Exception) {
+            logger.error("Failed to create Feature Plan template", e)
+            return false
+        }
+    }
+
+    /**
+     * Creates the Codebase Exploration template.
+     */
+    private fun createCodebaseExplorationTemplate(): Boolean {
+        try {
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.CodebaseExplorationTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Codebase Exploration")
+        } catch (e: Exception) {
+            logger.error("Failed to create Codebase Exploration template", e)
+            return false
+        }
+    }
+
+    /**
+     * Creates the Design Decision template.
+     */
+    private fun createDesignDecisionTemplate(): Boolean {
+        try {
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.DesignDecisionTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Design Decision")
+        } catch (e: Exception) {
+            logger.error("Failed to create Design Decision template", e)
+            return false
+        }
+    }
+
+    /**
+     * Creates the Implementation Specification template.
+     */
+    private fun createImplementationSpecificationTemplate(): Boolean {
+        try {
+            val (template, sections) = io.github.jpicklyk.mcptask.application.service.templates.ImplementationSpecificationTemplateCreator.create()
+            return createTemplateWithSections(template, sections, "Implementation Specification")
+        } catch (e: Exception) {
+            logger.error("Failed to create Implementation Specification template", e)
             return false
         }
     }

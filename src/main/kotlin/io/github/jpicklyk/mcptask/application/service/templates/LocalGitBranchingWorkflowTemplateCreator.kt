@@ -20,7 +20,7 @@ object LocalGitBranchingWorkflowTemplateCreator {
             targetEntityType = EntityType.TASK,
             isBuiltIn = true,
             isProtected = true,
-            isEnabled = true,
+            isEnabled = false,
             createdBy = "System",
             tags = listOf("git", "workflow", "ai-optimized", "version-control", "branching")
         )

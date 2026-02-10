@@ -15,23 +15,27 @@ import kotlin.test.fail
 import java.sql.Connection
 
 /**
- * Tests for template data initialization that creates 9 built-in templates.
+ * Tests for template data initialization that creates 13 built-in templates.
  *
  * This tests the FRESH INSTALL scenario where Flyway migrations create the complete
- * schema AND initialize all 9 built-in templates with their sections.
+ * schema AND initialize all 13 built-in templates with their sections.
  *
- * After V11 (verification gate), templates are:
+ * After V12 (planning templates), templates are:
  * 1. Definition of Done (TASK) - 2 sections [DISABLED by V11]
- * 2. Local Git Branching Workflow (TASK) - 3 sections
- * 3. GitHub PR Workflow (TASK) - 3 sections
+ * 2. Local Git Branching Workflow (TASK) - 3 sections [DISABLED by V12]
+ * 3. GitHub PR Workflow (TASK) - 3 sections [DISABLED by V12]
  * 4. Context & Background (FEATURE) - 3 sections
  * 5. Test Plan (TASK) - 2 sections
  * 6. Requirements Specification (FEATURE) - 4 sections (V11 added Verification)
  * 7. Technical Approach (TASK) - 2 sections
  * 8. Task Implementation (TASK) - 4 sections (V11 added Verification)
  * 9. Bug Investigation (TASK) - 4 sections (V11 added Verification)
+ * 10. Feature Plan (FEATURE) - 8 sections [NEW in V12]
+ * 11. Codebase Exploration (TASK) - 3 sections [NEW in V12]
+ * 12. Design Decision (TASK) - 3 sections [NEW in V12]
+ * 13. Implementation Specification (TASK) - 5 sections [NEW in V12]
  *
- * Total sections expected: 27 (was 24, V11 added 3 Verification sections)
+ * Total sections expected: 46 (27 from V11 + 19 from V12)
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class TemplateDataMigrationTest {
@@ -93,10 +97,10 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that migration creates exactly 9 built-in templates.
+     * Test that migration creates exactly 13 built-in templates.
      */
     @Test
-    fun `test migration creates 9 built-in templates`() {
+    fun `test migration creates 13 built-in templates`() {
         val connection = database.connector().connection as Connection
         val statement = connection.createStatement()
 
@@ -110,12 +114,13 @@ class TemplateDataMigrationTest {
 
         statement.close()
 
-        assertEquals(9, templateCount, "Should have exactly 9 built-in templates")
+        assertEquals(13, templateCount, "Should have exactly 13 built-in templates")
     }
 
     /**
-     * Test that all 9 templates have correct properties.
+     * Test that all 13 templates have correct properties.
      * After V11: Definition of Done is disabled (superseded by Verification Gate).
+     * After V12: Local Git Branching Workflow and GitHub PR Workflow are disabled.
      */
     @Test
     fun `test all templates have correct built-in and enabled flags`() {
@@ -123,7 +128,7 @@ class TemplateDataMigrationTest {
         val connection = database.connector().connection as Connection
         val statement = connection.createStatement()
 
-        // Verify built-in template counts (1 disabled by V11)
+        // Verify built-in template counts (1 disabled by V11, 2 disabled by V12)
         val result = statement.executeQuery("""
             SELECT
                 COUNT(CASE WHEN is_built_in = 1 AND is_enabled = 1 THEN 1 END) as enabled_count,
@@ -139,16 +144,16 @@ class TemplateDataMigrationTest {
 
         statement.close()
 
-        assertEquals(9, totalCount, "Should have 9 built-in templates")
-        assertEquals(8, enabledCount, "8 built-in templates should be enabled")
-        assertEquals(1, disabledCount, "1 built-in template should be disabled (Definition of Done)")
+        assertEquals(13, totalCount, "Should have 13 built-in templates")
+        assertEquals(10, enabledCount, "10 built-in templates should be enabled")
+        assertEquals(3, disabledCount, "3 built-in templates should be disabled (Definition of Done, Local Git Branching Workflow, GitHub PR Workflow)")
     }
 
     /**
-     * Test that each of the 9 expected templates exists with correct name and properties.
+     * Test that each of the 13 expected templates exists with correct name and properties.
      */
     @Test
-    fun `test all 9 expected templates exist with correct names`() {
+    fun `test all 13 expected templates exist with correct names`() {
         val schemaManager = FlywayDatabaseSchemaManager(database)
         assertTrue(schemaManager.updateSchema(), "Migration should succeed")
 
@@ -161,7 +166,17 @@ class TemplateDataMigrationTest {
             "Requirements Specification" to "FEATURE",
             "Technical Approach" to "TASK",
             "Task Implementation" to "TASK",
-            "Bug Investigation" to "TASK"
+            "Bug Investigation" to "TASK",
+            "Feature Plan" to "FEATURE",
+            "Codebase Exploration" to "TASK",
+            "Design Decision" to "TASK",
+            "Implementation Specification" to "TASK"
+        )
+
+        val disabledTemplates = setOf(
+            "Definition of Done",
+            "Local Git Branching Workflow",
+            "GitHub PR Workflow"
         )
 
         val connection = database.connector().connection as Connection
@@ -188,8 +203,8 @@ class TemplateDataMigrationTest {
             assertEquals(expectedType, targetType, "Template target type should be $expectedType")
             assertTrue(isBuiltIn, "Template should be marked as built-in")
             assertTrue(isProtected, "Template should be marked as protected")
-            if (templateName == "Definition of Done") {
-                assertTrue(!isEnabled, "Definition of Done should be disabled (superseded by Verification Gate)")
+            if (templateName in disabledTemplates) {
+                assertTrue(!isEnabled, "Template '$templateName' should be disabled")
             } else {
                 assertTrue(isEnabled, "Template '$templateName' should be marked as enabled")
             }
@@ -216,7 +231,11 @@ class TemplateDataMigrationTest {
             "Requirements Specification" to 4,
             "Technical Approach" to 2,
             "Task Implementation" to 4,
-            "Bug Investigation" to 4
+            "Bug Investigation" to 4,
+            "Feature Plan" to 8,
+            "Codebase Exploration" to 3,
+            "Design Decision" to 3,
+            "Implementation Specification" to 5
         )
 
         val connection = database.connector().connection as Connection
@@ -239,11 +258,11 @@ class TemplateDataMigrationTest {
     }
 
     /**
-     * Test that the total number of template sections is 24.
-     * (Was 26, V9 removed Technical Decision Log and Testing Checkpoints)
+     * Test that the total number of template sections is 46.
+     * (27 from V11 + 19 from V12: Feature Plan 8 + Codebase Exploration 3 + Design Decision 3 + Implementation Specification 5)
      */
     @Test
-    fun `test total template sections count is 27`() {
+    fun `test total template sections count is 46`() {
         val connection = database.connector().connection as Connection
         val statement = connection.createStatement()
 
@@ -256,7 +275,7 @@ class TemplateDataMigrationTest {
 
         statement.close()
 
-        assertEquals(27, totalSections, "Should have 27 total template sections (24 original + 3 Verification)")
+        assertEquals(46, totalSections, "Should have 46 total template sections (27 from V11 + 19 from V12)")
     }
 
     /**
@@ -566,6 +585,149 @@ class TemplateDataMigrationTest {
     }
 
     /**
+     * Test that Feature Plan has correct section titles (NEW in V12).
+     */
+    @Test
+    fun `test Feature Plan has correct sections`() {
+        val schemaManager = FlywayDatabaseSchemaManager(database)
+        assertTrue(schemaManager.updateSchema(), "Migration should succeed")
+
+        val expectedSections = listOf(
+            "Problem Statement",
+            "Architecture Overview",
+            "Implementation Phases",
+            "File Change Manifest",
+            "Design Decisions",
+            "Execution Notes",
+            "Risks & Mitigations",
+            "Verification"
+        )
+
+        val connection = database.connector().connection as Connection
+        val statement = connection.createStatement()
+
+        val result = statement.executeQuery("""
+            SELECT title, ordinal FROM template_sections ts
+            JOIN templates t ON ts.template_id = t.id
+            WHERE t.name = 'Feature Plan'
+            ORDER BY ordinal
+        """)
+
+        val sections = mutableListOf<String>()
+        while (result.next()) {
+            sections.add(result.getString("title"))
+        }
+        result.close()
+        statement.close()
+
+        assertEquals(expectedSections, sections, "Feature Plan should have expected sections in order")
+    }
+
+    /**
+     * Test that Codebase Exploration has correct section titles (NEW in V12).
+     */
+    @Test
+    fun `test Codebase Exploration has correct sections`() {
+        val schemaManager = FlywayDatabaseSchemaManager(database)
+        assertTrue(schemaManager.updateSchema(), "Migration should succeed")
+
+        val expectedSections = listOf(
+            "Exploration Scope",
+            "Key Questions",
+            "Findings"
+        )
+
+        val connection = database.connector().connection as Connection
+        val statement = connection.createStatement()
+
+        val result = statement.executeQuery("""
+            SELECT title, ordinal FROM template_sections ts
+            JOIN templates t ON ts.template_id = t.id
+            WHERE t.name = 'Codebase Exploration'
+            ORDER BY ordinal
+        """)
+
+        val sections = mutableListOf<String>()
+        while (result.next()) {
+            sections.add(result.getString("title"))
+        }
+        result.close()
+        statement.close()
+
+        assertEquals(expectedSections, sections, "Codebase Exploration should have expected sections in order")
+    }
+
+    /**
+     * Test that Design Decision has correct section titles (NEW in V12).
+     */
+    @Test
+    fun `test Design Decision has correct sections`() {
+        val schemaManager = FlywayDatabaseSchemaManager(database)
+        assertTrue(schemaManager.updateSchema(), "Migration should succeed")
+
+        val expectedSections = listOf(
+            "Decision Context",
+            "Options Analysis",
+            "Recommendation"
+        )
+
+        val connection = database.connector().connection as Connection
+        val statement = connection.createStatement()
+
+        val result = statement.executeQuery("""
+            SELECT title, ordinal FROM template_sections ts
+            JOIN templates t ON ts.template_id = t.id
+            WHERE t.name = 'Design Decision'
+            ORDER BY ordinal
+        """)
+
+        val sections = mutableListOf<String>()
+        while (result.next()) {
+            sections.add(result.getString("title"))
+        }
+        result.close()
+        statement.close()
+
+        assertEquals(expectedSections, sections, "Design Decision should have expected sections in order")
+    }
+
+    /**
+     * Test that Implementation Specification has correct section titles (NEW in V12).
+     */
+    @Test
+    fun `test Implementation Specification has correct sections`() {
+        val schemaManager = FlywayDatabaseSchemaManager(database)
+        assertTrue(schemaManager.updateSchema(), "Migration should succeed")
+
+        val expectedSections = listOf(
+            "Scope & Boundaries",
+            "Code Change Points",
+            "Technical Specification",
+            "Test Plan",
+            "Verification"
+        )
+
+        val connection = database.connector().connection as Connection
+        val statement = connection.createStatement()
+
+        val result = statement.executeQuery("""
+            SELECT title, ordinal FROM template_sections ts
+            JOIN templates t ON ts.template_id = t.id
+            WHERE t.name = 'Implementation Specification'
+            ORDER BY ordinal
+        """)
+
+        val sections = mutableListOf<String>()
+        while (result.next()) {
+            sections.add(result.getString("title"))
+        }
+        result.close()
+        statement.close()
+
+        assertEquals(expectedSections, sections, "Implementation Specification should have expected sections in order")
+    }
+
+    /**
      * Test that all template sections have required properties.
      */
     @Test
@@ -594,10 +756,10 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(27, titled, "All 27 sections should have a title")
-        assertEquals(27, described, "All 27 sections should have usage description")
-        assertEquals(27, contentProvided, "All 27 sections should have content")
-        assertEquals(27, formatSet, "All 27 sections should have content format set")
+        assertEquals(46, titled, "All 46 sections should have a title")
+        assertEquals(46, described, "All 46 sections should have usage description")
+        assertEquals(46, contentProvided, "All 46 sections should have content")
+        assertEquals(46, formatSet, "All 46 sections should have content format set")
     }
 
     /**
@@ -623,8 +785,8 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(9, totalCount, "Should have 9 templates")
-        assertEquals(9, meaningfulCount, "All 9 templates should have meaningful descriptions (> 10 chars)")
+        assertEquals(13, totalCount, "Should have 13 templates")
+        assertEquals(13, meaningfulCount, "All 13 templates should have meaningful descriptions (> 10 chars)")
     }
 
     /**
@@ -650,12 +812,12 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(9, totalCount, "Should have 9 templates")
-        assertEquals(9, taggedCount, "All 9 templates should have tags")
+        assertEquals(13, totalCount, "Should have 13 templates")
+        assertEquals(13, taggedCount, "All 13 templates should have tags")
     }
 
     /**
-     * Test that TASK templates outnumber FEATURE templates correctly (7 TASK, 2 FEATURE).
+     * Test that TASK templates outnumber FEATURE templates correctly (10 TASK, 3 FEATURE).
      */
     @Test
     fun `test correct distribution of TASK and FEATURE templates`() {
@@ -678,8 +840,8 @@ class TemplateDataMigrationTest {
         result.close()
         statement.close()
 
-        assertEquals(7, counts["TASK"] ?: 0, "Should have 7 TASK templates")
-        assertEquals(2, counts["FEATURE"] ?: 0, "Should have 2 FEATURE templates")
+        assertEquals(10, counts["TASK"] ?: 0, "Should have 10 TASK templates")
+        assertEquals(3, counts["FEATURE"] ?: 0, "Should have 3 FEATURE templates")
     }
 
     /**
