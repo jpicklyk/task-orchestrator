@@ -321,7 +321,7 @@ class McpServer(
             • Automatic template application during entity creation
             • Bulk operations for efficiency (manage_sections with bulkCreate, bulkUpdate, bulkDelete)
             • Context-efficient search and overview tools
-            • Git workflow prompts with MCP tool integration
+            • Git workflow templates with MCP tool integration
             • Real-time status tracking and progress monitoring
             
             BUILT FOR: AI-assisted project management, development workflow automation,

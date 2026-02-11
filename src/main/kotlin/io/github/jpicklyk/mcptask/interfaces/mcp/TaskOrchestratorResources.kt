@@ -79,7 +79,8 @@ Task Orchestrator provides consolidated tools for all scenarios:
 ### Core Operations
 - **`manage_container`**: Create, update, delete, setStatus for projects/features/tasks
 - **`query_container`**: Get, search, export, overview for projects/features/tasks
-- **`get_next_status`**: Intelligent status progression recommendations
+- **`request_transition`**: Trigger-based status changes with validation (preferred for status updates)
+- **`get_next_status`**: Read-only status progression recommendations
 - **Template discovery**: Always discover and apply templates during creation
 
 ### How Workflows Work
@@ -111,31 +112,15 @@ Combine templates for comprehensive coverage:
 - **Bug Fix**: Bug Investigation + Git Branching + Definition of Done
 - **Feature Planning**: Context & Background + Requirements + Testing Strategy
 
-## Integration with Workflow Prompts
+## How Guidance Is Delivered
 
-Task Orchestrator provides **two complementary systems**:
+Task Orchestrator provides guidance through multiple channels:
 
-1. **MCP Resources** (this document): General principles AI agents should internalize
-2. **Workflow Prompts**: Executable step-by-step guidance for specific scenarios
+1. **MCP Resources** (these documents): Discoverable reference documentation for principles and patterns
+2. **Tool Descriptions**: Detailed parameter and usage documentation embedded in each tool
+3. **Dynamic Templates**: Database-driven documentation structure applied during entity creation
 
-### Relationship Between Systems
-
-**MCP Resources** provide:
-- High-level WHEN/WHY principles
-- Decision frameworks for tool selection
-- Overview of capabilities and patterns
-
-**Workflow Prompts** provide:
-- Specific HOW-TO instructions
-- Step-by-step execution guidance
-- Tool invocation examples with parameters
-
-### Recommended AI Agent Workflow
-
-1. **Initialization**: Internalize MCP Resource guidelines into memory (CLAUDE.md, .cursorrules, etc.)
-2. **Pattern Recognition**: Use internalized principles to recognize when Task Orchestrator fits
-3. **Execution**: Invoke workflow prompts for specific scenarios requiring step-by-step guidance
-4. **Natural Interaction**: Enable natural language like "create a feature from this PRD"
+AI agents should internalize these guidelines and apply patterns naturally based on user requests.
 
 ## Natural Language Pattern Recognition
 
@@ -173,7 +158,7 @@ With guidelines internalized, AI agents can recognize patterns:
 ### Principle 3: Status-Driven Lifecycle
 **Why**: Clear status tracking enables progress visibility
 **When**: Update status as work transitions between phases
-**How**: pending → in-progress → completed (use `manage_container(operation="setStatus")`)
+**How**: pending → in-progress → completed (use `request_transition` or `manage_container(setStatus)`)
 
 ### Principle 4: Context Efficiency
 **Why**: Reduce token usage for better AI agent performance
@@ -207,7 +192,7 @@ With guidelines internalized, AI agents can recognize patterns:
 1. Read and internalize these guidelines into your memory system
 2. Use `query_container(operation="overview")` to understand current project state
 3. Check `query_templates` to see available documentation patterns
-4. Follow workflow prompts for complex scenarios
+4. Follow tool descriptions and template guidance for complex scenarios
 5. Apply patterns naturally based on user requests
 
 **For Users**:
@@ -215,7 +200,7 @@ With guidelines internalized, AI agents can recognize patterns:
 2. Trust AI agents to use Task Orchestrator when appropriate
 3. Provide clear requirements and let Skills and tools handle the details
 
-This overview focuses on WHEN and WHY to use Task Orchestrator. For specific HOW-TO guidance, use workflow prompts or refer to individual tool descriptions.
+This overview focuses on WHEN and WHY to use Task Orchestrator. For specific HOW-TO guidance, refer to individual tool descriptions and template documentation.
                         """.trimIndent()
                     )
                 )
@@ -477,36 +462,6 @@ manage_container(operation="create", containerType="task",
 )
 ```
 
-## Integration with Workflow Prompts
-
-### Complementary Usage
-
-**Workflow Prompts** provide step-by-step guidance:
-- Invoke for specific scenarios
-- Follow structured processes
-- Get tool usage examples
-- Receive automated guidance
-
-**Template Strategy** enables autonomous decisions:
-- AI agents internalize patterns
-- Recognize scenarios without explicit prompts
-- Apply templates based on context
-- Make intelligent selections
-
-### When to Use Each
-
-**Use Workflow Prompts when**:
-- User explicitly invokes workflow
-- Complex multi-step process needed
-- Step-by-step guidance valuable
-- Learning new patterns
-
-**Use Template Discovery when**:
-- AI agent working autonomously
-- Natural language requests
-- Pattern-based recognition
-- Streamlined operations
-
 ## Common Mistakes to Avoid
 
 ### ❌ Mistake 1: Hardcoding Template IDs
@@ -760,7 +715,7 @@ manage_container(operation="create", containerType="task",
 )
 
 Step 6: Update status when starting
-manage_container(operation="setStatus", containerType="task", id="task-id", status="in_progress")
+request_transition(containerId="task-id", containerType="task", trigger="start")
 ```
 
 **Example**:
@@ -1052,14 +1007,14 @@ Pattern recognition → Template discovery → Pattern execution with templates
 - Complexity: Estimate from scope description
 - Tags: Derive from domain and technical keywords
 
-## Autonomy vs Workflow Prompts
+## Autonomous vs Guided Pattern Application
 
-### Autonomous Pattern Application
+### When to Apply Patterns Automatically
 
-**When AI should apply patterns automatically**:
-- Clear intent recognized
-- Sufficient context available
-- Standard pattern applies
+**Apply patterns automatically when**:
+- Clear intent recognized from user request
+- Sufficient context available to act
+- Standard pattern applies without ambiguity
 - Low risk of misunderstanding
 
 **Example**:
@@ -1068,26 +1023,13 @@ User: "Create a feature for file upload with drag and drop"
 AI: Automatically applies feature creation pattern
 ```
 
-### Workflow Prompt Invocation
+### When to Ask for Clarification
 
-**When to invoke workflow prompts**:
-- User explicitly requests workflow
-- Complex scenario needing guidance
-- Learning new patterns
-- Ambiguous requirements
-
-**Example**:
-```
-User: "I want to set up a new project for my mobile app"
-AI: Invokes project_setup_workflow prompt for step-by-step guidance
-```
-
-### Hybrid Approach
-
-**Combine for best results**:
-1. Apply pattern automatically for standard cases
-2. Offer workflow prompt for complex variations
-3. Ask clarifying questions when ambiguous
+**Ask clarifying questions when**:
+- Intent is ambiguous (bug fix vs enhancement)
+- Multiple valid patterns could apply
+- Requirements are underspecified
+- Scope is unclear
 
 **Example**:
 ```
@@ -1097,6 +1039,11 @@ AI: "This sounds like either:
      2. An enhancement task (if improving auth)
      Which applies?"
 ```
+
+### Hybrid Approach
+1. Apply patterns automatically for clear, standard cases
+2. Ask clarifying questions when intent is ambiguous
+3. Offer alternatives when multiple patterns could apply
 
 ## Best Practices
 
@@ -1165,11 +1112,11 @@ Task management patterns enable AI agents to:
                         text = """
 # Workflow Integration Guide
 
-## Two-Layer System
+## Guidance Architecture
 
-Task Orchestrator provides a two-layer guidance system:
+Task Orchestrator provides guidance through multiple channels:
 
-### Layer 1: MCP Resources (Guidelines)
+### MCP Resources (Guidelines)
 **Purpose**: Discoverable reference documentation for AI agents
 
 - **What**: Reference docs via `task-orchestrator://guidelines/*` URIs
@@ -1179,12 +1126,19 @@ Task Orchestrator provides a two-layer guidance system:
   3. `task-management` - Intent recognition and executable workflow patterns
   4. `workflow-integration` - This document
 
-### Layer 2: Dynamic Templates (Database-Driven)
+### Dynamic Templates (Database-Driven)
 **Purpose**: Consistent documentation structure for entities
 
 - **What**: Reusable section definitions stored in database
 - **Access**: Discovered via `query_templates`, applied via `templateIds` during creation
 - **Usage**: Provide standardized documentation structure
+
+### Status Progression Tools
+**Purpose**: Config-driven workflow advancement with validation
+
+- **`get_next_status`**: Read-only recommendations based on workflow config and entity state
+- **`request_transition`**: Preferred tool for status changes — uses named triggers (start, complete, cancel, block, hold) with prerequisite validation
+- **`manage_container(setStatus)`**: Direct status override when trigger-based transition is not needed
 
 ## Core Workflow Pattern
 
@@ -1193,16 +1147,56 @@ Task Orchestrator provides a two-layer guidance system:
 2. query_templates(targetEntityType="TASK") - Discover templates
 3. manage_container(operation="create", ..., templateIds=[...]) - Create with templates
 4. get_next_status(containerId, containerType) - Check progression
-5. manage_container(operation="setStatus", ...) - Apply status change
+5. request_transition(containerId, containerType, trigger="start") - Apply status change (preferred)
 ```
 
 ## Status Workflow Management
 
 Status progression is config-driven via `.taskorchestrator/config.yaml`:
 - **`get_next_status`**: Recommends next status based on tags and flow
-- **`manage_container(setStatus)`**: Applies status transitions
+- **`request_transition`**: Applies status transitions with trigger-based validation (preferred)
+- **`manage_container(setStatus)`**: Direct status override when trigger-based transition is not needed
 - Flows are determined by entity tags (e.g., `bug` → `bug_fix_flow`)
 - Emergency transitions (blocked, cancelled) available from any state
+
+## Update Efficiency
+
+**NEVER fetch an entity just to update it. ALWAYS use partial updates — only send fields you're changing.**
+
+All update tools support partial updates. Only `id` is required:
+- `manage_container(operation="update")` - All other fields optional
+- `manage_sections(operation="update")` - All other fields optional
+- `manage_sections(operation="updateText")` - For content changes (send only text snippets)
+- `manage_sections(operation="updateMetadata")` - For metadata only (excludes content)
+
+**Example — changing status only:**
+```json
+{"id": "uuid", "status": "in-progress"}
+```
+Not: fetching the entity, modifying one field, and sending everything back (wastes 90%+ tokens).
+
+## Verification Gates
+
+Entities with `requiresVerification=true` cannot be completed until a Verification section passes all criteria.
+
+**How It Works:**
+1. Create a Verification section with JSON acceptance criteria: `[{"criteria": "description", "pass": false}, ...]`
+2. As you verify each condition, update the criterion's `pass` to `true`
+3. The server blocks `request_transition(trigger="complete")` and `manage_container(setStatus)` until ALL criteria pass
+
+**When to Use:**
+- **Use** for implementation tasks, bug fixes, features with formal requirements
+- **Skip** for planning, documentation, research, or configuration tasks
+- Templates with a Verification section auto-enable the gate via `apply_template`
+
+**Gate Checks (5 sequential):**
+1. Section titled "Verification" must exist
+2. Content must not be blank
+3. Content must be valid JSON array of criteria objects
+4. At least one criterion must be defined
+5. All criteria must have `pass: true`
+
+If completion is blocked, the response includes which specific criteria failed.
 
 ## Best Practices
 
@@ -1211,6 +1205,7 @@ Status progression is config-driven via `.taskorchestrator/config.yaml`:
 3. **Check `get_next_status`** before changing statuses
 4. **Apply meaningful tags** for flow determination
 5. **Set appropriate complexity** (1-10) for estimation
+6. **Use partial updates** — only send fields you're changing
                             """.trimIndent()
                         )
                     )
