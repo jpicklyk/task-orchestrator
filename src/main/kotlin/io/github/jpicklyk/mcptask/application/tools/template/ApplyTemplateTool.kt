@@ -42,44 +42,40 @@ class ApplyTemplateTool(
     override val title: String = "Apply Template to Entity"
 
     override val outputSchema: ToolSchema = ToolSchema(
-        properties = JsonObject(
-            mapOf(
-                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
-                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                "data" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("object"),
-                        "description" to JsonPrimitive("Template application results"),
-                        "properties" to JsonObject(
-                            mapOf(
-                                "entityType" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                "entityId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
-                                "totalSectionsCreated" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
-                                "appliedTemplates" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "items" to JsonObject(
-                                            mapOf(
-                                                "type" to JsonPrimitive("object"),
-                                                "properties" to JsonObject(
-                                                    mapOf(
-                                                        "templateId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
-                                                        "sectionsCreated" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
-                                                        "sections" to JsonObject(mapOf("type" to JsonPrimitive("array")))
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                ),
-                "error" to JsonObject(mapOf("type" to JsonArray(listOf(JsonPrimitive("object"), JsonPrimitive("null"))))),
-                "metadata" to JsonObject(mapOf("type" to JsonPrimitive("object")))
-            )
-        )
+        buildJsonObject {
+            put("type", "object")
+            put("description", "Template application results")
+            putJsonObject("properties") {
+                putJsonObject("entityType") {
+                    put("type", "string")
+                }
+                putJsonObject("entityId") {
+                    put("type", "string")
+                    put("format", "uuid")
+                }
+                putJsonObject("totalSectionsCreated") {
+                    put("type", "integer")
+                }
+                putJsonObject("appliedTemplates") {
+                    put("type", "array")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("templateId") {
+                                put("type", "string")
+                                put("format", "uuid")
+                            }
+                            putJsonObject("sectionsCreated") {
+                                put("type", "integer")
+                            }
+                            putJsonObject("sections") {
+                                put("type", "array")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     )
 
     override val description: String = """Applies one or more templates to a task or feature, creating sections based on template definitions.

@@ -23,10 +23,9 @@ class ResponseUtilTest {
     }
 
     @Test
-    fun `extractDataPayload returns empty object when data is null`() {
+    fun `extractDataPayload returns empty object when data is null and no error info`() {
         val envelope = buildJsonObject {
             put("success", true)
-            put("message", "OK")
             put("data", JsonNull)
         }
         val result = ResponseUtil.extractDataPayload(envelope)
@@ -34,13 +33,42 @@ class ResponseUtilTest {
     }
 
     @Test
-    fun `extractDataPayload returns empty object when data key is missing`() {
+    fun `extractDataPayload returns empty object when data key is missing and no error info`() {
         val envelope = buildJsonObject {
             put("success", true)
-            put("message", "OK")
         }
         val result = ResponseUtil.extractDataPayload(envelope)
         assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `extractDataPayload includes error details when data is null on error response`() {
+        val envelope = buildJsonObject {
+            put("success", false)
+            put("message", "Task not found with ID 12345")
+            put("data", JsonNull)
+            putJsonObject("error") {
+                put("code", "NOT_FOUND")
+                put("details", "Task not found with ID 12345")
+            }
+        }
+        val result = ResponseUtil.extractDataPayload(envelope)
+        assertEquals("Task not found with ID 12345", result["message"]?.jsonPrimitive?.content)
+        val error = result["error"]?.jsonObject
+        assertNotNull(error)
+        assertEquals("NOT_FOUND", error?.get("code")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `extractDataPayload includes message even without error object`() {
+        val envelope = buildJsonObject {
+            put("success", false)
+            put("message", "Validation failed: missing required field")
+            put("data", JsonNull)
+        }
+        val result = ResponseUtil.extractDataPayload(envelope)
+        assertEquals("Validation failed: missing required field", result["message"]?.jsonPrimitive?.content)
+        assertNull(result["error"])
     }
 
     @Test

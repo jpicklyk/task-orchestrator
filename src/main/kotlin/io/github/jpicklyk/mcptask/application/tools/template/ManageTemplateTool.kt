@@ -44,14 +44,10 @@ class ManageTemplateTool(
     override val title: String = "Manage Template"
 
     override val outputSchema: ToolSchema = ToolSchema(
-        properties = JsonObject(
-            mapOf(
-                "success" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
-                "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                "data" to JsonObject(mapOf("type" to JsonPrimitive("object")))
-            )
-        ),
-        required = listOf("success", "message")
+        buildJsonObject {
+            put("type", "object")
+            put("description", "Data payload shape varies by operation. See tool description for per-operation response details.")
+        }
     )
 
     override fun shouldUseLocking(): Boolean = true

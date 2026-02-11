@@ -68,14 +68,32 @@ object ResponseUtil {
 
     /**
      * Extracts the raw data payload from a standard response envelope for use as structuredContent.
-     * Returns the "data" field if it's a JsonObject, otherwise wraps non-null data, or returns empty.
+     * Returns the "data" field if it's a JsonObject, otherwise wraps non-null data.
+     * On error responses (data is null), extracts the error message and details so the
+     * model receives actionable guidance for correcting the problem.
      */
     fun extractDataPayload(envelope: JsonObject): JsonObject {
         val data = envelope["data"]
         return when {
             data is JsonObject -> data
             data != null && data !is JsonNull -> buildJsonObject { put("value", data) }
-            else -> buildJsonObject {}
+            else -> {
+                // On error responses, include error details so the model can self-correct
+                val error = envelope["error"]
+                val message = envelope["message"]
+                if (error is JsonObject || (message is JsonPrimitive && message.isString)) {
+                    buildJsonObject {
+                        if (message is JsonPrimitive && message.isString) {
+                            put("message", message.content)
+                        }
+                        if (error is JsonObject) {
+                            put("error", error)
+                        }
+                    }
+                } else {
+                    buildJsonObject {}
+                }
+            }
         }
     }
 

@@ -109,59 +109,40 @@ class GetNextTaskTool : BaseToolDefinition() {
     )
 
     override val outputSchema: ToolSchema = ToolSchema(
-        properties = JsonObject(
-            mapOf(
-                "success" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("boolean"),
-                        "description" to JsonPrimitive("Whether the operation succeeded")
-                    )
-                ),
-                "message" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Human-readable message describing the result")
-                    )
-                ),
-                "data" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("object"),
-                        "description" to JsonPrimitive("Task recommendations"),
-                        "properties" to JsonObject(
-                            mapOf(
-                                "recommendations" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "description" to JsonPrimitive("Recommended tasks sorted by priority then complexity"),
-                                        "items" to JsonObject(
-                                            mapOf(
-                                                "type" to JsonPrimitive("object"),
-                                                "properties" to JsonObject(
-                                                    mapOf(
-                                                        "taskId" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                ),
-                                "totalCandidates" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("integer"),
-                                        "description" to JsonPrimitive("Total number of unblocked tasks available")
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        ),
-        required = listOf("success", "message")
+        buildJsonObject {
+            put("type", "object")
+            put("description", "Task recommendations")
+            putJsonObject("properties") {
+                putJsonObject("recommendations") {
+                    put("type", "array")
+                    put("description", "Recommended tasks sorted by priority then complexity")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("taskId") {
+                                put("type", "string")
+                            }
+                            putJsonObject("title") {
+                                put("type", "string")
+                            }
+                            putJsonObject("status") {
+                                put("type", "string")
+                            }
+                            putJsonObject("priority") {
+                                put("type", "string")
+                            }
+                            putJsonObject("complexity") {
+                                put("type", "integer")
+                            }
+                        }
+                    }
+                }
+                putJsonObject("totalCandidates") {
+                    put("type", "integer")
+                    put("description", "Total number of unblocked tasks available")
+                }
+            }
+        }
     )
 
     override fun validateParams(params: JsonElement) {

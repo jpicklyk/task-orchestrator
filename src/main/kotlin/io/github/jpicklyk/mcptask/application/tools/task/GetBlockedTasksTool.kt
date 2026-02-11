@@ -95,66 +95,47 @@ class GetBlockedTasksTool : BaseToolDefinition() {
     )
 
     override val outputSchema: ToolSchema = ToolSchema(
-        properties = JsonObject(
-            mapOf(
-                "success" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("boolean"),
-                        "description" to JsonPrimitive("Whether the operation succeeded")
-                    )
-                ),
-                "message" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Human-readable message describing the result")
-                    )
-                ),
-                "data" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("object"),
-                        "description" to JsonPrimitive("Blocked tasks results"),
-                        "properties" to JsonObject(
-                            mapOf(
-                                "blockedTasks" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "description" to JsonPrimitive("List of blocked tasks"),
-                                        "items" to JsonObject(
-                                            mapOf(
-                                                "type" to JsonPrimitive("object"),
-                                                "properties" to JsonObject(
-                                                    mapOf(
-                                                        "taskId" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "title" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                                        "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
-                                                        "blockedBy" to JsonObject(
-                                                            mapOf(
-                                                                "type" to JsonPrimitive("array"),
-                                                                "description" to JsonPrimitive("Tasks blocking this task")
-                                                            )
-                                                        ),
-                                                        "blockerCount" to JsonObject(mapOf("type" to JsonPrimitive("integer")))
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                ),
-                                "totalBlocked" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("integer"),
-                                        "description" to JsonPrimitive("Total number of blocked tasks")
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        ),
-        required = listOf("success", "message")
+        buildJsonObject {
+            put("type", "object")
+            put("description", "Blocked tasks results")
+            putJsonObject("properties") {
+                putJsonObject("blockedTasks") {
+                    put("type", "array")
+                    put("description", "List of blocked tasks")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("taskId") {
+                                put("type", "string")
+                            }
+                            putJsonObject("title") {
+                                put("type", "string")
+                            }
+                            putJsonObject("status") {
+                                put("type", "string")
+                            }
+                            putJsonObject("priority") {
+                                put("type", "string")
+                            }
+                            putJsonObject("complexity") {
+                                put("type", "integer")
+                            }
+                            putJsonObject("blockedBy") {
+                                put("type", "array")
+                                put("description", "Tasks blocking this task")
+                            }
+                            putJsonObject("blockerCount") {
+                                put("type", "integer")
+                            }
+                        }
+                    }
+                }
+                putJsonObject("totalBlocked") {
+                    put("type", "integer")
+                    put("description", "Total number of blocked tasks")
+                }
+            }
+        }
     )
 
     override fun validateParams(params: JsonElement) {

@@ -117,91 +117,62 @@ class GetNextStatusTool(
     )
 
     override val outputSchema: ToolSchema = ToolSchema(
-        properties = JsonObject(
-            mapOf(
-                "success" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("boolean"),
-                        "description" to JsonPrimitive("Whether the operation succeeded")
-                    )
-                ),
-                "message" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Human-readable message describing the result")
-                    )
-                ),
-                "data" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("object"),
-                        "description" to JsonPrimitive("Status recommendation details"),
-                        "properties" to JsonObject(
-                            mapOf(
-                                "recommendation" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("string"),
-                                        "enum" to JsonArray(listOf("Ready", "Blocked", "Terminal").map { JsonPrimitive(it) }),
-                                        "description" to JsonPrimitive("Type of recommendation: Ready (can progress), Blocked (has blockers), Terminal (cannot progress)")
-                                    )
-                                ),
-                                "recommendedStatus" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Next status to transition to (Ready only)")
-                                    )
-                                ),
-                                "currentStatus" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Current entity status")
-                                    )
-                                ),
-                                "activeFlow" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Active workflow name (e.g., bug_fix_flow, default_flow)")
-                                    )
-                                ),
-                                "flowSequence" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "description" to JsonPrimitive("Complete status sequence for active flow"),
-                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
-                                    )
-                                ),
-                                "currentPosition" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("integer"),
-                                        "description" to JsonPrimitive("0-based index of current status in flow")
-                                    )
-                                ),
-                                "matchedTags" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "description" to JsonPrimitive("Tags that matched to determine flow"),
-                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
-                                    )
-                                ),
-                                "blockers" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("array"),
-                                        "description" to JsonPrimitive("List of blocking reasons (Blocked only)"),
-                                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
-                                    )
-                                ),
-                                "reason" to JsonObject(
-                                    mapOf(
-                                        "type" to JsonPrimitive("string"),
-                                        "description" to JsonPrimitive("Human-readable explanation of recommendation")
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        ),
-        required = listOf("success", "message", "data")
+        buildJsonObject {
+            put("type", "object")
+            put("description", "Status recommendation details")
+            putJsonObject("properties") {
+                putJsonObject("recommendation") {
+                    put("type", "string")
+                    putJsonArray("enum") {
+                        add("Ready")
+                        add("Blocked")
+                        add("Terminal")
+                    }
+                    put("description", "Type of recommendation: Ready (can progress), Blocked (has blockers), Terminal (cannot progress)")
+                }
+                putJsonObject("recommendedStatus") {
+                    put("type", "string")
+                    put("description", "Next status to transition to (Ready only)")
+                }
+                putJsonObject("currentStatus") {
+                    put("type", "string")
+                    put("description", "Current entity status")
+                }
+                putJsonObject("activeFlow") {
+                    put("type", "string")
+                    put("description", "Active workflow name (e.g., bug_fix_flow, default_flow)")
+                }
+                putJsonObject("flowSequence") {
+                    put("type", "array")
+                    put("description", "Complete status sequence for active flow")
+                    putJsonObject("items") {
+                        put("type", "string")
+                    }
+                }
+                putJsonObject("currentPosition") {
+                    put("type", "integer")
+                    put("description", "0-based index of current status in flow")
+                }
+                putJsonObject("matchedTags") {
+                    put("type", "array")
+                    put("description", "Tags that matched to determine flow")
+                    putJsonObject("items") {
+                        put("type", "string")
+                    }
+                }
+                putJsonObject("blockers") {
+                    put("type", "array")
+                    put("description", "List of blocking reasons (Blocked only)")
+                    putJsonObject("items") {
+                        put("type", "string")
+                    }
+                }
+                putJsonObject("reason") {
+                    put("type", "string")
+                    put("description", "Human-readable explanation of recommendation")
+                }
+            }
+        }
     )
 
     override fun validateParams(params: JsonElement) {
