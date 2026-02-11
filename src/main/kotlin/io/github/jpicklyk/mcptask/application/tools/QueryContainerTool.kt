@@ -873,7 +873,13 @@ Docs: task-orchestrator://docs/tools/query-container
 
                         put("features", buildJsonArray {
                             features.forEach { feature ->
-                                add(buildFeatureSearchResult(feature))
+                                // Merge minimal feature fields with per-feature task counts
+                                val featureBase = buildFeatureSearchResult(feature)
+                                val featureTaskCounts = buildTaskCounts(context, featureId = feature.id)
+                                add(buildJsonObject {
+                                    featureBase.forEach { (key, value) -> put(key, value) }
+                                    put("taskCounts", featureTaskCounts)
+                                })
                             }
                         })
                     },

@@ -1161,6 +1161,9 @@ class QueryContainerToolTest {
                     textQuery = null,
                     limit = 1000
                 ) } returns Result.Success(listOf(mockTask))
+                coEvery { mockTaskRepository.findByFeature(mockFeature.id) } returns Result.Success(emptyList())
+                coEvery { mockTaskRepository.findByFeature(feature2.id) } returns Result.Success(emptyList())
+                coEvery { mockTaskRepository.findByFeature(feature3.id) } returns Result.Success(emptyList())
 
                 val result = tool.execute(params, context)
 
@@ -1176,6 +1179,15 @@ class QueryContainerToolTest {
                 val features = data["features"]?.jsonArray
                 assertNotNull(features)
                 assertEquals(3, features!!.size)
+
+                // Verify per-feature taskCounts are present
+                features.forEach { featureElement ->
+                    val featureObj = featureElement.jsonObject
+                    val featureTaskCounts = featureObj["taskCounts"]?.jsonObject
+                    assertNotNull(featureTaskCounts)
+                    assertNotNull(featureTaskCounts!!["total"])
+                    assertNotNull(featureTaskCounts["byStatus"])
+                }
 
                 val taskCounts = data["taskCounts"]?.jsonObject
                 assertNotNull(taskCounts)
@@ -1292,6 +1304,8 @@ class QueryContainerToolTest {
                     textQuery = null,
                     limit = 1000
                 ) } returns Result.Success(listOf(completedTask1, completedTask2, completedTask3, pendingTask1, pendingTask2))
+                coEvery { mockTaskRepository.findByFeature(mockFeature.id) } returns
+                    Result.Success(listOf(completedTask1, completedTask2, completedTask3, pendingTask1, pendingTask2))
 
                 val result = tool.execute(params, context)
 
@@ -1305,6 +1319,79 @@ class QueryContainerToolTest {
                 assertNotNull(byStatus)
                 assertEquals(3, byStatus!!["completed"]?.jsonPrimitive?.int)
                 assertEquals(2, byStatus["pending"]?.jsonPrimitive?.int)
+
+                // Verify per-feature taskCounts
+                val featuresList = data?.get("features")?.jsonArray
+                assertNotNull(featuresList)
+                val firstFeature = featuresList!![0].jsonObject
+                val featureTaskCounts = firstFeature["taskCounts"]?.jsonObject
+                assertNotNull(featureTaskCounts)
+                assertEquals(5, featureTaskCounts!!["total"]?.jsonPrimitive?.int)
+            }
+
+            @Test
+            fun `test scoped project overview includes per-feature task counts`() = runBlocking {
+                val feature2Id = UUID.randomUUID()
+                val feature2 = mockFeature.copy(id = feature2Id, name = "Feature 2")
+
+                val feature1Task1 = mockTask.copy(id = UUID.randomUUID(), featureId = featureId, status = TaskStatus.COMPLETED)
+                val feature1Task2 = mockTask.copy(id = UUID.randomUUID(), featureId = featureId, status = TaskStatus.PENDING)
+                val feature2Task1 = mockTask.copy(id = UUID.randomUUID(), featureId = feature2Id, status = TaskStatus.IN_PROGRESS)
+                val feature2Task2 = mockTask.copy(id = UUID.randomUUID(), featureId = feature2Id, status = TaskStatus.IN_PROGRESS)
+                val feature2Task3 = mockTask.copy(id = UUID.randomUUID(), featureId = feature2Id, status = TaskStatus.COMPLETED)
+
+                val params = buildJsonObject {
+                    put("operation", "overview")
+                    put("containerType", "project")
+                    put("id", projectId.toString())
+                }
+
+                coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns Result.Success(listOf(mockFeature, feature2))
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = 1000
+                ) } returns Result.Success(listOf(feature1Task1, feature1Task2, feature2Task1, feature2Task2, feature2Task3))
+                coEvery { mockTaskRepository.findByFeature(featureId) } returns Result.Success(listOf(feature1Task1, feature1Task2))
+                coEvery { mockTaskRepository.findByFeature(feature2Id) } returns Result.Success(listOf(feature2Task1, feature2Task2, feature2Task3))
+
+                val result = tool.execute(params, context)
+
+                val response = result.jsonObject
+                assertTrue(response["success"]?.jsonPrimitive?.boolean == true)
+
+                val data = response["data"]?.jsonObject
+                val features = data?.get("features")?.jsonArray
+                assertNotNull(features)
+                assertEquals(2, features!!.size)
+
+                // Feature 1: 1 completed, 1 pending
+                val f1 = features[0].jsonObject
+                val f1Counts = f1["taskCounts"]?.jsonObject
+                assertNotNull(f1Counts)
+                assertEquals(2, f1Counts!!["total"]?.jsonPrimitive?.int)
+                val f1ByStatus = f1Counts["byStatus"]?.jsonObject
+                assertNotNull(f1ByStatus)
+                assertEquals(1, f1ByStatus!!["completed"]?.jsonPrimitive?.int)
+                assertEquals(1, f1ByStatus["pending"]?.jsonPrimitive?.int)
+
+                // Feature 2: 2 in-progress, 1 completed
+                val f2 = features[1].jsonObject
+                val f2Counts = f2["taskCounts"]?.jsonObject
+                assertNotNull(f2Counts)
+                assertEquals(3, f2Counts!!["total"]?.jsonPrimitive?.int)
+                val f2ByStatus = f2Counts["byStatus"]?.jsonObject
+                assertNotNull(f2ByStatus)
+                assertEquals(2, f2ByStatus!!["in-progress"]?.jsonPrimitive?.int)
+                assertEquals(1, f2ByStatus["completed"]?.jsonPrimitive?.int)
+
+                // Project-level totals should still be correct
+                val projectCounts = data?.get("taskCounts")?.jsonObject
+                assertEquals(5, projectCounts?.get("total")?.jsonPrimitive?.int)
             }
         }
 
@@ -2249,6 +2336,9 @@ class QueryContainerToolTest {
                 textQuery = null,
                 limit = 1000
             ) } returns Result.Success(allTasks)
+            coEvery { mockTaskRepository.findByFeature(feature1.id) } returns Result.Success(feature1Tasks)
+            coEvery { mockTaskRepository.findByFeature(feature2.id) } returns Result.Success(feature2Tasks)
+            coEvery { mockTaskRepository.findByFeature(feature3.id) } returns Result.Success(emptyList())
 
             // Execute - scoped project overview
             val params = buildJsonObject {
