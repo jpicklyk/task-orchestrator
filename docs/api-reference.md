@@ -624,7 +624,7 @@ v2.0 introduces **31 comprehensive statuses** across all container types for orc
 |--------|-------------|-------------|
 | `pending` | Task ready to start | Initial state for new tasks |
 | `in-progress` | Task actively being worked on | Developer is implementing |
-| `completed` | Task finished successfully | All work done, tests passing, summary written (300-500 chars required) |
+| `completed` | Task finished successfully | All work done, tests passing, summary written (at most 500 chars required) |
 | `cancelled` | Task explicitly cancelled | No longer needed or explicitly abandoned |
 | `deferred` | Task postponed indefinitely | Will be addressed later, not cancelled |
 
@@ -649,7 +649,7 @@ v2.0 introduces **31 comprehensive statuses** across all container types for orc
 - Terminal: `completed`, `cancelled`, `deployed` cannot transition further
 
 **Prerequisites**:
-- `completed`: Requires summary field (300-500 characters) - StatusValidator enforces this
+- `completed`: Requires summary field (at most 500 characters) - StatusValidator enforces this
 - `in-progress`: Checks for blocking dependencies (warns if blockers incomplete)
 
 ---
@@ -794,7 +794,7 @@ statusValidator.validatePrerequisites(
     containerType = "task",
     context = prerequisiteContext
 )
-// For "completed": checks summary field (300-500 chars)
+// For "completed": checks summary field (at most 500 chars)
 // For "in-progress": checks blocking dependencies
 ```
 
@@ -1977,12 +1977,12 @@ The tool analyzes the entity and workflow configuration to recommend the next st
     "recommendation": "Blocked",
     "currentStatus": "testing",
     "blockers": [
-      "Task summary must be 300-500 characters (current: 50)"
+      "Task summary must be at most 500 characters (current: 50)"
     ],
     "activeFlow": "default_flow",
     "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
     "currentPosition": 3,
-    "reason": "Cannot progress: Task summary must be 300-500 characters (current: 50)"
+    "reason": "Cannot progress: Task summary must be at most 500 characters (current: 50)"
   }
 }
 ```
@@ -2058,14 +2058,14 @@ The **Status Progression Skill** (Claude Code only) uses `get_next_status` to pr
 
 **Example Skill Response (Blocked)**:
 ```
-Not ready for completion. Your config requires task summary (300-500 chars).
+Not ready for completion. Your config requires task summary (at most 500 chars).
 
 Current: 50 characters
-Required: 300-500 characters
+Required: at most 500 characters
 
 Fix:
 manage_container(operation="update", containerType="task",
-  id="...", summary="[300-500 char description]")
+  id="...", summary="[up to 500 char description]")
 
 Then complete:
 manage_container(operation="setStatus", containerType="task",
@@ -2082,7 +2082,7 @@ manage_container(operation="setStatus", containerType="task",
    - Default → `default_flow`
 
 3. **Prerequisite Validation**: Automatically checks:
-   - **Tasks**: Summary length (300-500 chars for completed), blocking dependencies
+   - **Tasks**: Summary length (at most 500 chars for completed), blocking dependencies
    - **Features**: Task completion, minimum task count
    - **Projects**: Feature completion
 

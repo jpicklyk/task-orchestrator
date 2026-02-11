@@ -193,7 +193,7 @@ Step 5: Create Summary: "Implemented login endpoint in UserController.kt..."
 
 **Benefits**:
 - **Self-service**: Get exactly the context needed directly
-- **Token-efficient**: 300-500 token summaries vs 15k+ full context
+- **Token-efficient**: At most 500 token summaries vs 15k+ full context
 - **Focused context**: Only relevant dependency information
 
 ---

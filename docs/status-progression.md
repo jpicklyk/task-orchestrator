@@ -221,22 +221,22 @@ hooks:
 **User:** "Can I complete this task?"
 
 **Status Progression Skill checks:**
-1. Read config.yaml → completed requires summary (300-500 chars)
+1. Read config.yaml → completed requires summary (at most 500 chars)
 2. Check task → summary is 50 chars
 3. Report blocker
 
 **Response:**
 ```
-Not ready for completion. Your config requires task summary (300-500 chars).
+Not ready for completion. Your config requires task summary (at most 500 chars).
 
 Current: 50 characters
-Required: 300-500 characters
+Required: at most 500 characters
 
 The git-commit hook will trigger AFTER completion, but validation must pass first.
 
 Fix:
 manage_container(operation="update", containerType="task",
-  id="...", summary="[300-500 char description of what was accomplished]")
+  id="...", summary="[up to 500 char description of what was accomplished]")
 
 Then complete:
 manage_container(operation="setStatus", containerType="task",
@@ -418,7 +418,7 @@ Target: completed
 Validation: ✅ Transition allowed
 
 Prerequisite check:
-- Task summary: Required (300-500 chars) - Current: 420 chars ✅
+- Task summary: Required (at most 500 chars) - Current: 420 chars ✅
 
 Safe to proceed:
 manage_container(operation="setStatus", containerType="task",
@@ -566,7 +566,7 @@ manage_container(operation="setStatus", containerType="task",
 | Target Status | Prerequisite Rule |
 |---------------|-------------------|
 | `in-progress` | No incomplete blocking dependencies |
-| `completed` | Summary must be 300-500 characters |
+| `completed` | Summary must be at most 500 characters |
 
 **Example validation errors:**
 
@@ -578,7 +578,7 @@ Check dependencies:
 query_dependencies(taskId="...", direction="incoming", includeTaskInfo=true)
 ```
 
-**Error:** "Task summary must be 300-500 characters (current: 50)"
+**Error:** "Task summary must be at most 500 characters (current: 50)"
 ```
 What it means: Summary too short for completion
 Fix: Update summary with detailed description

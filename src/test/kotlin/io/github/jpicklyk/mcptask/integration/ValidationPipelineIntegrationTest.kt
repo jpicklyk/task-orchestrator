@@ -171,9 +171,10 @@ class ValidationPipelineIntegrationTest {
         fun `should call StatusValidator for task status transitions`() = runBlocking {
             val projectId = createProject()
             val featureId = createFeature(projectId)
-            val taskId = createTask(featureId)
+            // Create task with short summary - should be allowed now
+            val taskId = createTask(featureId, summary = "Short")
 
-            // First transition through intermediate statuses to reach a state where we can test prerequisite validation
+            // First transition through intermediate statuses
             // PENDING -> IN_PROGRESS
             manageContainerTool.execute(buildJsonObject {
                 put("operation", "setStatus")
@@ -182,7 +183,7 @@ class ValidationPipelineIntegrationTest {
                 put("status", "in-progress")
             }, executionContext)
 
-            // IN_PROGRESS -> TESTING (skipping summary check for now)
+            // IN_PROGRESS -> TESTING
             manageContainerTool.execute(buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -190,7 +191,7 @@ class ValidationPipelineIntegrationTest {
                 put("status", "testing")
             }, executionContext)
 
-            // Now attempt TESTING -> COMPLETED without sufficient summary (should fail prerequisite validation)
+            // Now attempt TESTING -> COMPLETED with short summary (should succeed with new rules)
             val setStatusParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -201,12 +202,9 @@ class ValidationPipelineIntegrationTest {
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
             val setStatusResult = setStatusResponse as JsonObject
 
-            // Should fail because summary is too short
-            assertFalse(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
-                "Setting task to COMPLETED should fail without proper summary")
-            val errorMessage = setStatusResult["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("summary must be 300-500 characters") == true,
-                "Error should mention summary length requirement")
+            // Should succeed - short summaries are now allowed
+            assertTrue(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
+                "Setting task to COMPLETED should succeed with any summary under 500 chars")
         }
 
         @Test
@@ -321,7 +319,16 @@ class ValidationPipelineIntegrationTest {
                 put("status", "testing")
             }, executionContext)
 
-            // Attempt to complete without proper summary
+            // Now update the summary to be exactly 500 characters (should be allowed)
+            val exactLimitSummary = "A".repeat(500)
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("id", taskId)
+                put("summary", exactLimitSummary)
+            }, executionContext)
+
+            // Attempt to complete with summary at exactly 500 chars - should succeed
             val setStatusParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -332,15 +339,9 @@ class ValidationPipelineIntegrationTest {
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
             val setStatusResult = setStatusResponse as JsonObject
 
-            // Verify error response structure
-            assertFalse(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
-                "Should return error response")
-            assertNotNull(setStatusResult["error"], "Should have error object")
-
-            // Error message should contain reason
-            val errorMessage = setStatusResult["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("summary") == true,
-                "Error message should explain the prerequisite failure")
+            // Verify success - 500 chars is exactly at the limit
+            assertTrue(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
+                "Should succeed with summary exactly at 500 char limit")
         }
     }
 
@@ -413,7 +414,8 @@ class ValidationPipelineIntegrationTest {
         fun `should format summary length validation error with current length`() = runBlocking {
             val projectId = createProject()
             val featureId = createFeature(projectId)
-            val taskId = createTask(featureId, summary = "Too short")
+            // Create task with short summary
+            val taskId = createTask(featureId, summary = "Short")
 
             // Transition through intermediate statuses to reach TESTING
             manageContainerTool.execute(buildJsonObject {
@@ -430,7 +432,16 @@ class ValidationPipelineIntegrationTest {
                 put("status", "testing")
             }, executionContext)
 
-            // Try to complete
+            // Update task summary to exactly 500 characters (at the limit)
+            val atLimitSummary = "A".repeat(500)
+            manageContainerTool.execute(buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("id", taskId)
+                put("summary", atLimitSummary)
+            }, executionContext)
+
+            // Try to complete - should succeed
             val setStatusParams = buildJsonObject {
                 put("operation", "setStatus")
                 put("containerType", "task")
@@ -441,12 +452,9 @@ class ValidationPipelineIntegrationTest {
             val response = manageContainerTool.execute(setStatusParams, executionContext)
             val result = response as JsonObject
 
-            // Verify error includes actual length
-            val errorMessage = result["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("300-500 characters") == true,
-                "Error should mention required length")
-            assertTrue(errorMessage?.contains("current:") == true,
-                "Error should include current length")
+            // Should succeed with 500 char summary
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Should succeed with summary at 500 char limit")
         }
     }
 

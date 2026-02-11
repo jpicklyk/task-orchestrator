@@ -530,7 +530,7 @@ manage_container(
   containerType="task",
   id="[task-id]",
   summary="Implemented [feature]. All tests passing. Ready for review."
-  // Summary: 300-500 chars describing WHAT was done and OUTCOME
+  // Summary: At most 500 chars describing WHAT was done and OUTCOME
 )
 ```
 
@@ -539,7 +539,7 @@ manage_container(
 - [ ] Code quality checks pass
 - [ ] Manual testing complete
 - [ ] Documentation updated
-- [ ] Summary field populated (300-500 chars)
+- [ ] Summary field populated (at most 500 chars)
 - [ ] Implementation sections updated',
     'MARKDOWN',
     2,

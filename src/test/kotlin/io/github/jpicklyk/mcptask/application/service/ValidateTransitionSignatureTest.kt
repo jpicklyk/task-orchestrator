@@ -84,8 +84,10 @@ class ValidateTransitionSignatureTest {
         val mockProjectRepo = mockk<ProjectRepository>()
         val mockDependencyRepo = mockk<DependencyRepository>()
 
-        val taskWithShortSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = "Too short")
-        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithShortSummary)
+        // Test with summary that's too long (over 500 characters)
+        val tooLongSummary = "A".repeat(501)
+        val taskWithLongSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = tooLongSummary)
+        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithLongSummary)
 
         val context = StatusValidator.PrerequisiteContext(
             mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
@@ -95,7 +97,7 @@ class ValidateTransitionSignatureTest {
         val result = validator.validateTransition("in-progress", "completed", "task", taskId, context)
         assertTrue(result is StatusValidator.ValidationResult.Invalid)
         val invalid = result as StatusValidator.ValidationResult.Invalid
-        assertTrue(invalid.reason.contains("300-500 characters"))
+        assertTrue(invalid.reason.contains("at most 500 characters"))
     }
 
     @Test
@@ -247,9 +249,10 @@ class ValidateTransitionSignatureTest {
         val mockProjectRepo = mockk<ProjectRepository>()
         val mockDependencyRepo = mockk<DependencyRepository>()
 
-        // Mock would fail prerequisite check, but transition rule should fail first
-        val taskWithShortSummary = createMockTask(taskId, "Test Task", TaskStatus.COMPLETED, summary = "Short")
-        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithShortSummary)
+        // Mock would fail prerequisite check (over 500 chars), but transition rule should fail first
+        val tooLongSummary = "A".repeat(501)
+        val taskWithLongSummary = createMockTask(taskId, "Test Task", TaskStatus.COMPLETED, summary = tooLongSummary)
+        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithLongSummary)
 
         val context = StatusValidator.PrerequisiteContext(
             mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo

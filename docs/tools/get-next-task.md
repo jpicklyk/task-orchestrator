@@ -244,7 +244,7 @@ Get full context for informed decision-making.
 }
 ```
 
-**Token usage**: ~300-500 tokens (varies by task count and details)
+**Token usage**: ~300-500 tokens (varies by task count and details; summary length at most 500 chars)
 
 ### Empty Response (no unblocked tasks)
 ```json

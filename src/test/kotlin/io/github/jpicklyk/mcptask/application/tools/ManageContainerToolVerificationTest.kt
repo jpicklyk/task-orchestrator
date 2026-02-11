@@ -87,7 +87,7 @@ class ManageContainerToolVerificationTest {
         }
     }
 
-    // Summary must be 300-500 characters to pass the StatusValidator completion prerequisite
+    // Summary must be at most 500 characters to pass the StatusValidator completion prerequisite
     private val validSummary = "This is a comprehensive test task summary that provides detailed information about " +
         "the work being performed. It covers the implementation approach, testing strategy, and expected outcomes " +
         "for the verification gate feature. The task involves creating unit tests for the verification service and " +

@@ -34,36 +34,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "mcp__mcp-task-orchestrator__request_transition",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/status-sync.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__mcp-task-orchestrator__manage_container",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/create-mirror-prompt.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__mcp-task-orchestrator__get_next_task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/mirror-bootstrap-prompt.sh",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "PostToolUseFailure": [
@@ -85,17 +55,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/subagent-stop-sync.sh",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "TaskCompleted": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/task-complete-sync.sh",
-            "timeout": 5
           }
         ]
       }

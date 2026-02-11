@@ -271,7 +271,7 @@ class StatusValidator {
     /**
      * Validates task prerequisites.
      * - IN_PROGRESS: No blocking dependencies
-     * - COMPLETED: Summary must be 300-500 characters
+     * - COMPLETED: Summary must be at most 500 characters
      */
     private suspend fun validateTaskPrerequisites(
         taskId: java.util.UUID,
@@ -318,7 +318,7 @@ class StatusValidator {
             }
 
             "completed" -> {
-                // Check summary length (must be 300-500 characters)
+                // Check summary length (must be at most 500 characters)
                 val taskResult = context.taskRepository.getById(taskId)
                 if (taskResult.isError()) {
                     val error = (taskResult as io.github.jpicklyk.mcptask.domain.repository.Result.Error).error
@@ -331,9 +331,9 @@ class StatusValidator {
                 }
 
                 val summaryLength = task.summary.trim().length
-                if (summaryLength < 300 || summaryLength > 500) {
+                if (summaryLength > 500) {
                     ValidationResult.Invalid(
-                        "Cannot transition to COMPLETED: Task summary must be 300-500 characters (current: $summaryLength characters)",
+                        "Cannot transition to COMPLETED: Task summary must be at most 500 characters (current: $summaryLength characters)",
                         listOf("Update task summary to meet length requirement")
                     )
                 } else {

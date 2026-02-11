@@ -73,6 +73,6 @@ Use `manage_container(operation="setStatus")` for statuses that don't map to a t
 
 Transition responses may include `cascadeEvents` suggesting parent entity status updates (e.g., all tasks completed -> advance feature). Always check and act on these.
 
-## CC Mirror Sync
+## Cascade Events
 
-After any status transition, update the mirrored CC task if one exists. See `task-mirroring` skill for patterns and hook behavior.
+Transition responses may include `unblockedTasks` listing downstream tasks now available. Check `get_next_task` after completing work to pick up newly unblocked items.

@@ -83,7 +83,7 @@ flowchart TD
 
     SpecialistsWork --> MonitorEvents{Monitor for<br/>Events}
 
-    MonitorEvents -->|Event:<br/>implementation_complete| DetectImplComplete[Detect: Summary populated<br/>Sections updated<br/>300-500 chars]
+    MonitorEvents -->|Event:<br/>implementation_complete| DetectImplComplete[Detect: Summary populated<br/>Sections updated<br/>at most 500 chars]
     MonitorEvents -->|Event:<br/>task_completed| DetectTaskComplete[Detect: Task marked<br/>complete by specialist]
     MonitorEvents -->|Event:<br/>batch_complete| DetectBatchComplete[Detect: All tasks in<br/>batch done/cancelled]
 

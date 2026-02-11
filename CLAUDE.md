@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Project: MCP Task Orchestrator (`cee5e258-f759-489d-8a7e-d7b2a5f56880`)
 
 MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that provides comprehensive task management capabilities for AI assistants. It implements a hierarchical task management system (Projects -> Features -> Tasks) with dependency tracking, templates, and workflow automation.
 

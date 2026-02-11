@@ -649,16 +649,18 @@ class StatusValidatorTest {
     }
 
     @Test
-    fun `prerequisite - task COMPLETED requires 300-500 char summary`() = runBlocking {
+    fun `prerequisite - task COMPLETED requires summary at most 500 chars`() = runBlocking {
         val taskId = UUID.randomUUID()
         val mockFeatureRepo = mockk<FeatureRepository>()
         val mockTaskRepo = mockk<TaskRepository>()
         val mockProjectRepo = mockk<ProjectRepository>()
         val mockDependencyRepo = mockk<DependencyRepository>()
 
-        val taskWithShortSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = "Too short")
+        // Test with summary that's too long (over 500 characters)
+        val tooLongSummary = "A".repeat(501)
+        val taskWithLongSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = tooLongSummary)
 
-        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithShortSummary)
+        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithLongSummary)
 
         val context = StatusValidator.PrerequisiteContext(
             mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
@@ -667,7 +669,7 @@ class StatusValidatorTest {
         val result = validator.validatePrerequisites(taskId, "completed", "task", context)
         assertTrue(result is StatusValidator.ValidationResult.Invalid)
         val invalid = result as StatusValidator.ValidationResult.Invalid
-        assertTrue(invalid.reason.contains("300-500 characters"))
+        assertTrue(invalid.reason.contains("at most 500 characters"))
     }
 
     @Test
@@ -678,10 +680,32 @@ class StatusValidatorTest {
         val mockProjectRepo = mockk<ProjectRepository>()
         val mockDependencyRepo = mockk<DependencyRepository>()
 
-        val validSummary = "A".repeat(350) // Valid length between 300-500
+        val validSummary = "A".repeat(350) // Valid length (at most 500)
         val taskWithValidSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = validSummary)
 
         coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithValidSummary)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(taskId, "completed", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `prerequisite - task COMPLETED succeeds with short summary`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Short summary should now be valid
+        val shortSummary = "Short"
+        val taskWithShortSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = shortSummary)
+
+        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithShortSummary)
 
         val context = StatusValidator.PrerequisiteContext(
             mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
@@ -751,15 +775,17 @@ class StatusValidatorTest {
         val mockProjectRepo = mockk<ProjectRepository>()
         val mockDependencyRepo = mockk<DependencyRepository>()
 
-        val taskWithShortSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = "Short")
+        // Summary that would normally fail (over 500 chars)
+        val tooLongSummary = "A".repeat(501)
+        val taskWithLongSummary = createMockTask(taskId, "Test Task", TaskStatus.IN_PROGRESS, summary = tooLongSummary)
 
-        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithShortSummary)
+        coEvery { mockTaskRepo.getById(taskId) } returns Result.Success(taskWithLongSummary)
 
         val context = StatusValidator.PrerequisiteContext(
             mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
         )
 
-        // Should pass even with short summary because validation is disabled
+        // Should pass even with long summary because validation is disabled
         val result = validator.validatePrerequisites(taskId, "completed", "task", context)
         assertTrue(result is StatusValidator.ValidationResult.Valid)
     }

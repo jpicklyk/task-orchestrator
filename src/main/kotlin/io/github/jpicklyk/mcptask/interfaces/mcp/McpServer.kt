@@ -212,6 +212,8 @@ class McpServer(
 
     /**
      * Creates all tool instances that should be registered with the server.
+     *
+     * Total: 13 tools
      */
     private fun createTools(): List<ToolDefinition> {
         return listOf(

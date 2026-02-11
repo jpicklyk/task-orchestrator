@@ -655,7 +655,7 @@ class StatusProgressionServiceImplTest {
                 )
             } returns StatusValidator.ValidationResult.Invalid(
                 reason = "Summary required",
-                suggestions = listOf("Add 300-500 char summary")
+                suggestions = listOf("Add summary (at most 500 chars)")
             )
 
             // Act

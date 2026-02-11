@@ -28,21 +28,21 @@ model: [sonnet|opus]
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text in existing sections
    - `manage_sections(operation="add", ...)` - Add sections for [specific content types]
 5. **[Agent-specific validation step if applicable]**: [e.g., "Run tests", "Build project", "Validate markup"]
-6. **Populate task summary field** (REQUIRED - 300-500 chars):
+6. **Populate task summary field** (REQUIRED - at most 500 chars):
    - `manage_container(operation="update", containerType="task", id="...", summary="...")`
    - Brief 2-3 sentence summary of what was done, test results, what's ready
-   - **CRITICAL**: Summary is REQUIRED and validated before task completion (300-500 chars)
-   - **VALIDATION**: System enforces 300-500 character limit - task cannot be completed without valid summary
+   - **CRITICAL**: Summary is REQUIRED and validated before task completion (at most 500 chars)
+   - **VALIDATION**: System enforces maximum 500 character limit - task cannot be completed without valid summary
    - If missing or invalid, setStatus will fail - summary must be populated BEFORE step 8
 7. **Create "Files Changed" section**:
    - `manage_sections(operation="add", entityType="TASK", entityId="...", title="Files Changed", content="...", ordinal=999, tags="files-changed,completion")`
    - Markdown list of files modified/created with brief descriptions
    - Helps downstream tasks and git hooks parse changes
 8. **Mark task complete**:
-   - **PREREQUISITE CHECK**: Verify summary field is populated and valid (300-500 chars)
+   - **PREREQUISITE CHECK**: Verify summary field is populated and valid (at most 500 chars)
    - `manage_container(operation="setStatus", containerType="task", id="...", status="completed")`
    - ONLY after all validation passes, work is complete, AND summary field is populated
-   - **WARNING**: setStatus will FAIL if summary is missing or invalid (< 300 or > 500 chars)
+   - **WARNING**: setStatus will FAIL if summary is missing or > 500 chars
    - **VALIDATION BLOCKS COMPLETION**: The system will reject completion attempts without valid summary
    - If setStatus fails, populate/fix summary field (step 6) then retry
 9. **Return minimal output to orchestrator**:
@@ -57,7 +57,7 @@ model: [sonnet|opus]
 - Read task and dependencies (self-service)
 - Perform the work
 - Update task sections with detailed results
-- Populate task summary field with brief outcome (REQUIRED - 300-500 chars)
+- Populate task summary field with brief outcome (REQUIRED - at most 500 chars)
 - Create "Files Changed" section for downstream tasks
 - Mark task complete when validation passes (requires valid summary)
 - Return minimal status to orchestrator
@@ -71,11 +71,11 @@ model: [sonnet|opus]
 
 **The task summary field is REQUIRED** and validated before task completion.
 
-**CRITICAL**: This is not optional - the system will block task completion if the summary is missing or invalid. Every specialist MUST populate the summary field with a 300-500 character summary before marking tasks complete.
+**CRITICAL**: This is not optional - the system will block task completion if the summary is missing or invalid. Every specialist MUST populate the summary field with a summary (at most 500 characters) before marking tasks complete.
 
 ### Summary Validation Rules
 
-**Character count**: 300-500 characters (strictly enforced)
+**Character count**: At most 500 characters (strictly enforced)
 - Too short (< 300): setStatus will FAIL
 - Too long (> 500): setStatus will FAIL
 - Missing/empty: setStatus will FAIL
@@ -87,7 +87,7 @@ model: [sonnet|opus]
 - Key results or validation status (test results, build status, files created)
 - What's ready for next steps (dependencies satisfied, APIs ready, docs complete)
 
-### Good Summary Examples (300-500 chars)
+### Good Summary Examples (at most 500 chars)
 
 **Backend Engineer**:
 ```
@@ -121,7 +121,7 @@ model: [sonnet|opus]
 
 ### Bad Summary Examples (What NOT to Do)
 
-❌ **Too short (< 300 chars)**:
+❌ **Example short summary**:
 ```
 "Implemented authentication. Tests pass. Ready for review."
 ```
@@ -144,9 +144,9 @@ model: [sonnet|opus]
 **If setStatus fails with summary validation error**:
 
 1. Check current summary character count
-2. Update summary to meet 300-500 char requirement:
+2. Update summary (at most 500 chars):
    ```
-   manage_container(operation="update", containerType="task", id="...", summary="[300-500 char summary]")
+   manage_container(operation="update", containerType="task", id="...", summary="[up to 500 char summary]")
    ```
 3. Retry setStatus:
    ```
@@ -221,7 +221,7 @@ recommend_agent(taskId="task-uuid")
 
 **DO use prerequisite-aware status changes:**
 ```javascript
-✅ Step 1: Populate summary (300-500 chars - REQUIRED)
+✅ Step 1: Populate summary (at most 500 chars - REQUIRED)
 manage_container(operation="update", id="...", summary="...")
 
 ✅ Step 2: Complete tasks with validation
@@ -231,13 +231,13 @@ manage_container(operation="setStatus", id="...", status="completed")
 ```
 
 **Prerequisite validation checks (automatic):**
-- ✅ Task summary: 300-500 characters (blocks completion if missing/invalid)
+- ✅ Task summary: at most 500 characters (blocks completion if missing/invalid)
 - ✅ Blocking dependencies: All BLOCKS dependencies must be completed
 - ✅ Feature completion: All tasks must be completed before feature can complete
 - ✅ Project completion: All features must be completed
 
 **If setStatus fails:**
-1. Read error message for specific blocker (e.g., "Summary too short: 45 chars (need 300-500)")
+1. Read error message for specific blocker (e.g., "Summary required (at most 500 chars)")
 2. Fix the prerequisite (e.g., expand summary to 300+ chars)
 3. Retry setStatus
 4. Repeat until prerequisites met
@@ -471,7 +471,7 @@ model: sonnet|opus
 3. **Do your work**: Core work specific to the agent's domain
 4. **Update task sections**: Document results in task sections
 5. **[Optional validation step]**: Agent-specific validation (tests, builds, etc.)
-6. **Populate task summary**: Brief 300-500 char outcome
+6. **Populate task summary**: Brief outcome (at most 500 chars)
 7. **Create "Files Changed" section**: For downstream tasks and git hooks
 8. **Mark task complete**: After validation passes
 9. **Return minimal status**: Brief success/blocked message to orchestrator
@@ -479,7 +479,7 @@ model: sonnet|opus
 **Critical elements to include:**
 - **Self-service context reading**: Agent reads its own dependencies via `query_dependencies` and `query_sections`
 - **Section updates**: Agent documents detailed results in task sections
-- **Task summary field**: Agent populates database summary field (REQUIRED - 300-500 chars, validated before completion)
+- **Task summary field**: Agent populates database summary field (REQUIRED - at most 500 chars, validated before completion)
 - **Files Changed section**: Ordinal 999, tags "files-changed,completion"
 - **Task completion**: Agent marks task complete after validation (requires valid summary)
 - **Minimal response**: Return brief status, not full results
@@ -495,13 +495,13 @@ model: sonnet|opus
    - `manage_sections(operation="updateText", ...)` - Replace placeholder text
    - `manage_sections(operation="add", ...)` - Add new sections
 5. **Run tests and validate** (if applicable)
-6. **Populate task summary field** (REQUIRED - 300-500 chars):
+6. **Populate task summary field** (REQUIRED - at most 500 chars):
    - `manage_container(operation="update", summary="...")`
-   - **CRITICAL**: Summary is validated - must be 300-500 chars
+   - **CRITICAL**: Summary is validated - must be at most 500 chars
    - Include: what was done, validation results, what's ready
 7. **Create "Files Changed" section**: `manage_sections(operation="add", title="Files Changed", ordinal=999, tags="files-changed,completion")`
 8. **Mark task complete** (requires valid summary):
-   - **PREREQUISITE**: Verify summary field is populated (300-500 chars)
+   - **PREREQUISITE**: Verify summary field is populated (at most 500 chars)
    - `manage_container(operation="setStatus", status="completed")`
    - **WARNING**: Will FAIL if summary is missing/invalid
 9. **Return minimal output**: "✅ [Task] completed. [Optional context]"
@@ -521,7 +521,7 @@ model: sonnet|opus
 - Read task and dependencies (self-service)
 - Perform the work
 - Update task sections with detailed results
-- Populate task summary field with brief outcome (REQUIRED - 300-500 chars, validated before completion)
+- Populate task summary field with brief outcome (REQUIRED - at most 500 chars, validated before completion)
 - Create "Files Changed" section for downstream tasks
 - Mark task complete when validation passes (requires valid summary)
 - Return minimal status to orchestrator
@@ -853,7 +853,7 @@ Before finalizing a specialist file, verify:
 - [ ] Examples are concrete and domain-specific
 - [ ] Minimal response philosophy emphasized (✅ brief status, not full results)
 - [ ] Self-service dependency reading pattern used
-- [ ] Task summary field population instructions included (REQUIRED - 300-500 chars)
+- [ ] Task summary field population instructions included (REQUIRED - at most 500 chars)
 - [ ] Summary validation emphasis in workflow step 6 and step 8 (prerequisite check)
 - [ ] Warning that summary validation blocks task completion
 - [ ] "Files Changed" section creation instructions included (ordinal 999, tags "files-changed,completion")

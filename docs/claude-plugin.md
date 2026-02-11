@@ -16,8 +16,7 @@ The MCP Task Orchestrator ships a Claude Code plugin that adds skills, hooks, an
 | **feature-orchestration skill** | Feature lifecycle, task breakdown, overview queries, and bulk operations |
 | **status-progression skill** | Workflow triggers, transitions, emergency statuses, and cascade events |
 | **dependency-analysis skill** | Blocking analysis, prerequisite management, and work ordering |
-| **task-mirroring skill** | One-way sync of MCP tasks to Claude Code's terminal task display |
-| **Task Orchestrator output style** | Optional orchestrator mode — strips coding instructions, adds delegation patterns and task display mirroring |
+| **Task Orchestrator output style** | Optional orchestrator mode — strips coding instructions, adds delegation and workflow patterns |
 
 ## Installation
 
@@ -66,8 +65,6 @@ claude-plugins/task-orchestrator/
 │   │   └── SKILL.md         # Status workflow guidance
 │   ├── dependency-analysis/
 │   │   └── SKILL.md         # Dependency and blocker patterns
-│   └── task-mirroring/
-│       └── SKILL.md         # MCP → CC task display sync
 ├── hooks/
 │   └── hooks.json           # SessionStart hook configuration
 ├── output-styles/
@@ -114,17 +111,6 @@ Activated when working with task dependencies. Covers:
 - Resolving blocker chains
 - Smart task ordering with `get_next_task`
 
-### task-mirroring
-
-Activated when the orchestrator output style is active or when loading a feature's tasks. Covers:
-- One-way sync: MCP task orchestrator → Claude Code terminal display
-- Status mapping (MCP's 14 statuses → CC's 3: pending, in_progress, completed)
-- Correlation via metadata (`mcpTaskId` links CC tasks back to MCP tasks)
-- Dependency mirroring (MCP blocking relationships → CC `blockedBy`)
-- Scoped mirroring (only tasks related to the current focus, not the entire database)
-
-The output style makes task mirroring mandatory when active. The skill provides the detailed mapping patterns.
-
 ## Output Style: Task Orchestrator
 
 The plugin includes an optional **Task Orchestrator** output style that transforms the main Claude session into a pure orchestrator. When activated, coding instructions are stripped and replaced with orchestration patterns — the main agent plans, delegates, tracks, and reports while subagents or agent team teammates handle implementation.
@@ -134,8 +120,7 @@ The plugin includes an optional **Task Orchestrator** output style that transfor
 - **Strips coding instructions** from the main agent's system prompt (default output style behavior)
 - **Adds orchestration patterns**: phase management, delegation, status reporting
 - **Supports both delegation models**: standard subagents (Task tool) and experimental agent teams (TeamCreate)
-- **Mirrors MCP tasks to terminal**: automatically creates CC tasks so the user sees progress in their terminal (Ctrl+T)
-- **Distinguishes two systems**: MCP task orchestrator for persistent tracking vs Claude Code task display for session visualization
+- **MCP-first tracking**: all persistent state managed through MCP Task Orchestrator
 - **MCP-aware**: references current v2.0 tools and workflow patterns
 
 ### How to Activate

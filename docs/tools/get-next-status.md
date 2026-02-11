@@ -71,13 +71,13 @@ Get a recommendation for the next status:
     "recommendation": "Blocked",
     "currentStatus": "in-progress",
     "blockers": [
-      "Summary required (300-500 chars, current: 50 chars)",
+      "Summary required (at most 500 chars, current: 50 chars)",
       "1 incomplete blocking dependency"
     ],
     "activeFlow": "default_flow",
     "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
     "currentPosition": 2,
-    "reason": "Cannot progress: Summary required (300-500 chars, current: 50 chars); 1 incomplete blocking dependency"
+    "reason": "Cannot progress: Summary required (at most 500 chars, current: 50 chars); 1 incomplete blocking dependency"
   }
 }
 ```
@@ -157,7 +157,7 @@ Entity cannot progress due to blockers:
 | `reason` | string | Concatenation of blockers with details |
 
 **Common blockers:**
-- `"Summary required (300-500 chars, current: X chars)"`
+- `"Summary required (at most 500 chars, current: X chars)"`
 - `"N task(s) not completed. Incomplete: [List]"`
 - `"N incomplete blocking dependencies"`
 - `"Feature must have at least 1 task"`
@@ -262,9 +262,9 @@ When entity can progress, prerequisites are checked based on `config.yaml` under
 | Target Status | Prerequisite | How to Fix |
 |---------------|--------------|-----------|
 | `in-progress` | No incomplete blocking dependencies | Complete dependency tasks first |
-| `completed` | Summary must be 300-500 characters | Update summary with `manage_container` |
+| `completed` | Summary must be at most 500 characters | Update summary with `manage_container` |
 
-**Example blocker**: "Summary required (300-500 chars, current: 50 chars)"
+**Example blocker**: "Summary required (at most 500 chars, current: 50 chars)"
 
 ### Feature Prerequisites
 
@@ -311,11 +311,11 @@ Response: "Yes, safe to complete. Summary and dependencies are fine."
 ```json
 {
   "recommendation": "Blocked",
-  "blockers": ["Summary required (300-500 chars, current: 120 chars)"]
+  "blockers": ["Summary required (at most 500 chars, current: 120 chars)"]
 }
 ```
 
-Response: "No, expand summary to 300 chars minimum first."
+Response: "No, summary is adequate (no minimum required)."
 
 ### Use Case 2: "What's next for this feature?"
 
@@ -783,11 +783,11 @@ curl -X POST http://localhost:8000/mcp \
 
 ## Troubleshooting
 
-### "Cannot progress: Summary required (300-500 chars, current: 50 chars)"
+### "Cannot progress: Summary required (at most 500 chars, current: 50 chars)"
 
 **Problem**: Task summary too short for completion.
 
-**Solution**: Update summary to minimum 300 characters.
+**Solution**: Ensure summary is populated (no minimum, maximum 500 characters).
 
 ```json
 {
