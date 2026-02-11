@@ -161,7 +161,7 @@ tasks.register("printTagVersion") {
 }
 
 kotlin {
-    jvmToolchain(23)
+    jvmToolchain(21)
     sourceSets.main {
         kotlin.srcDir(layout.buildDirectory.dir("generated/source/version"))
     }
