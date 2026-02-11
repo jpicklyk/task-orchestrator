@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
@@ -19,6 +20,13 @@ import java.util.*
  */
 class GetNextTaskTool : BaseToolDefinition() {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = true,
+        destructiveHint = false,
+        idempotentHint = true,
+        openWorldHint = false
+    )
 
     override val name: String = "get_next_task"
 
@@ -354,5 +362,19 @@ class GetNextTaskTool : BaseToolDefinition() {
                 task.complexity
             }
         )
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        val recommendations = data?.get("recommendations")?.jsonArray
+        if (recommendations == null || recommendations.isEmpty()) {
+            return "No unblocked tasks available"
+        }
+        val top = recommendations[0].jsonObject
+        val title = top["title"]?.jsonPrimitive?.content ?: ""
+        val priority = top["priority"]?.jsonPrimitive?.content ?: ""
+        val complexity = top["complexity"]?.jsonPrimitive?.content ?: ""
+        return "Top recommendation: \"$title\" (priority=$priority, complexity=$complexity)"
     }
 }

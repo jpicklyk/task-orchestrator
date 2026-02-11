@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.time.Instant
@@ -33,6 +34,13 @@ class ManageContainerTool(
 
     private val statusValidator = StatusValidator()
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = false,
+        destructiveHint = true,
+        idempotentHint = false,
+        openWorldHint = false
+    )
 
     override val name: String = "manage_container"
 
@@ -1876,6 +1884,41 @@ Docs: task-orchestrator://docs/tools/manage-container
             "medium", "med" -> Priority.MEDIUM
             "low" -> Priority.LOW
             else -> throw IllegalArgumentException("Invalid priority: $priority")
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val p = params as? JsonObject ?: return "Container operation completed"
+        val operation = p["operation"]?.jsonPrimitive?.content ?: "unknown"
+        val containerType = p["containerType"]?.jsonPrimitive?.content ?: "container"
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        return when (operation) {
+            "create" -> {
+                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                val name = data?.get("name")?.jsonPrimitive?.content
+                    ?: data?.get("title")?.jsonPrimitive?.content ?: ""
+                "Created $containerType '$name' ($id)"
+            }
+            "update" -> {
+                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                "Updated $containerType ($id)"
+            }
+            "delete" -> {
+                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                "Deleted $containerType ($id)"
+            }
+            "setStatus" -> {
+                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                val status = data?.get("status")?.jsonPrimitive?.content ?: ""
+                "$containerType ($id) status set to $status"
+            }
+            "bulkUpdate" -> {
+                val updated = data?.get("updated")?.jsonPrimitive?.content ?: "0"
+                val failed = data?.get("failed")?.jsonPrimitive?.content ?: "0"
+                "Bulk updated $updated ${containerType}(s)${if (failed != "0") " ($failed failed)" else ""}"
+            }
+            else -> "Container operation completed"
         }
     }
 }

@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.application.tools
 
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Interface defining the common structure for all MCP tools.
@@ -37,6 +40,12 @@ interface ToolDefinition {
     val outputSchema: ToolSchema? get() = null
 
     /**
+     * Optional annotations providing behavioral hints about this tool.
+     * Helps clients understand tool characteristics (read-only, destructive, idempotent).
+     */
+    val toolAnnotations: ToolAnnotations? get() = null
+
+    /**
      * Categorization for organizing tools in documentation and UI.
      */
     val category: ToolCategory
@@ -62,6 +71,26 @@ interface ToolDefinition {
     fun validateParams(params: JsonElement) {
         // Default implementation doesn't validate
         // Subclasses can override to add validation logic
+    }
+
+    /**
+     * Generates a short, user-facing summary line from the tool's execution result.
+     * Shown in the client terminal while the model receives full data via structuredContent.
+     *
+     * Default implementation extracts the "message" field from the response envelope.
+     * Tools should override this for operation-specific summaries.
+     *
+     * @param params The input parameters (allows summaries to reference operation type)
+     * @param result The JSON result from execute()
+     * @param isError Whether the execution resulted in an error
+     * @return A short summary string for display in client UIs
+     */
+    fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        val obj = result as? JsonObject ?: return if (isError) "Tool execution failed" else "Operation completed"
+        val message = obj["message"]?.let {
+            if (it is JsonPrimitive && it.isString) it.content else null
+        }
+        return message ?: if (isError) "Tool execution failed" else "Operation completed successfully"
     }
 }
 

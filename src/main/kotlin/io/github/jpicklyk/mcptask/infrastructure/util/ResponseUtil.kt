@@ -65,4 +65,25 @@ object ResponseUtil {
         put("timestamp", Instant.now().toString())
         put("version", "1.0.0")
     }
+
+    /**
+     * Extracts the raw data payload from a standard response envelope for use as structuredContent.
+     * Returns the "data" field if it's a JsonObject, otherwise wraps non-null data, or returns empty.
+     */
+    fun extractDataPayload(envelope: JsonObject): JsonObject {
+        val data = envelope["data"]
+        return when {
+            data is JsonObject -> data
+            data != null && data !is JsonNull -> buildJsonObject { put("value", data) }
+            else -> buildJsonObject {}
+        }
+    }
+
+    /**
+     * Determines if a response envelope represents an error by checking the "success" field.
+     */
+    fun isErrorResponse(envelope: JsonObject): Boolean {
+        val success = envelope["success"]
+        return success is JsonPrimitive && !success.boolean
+    }
 }

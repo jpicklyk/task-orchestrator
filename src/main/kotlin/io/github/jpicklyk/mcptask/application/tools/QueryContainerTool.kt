@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.domain.rendering.MarkdownRenderer
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
@@ -26,6 +27,13 @@ class QueryContainerTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = true,
+        destructiveHint = false,
+        idempotentHint = true,
+        openWorldHint = false
+    )
 
     override val name: String = "query_container"
 
@@ -1524,6 +1532,37 @@ Docs: task-orchestrator://docs/tools/query-container
             "medium", "med" -> Priority.MEDIUM
             "low" -> Priority.LOW
             else -> throw IllegalArgumentException("Invalid priority: $priority")
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val p = params as? JsonObject ?: return "Query completed"
+        val operation = p["operation"]?.jsonPrimitive?.content ?: "unknown"
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        return when (operation) {
+            "get" -> {
+                val name = data?.get("name")?.jsonPrimitive?.content
+                    ?: data?.get("title")?.jsonPrimitive?.content ?: ""
+                "Retrieved '$name'"
+            }
+            "search" -> {
+                val count = data?.get("count")?.jsonPrimitive?.content ?: "0"
+                "Found $count result(s)"
+            }
+            "overview" -> {
+                val name = data?.get("name")?.jsonPrimitive?.content
+                if (name != null) {
+                    val taskCounts = data?.get("taskCounts")?.jsonObject
+                    val total = taskCounts?.get("total")?.jsonPrimitive?.content ?: "0"
+                    "$name — $total tasks"
+                } else {
+                    val count = data?.get("count")?.jsonPrimitive?.content ?: "0"
+                    "$count item(s) retrieved"
+                }
+            }
+            "export" -> "Exported to markdown"
+            else -> "Query completed"
         }
     }
 }

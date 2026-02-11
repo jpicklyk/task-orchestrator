@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.domain.model.Section
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.time.Instant
@@ -28,6 +29,13 @@ class ApplyTemplateTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TEMPLATE_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = false,
+        destructiveHint = false,
+        idempotentHint = false,
+        openWorldHint = false
+    )
 
     override val name: String = "apply_template"
 
@@ -460,5 +468,15 @@ class ApplyTemplateTool(
                 }
             }
         }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        val applied = data?.get("appliedCount")?.jsonPrimitive?.content
+            ?: data?.get("sectionsCreated")?.jsonPrimitive?.content ?: "1"
+        val sections = data?.get("totalSectionsCreated")?.jsonPrimitive?.content
+            ?: data?.get("sectionsCreated")?.jsonPrimitive?.content ?: "0"
+        return "Applied $applied template(s) — $sections section(s) created"
     }
 }

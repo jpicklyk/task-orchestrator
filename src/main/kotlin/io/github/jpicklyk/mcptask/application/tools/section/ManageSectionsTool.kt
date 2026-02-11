@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.domain.model.Section
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.time.Instant
@@ -28,6 +29,13 @@ class ManageSectionsTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.SECTION_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = false,
+        destructiveHint = true,
+        idempotentHint = false,
+        openWorldHint = false
+    )
 
     override val name: String = "manage_sections"
 
@@ -1166,6 +1174,29 @@ Docs: task-orchestrator://docs/tools/manage-sections
             put("ordinal", section.ordinal)
             put("createdAt", section.createdAt.toString())
             put("modifiedAt", section.modifiedAt.toString())
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val p = params as? JsonObject ?: return "Section operation completed"
+        val operation = p["operation"]?.jsonPrimitive?.content ?: "unknown"
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        return when (operation) {
+            "add" -> {
+                val title = data?.get("title")?.jsonPrimitive?.content ?: ""
+                "Added section '$title'"
+            }
+            "update", "updateText", "updateMetadata" -> "Section updated"
+            "delete" -> "Section deleted"
+            "reorder" -> "Sections reordered"
+            "bulkCreate" -> {
+                val count = data?.get("created")?.jsonPrimitive?.content ?: "0"
+                "Created $count section(s)"
+            }
+            "bulkUpdate" -> "Sections bulk updated"
+            "bulkDelete" -> "Sections bulk deleted"
+            else -> "Section operation completed"
         }
     }
 }

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
@@ -29,6 +30,13 @@ class ManageDependencyTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = false,
+        destructiveHint = true,
+        idempotentHint = false,
+        openWorldHint = false
+    )
 
     override val name: String = "manage_dependency"
 
@@ -537,6 +545,26 @@ Docs: task-orchestrator://docs/tools/manage-dependency
                 code = ErrorCodes.INTERNAL_ERROR,
                 details = e.message ?: "Unknown error"
             )
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val p = params as? JsonObject ?: return "Dependency operation completed"
+        val operation = p["operation"]?.jsonPrimitive?.content ?: "unknown"
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        return when (operation) {
+            "create" -> {
+                val fromId = data?.get("fromTaskId")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                val toId = data?.get("toTaskId")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                val type = data?.get("type")?.jsonPrimitive?.content ?: ""
+                "Created $type dependency: $fromId → $toId"
+            }
+            "delete" -> {
+                val count = data?.get("deletedCount")?.jsonPrimitive?.content ?: "0"
+                "Deleted $count dependenc${if (count == "1") "y" else "ies"}"
+            }
+            else -> "Dependency operation completed"
         }
     }
 }

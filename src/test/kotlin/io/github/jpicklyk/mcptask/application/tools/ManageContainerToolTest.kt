@@ -1216,4 +1216,63 @@ class ManageContainerToolTest {
             assertTrue(exception.message!!.contains("Maximum 100"))
         }
     }
+
+    @Nested
+    inner class UserSummaryTests {
+        @Test
+        fun `userSummary returns create summary with name and short id`() {
+            val tool = ManageContainerTool(null, null)
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+            }
+            val result = buildJsonObject {
+                put("success", true)
+                put("message", "Task created")
+                put("data", buildJsonObject {
+                    put("id", "d5c9c5ed-1234-5678-9abc-def012345678")
+                    put("title", "Design API schema")
+                })
+            }
+            val summary = tool.userSummary(params, result, false)
+            assertTrue(summary.contains("task"))
+            assertTrue(summary.contains("Design API schema"))
+            assertTrue(summary.contains("d5c9c5ed"))
+        }
+
+        @Test
+        fun `userSummary returns error message for error responses`() {
+            val tool = ManageContainerTool(null, null)
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+            }
+            val result = buildJsonObject {
+                put("success", false)
+                put("message", "Task not found")
+            }
+            val summary = tool.userSummary(params, result, true)
+            assertTrue(summary.contains("Task not found"))
+        }
+
+        @Test
+        fun `userSummary returns bulk update summary`() {
+            val tool = ManageContainerTool(null, null)
+            val params = buildJsonObject {
+                put("operation", "bulkUpdate")
+                put("containerType", "task")
+            }
+            val result = buildJsonObject {
+                put("success", true)
+                put("message", "5 updated")
+                put("data", buildJsonObject {
+                    put("updated", 5)
+                    put("failed", 1)
+                })
+            }
+            val summary = tool.userSummary(params, result, false)
+            assertTrue(summary.contains("5"))
+            assertTrue(summary.contains("task"))
+        }
+    }
 }

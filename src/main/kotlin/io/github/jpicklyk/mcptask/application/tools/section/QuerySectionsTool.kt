@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.domain.model.EntityType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
@@ -31,6 +32,13 @@ class QuerySectionsTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.SECTION_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = true,
+        destructiveHint = false,
+        idempotentHint = true,
+        openWorldHint = false
+    )
 
     override val name: String = "query_sections"
 
@@ -308,4 +316,11 @@ Docs: task-orchestrator://docs/tools/query-sections
 
     // Custom exception for entity not found during verification
     private class EntityNotFoundException(message: String) : Exception(message)
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        val count = data?.get("count")?.jsonPrimitive?.content ?: "0"
+        return "$count section(s) retrieved"
+    }
 }

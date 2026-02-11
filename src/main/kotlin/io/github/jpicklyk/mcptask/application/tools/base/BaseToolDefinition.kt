@@ -61,6 +61,11 @@ abstract class BaseToolDefinition : ToolDefinition {
     }
 
     /**
+     * Truncates a UUID string to its first 8 characters for compact display in summaries.
+     */
+    protected fun shortId(uuid: String): String = uuid.take(8)
+
+    /**
      * Extract a required string parameter from the input parameters.
      *
      * @param params The input parameters

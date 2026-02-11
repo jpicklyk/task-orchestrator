@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.UUID
@@ -45,6 +46,14 @@ class RequestTransitionTool(
     private val statusValidator = StatusValidator()
 
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = false,
+        destructiveHint = false,
+        idempotentHint = false,
+        openWorldHint = false
+    )
+
     override val name: String = "request_transition"
     override val title: String = "Request Status Transition"
 
@@ -607,6 +616,22 @@ Related: manage_container (setStatus), get_next_status"""
         } catch (e: Exception) {
             logger.warn("Failed to run completion cleanup for feature $featureId: ${e.message}")
             null
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        val containerType = data?.get("containerType")?.jsonPrimitive?.content ?: "entity"
+        val containerId = data?.get("containerId")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+        val previous = data?.get("previousStatus")?.jsonPrimitive?.content ?: ""
+        val newStatus = data?.get("newStatus")?.jsonPrimitive?.content ?: ""
+        val unblockedTasks = data?.get("unblockedTasks")?.jsonArray?.size ?: 0
+        return buildString {
+            append("$containerType ($containerId): $previous → $newStatus")
+            if (unblockedTasks > 0) {
+                append(" ($unblockedTasks task${if (unblockedTasks == 1) "" else "s"} unblocked)")
+            }
         }
     }
 }

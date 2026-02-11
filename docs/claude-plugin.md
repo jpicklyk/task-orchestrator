@@ -16,6 +16,7 @@ The MCP Task Orchestrator ships a Claude Code plugin that adds skills, hooks, an
 | **feature-orchestration skill** | Feature lifecycle, task breakdown, overview queries, and bulk operations |
 | **status-progression skill** | Workflow triggers, transitions, emergency statuses, and cascade events |
 | **dependency-analysis skill** | Blocking analysis, prerequisite management, and work ordering |
+| **project-summary skill** | Formatted project dashboard with feature progress, action items, and housekeeping suggestions |
 | **Task Orchestrator output style** | Optional orchestrator mode — strips coding instructions, adds delegation and workflow patterns |
 
 ## Installation
@@ -65,6 +66,8 @@ claude-plugins/task-orchestrator/
 │   │   └── SKILL.md         # Status workflow guidance
 │   ├── dependency-analysis/
 │   │   └── SKILL.md         # Dependency and blocker patterns
+│   ├── project-summary/
+│   │   └── SKILL.md         # Project dashboard and status overview
 ├── hooks/
 │   └── hooks.json           # SessionStart hook configuration
 ├── output-styles/
@@ -101,6 +104,14 @@ Activated when changing entity status. Covers:
 - Status flows per entity type (task, feature, project)
 - Emergency transitions and cascade events
 - Status roles (queue, work, review, blocked, terminal)
+
+### project-summary
+
+User-invocable with `/project-summary`. Covers:
+- Auto-detecting project UUID from CLAUDE.md or accepting it as a parameter
+- Querying project overview with feature progress and task counts
+- Surfacing open action items (standalone tasks tagged `action-item`)
+- Flagging housekeeping opportunities (features ready to close, stale work)
 
 ### dependency-analysis
 

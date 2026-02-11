@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.domain.model.TemplateSection
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.time.Instant
@@ -30,6 +31,13 @@ class ManageTemplateTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TEMPLATE_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = false,
+        destructiveHint = true,
+        idempotentHint = false,
+        openWorldHint = false
+    )
 
     override val name: String = "manage_template"
 
@@ -626,6 +634,25 @@ Docs: task-orchestrator://docs/tools/manage-template
             })
             put("createdAt", template.createdAt.toString())
             put("modifiedAt", template.modifiedAt.toString())
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val p = params as? JsonObject ?: return "Template operation completed"
+        val operation = p["operation"]?.jsonPrimitive?.content ?: "unknown"
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        return when (operation) {
+            "create" -> {
+                val name = data?.get("name")?.jsonPrimitive?.content ?: ""
+                "Created template '$name'"
+            }
+            "update" -> "Template updated"
+            "delete" -> "Template deleted"
+            "enable" -> "Template enabled"
+            "disable" -> "Template disabled"
+            "addSection" -> "Section added to template"
+            else -> "Template operation completed"
         }
     }
 }

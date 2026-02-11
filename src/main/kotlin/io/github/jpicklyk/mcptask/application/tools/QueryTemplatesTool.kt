@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.domain.model.TemplateSection
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
@@ -27,6 +28,13 @@ class QueryTemplatesTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TEMPLATE_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = true,
+        destructiveHint = false,
+        idempotentHint = true,
+        openWorldHint = false
+    )
 
     override val name: String = "query_templates"
 
@@ -350,6 +358,24 @@ Docs: task-orchestrator://docs/tools/query-templates
                 ErrorCodes.DATABASE_ERROR,
                 result.error.toString()
             )
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val p = params as? JsonObject ?: return "Template query completed"
+        val operation = p["operation"]?.jsonPrimitive?.content ?: "list"
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        return when (operation) {
+            "get" -> {
+                val name = data?.get("name")?.jsonPrimitive?.content ?: ""
+                "Retrieved template '$name'"
+            }
+            "list" -> {
+                val count = data?.get("count")?.jsonPrimitive?.content ?: "0"
+                "$count template(s) found"
+            }
+            else -> "Template query completed"
         }
     }
 }

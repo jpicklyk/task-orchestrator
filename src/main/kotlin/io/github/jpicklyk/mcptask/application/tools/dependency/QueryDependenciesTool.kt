@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.*
@@ -26,6 +27,13 @@ class QueryDependenciesTool(
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.DEPENDENCY_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = true,
+        destructiveHint = false,
+        idempotentHint = true,
+        openWorldHint = false
+    )
 
     override val name: String = "query_dependencies"
 
@@ -298,5 +306,13 @@ Docs: task-orchestrator://docs/tools/query-dependencies
                 }
             }
         }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        val counts = data?.get("counts")?.jsonObject
+        val total = counts?.get("total")?.jsonPrimitive?.content ?: "0"
+        return "$total dependenc${if (total == "1") "y" else "ies"} found"
     }
 }

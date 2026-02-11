@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.UUID
@@ -28,6 +29,13 @@ class GetNextStatusTool(
 ) : BaseToolDefinition() {
 
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
+
+    override val toolAnnotations: ToolAnnotations = ToolAnnotations(
+        readOnlyHint = true,
+        destructiveHint = false,
+        idempotentHint = true,
+        openWorldHint = false
+    )
 
     override val name: String = "get_next_status"
 
@@ -413,6 +421,28 @@ class GetNextStatusTool(
                 logger.error("Unsupported container type: $containerType")
                 null
             }
+        }
+    }
+
+    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+        if (isError) return super.userSummary(params, result, true)
+        val data = (result as? JsonObject)?.get("data")?.jsonObject
+        val recommendation = data?.get("recommendation")?.jsonPrimitive?.content ?: ""
+        return when (recommendation) {
+            "Ready" -> {
+                val current = data?.get("currentStatus")?.jsonPrimitive?.content ?: ""
+                val recommended = data?.get("recommendedStatus")?.jsonPrimitive?.content ?: ""
+                "Ready: $current → $recommended"
+            }
+            "Blocked" -> {
+                val blockers = data?.get("blockers")?.jsonArray?.size ?: 0
+                "Blocked by $blockers prerequisite${if (blockers == 1) "" else "s"}"
+            }
+            "Terminal" -> {
+                val status = data?.get("currentStatus")?.jsonPrimitive?.content ?: ""
+                "Terminal status: $status"
+            }
+            else -> "Status recommendation: $recommendation"
         }
     }
 }

@@ -101,7 +101,8 @@ class ToolRegistry(
                 description = definition.description,
                 inputSchema = definition.parameterSchema,
                 title = definition.title,
-                outputSchema = definition.outputSchema
+                outputSchema = definition.outputSchema,
+                toolAnnotations = definition.toolAnnotations
             ) { request ->
                 try {
                     // Validate parameters

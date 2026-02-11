@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.infrastructure.util.ResponseUtil
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -125,7 +126,10 @@ class McpToolAdapter {
         server.addTool(
             name = toolDefinition.name,
             description = toolDefinition.description,
-            inputSchema = toolDefinition.parameterSchema
+            inputSchema = toolDefinition.parameterSchema,
+            title = toolDefinition.title,
+            outputSchema = toolDefinition.outputSchema,
+            toolAnnotations = toolDefinition.toolAnnotations
         ) { request ->
             try {
                 // Preprocess and normalize parameters to handle various formats
@@ -149,8 +153,22 @@ class McpToolAdapter {
 
                 // Execute the tool with the validated parameters
                 val result = toolDefinition.execute(preprocessedParams, context)
+                val resultObj = result as? JsonObject
 
-                CallToolResult(listOf(TextContent(result.toString())))
+                // Determine error state from response envelope
+                val isError = resultObj?.let { ResponseUtil.isErrorResponse(it) } ?: false
+
+                // Generate user-facing summary
+                val summary = toolDefinition.userSummary(preprocessedParams, result, isError)
+
+                // Extract raw data for structuredContent (strip envelope)
+                val structuredData = resultObj?.let { ResponseUtil.extractDataPayload(it) }
+
+                CallToolResult(
+                    content = listOf(TextContent(text = summary)),
+                    isError = isError,
+                    structuredContent = structuredData
+                )
             } catch (e: Exception) {
                 val errorType = when (e) {
                     is ToolValidationException -> "Validation"
