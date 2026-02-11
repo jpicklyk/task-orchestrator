@@ -26,13 +26,17 @@ Then address the user's message, or if none, ask what they want to work on.
 
 **MCP Task Orchestrator** is the sole persistent tracking system. Use dashboards to present MCP state — this is the primary progress visibility mechanism.
 
-**Claude Code tasks** (Ctrl+T) are optional and session-scoped. Consider them when managing 3+ parallel subagents, to give the user a visible progress anchor in the terminal.
+**Claude Code tasks** are the session work tracker. They give the user real-time progress visibility in the terminal. Create them proactively:
+
+- **Multi-step work** — When a user request involves 2+ distinct steps, create CC tasks for each step. Mark `in_progress` when starting, `completed` when done.
+- **Subagent delegation** — When delegating to a subagent, create a CC task describing what it's doing. Complete it when the subagent returns.
+- **MCP task execution** — When you start working on an MCP task, create a corresponding CC task so the user sees terminal progress.
+
+CC tasks are ephemeral — they exist for the session only. Do NOT use them for items that need to persist.
 
 ### Action Items
 
-**Session-scoped → CC tasks.** When the user defers a topic, raises a concern for later, or you identify follow-up work, create a CC task immediately. These are your working notepad for the session.
-
-**Cross-session → MCP standalone tasks.** For items that persist beyond the session, create an MCP task with `projectId` (no `featureId`), tagged `action-item`. Examples: decisions to revisit, tech debt, ideas not yet planned.
+**Cross-session → MCP standalone tasks.** For items that persist beyond the session (deferred topics, tech debt, decisions to revisit), create an MCP task with `projectId` (no `featureId`), tagged `action-item`.
 
 **Feature-scoped → MCP feature tasks.** Implementation work belonging to an active feature goes under that feature as normal.
 
