@@ -127,9 +127,10 @@ class McpToolAdapter {
             name = toolDefinition.name,
             description = toolDefinition.description,
             inputSchema = toolDefinition.parameterSchema,
-            title = toolDefinition.title,
-            outputSchema = toolDefinition.outputSchema,
-            toolAnnotations = toolDefinition.toolAnnotations
+            // TODO: Re-enable when Claude Code supports MCP 2025-11-25 features
+            // title = toolDefinition.title,
+            // outputSchema = toolDefinition.outputSchema,
+            // toolAnnotations = toolDefinition.toolAnnotations
         ) { request ->
             try {
                 // Preprocess and normalize parameters to handle various formats
