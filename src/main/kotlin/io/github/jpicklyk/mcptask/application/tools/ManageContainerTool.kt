@@ -837,15 +837,41 @@ Docs: task-orchestrator://docs/tools/manage-container
             tags = tags
         )
 
-        return handleRepositoryResult(
-            context.projectRepository().update(updated),
-            "Project updated successfully"
-        ) { updatedProject ->
-            buildJsonObject {
-                put("id", updatedProject.id.toString())
-                put("status", updatedProject.status.name.lowercase().replace('_', '-'))
-                put("modifiedAt", updatedProject.modifiedAt.toString())
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        val newStatusStr = status.name.lowercase().replace('_', '-')
+        val statusChanged = statusStr != null && currentStatusStr != newStatusStr
+
+        val updateResult = context.projectRepository().update(updated)
+
+        return when (updateResult) {
+            is Result.Success -> {
+                val updatedProject = updateResult.data
+
+                // Detect cascade events after status change
+                val cascadeEvents = if (statusChanged) {
+                    detectUpdateCascades(id, "project", context)
+                } else emptyList()
+
+                val message = buildString {
+                    append("Project updated successfully")
+                    if (cascadeEvents.isNotEmpty()) {
+                        append(". ${cascadeEvents.size} cascade event(s) detected")
+                    }
+                }
+
+                successResponse(
+                    buildJsonObject {
+                        put("id", updatedProject.id.toString())
+                        put("status", updatedProject.status.name.lowercase().replace('_', '-'))
+                        put("modifiedAt", updatedProject.modifiedAt.toString())
+                        if (cascadeEvents.isNotEmpty()) {
+                            put("cascadeEvents", JsonArray(cascadeEvents))
+                        }
+                    },
+                    message
+                )
             }
+            is Result.Error -> handleRepositoryResult(updateResult, "Project updated successfully") { JsonNull }
         }
     }
 
@@ -925,15 +951,41 @@ Docs: task-orchestrator://docs/tools/manage-container
             tags = tags
         )
 
-        return handleRepositoryResult(
-            context.featureRepository().update(updated),
-            "Feature updated successfully"
-        ) { updatedFeature ->
-            buildJsonObject {
-                put("id", updatedFeature.id.toString())
-                put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
-                put("modifiedAt", updatedFeature.modifiedAt.toString())
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        val newStatusStr = status.name.lowercase().replace('_', '-')
+        val statusChanged = statusStr != null && currentStatusStr != newStatusStr
+
+        val updateResult = context.featureRepository().update(updated)
+
+        return when (updateResult) {
+            is Result.Success -> {
+                val updatedFeature = updateResult.data
+
+                // Detect cascade events after status change
+                val cascadeEvents = if (statusChanged) {
+                    detectUpdateCascades(id, "feature", context)
+                } else emptyList()
+
+                val message = buildString {
+                    append("Feature updated successfully")
+                    if (cascadeEvents.isNotEmpty()) {
+                        append(". ${cascadeEvents.size} cascade event(s) detected")
+                    }
+                }
+
+                successResponse(
+                    buildJsonObject {
+                        put("id", updatedFeature.id.toString())
+                        put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
+                        put("modifiedAt", updatedFeature.modifiedAt.toString())
+                        if (cascadeEvents.isNotEmpty()) {
+                            put("cascadeEvents", JsonArray(cascadeEvents))
+                        }
+                    },
+                    message
+                )
             }
+            is Result.Error -> handleRepositoryResult(updateResult, "Feature updated successfully") { JsonNull }
         }
     }
 
@@ -1016,15 +1068,52 @@ Docs: task-orchestrator://docs/tools/manage-container
             modifiedAt = Instant.now()
         )
 
-        return handleRepositoryResult(
-            context.taskRepository().update(updated),
-            "Task updated successfully"
-        ) { updatedTask ->
-            buildJsonObject {
-                put("id", updatedTask.id.toString())
-                put("status", updatedTask.status.name.lowercase().replace('_', '-'))
-                put("modifiedAt", updatedTask.modifiedAt.toString())
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        val newStatusStr = status.name.lowercase().replace('_', '-')
+        val statusChanged = statusStr != null && currentStatusStr != newStatusStr
+        val isTerminalStatus = newStatusStr in listOf("completed", "cancelled")
+
+        val updateResult = context.taskRepository().update(updated)
+
+        return when (updateResult) {
+            is Result.Success -> {
+                val updatedTask = updateResult.data
+
+                // Detect cascade events and unblocked tasks after status change
+                val cascadeEvents = if (statusChanged) {
+                    detectUpdateCascades(id, "task", context)
+                } else emptyList()
+
+                val unblockedTasks = if (statusChanged && isTerminalStatus) {
+                    findUpdateUnblockedTasks(id, context)
+                } else emptyList()
+
+                val message = buildString {
+                    append("Task updated successfully")
+                    if (cascadeEvents.isNotEmpty()) {
+                        append(". ${cascadeEvents.size} cascade event(s) detected")
+                    }
+                    if (unblockedTasks.isNotEmpty()) {
+                        append(". ${unblockedTasks.size} task(s) now unblocked")
+                    }
+                }
+
+                successResponse(
+                    buildJsonObject {
+                        put("id", updatedTask.id.toString())
+                        put("status", updatedTask.status.name.lowercase().replace('_', '-'))
+                        put("modifiedAt", updatedTask.modifiedAt.toString())
+                        if (cascadeEvents.isNotEmpty()) {
+                            put("cascadeEvents", JsonArray(cascadeEvents))
+                        }
+                        if (unblockedTasks.isNotEmpty()) {
+                            put("unblockedTasks", JsonArray(unblockedTasks))
+                        }
+                    },
+                    message
+                )
             }
+            is Result.Error -> handleRepositoryResult(updateResult, "Task updated successfully") { JsonNull }
         }
     }
 
@@ -1660,6 +1749,8 @@ Docs: task-orchestrator://docs/tools/manage-container
 
         val successfulContainers = mutableListOf<JsonObject>()
         val failedContainers = mutableListOf<JsonObject>()
+        // Track entities that had successful status changes for cascade/unblock detection
+        val statusChangedEntities = mutableListOf<Triple<UUID, String, String>>() // id, previousStatus, newStatus
 
         containersArray.forEachIndexed { index, containerElement ->
             val containerParams = containerElement.jsonObject
@@ -1667,41 +1758,50 @@ Docs: task-orchestrator://docs/tools/manage-container
             val id = UUID.fromString(idStr)
 
             try {
-                val result = when (containerType) {
+                // NOTE: Per-entity locking is not applied in bulk updates. Transition validation
+                // provides the primary safety guarantee. Locking could be added in a future iteration
+                // if concurrent bulk updates on overlapping entities become a concern.
+                val bulkResult = when (containerType) {
                     "project" -> updateProjectBulk(containerParams, context, id)
                     "feature" -> updateFeatureBulk(containerParams, context, id)
                     "task" -> updateTaskBulk(containerParams, context, id)
                     else -> null
                 }
 
-                when (result) {
+                if (bulkResult == null) {
+                    failedContainers.add(buildJsonObject {
+                        put("index", index)
+                        put("id", idStr)
+                        put("error", buildJsonObject {
+                            put("code", ErrorCodes.INTERNAL_ERROR)
+                            put("details", "Unknown error during bulk update")
+                        })
+                    })
+                    return@forEachIndexed
+                }
+
+                when (bulkResult.result) {
                     is Result.Success -> {
                         successfulContainers.add(buildJsonObject {
                             put("id", id.toString())
                             put("modifiedAt", Instant.now().toString())
                         })
+                        // Track successful status changes for cascade/unblock detection
+                        if (bulkResult.statusChanged && bulkResult.previousStatus != null && bulkResult.newStatus != null) {
+                            statusChangedEntities.add(Triple(id, bulkResult.previousStatus, bulkResult.newStatus))
+                        }
                     }
                     is Result.Error -> {
                         failedContainers.add(buildJsonObject {
                             put("index", index)
                             put("id", idStr)
                             put("error", buildJsonObject {
-                                put("code", when (result.error) {
+                                put("code", when (bulkResult.result.error) {
                                     is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
                                     is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
                                     else -> ErrorCodes.DATABASE_ERROR
                                 })
-                                put("details", result.error.toString())
-                            })
-                        })
-                    }
-                    null -> {
-                        failedContainers.add(buildJsonObject {
-                            put("index", index)
-                            put("id", idStr)
-                            put("error", buildJsonObject {
-                                put("code", ErrorCodes.INTERNAL_ERROR)
-                                put("details", "Unknown error during bulk update")
+                                put("details", bulkResult.validationError ?: bulkResult.result.error.toString())
                             })
                         })
                     }
@@ -1719,50 +1819,256 @@ Docs: task-orchestrator://docs/tools/manage-container
             }
         }
 
+        // Detect cascade events and unblocked tasks for entities that had status changes
+        val allCascadeEvents = mutableListOf<JsonObject>()
+        val allUnblockedTasks = mutableListOf<JsonObject>()
+
+        for ((entityId, _, newStatus) in statusChangedEntities) {
+            try {
+                // Detect cascades (parent advancement suggestions)
+                val cascadeEvents = detectBulkCascades(entityId, containerType, context)
+                allCascadeEvents.addAll(cascadeEvents)
+
+                // For tasks reaching terminal status, find newly unblocked downstream tasks
+                val normalizedNewStatus = newStatus.lowercase().replace('_', '-')
+                if (containerType == "task" && normalizedNewStatus in listOf("completed", "cancelled")) {
+                    val unblockedTasks = findBulkUnblockedTasks(entityId, context)
+                    allUnblockedTasks.addAll(unblockedTasks)
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to detect cascades/unblocked tasks for entity $entityId: ${e.message}")
+            }
+        }
+
         val totalRequested = containersArray.size
         val successCount = successfulContainers.size
         val failedCount = failedContainers.size
 
-        return if (failedCount == 0) {
-            successResponse(
-                buildJsonObject {
-                    put("items", JsonArray(successfulContainers))
-                    put("updated", successCount)
-                    put("failed", 0)
-                },
-                "$successCount ${containerType}s updated successfully"
-            )
-        } else if (successCount == 0) {
+        // Build response data with cascade and unblocked info
+        val responseData = buildJsonObject {
+            put("items", JsonArray(successfulContainers))
+            put("updated", successCount)
+            put("failed", failedCount)
+            if (failedContainers.isNotEmpty()) {
+                put("failures", JsonArray(failedContainers))
+            }
+            if (allCascadeEvents.isNotEmpty()) {
+                put("cascadeEvents", JsonArray(allCascadeEvents))
+            }
+            if (allUnblockedTasks.isNotEmpty()) {
+                put("unblockedTasks", JsonArray(allUnblockedTasks))
+            }
+        }
+
+        val message = buildString {
+            if (failedCount == 0) {
+                append("$successCount ${containerType}s updated successfully")
+            } else if (successCount == 0) {
+                append("Failed to update any ${containerType}s")
+            } else {
+                append("$successCount ${containerType}s updated, $failedCount failed")
+            }
+            if (allCascadeEvents.isNotEmpty()) append(". ${allCascadeEvents.size} cascade event(s) detected")
+            if (allUnblockedTasks.isNotEmpty()) append(". ${allUnblockedTasks.size} task(s) now unblocked")
+        }
+
+        return if (successCount == 0 && failedCount > 0) {
             errorResponse(
                 "Failed to update any ${containerType}s",
                 ErrorCodes.OPERATION_FAILED,
                 "All $totalRequested ${containerType}s failed to update",
-                buildJsonObject {
-                    put("failures", JsonArray(failedContainers))
-                }
+                responseData
             )
         } else {
-            successResponse(
-                buildJsonObject {
-                    put("items", JsonArray(successfulContainers))
-                    put("updated", successCount)
-                    put("failed", failedCount)
-                    put("failures", JsonArray(failedContainers))
-                },
-                "$successCount ${containerType}s updated, $failedCount failed"
-            )
+            successResponse(responseData, message)
         }
     }
+
+    /**
+     * Detects cascade events after a single entity update with status change.
+     * Used by update operations.
+     */
+    private suspend fun detectUpdateCascades(
+        containerId: UUID,
+        containerType: String,
+        context: ToolExecutionContext
+    ): List<JsonObject> {
+        return try {
+            val workflowService: WorkflowService = WorkflowServiceImpl(
+                workflowConfigLoader = WorkflowConfigLoaderImpl(),
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                statusValidator = statusValidator
+            )
+            val ct = ContainerType.valueOf(containerType.uppercase())
+            val events = workflowService.detectCascadeEvents(containerId, ct)
+            events.map { ev ->
+                buildJsonObject {
+                    put("event", ev.event)
+                    put("targetType", ev.targetType.name.lowercase())
+                    put("targetId", ev.targetId.toString())
+                    put("suggestedStatus", ev.suggestedStatus)
+                    put("reason", ev.reason)
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to detect cascade events for $containerId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Finds downstream tasks that are now fully unblocked after a task update to completed/cancelled.
+     * Used by task update operation.
+     */
+    private suspend fun findUpdateUnblockedTasks(
+        completedTaskId: UUID,
+        context: ToolExecutionContext
+    ): List<JsonObject> {
+        return try {
+            val outgoingDeps = context.dependencyRepository().findByFromTaskId(completedTaskId)
+            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
+
+            if (blocksDeps.isEmpty()) return emptyList()
+
+            val unblockedTasks = mutableListOf<JsonObject>()
+
+            for (dep in blocksDeps) {
+                val downstreamTaskId = dep.toTaskId
+                val downstreamTask = context.taskRepository().getById(downstreamTaskId).getOrNull() ?: continue
+                val downstreamStatus = downstreamTask.status.name.lowercase().replace('_', '-')
+                if (downstreamStatus in listOf("completed", "cancelled")) continue
+
+                val incomingDeps = context.dependencyRepository().findByToTaskId(downstreamTaskId)
+                val incomingBlockers = incomingDeps.filter { it.type == DependencyType.BLOCKS }
+
+                val allBlockersResolved = incomingBlockers.all { blocker ->
+                    val blockerTask = context.taskRepository().getById(blocker.fromTaskId).getOrNull()
+                    if (blockerTask != null) {
+                        val blockerStatus = blockerTask.status.name.lowercase().replace('_', '-')
+                        blockerStatus in listOf("completed", "cancelled")
+                    } else true
+                }
+
+                if (allBlockersResolved) {
+                    unblockedTasks.add(buildJsonObject {
+                        put("taskId", downstreamTaskId.toString())
+                        put("title", downstreamTask.title)
+                    })
+                }
+            }
+
+            unblockedTasks
+        } catch (e: Exception) {
+            logger.warn("Failed to find newly unblocked tasks for $completedTaskId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Detects cascade events after a bulk status change, mirroring the pattern in RequestTransitionTool.
+     */
+    private suspend fun detectBulkCascades(
+        containerId: UUID,
+        containerType: String,
+        context: ToolExecutionContext
+    ): List<JsonObject> {
+        return try {
+            val workflowService: WorkflowService = WorkflowServiceImpl(
+                workflowConfigLoader = WorkflowConfigLoaderImpl(),
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                statusValidator = statusValidator
+            )
+            val ct = ContainerType.valueOf(containerType.uppercase())
+            val events = workflowService.detectCascadeEvents(containerId, ct)
+            events.map { ev ->
+                buildJsonObject {
+                    put("event", ev.event)
+                    put("targetType", ev.targetType.name.lowercase())
+                    put("targetId", ev.targetId.toString())
+                    put("suggestedStatus", ev.suggestedStatus)
+                    put("reason", ev.reason)
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to detect cascade events for $containerId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Finds downstream tasks that are now fully unblocked after a task completed/cancelled in bulk.
+     * A downstream task is "newly unblocked" when ALL of its incoming BLOCKS dependencies
+     * point to tasks that are COMPLETED or CANCELLED, and the downstream task itself is still active.
+     */
+    private suspend fun findBulkUnblockedTasks(
+        completedTaskId: UUID,
+        context: ToolExecutionContext
+    ): List<JsonObject> {
+        return try {
+            val outgoingDeps = context.dependencyRepository().findByFromTaskId(completedTaskId)
+            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
+
+            if (blocksDeps.isEmpty()) return emptyList()
+
+            val unblockedTasks = mutableListOf<JsonObject>()
+
+            for (dep in blocksDeps) {
+                val downstreamTaskId = dep.toTaskId
+                val downstreamTask = context.taskRepository().getById(downstreamTaskId).getOrNull() ?: continue
+                val downstreamStatus = downstreamTask.status.name.lowercase().replace('_', '-')
+                if (downstreamStatus in listOf("completed", "cancelled")) continue
+
+                val incomingDeps = context.dependencyRepository().findByToTaskId(downstreamTaskId)
+                val incomingBlockers = incomingDeps.filter { it.type == DependencyType.BLOCKS }
+
+                val allBlockersResolved = incomingBlockers.all { blocker ->
+                    val blockerTask = context.taskRepository().getById(blocker.fromTaskId).getOrNull()
+                    if (blockerTask != null) {
+                        val blockerStatus = blockerTask.status.name.lowercase().replace('_', '-')
+                        blockerStatus in listOf("completed", "cancelled")
+                    } else true
+                }
+
+                if (allBlockersResolved) {
+                    unblockedTasks.add(buildJsonObject {
+                        put("taskId", downstreamTaskId.toString())
+                        put("title", downstreamTask.title)
+                    })
+                }
+            }
+
+            unblockedTasks
+        } catch (e: Exception) {
+            logger.warn("Failed to find newly unblocked tasks for $completedTaskId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Result wrapper for bulk update methods that includes the previous status
+     * when a status change occurred, enabling cascade/unblock detection after update.
+     */
+    private data class BulkUpdateResult<T>(
+        val result: Result<T>,
+        val statusChanged: Boolean = false,
+        val previousStatus: String? = null,
+        val newStatus: String? = null,
+        val validationError: String? = null
+    )
 
     private suspend fun updateProjectBulk(
         containerParams: JsonObject,
         context: ToolExecutionContext,
         id: UUID
-    ): Result<Project> {
+    ): BulkUpdateResult<Project> {
         val existingResult = context.projectRepository().getById(id)
         val existing = when (existingResult) {
             is Result.Success -> existingResult.data
-            is Result.Error -> return existingResult
+            is Result.Error -> return BulkUpdateResult(existingResult)
         }
 
         val name = containerParams["name"]?.jsonPrimitive?.content ?: existing.name
@@ -1775,6 +2081,26 @@ Docs: task-orchestrator://docs/tools/manage-container
             else it.split(",").map { tag -> tag.trim() }.filter { tag -> tag.isNotEmpty() }
         } ?: existing.tags
 
+        // Validate status transition when status is being changed
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        if (statusStr != null && statusStr != currentStatusStr) {
+            val prerequisiteContext = StatusValidator.PrerequisiteContext(
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            val transitionValidation = statusValidator.validateTransition(
+                currentStatusStr, statusStr, "project", id, prerequisiteContext, existing.tags
+            )
+            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+                return BulkUpdateResult(
+                    result = Result.Error(RepositoryError.ValidationError(transitionValidation.reason)),
+                    validationError = transitionValidation.reason
+                )
+            }
+        }
+
         val updated = existing.update(
             name = name,
             description = description,
@@ -1783,18 +2109,24 @@ Docs: task-orchestrator://docs/tools/manage-container
             tags = tags
         )
 
-        return context.projectRepository().update(updated)
+        val statusChanged = statusStr != null && statusStr != currentStatusStr
+        return BulkUpdateResult(
+            result = context.projectRepository().update(updated),
+            statusChanged = statusChanged,
+            previousStatus = if (statusChanged) currentStatusStr else null,
+            newStatus = if (statusChanged) statusStr else null
+        )
     }
 
     private suspend fun updateFeatureBulk(
         containerParams: JsonObject,
         context: ToolExecutionContext,
         id: UUID
-    ): Result<Feature> {
+    ): BulkUpdateResult<Feature> {
         val existingResult = context.featureRepository().getById(id)
         val existing = when (existingResult) {
             is Result.Success -> existingResult.data
-            is Result.Error -> return existingResult
+            is Result.Error -> return BulkUpdateResult(existingResult)
         }
 
         val name = containerParams["name"]?.jsonPrimitive?.content ?: existing.name
@@ -1815,6 +2147,26 @@ Docs: task-orchestrator://docs/tools/manage-container
         val requiresVerification = containerParams["requiresVerification"]?.jsonPrimitive?.boolean
             ?: existing.requiresVerification
 
+        // Validate status transition when status is being changed
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        if (statusStr != null && statusStr != currentStatusStr) {
+            val prerequisiteContext = StatusValidator.PrerequisiteContext(
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            val transitionValidation = statusValidator.validateTransition(
+                currentStatusStr, statusStr, "feature", id, prerequisiteContext, existing.tags
+            )
+            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+                return BulkUpdateResult(
+                    result = Result.Error(RepositoryError.ValidationError(transitionValidation.reason)),
+                    validationError = transitionValidation.reason
+                )
+            }
+        }
+
         val updated = existing.update(
             name = name,
             description = description,
@@ -1826,18 +2178,24 @@ Docs: task-orchestrator://docs/tools/manage-container
             tags = tags
         )
 
-        return context.featureRepository().update(updated)
+        val statusChanged = statusStr != null && statusStr != currentStatusStr
+        return BulkUpdateResult(
+            result = context.featureRepository().update(updated),
+            statusChanged = statusChanged,
+            previousStatus = if (statusChanged) currentStatusStr else null,
+            newStatus = if (statusChanged) statusStr else null
+        )
     }
 
     private suspend fun updateTaskBulk(
         containerParams: JsonObject,
         context: ToolExecutionContext,
         id: UUID
-    ): Result<Task> {
+    ): BulkUpdateResult<Task> {
         val existingResult = context.taskRepository().getById(id)
         val existing = when (existingResult) {
             is Result.Success -> existingResult.data
-            is Result.Error -> return existingResult
+            is Result.Error -> return BulkUpdateResult(existingResult)
         }
 
         val title = containerParams["title"]?.jsonPrimitive?.content
@@ -1862,6 +2220,26 @@ Docs: task-orchestrator://docs/tools/manage-container
         val requiresVerification = containerParams["requiresVerification"]?.jsonPrimitive?.boolean
             ?: existing.requiresVerification
 
+        // Validate status transition when status is being changed
+        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+        if (statusStr != null && statusStr != currentStatusStr) {
+            val prerequisiteContext = StatusValidator.PrerequisiteContext(
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            val transitionValidation = statusValidator.validateTransition(
+                currentStatusStr, statusStr, "task", id, prerequisiteContext, existing.tags
+            )
+            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+                return BulkUpdateResult(
+                    result = Result.Error(RepositoryError.ValidationError(transitionValidation.reason)),
+                    validationError = transitionValidation.reason
+                )
+            }
+        }
+
         val updated = existing.copy(
             title = title,
             description = description,
@@ -1875,7 +2253,13 @@ Docs: task-orchestrator://docs/tools/manage-container
             modifiedAt = Instant.now()
         )
 
-        return context.taskRepository().update(updated)
+        val statusChanged = statusStr != null && statusStr != currentStatusStr
+        return BulkUpdateResult(
+            result = context.taskRepository().update(updated),
+            statusChanged = statusChanged,
+            previousStatus = if (statusChanged) currentStatusStr else null,
+            newStatus = if (statusChanged) statusStr else null
+        )
     }
 
     // ========== HELPER METHODS ==========
