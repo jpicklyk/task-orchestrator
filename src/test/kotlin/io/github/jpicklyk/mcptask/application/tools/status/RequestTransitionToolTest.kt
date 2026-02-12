@@ -84,7 +84,7 @@ class RequestTransitionToolTest {
     @Nested
     inner class ValidationTests {
         @Test
-        fun `should require containerId parameter`() {
+        fun `should require containerId parameter in legacy mode`() {
             val params = buildJsonObject {
                 put("containerType", "task")
                 put("trigger", "start")
@@ -170,6 +170,144 @@ class RequestTransitionToolTest {
                 put("summary", "Starting work on this task")
             }
 
+            assertDoesNotThrow { tool.validateParams(params) }
+        }
+    }
+
+    @Nested
+    inner class BatchValidationTests {
+        @Test
+        fun `should reject when both transitions and legacy params provided`() {
+            val params = buildJsonObject {
+                put("containerId", UUID.randomUUID().toString())
+                put("containerType", "task")
+                put("trigger", "start")
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should reject empty transitions array`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {})
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should validate each transition item - missing containerId`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerType", "task")  // missing containerId
+                        put("trigger", "complete")
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should validate each transition item - missing containerType`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("trigger", "complete")  // missing containerType
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should validate each transition item - missing trigger`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("containerType", "task")  // missing trigger
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should validate each transition item - invalid UUID`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", "not-a-uuid")
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should validate each transition item - invalid containerType`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("containerType", "invalid")
+                        put("trigger", "complete")
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should validate each transition item - blank trigger`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("containerType", "task")
+                        put("trigger", "   ")
+                    })
+                })
+            }
+            assertThrows<ToolValidationException> { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should accept valid transitions array`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                })
+            }
+            assertDoesNotThrow { tool.validateParams(params) }
+        }
+
+        @Test
+        fun `should accept valid transitions array with optional summary`() {
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", UUID.randomUUID().toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                        put("summary", "Finished implementation")
+                    })
+                })
+            }
             assertDoesNotThrow { tool.validateParams(params) }
         }
     }
@@ -713,6 +851,205 @@ class RequestTransitionToolTest {
             val data = result["data"]!!.jsonObject
             // Task B is already completed, should not appear in unblockedTasks
             assertNull(data["unblockedTasks"], "Already-completed downstream tasks should not be reported as unblocked")
+        }
+    }
+
+    @Nested
+    inner class BatchExecutionTests {
+        @Test
+        fun `should process batch transitions with mixed success and failure`() = runBlocking {
+            val taskA = createTask(taskId, "Task A", TaskStatus.PENDING)
+            val taskB = createTask(UUID.randomUUID(), "Task B", TaskStatus.IN_PROGRESS)
+
+            val taskBId = taskB.id
+
+            // Task A: successful completion
+            coEvery { mockTaskRepository.getById(taskId) } returnsMany listOf(
+                Result.Success(taskA),
+                Result.Success(taskA),
+                Result.Success(taskA)
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskId }) } returns Result.Success(taskA.copy(status = TaskStatus.COMPLETED))
+
+            // Task B: failed (not found)
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Error(
+                RepositoryError.NotFound(taskBId, EntityType.TASK, "Task not found")
+            )
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", taskId.toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                    add(buildJsonObject {
+                        put("containerId", taskBId.toString())
+                        put("containerType", "task")
+                        put("trigger", "start")
+                    })
+                })
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            val summary = data["summary"]!!.jsonObject
+            assertEquals(2, summary["total"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["succeeded"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+
+            val results = data["results"]!!.jsonArray
+            assertEquals(2, results.size)
+
+            // First result should be success
+            val firstResult = results[0].jsonObject
+            assertTrue(firstResult["applied"]!!.jsonPrimitive.boolean)
+
+            // Second result should be failure
+            val secondResult = results[1].jsonObject
+            assertFalse(secondResult["applied"]!!.jsonPrimitive.boolean)
+            assertTrue(secondResult.containsKey("error"))
+        }
+
+        private fun createTask(
+            id: UUID,
+            title: String,
+            status: TaskStatus = TaskStatus.IN_PROGRESS,
+            summary: String = "A".repeat(350)
+        ): Task = Task(
+            id = id,
+            title = title,
+            description = "Description",
+            summary = summary,
+            status = status,
+            priority = Priority.HIGH,
+            complexity = 5,
+            tags = listOf("backend"),
+            featureId = featureId,
+            projectId = projectId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+    }
+
+    @Nested
+    inner class EnrichedResponseTests {
+        @Test
+        fun `should include flow context in success response`() = runBlocking {
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow workflow"
+            )
+
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Mock getFlowPath for enriched response
+            every { mockStatusProgressionService.getFlowPath("task", any(), "pending") } returns
+                io.github.jpicklyk.mcptask.application.service.progression.FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                    currentPosition = 1,
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+
+            val updatedTask = pendingTask.copy(status = TaskStatus.IN_PROGRESS)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("pending", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify flow context
+            assertEquals("default_flow", data["activeFlow"]!!.jsonPrimitive.content)
+            val flowSequence = data["flowSequence"]!!.jsonArray
+            assertEquals(5, flowSequence.size)
+            assertEquals("pending", flowSequence[1].jsonPrimitive.content)
+            assertEquals(1, data["flowPosition"]!!.jsonPrimitive.int)
+        }
+
+        @Test
+        fun `should include flow context in error response for blocked transition`() = runBlocking {
+            val completedTask = pendingTask.copy(status = TaskStatus.COMPLETED)
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+
+            // Mock getNextStatus to return Terminal (completed is terminal)
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation.Terminal(
+                terminalStatus = "completed",
+                activeFlow = "default_flow",
+                reason = "Status 'completed' is terminal"
+            )
+
+            // Mock getFlowPath for error response enrichment
+            every { mockStatusProgressionService.getFlowPath("task", any(), "completed") } returns
+                io.github.jpicklyk.mcptask.application.service.progression.FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                    currentPosition = 4,
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+
+            // Error response puts additionalData inside the error object
+            val errorObj = result["error"]?.jsonObject
+            assertNotNull(errorObj)
+            val additionalData = errorObj!!["additionalData"]?.jsonObject
+            assertNotNull(additionalData)
+
+            // Verify flow context in error response
+            assertEquals("default_flow", additionalData!!["activeFlow"]!!.jsonPrimitive.content)
+            val flowSequence = additionalData["flowSequence"]!!.jsonArray
+            assertEquals(5, flowSequence.size)
+            assertEquals(4, additionalData["flowPosition"]!!.jsonPrimitive.int)
         }
     }
 }

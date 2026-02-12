@@ -171,16 +171,19 @@ The server exposes 13 MCP tools organized into categories:
 
 ### Status Progression
 - **`get_next_status`** - Read-only status progression recommendations based on workflow configuration. Returns role annotations (queue, work, review, blocked, terminal) for semantic context.
-- **`request_transition`** - Trigger-based status transitions with validation. Use named triggers (start, complete, cancel, block, hold) instead of raw status values.
+- **`request_transition`** - Trigger-based status transitions with validation. Use named triggers (start, complete, cancel, block, hold) instead of raw status values. Supports batch transitions via `transitions` array parameter. Responses include flow context (activeFlow, flowSequence, flowPosition).
 
 ### Status Management Workflow
 
 For status changes, use `request_transition` with named triggers:
 ```
 request_transition(containerId="uuid", containerType="task", trigger="start")
+
+# Batch transitions (multiple entities in one call)
+request_transition(transitions=[{containerId: "uuid1", containerType: "task", trigger: "complete"}, ...])
 ```
 
-For read-only recommendations before changing status:
+For read-only recommendations before changing status (optional, recommended for previewing):
 ```
 get_next_status(containerId="uuid", containerType="task")
 ```

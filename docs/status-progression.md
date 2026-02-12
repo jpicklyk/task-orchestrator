@@ -729,23 +729,230 @@ manage_container(operation="update", containerType="feature",
 - `env:production` - Production
 - `env:canary` - Canary deployment
 
+## Batch Transitions
+
+Task Orchestrator supports batch status transitions for completing multiple tasks in one call.
+
+### When to Use Batch Transitions
+
+**Use batch mode when:**
+- Completing multiple tasks simultaneously
+- Bulk-updating task statuses after a sprint
+- Programmatic workflows that need atomic validation
+
+**Benefits:**
+- Fewer API calls (1 call instead of N)
+- Aggregated cascade detection
+- Combined unblocked task identification
+- Atomic validation (all succeed or all fail)
+
+### Batch Transition Example
+
+**Scenario**: Complete 5 tasks that are all ready
+
+**Single mode (old way)**:
+```javascript
+// 5 separate calls
+request_transition(containerId="task-1", containerType="task", trigger="complete")
+request_transition(containerId="task-2", containerType="task", trigger="complete")
+request_transition(containerId="task-3", containerType="task", trigger="complete")
+request_transition(containerId="task-4", containerType="task", trigger="complete")
+request_transition(containerId="task-5", containerType="task", trigger="complete")
+```
+
+**Batch mode (new way)**:
+```javascript
+request_transition(
+  transitions=[
+    {containerId: "task-1", containerType: "task", trigger: "complete"},
+    {containerId: "task-2", containerType: "task", trigger: "complete"},
+    {containerId: "task-3", containerType: "task", trigger: "complete"},
+    {containerId: "task-4", containerType: "task", trigger: "complete"},
+    {containerId: "task-5", containerType: "task", trigger: "complete"}
+  ]
+)
+```
+
+### Batch Response Format
+
+**Response includes:**
+- `results` - Array of individual transition results
+- `totalSuccessful` - Count of successful transitions
+- `totalFailed` - Count of failed transitions
+- `cascadeEvents` - Aggregated parent entity advances
+- `aggregateUnblockedTasks` - All newly unblocked tasks (deduplicated)
+
+**Example response**:
+```json
+{
+  "success": true,
+  "message": "Completed 5 transitions",
+  "data": {
+    "results": [
+      {
+        "success": true,
+        "containerId": "task-1",
+        "newStatus": "completed",
+        "previousStatus": "testing",
+        "previousRole": "work",
+        "newRole": "terminal",
+        "activeFlow": "default_flow",
+        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowPosition": 4,
+        "unblockedTasks": []
+      },
+      // ... results for task-2, task-3, task-4
+      {
+        "success": true,
+        "containerId": "task-5",
+        "newStatus": "completed",
+        "previousStatus": "in-progress",
+        "previousRole": "work",
+        "newRole": "terminal",
+        "activeFlow": "default_flow",
+        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowPosition": 4,
+        "unblockedTasks": [
+          {
+            "taskId": "task-6-uuid",
+            "title": "Integration testing"
+          }
+        ]
+      }
+    ],
+    "totalSuccessful": 5,
+    "totalFailed": 0,
+    "cascadeEvents": [
+      {
+        "entityType": "feature",
+        "entityId": "feature-uuid",
+        "previousStatus": "in-development",
+        "newStatus": "testing",
+        "reason": "All child tasks completed"
+      }
+    ],
+    "aggregateUnblockedTasks": [
+      {
+        "taskId": "task-6-uuid",
+        "title": "Integration testing"
+      }
+    ]
+  }
+}
+```
+
+### Flow Context in Responses
+
+All transition responses now include flow context fields:
+
+**activeFlow**: The workflow flow name (e.g., "default_flow", "bug_fix_flow")
+
+**flowSequence**: Complete ordered list of statuses in the flow
+
+**flowPosition**: Current index in flowSequence (0-based)
+
+**Example - Using Flow Context**:
+```javascript
+// Task at "in-progress" in default_flow
+{
+  "activeFlow": "default_flow",
+  "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+  "flowPosition": 2
+}
+
+// Calculate progress
+const progress = (flowPosition / (flowSequence.length - 1)) * 100;
+// Result: 50% through workflow
+
+// Check next status
+const nextStatus = flowSequence[flowPosition + 1];
+// Result: "testing"
+
+// Check if near completion
+const isNearEnd = flowPosition >= flowSequence.length - 2;
+// Result: false (2 >= 3 is false)
+```
+
+### Partial Failures
+
+Batch transitions validate each transition independently. If some succeed and some fail, the response includes both:
+
+**Example - Mixed Results**:
+```json
+{
+  "success": false,
+  "message": "Completed 3 of 5 transitions",
+  "data": {
+    "results": [
+      {
+        "success": true,
+        "containerId": "task-1",
+        "newStatus": "completed"
+      },
+      {
+        "success": false,
+        "containerId": "task-2",
+        "error": {
+          "code": "PREREQUISITE_NOT_MET",
+          "message": "Task summary must be at most 500 characters (current: 50)"
+        }
+      },
+      {
+        "success": true,
+        "containerId": "task-3",
+        "newStatus": "completed"
+      },
+      {
+        "success": false,
+        "containerId": "task-4",
+        "error": {
+          "code": "BLOCKED",
+          "message": "Task has 1 incomplete blocking dependency"
+        }
+      },
+      {
+        "success": true,
+        "containerId": "task-5",
+        "newStatus": "completed"
+      }
+    ],
+    "totalSuccessful": 3,
+    "totalFailed": 2,
+    "cascadeEvents": [],
+    "aggregateUnblockedTasks": []
+  }
+}
+```
+
+### Batch Best Practices
+
+1. **Check prerequisites first**: Use `get_next_status` or task queries to verify readiness before batch transitions
+
+2. **Group by feature**: Batch tasks from the same feature to maximize cascade detection
+
+3. **Handle partial failures**: Check `totalFailed` and iterate through `results` to find failures
+
+4. **Act on cascades**: When `cascadeEvents` is non-empty, parent entities advanced automatically
+
+5. **Act on unblocked tasks**: Use `aggregateUnblockedTasks` to find newly available work
+
 ## Best Practices
 
-### 1. Always Check Readiness Before Transitions
+### 1. Use request_transition for Status Changes
 
 **Don't:**
 ```javascript
-// Blindly attempt transition
+// Use manage_container for status changes (skips validation)
 manage_container(operation="setStatus", status="completed")
-// Hope it works
 ```
 
 **Do:**
 ```javascript
-// Check first with Status Progression Skill or get_next_status
-recommendation = get_next_status(currentStatus="testing", containerType="task", tags=["bug"])
-// Verify prerequisites met
-// Then transition
+// Use request_transition for validation, cascade detection, and flow context
+request_transition(containerId="uuid", containerType="task", trigger="complete")
+
+// Response includes flow context and readiness validation
+// No need for get_next_status beforehand (optional for preview only)
 ```
 
 ### 2. Use Tag-Based Flows

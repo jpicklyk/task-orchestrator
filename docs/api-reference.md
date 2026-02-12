@@ -2143,6 +2143,328 @@ manage_container(operation="setStatus", containerType="task",
 
 ---
 
+### request_transition
+
+**Permission**: ✏️ WRITE
+
+**Purpose**: Trigger-based status transitions with validation and cascade detection
+
+**Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `containerId` | UUID | Varies | UUID of entity to transition (required for single mode, omit for batch) |
+| `containerType` | enum | Varies | Type: `task`, `feature`, or `project` (required for single mode, omit for batch) |
+| `trigger` | string | Varies | Named trigger: `start`, `complete`, `cancel`, `block`, `hold` (required for single mode, omit for batch) |
+| `transitions` | array | Varies | Array of transition objects for batch mode (required for batch, omit for single) |
+| `summary` | string | No | Optional note about why the transition is happening |
+
+**Trigger Types**:
+- `start` - Progress to next status in workflow flow
+- `complete` - Move to completed (validates prerequisites)
+- `cancel` - Move to cancelled (emergency transition)
+- `block` - Move to blocked (emergency transition)
+- `hold` - Move to on-hold (emergency transition)
+
+**Response Fields**:
+- `newStatus` - Status after transition
+- `previousStatus` - Status before transition
+- `previousRole` - Semantic role before transition (queue, work, review, blocked, terminal)
+- `newRole` - Semantic role after transition
+- `cascadeEvents` - Array of parent entities that were automatically advanced
+- `unblockedTasks` - Array of downstream tasks that are now fully unblocked (on task completion/cancellation)
+- `activeFlow` - Workflow flow name used for this transition
+- `flowSequence` - Complete status sequence for the active flow
+- `flowPosition` - Current position in the flow sequence (0-indexed)
+
+#### Single Transition Mode
+
+**Example - Start Work on Task**:
+```json
+{
+  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "containerType": "task",
+  "trigger": "start"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Transition successful",
+  "data": {
+    "newStatus": "in-progress",
+    "previousStatus": "pending",
+    "previousRole": "queue",
+    "newRole": "work",
+    "activeFlow": "default_flow",
+    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+    "flowPosition": 2,
+    "cascadeEvents": [],
+    "unblockedTasks": []
+  }
+}
+```
+
+**Example - Complete Task**:
+```json
+{
+  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "containerType": "task",
+  "trigger": "complete",
+  "summary": "Implemented OAuth 2.0 with JWT tokens"
+}
+```
+
+**Response (with unblocked tasks)**:
+```json
+{
+  "success": true,
+  "message": "Transition successful",
+  "data": {
+    "newStatus": "completed",
+    "previousStatus": "testing",
+    "previousRole": "work",
+    "newRole": "terminal",
+    "activeFlow": "default_flow",
+    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+    "flowPosition": 4,
+    "cascadeEvents": [],
+    "unblockedTasks": [
+      {
+        "taskId": "task-uuid-2",
+        "title": "Deploy authentication service"
+      }
+    ]
+  }
+}
+```
+
+#### Batch Transition Mode
+
+**Purpose**: Complete multiple tasks in one call for efficiency and atomic validation.
+
+**Example - Complete Multiple Tasks**:
+```json
+{
+  "transitions": [
+    {
+      "containerId": "task-1-uuid",
+      "containerType": "task",
+      "trigger": "complete"
+    },
+    {
+      "containerId": "task-2-uuid",
+      "containerType": "task",
+      "trigger": "complete"
+    },
+    {
+      "containerId": "task-3-uuid",
+      "containerType": "task",
+      "trigger": "complete"
+    }
+  ]
+}
+```
+
+**Batch Response**:
+```json
+{
+  "success": true,
+  "message": "Completed 3 transitions",
+  "data": {
+    "results": [
+      {
+        "success": true,
+        "containerId": "task-1-uuid",
+        "newStatus": "completed",
+        "previousStatus": "testing",
+        "previousRole": "work",
+        "newRole": "terminal",
+        "activeFlow": "default_flow",
+        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowPosition": 4,
+        "unblockedTasks": []
+      },
+      {
+        "success": true,
+        "containerId": "task-2-uuid",
+        "newStatus": "completed",
+        "previousStatus": "in-progress",
+        "previousRole": "work",
+        "newRole": "terminal",
+        "activeFlow": "default_flow",
+        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowPosition": 4,
+        "unblockedTasks": [
+          {
+            "taskId": "task-5-uuid",
+            "title": "Integration testing"
+          }
+        ]
+      },
+      {
+        "success": true,
+        "containerId": "task-3-uuid",
+        "newStatus": "completed",
+        "previousStatus": "testing",
+        "previousRole": "work",
+        "newRole": "terminal",
+        "activeFlow": "bug_fix_flow",
+        "flowSequence": ["pending", "in-progress", "testing", "completed"],
+        "flowPosition": 3,
+        "unblockedTasks": []
+      }
+    ],
+    "totalSuccessful": 3,
+    "totalFailed": 0,
+    "cascadeEvents": [
+      {
+        "entityType": "feature",
+        "entityId": "feature-uuid",
+        "previousStatus": "in-development",
+        "newStatus": "testing",
+        "reason": "All child tasks completed"
+      }
+    ],
+    "aggregateUnblockedTasks": [
+      {
+        "taskId": "task-5-uuid",
+        "title": "Integration testing"
+      }
+    ]
+  }
+}
+```
+
+#### Flow Context Fields
+
+**activeFlow**: The workflow flow name that was applied (e.g., "default_flow", "bug_fix_flow", "documentation_flow")
+
+**flowSequence**: Complete ordered list of statuses in the active flow
+
+**flowPosition**: Current index in flowSequence (0-based). Useful for progress visualization.
+
+**Example - Using Flow Context**:
+```javascript
+// Response indicates position in flow
+{
+  "activeFlow": "default_flow",
+  "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+  "flowPosition": 2  // Currently at "in-progress" (index 2)
+}
+
+// Calculate progress percentage
+const progress = (flowPosition / (flowSequence.length - 1)) * 100;
+// Result: (2 / 4) * 100 = 50% through workflow
+```
+
+#### Validation and Prerequisites
+
+`request_transition` automatically validates:
+1. **Status transition rules** - Checks workflow configuration (sequential, backward, emergency)
+2. **Prerequisites** - Verifies completion requirements (summary, dependencies, child entities)
+3. **Trigger mapping** - Maps trigger to appropriate target status based on flow
+
+**Example - Blocked by Prerequisite**:
+```json
+{
+  "containerId": "task-uuid",
+  "containerType": "task",
+  "trigger": "complete"
+}
+```
+
+**Response (validation failure)**:
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "error": {
+    "code": "PREREQUISITE_NOT_MET",
+    "message": "Task summary must be at most 500 characters (current: 50)",
+    "suggestions": [
+      "Update task summary with completion details",
+      "Call manage_container(operation='update', summary='...')"
+    ]
+  }
+}
+```
+
+#### Cascade Detection
+
+When a task or feature completes, `request_transition` checks if parent entities should automatically advance:
+
+**Feature Cascade Example**:
+```
+Task completes → All sibling tasks terminal → Feature auto-advances to "testing"
+```
+
+**Response with cascade**:
+```json
+{
+  "success": true,
+  "data": {
+    "newStatus": "completed",
+    "cascadeEvents": [
+      {
+        "entityType": "feature",
+        "entityId": "feature-uuid",
+        "previousStatus": "in-development",
+        "newStatus": "testing",
+        "reason": "All child tasks completed"
+      }
+    ]
+  }
+}
+```
+
+#### Unblocked Tasks
+
+When a task completes or is cancelled, `request_transition` identifies downstream tasks that are now fully unblocked:
+
+**Response with unblocked tasks**:
+```json
+{
+  "success": true,
+  "data": {
+    "newStatus": "completed",
+    "unblockedTasks": [
+      {
+        "taskId": "downstream-task-uuid",
+        "title": "Deploy to production"
+      }
+    ]
+  }
+}
+```
+
+#### Usage Notes
+
+1. **Prefer request_transition over manage_container**: Always use `request_transition` for status changes to get cascade detection, validation, and unblocked task identification.
+
+2. **No need for get_next_status**: The tool includes readiness context in responses. `get_next_status` is optional for previewing before transitions.
+
+3. **Batch for efficiency**: Use batch mode when completing multiple tasks to reduce API calls and get aggregated cascade/unblocked task data.
+
+4. **Act on cascades**: Check `cascadeEvents` in responses and decide if further parent progression is needed.
+
+5. **Act on unblocked tasks**: Check `unblockedTasks` to find newly available work.
+
+#### Related Tools
+
+- `get_next_status` - Optional read-only preview of what transition would do
+- `manage_container` - Low-level status change (skips validation and cascade detection)
+- `get_blocked_tasks` - Find tasks blocked by dependencies
+
+#### Additional Resources
+
+- **[Status Progression Guide](status-progression.md)** - Comprehensive workflow examples
+- **[Workflow Configuration](../src/main/resources/configuration/default-config.yaml)** - Flow definitions
+
+---
+
 ## Permission Model
 
 ### Read vs Write Separation
