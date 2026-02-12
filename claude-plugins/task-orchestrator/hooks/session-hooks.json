@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-planning.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre-planning.sh",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/post-planning.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post-planning.sh",
             "timeout": 5
           }
         ]
