@@ -1781,4 +1781,524 @@ class ManageContainerToolTest {
             assertTrue(summary.contains("task"))
         }
     }
+
+    // ========== FORCE-DELETE CASCADE TESTS ==========
+
+    @Nested
+    inner class ForceDeleteCascadeTests {
+
+        @Test
+        fun `should force-delete feature with child tasks`() = runBlocking {
+            val fId = UUID.randomUUID()
+            val task1Id = UUID.randomUUID()
+            val task2Id = UUID.randomUUID()
+
+            val feature = Feature(
+                id = fId,
+                name = "Feature With Tasks",
+                summary = "test",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.MEDIUM
+            )
+            val task1 = Task(
+                id = task1Id,
+                title = "Task 1",
+                summary = "summary",
+                status = TaskStatus.PENDING,
+                priority = Priority.HIGH,
+                complexity = 3,
+                featureId = fId
+            )
+            val task2 = Task(
+                id = task2Id,
+                title = "Task 2",
+                summary = "summary",
+                status = TaskStatus.PENDING,
+                priority = Priority.MEDIUM,
+                complexity = 5,
+                featureId = fId
+            )
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "feature")
+                put("id", fId.toString())
+                put("force", true)
+            }
+
+            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task1, task2))
+
+            // Task cascade: dependencies -> sections -> task
+            every { mockDependencyRepository.deleteByTaskId(task1Id) } returns 0
+            every { mockDependencyRepository.deleteByTaskId(task2Id) } returns 0
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task1Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task2Id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(task1Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
+
+            // Feature sections (deleteSections defaults to true)
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(emptyList())
+            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(2, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should force-delete feature with tasks that have dependencies`() = runBlocking {
+            val fId = UUID.randomUUID()
+            val task1Id = UUID.randomUUID()
+            val task2Id = UUID.randomUUID()
+            val task3Id = UUID.randomUUID()
+
+            val feature = Feature(
+                id = fId,
+                name = "Feature With Deps",
+                summary = "test",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.HIGH
+            )
+            val task1 = Task(id = task1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
+            val task2 = Task(id = task2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
+            val task3 = Task(id = task3Id, title = "Task 3", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "feature")
+                put("id", fId.toString())
+                put("force", true)
+            }
+
+            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task1, task2, task3))
+
+            // task1 BLOCKS task2, task2 BLOCKS task3 -> deleteByTaskId returns count of deps deleted
+            every { mockDependencyRepository.deleteByTaskId(task1Id) } returns 1
+            every { mockDependencyRepository.deleteByTaskId(task2Id) } returns 2 // one incoming from task1, one outgoing to task3
+            every { mockDependencyRepository.deleteByTaskId(task3Id) } returns 1
+
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task1Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task2Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task3Id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(task1Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(task3Id) } returns Result.Success(true)
+
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(emptyList())
+            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(3, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+            // Sum of all deleteByTaskId returns: 1 + 2 + 1 = 4
+            assertTrue(data["taskDependenciesDeleted"]!!.jsonPrimitive.int >= 2,
+                "Expected at least 2 task dependencies deleted, got ${data["taskDependenciesDeleted"]!!.jsonPrimitive.int}")
+        }
+
+        @Test
+        fun `should force-delete feature with tasks that have sections`() = runBlocking {
+            val fId = UUID.randomUUID()
+            val task1Id = UUID.randomUUID()
+            val task2Id = UUID.randomUUID()
+
+            val feature = Feature(
+                id = fId,
+                name = "Feature With Sections",
+                summary = "test",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.MEDIUM
+            )
+            val task1 = Task(id = task1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
+            val task2 = Task(id = task2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, featureId = fId)
+
+            val featureSectionId = UUID.randomUUID()
+            val featureSection = Section(
+                id = featureSectionId,
+                entityType = EntityType.FEATURE,
+                entityId = fId,
+                title = "Feature Section",
+                usageDescription = "desc",
+                content = "content",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 0
+            )
+
+            val task1SectionId = UUID.randomUUID()
+            val task1Section = Section(
+                id = task1SectionId,
+                entityType = EntityType.TASK,
+                entityId = task1Id,
+                title = "Task1 Section",
+                usageDescription = "desc",
+                content = "content",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 0
+            )
+
+            val task2SectionId = UUID.randomUUID()
+            val task2Section = Section(
+                id = task2SectionId,
+                entityType = EntityType.TASK,
+                entityId = task2Id,
+                title = "Task2 Section",
+                usageDescription = "desc",
+                content = "content",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 0
+            )
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "feature")
+                put("id", fId.toString())
+                put("force", true)
+                put("deleteSections", true)
+            }
+
+            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task1, task2))
+
+            every { mockDependencyRepository.deleteByTaskId(task1Id) } returns 0
+            every { mockDependencyRepository.deleteByTaskId(task2Id) } returns 0
+
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task1Id) } returns Result.Success(listOf(task1Section))
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task2Id) } returns Result.Success(listOf(task2Section))
+            coEvery { mockSectionRepository.deleteSection(task1SectionId) } returns Result.Success(true)
+            coEvery { mockSectionRepository.deleteSection(task2SectionId) } returns Result.Success(true)
+
+            coEvery { mockTaskRepository.delete(task1Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
+
+            // Feature's own sections
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(listOf(featureSection))
+            coEvery { mockSectionRepository.deleteSection(featureSectionId) } returns Result.Success(true)
+
+            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(2, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+            assertEquals(2, data["taskSectionsDeleted"]?.jsonPrimitive?.int)
+            // Feature's own sections are controlled by deleteSections param
+            assertTrue(data["sectionsDeleted"]!!.jsonPrimitive.int >= 1,
+                "Expected at least 1 feature section deleted")
+        }
+
+        @Test
+        fun `should force-delete project with features and tasks`() = runBlocking {
+            val pId = UUID.randomUUID()
+            val f1Id = UUID.randomUUID()
+            val f2Id = UUID.randomUUID()
+            val t1Id = UUID.randomUUID()
+            val t2Id = UUID.randomUUID()
+            val t3Id = UUID.randomUUID()
+
+            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
+            val feature1 = Feature(id = f1Id, name = "Feature 1", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.HIGH, projectId = pId)
+            val feature2 = Feature(id = f2Id, name = "Feature 2", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.MEDIUM, projectId = pId)
+            val task1 = Task(id = t1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = f1Id, projectId = pId)
+            val task2 = Task(id = t2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, featureId = f1Id, projectId = pId)
+            val task3 = Task(id = t3Id, title = "Task 3", summary = "s", status = TaskStatus.PENDING, priority = Priority.LOW, complexity = 2, featureId = f2Id, projectId = pId)
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "project")
+                put("id", pId.toString())
+                put("force", true)
+            }
+
+            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
+            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(listOf(feature1, feature2))
+            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task1, task2, task3))
+
+            // Task cascade
+            every { mockDependencyRepository.deleteByTaskId(t1Id) } returns 0
+            every { mockDependencyRepository.deleteByTaskId(t2Id) } returns 0
+            every { mockDependencyRepository.deleteByTaskId(t3Id) } returns 0
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t1Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t2Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t3Id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(t1Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(t2Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(t3Id) } returns Result.Success(true)
+
+            // Feature cascade
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, f1Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, f2Id) } returns Result.Success(emptyList())
+            coEvery { mockFeatureRepository.delete(f1Id) } returns Result.Success(true)
+            coEvery { mockFeatureRepository.delete(f2Id) } returns Result.Success(true)
+
+            // Project sections
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, pId) } returns Result.Success(emptyList())
+            coEvery { mockProjectRepository.delete(pId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(2, data!!["featuresDeleted"]?.jsonPrimitive?.int)
+            assertEquals(3, data["tasksDeleted"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should force-delete project with standalone tasks and no features`() = runBlocking {
+            val pId = UUID.randomUUID()
+            val t1Id = UUID.randomUUID()
+            val t2Id = UUID.randomUUID()
+            val t3Id = UUID.randomUUID()
+
+            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
+            val task1 = Task(id = t1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, projectId = pId)
+            val task2 = Task(id = t2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, projectId = pId)
+            val task3 = Task(id = t3Id, title = "Task 3", summary = "s", status = TaskStatus.PENDING, priority = Priority.LOW, complexity = 2, projectId = pId)
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "project")
+                put("id", pId.toString())
+                put("force", true)
+            }
+
+            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
+            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task1, task2, task3))
+
+            // Task cascade
+            every { mockDependencyRepository.deleteByTaskId(t1Id) } returns 0
+            every { mockDependencyRepository.deleteByTaskId(t2Id) } returns 0
+            every { mockDependencyRepository.deleteByTaskId(t3Id) } returns 0
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t1Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t2Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t3Id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(t1Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(t2Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(t3Id) } returns Result.Success(true)
+
+            // Project sections
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, pId) } returns Result.Success(emptyList())
+            coEvery { mockProjectRepository.delete(pId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(3, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+            assertEquals(0, data["featuresDeleted"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should force-delete project with features tasks and dependencies`() = runBlocking {
+            val pId = UUID.randomUUID()
+            val fId = UUID.randomUUID()
+            val t1Id = UUID.randomUUID()
+            val t2Id = UUID.randomUUID()
+            val t3Id = UUID.randomUUID() // standalone task (no feature)
+
+            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
+            val feature = Feature(id = fId, name = "Feature 1", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.HIGH, projectId = pId)
+            val task1 = Task(id = t1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId, projectId = pId)
+            val task2 = Task(id = t2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, featureId = fId, projectId = pId)
+            val task3 = Task(id = t3Id, title = "Standalone Task", summary = "s", status = TaskStatus.PENDING, priority = Priority.LOW, complexity = 2, projectId = pId)
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "project")
+                put("id", pId.toString())
+                put("force", true)
+            }
+
+            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
+            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(listOf(feature))
+            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task1, task2, task3))
+
+            // Task cascade: t1 blocks t2, t3 depends on t1
+            every { mockDependencyRepository.deleteByTaskId(t1Id) } returns 2 // outgoing to t2 and t3
+            every { mockDependencyRepository.deleteByTaskId(t2Id) } returns 1 // incoming from t1
+            every { mockDependencyRepository.deleteByTaskId(t3Id) } returns 1 // incoming from t1
+
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t1Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t2Id) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t3Id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(t1Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(t2Id) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(t3Id) } returns Result.Success(true)
+
+            // Feature cascade
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(emptyList())
+            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+
+            // Project sections
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, pId) } returns Result.Success(emptyList())
+            coEvery { mockProjectRepository.delete(pId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(3, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+            assertEquals(1, data["featuresDeleted"]?.jsonPrimitive?.int)
+            assertTrue(data["taskDependenciesDeleted"]!!.jsonPrimitive.int >= 2,
+                "Expected at least 2 task dependencies deleted, got ${data["taskDependenciesDeleted"]!!.jsonPrimitive.int}")
+        }
+
+        @Test
+        fun `should return error when deleting feature without force and tasks exist`() = runBlocking {
+            val fId = UUID.randomUUID()
+            val tId = UUID.randomUUID()
+
+            val feature = Feature(
+                id = fId,
+                name = "Feature With Task",
+                summary = "test",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.MEDIUM
+            )
+            val task = Task(id = tId, title = "Child Task", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "feature")
+                put("id", fId.toString())
+                // force defaults to false
+            }
+
+            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task))
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot delete feature with existing tasks") == true,
+                "Expected error about existing tasks but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+        }
+
+        @Test
+        fun `should return error when deleting project without force and children exist`() = runBlocking {
+            val pId = UUID.randomUUID()
+            val fId = UUID.randomUUID()
+            val tId = UUID.randomUUID()
+
+            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
+            val feature = Feature(id = fId, name = "Feature", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.HIGH, projectId = pId)
+            val task = Task(id = tId, title = "Task", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId, projectId = pId)
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "project")
+                put("id", pId.toString())
+                // force defaults to false
+            }
+
+            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
+            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(listOf(feature))
+            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task))
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot delete project with existing features or tasks") == true,
+                "Expected error about existing features/tasks but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+        }
+
+        @Test
+        fun `should force-delete feature with deleteSections false preserves feature sections but deletes task sections`() = runBlocking {
+            val fId = UUID.randomUUID()
+            val tId = UUID.randomUUID()
+
+            val feature = Feature(
+                id = fId,
+                name = "Feature",
+                summary = "test",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.MEDIUM
+            )
+            val task = Task(id = tId, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
+
+            val featureSectionId = UUID.randomUUID()
+            val featureSection = Section(
+                id = featureSectionId,
+                entityType = EntityType.FEATURE,
+                entityId = fId,
+                title = "Feature Section",
+                usageDescription = "desc",
+                content = "content",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 0
+            )
+
+            val taskSectionId = UUID.randomUUID()
+            val taskSection = Section(
+                id = taskSectionId,
+                entityType = EntityType.TASK,
+                entityId = tId,
+                title = "Task Section",
+                usageDescription = "desc",
+                content = "content",
+                contentFormat = ContentFormat.MARKDOWN,
+                ordinal = 0
+            )
+
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "feature")
+                put("id", fId.toString())
+                put("force", true)
+                put("deleteSections", false)
+            }
+
+            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task))
+
+            // Task cascade: dependencies -> sections -> task
+            // Task sections are always deleted during cascade regardless of deleteSections
+            every { mockDependencyRepository.deleteByTaskId(tId) } returns 0
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, tId) } returns Result.Success(listOf(taskSection))
+            coEvery { mockSectionRepository.deleteSection(taskSectionId) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(tId) } returns Result.Success(true)
+
+            // Feature sections: with deleteSections=false, feature's own sections should NOT be fetched/deleted
+            // The code only calls getSectionsForEntity for the feature if deleteSections is true
+            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+            val resultObj = result.jsonObject
+
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
+                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val data = resultObj["data"]?.jsonObject
+            assertNotNull(data)
+            assertEquals(1, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+            assertEquals(1, data["taskSectionsDeleted"]?.jsonPrimitive?.int)
+            // Feature's own sections should NOT be deleted since deleteSections=false
+            assertEquals(0, data["sectionsDeleted"]?.jsonPrimitive?.int)
+        }
+    }
 }

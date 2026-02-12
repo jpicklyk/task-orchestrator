@@ -1177,7 +1177,52 @@ Docs: task-orchestrator://docs/tools/manage-container
             )
         }
 
-        // Delete sections if requested
+        // When force=true, cascade-delete all child entities in FK-safe order
+        var taskDependenciesDeleted = 0
+        var taskSectionsDeleted = 0
+        var tasksDeletedCount = 0
+        var featureSectionsDeleted = 0
+        var featuresDeletedCount = 0
+
+        if (tasks.isNotEmpty() || features.isNotEmpty()) {
+            // 1. Delete all tasks first (dependencies → sections → task)
+            for (task in tasks) {
+                taskDependenciesDeleted += context.dependencyRepository().deleteByTaskId(task.id)
+
+                // Always delete task sections during cascade (child is being removed entirely)
+                val taskSections = context.sectionRepository().getSectionsForEntity(EntityType.TASK, task.id)
+                if (taskSections is Result.Success) {
+                    taskSectionsDeleted += taskSections.data.size
+                    taskSections.data.forEach { section ->
+                        context.sectionRepository().deleteSection(section.id)
+                    }
+                }
+
+                when (context.taskRepository().delete(task.id)) {
+                    is Result.Success -> tasksDeletedCount++
+                    is Result.Error -> { /* task deletion failed, continue with remaining */ }
+                }
+            }
+
+            // 2. Delete all features (feature sections → feature)
+            for (feature in features) {
+                // Always delete feature sections during cascade (child is being removed entirely)
+                val featureSections = context.sectionRepository().getSectionsForEntity(EntityType.FEATURE, feature.id)
+                if (featureSections is Result.Success) {
+                    featureSectionsDeleted += featureSections.data.size
+                    featureSections.data.forEach { section ->
+                        context.sectionRepository().deleteSection(section.id)
+                    }
+                }
+
+                when (context.featureRepository().delete(feature.id)) {
+                    is Result.Success -> featuresDeletedCount++
+                    is Result.Error -> { /* feature deletion failed, continue with remaining */ }
+                }
+            }
+        }
+
+        // Delete project's own sections if requested
         var sectionsDeleted = 0
         if (deleteSections) {
             val sectionsResult = context.sectionRepository().getSectionsForEntity(EntityType.PROJECT, id)
@@ -1192,8 +1237,8 @@ Docs: task-orchestrator://docs/tools/manage-container
         // Delete the project
         return handleRepositoryResult(
             context.projectRepository().delete(id),
-            if (features.isNotEmpty() || tasks.isNotEmpty()) {
-                "Project deleted with ${features.size} features and ${tasks.size} tasks"
+            if (tasksDeletedCount > 0 || featuresDeletedCount > 0) {
+                "Project deleted with $featuresDeletedCount features, $tasksDeletedCount tasks, $taskSectionsDeleted task sections, $featureSectionsDeleted feature sections, and $taskDependenciesDeleted task dependencies"
             } else {
                 "Project deleted successfully"
             }
@@ -1202,10 +1247,11 @@ Docs: task-orchestrator://docs/tools/manage-container
                 put("id", id.toString())
                 put("deleted", true)
                 put("sectionsDeleted", sectionsDeleted)
-                if (features.isNotEmpty() || tasks.isNotEmpty()) {
-                    put("featuresDeleted", features.size)
-                    put("tasksDeleted", tasks.size)
-                }
+                put("featuresDeleted", featuresDeletedCount)
+                put("featureSectionsDeleted", featureSectionsDeleted)
+                put("tasksDeleted", tasksDeletedCount)
+                put("taskSectionsDeleted", taskSectionsDeleted)
+                put("taskDependenciesDeleted", taskDependenciesDeleted)
             }
         }
     }
@@ -1243,7 +1289,34 @@ Docs: task-orchestrator://docs/tools/manage-container
             )
         }
 
-        // Delete sections if requested
+        // When force=true and tasks exist, cascade-delete child tasks
+        var taskDependenciesDeleted = 0
+        var taskSectionsDeleted = 0
+        var tasksDeleted = 0
+
+        if (tasks.isNotEmpty()) {
+            for (task in tasks) {
+                // 1. Delete task dependencies first
+                taskDependenciesDeleted += context.dependencyRepository().deleteByTaskId(task.id)
+
+                // 2. Always delete task sections during cascade (child is being removed entirely)
+                val taskSections = context.sectionRepository().getSectionsForEntity(EntityType.TASK, task.id)
+                if (taskSections is Result.Success) {
+                    taskSectionsDeleted += taskSections.data.size
+                    taskSections.data.forEach { section ->
+                        context.sectionRepository().deleteSection(section.id)
+                    }
+                }
+
+                // 3. Delete the task
+                when (context.taskRepository().delete(task.id)) {
+                    is Result.Success -> tasksDeleted++
+                    is Result.Error -> { /* task deletion failed, continue with remaining */ }
+                }
+            }
+        }
+
+        // Delete feature's own sections if requested
         var sectionsDeleted = 0
         if (deleteSections) {
             val sectionsResult = context.sectionRepository().getSectionsForEntity(EntityType.FEATURE, id)
@@ -1258,8 +1331,8 @@ Docs: task-orchestrator://docs/tools/manage-container
         // Delete the feature
         return handleRepositoryResult(
             context.featureRepository().delete(id),
-            if (tasks.isNotEmpty()) {
-                "Feature deleted with ${tasks.size} tasks"
+            if (tasksDeleted > 0) {
+                "Feature deleted with $tasksDeleted tasks, $taskSectionsDeleted task sections, and $taskDependenciesDeleted task dependencies"
             } else {
                 "Feature deleted successfully"
             }
@@ -1268,9 +1341,9 @@ Docs: task-orchestrator://docs/tools/manage-container
                 put("id", id.toString())
                 put("deleted", true)
                 put("sectionsDeleted", sectionsDeleted)
-                if (tasks.isNotEmpty()) {
-                    put("tasksDeleted", tasks.size)
-                }
+                put("tasksDeleted", tasksDeleted)
+                put("taskSectionsDeleted", taskSectionsDeleted)
+                put("taskDependenciesDeleted", taskDependenciesDeleted)
             }
         }
     }
