@@ -1,4 +1,6 @@
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.infrastructure.shutdown.SignalHandler
 import io.github.jpicklyk.mcptask.interfaces.mcp.McpServer
 import org.slf4j.LoggerFactory
 import kotlin.system.exitProcess
@@ -43,12 +45,28 @@ fun main(args: Array<String>) {
             exitProcess(0)
         }
 
-        // Create and run the MCP server
-        val mcpServer = McpServer(VersionInfo.VERSION)
+        // Create shutdown coordinator
+        val coordinator = ShutdownCoordinator()
+
+        // Install OS signal handlers (SIGTERM, SIGINT)
+        SignalHandler.install(coordinator)
+
+        // Register JVM shutdown hook as fallback
+        Runtime.getRuntime().addShutdownHook(Thread {
+            coordinator.initiateShutdown("JVM shutdown hook")
+            coordinator.awaitCompletion(5000)
+        })
+
+        // Create and run the MCP server (blocks until server closes)
+        val mcpServer = McpServer(VersionInfo.VERSION, coordinator)
         mcpServer.run()
+
+        logger.info("Main function exiting normally")
     } catch (e: Exception) {
         logger.error("Error in MCP Task Orchestrator", e)
-        exitProcess(1)
+        // Don't use exitProcess(1) — it bypasses shutdown hooks.
+        // Throwing from main() will cause the JVM to exit with code 1.
+        throw e
     }
 }
 

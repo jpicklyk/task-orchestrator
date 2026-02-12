@@ -68,6 +68,9 @@ ENV USE_FLYWAY=true
 # Switch to non-root user
 USER appuser
 
+# Signal Docker to send SIGTERM for graceful shutdown
+STOPSIGNAL SIGTERM
+
 # Run the MCP server
 # --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+
 CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]

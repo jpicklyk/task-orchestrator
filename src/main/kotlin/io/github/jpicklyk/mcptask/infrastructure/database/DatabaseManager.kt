@@ -125,10 +125,14 @@ class DatabaseManager(
         try {
             logger.info("Shutting down database connection...")
 
-            // Release database reference
+            val db = database
+            if (db != null) {
+                TransactionManager.closeAndUnregister(db)
+                logger.info("Database connection closed and unregistered")
+            }
             database = null
 
-            logger.info("Database connection released")
+            logger.info("Database shutdown complete")
         } catch (e: Exception) {
             logger.error("Error shutting down database", e)
         }

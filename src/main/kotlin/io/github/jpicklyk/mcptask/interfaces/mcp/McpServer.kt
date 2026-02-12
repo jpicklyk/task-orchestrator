@@ -23,6 +23,7 @@ import io.github.jpicklyk.mcptask.application.tools.template.ManageTemplateTool
 import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.interfaces.mcp.McpServerAiGuidance.configureAiGuidance
 import io.github.jpicklyk.mcptask.interfaces.mcp.MarkdownResourceProvider.configureMarkdownResources
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
@@ -43,13 +44,15 @@ import org.slf4j.LoggerFactory
  * This class acts as an adapter between the MCP protocol and the application layer.
  */
 class McpServer(
-    private val version: String
+    private val version: String,
+    private val shutdownCoordinator: ShutdownCoordinator? = null
 ) {
     private val logger = LoggerFactory.getLogger(McpServer::class.java)
     private val databaseManager = DatabaseManager()
     private lateinit var repositoryProvider: RepositoryProvider
     private lateinit var toolExecutionContext: ToolExecutionContext
     private val toolAdapter = McpToolAdapter()
+    private var mcpSdkServer: Server? = null
     private lateinit var templateInitializer: TemplateInitializer
     private lateinit var statusValidator: StatusValidator
     private lateinit var statusProgressionService: StatusProgressionService
@@ -82,6 +85,7 @@ class McpServer(
 
         // Configure the server
         val server = configureServer()
+        mcpSdkServer = server
 
         // Set up transport (currently only stdio is supported)
         val transportType = System.getenv("MCP_TRANSPORT") ?: "stdio"
@@ -99,14 +103,24 @@ class McpServer(
             outputStream = System.out.asSink().buffered()
         )
 
+        // Register cleanup actions with coordinator if present
+        shutdownCoordinator?.addCleanupAction("Close MCP Server") {
+            runBlocking { server.close() }
+        }
+        shutdownCoordinator?.addCleanupAction("Close Database") {
+            databaseManager.shutdown()
+        }
+
         // Connect to the transport
         val done = Job()
         server.onClose {
             logger.info("Server closed")
             done.complete()
 
-            // Close the database connection when the server closes
-            databaseManager.shutdown()
+            // If no coordinator, fall back to direct database shutdown
+            if (shutdownCoordinator == null) {
+                databaseManager.shutdown()
+            }
         }
 
         try {
@@ -118,6 +132,13 @@ class McpServer(
         }
 
         logger.info("MCP server shut down")
+    }
+
+    /**
+     * Closes the MCP server. Can be called from external shutdown triggers.
+     */
+    suspend fun close() {
+        mcpSdkServer?.close()
     }
 
     /**

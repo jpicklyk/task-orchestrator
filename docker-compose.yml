@@ -21,6 +21,7 @@ services:
         max-file: "3"
     restart: unless-stopped
     stdin_open: true
+    stop_grace_period: 10s
     deploy:
       resources:
         limits:
