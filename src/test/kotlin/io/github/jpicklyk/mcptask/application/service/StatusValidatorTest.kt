@@ -830,6 +830,162 @@ class StatusValidatorTest {
         assertTrue(invalid.reason.contains("must have features"))
     }
 
+    // ========== CANCELLED-AS-TERMINAL TESTS ==========
+
+    @Test
+    fun `prerequisite - feature COMPLETED allows mix of completed and cancelled tasks`() = runBlocking {
+        val featureId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val mixedTasks = listOf(
+            createMockTask(UUID.randomUUID(), "Task 1", TaskStatus.COMPLETED),
+            createMockTask(UUID.randomUUID(), "Task 2", TaskStatus.CANCELLED),
+            createMockTask(UUID.randomUUID(), "Task 3", TaskStatus.COMPLETED)
+        )
+
+        coEvery { mockTaskRepo.findByFeature(featureId, null, null, 1000) } returns Result.Success(mixedTasks)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(featureId, "completed", "feature", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Feature with completed and cancelled tasks should be allowed to complete")
+    }
+
+    @Test
+    fun `prerequisite - feature TESTING allows mix of completed and cancelled tasks`() = runBlocking {
+        val featureId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val mixedTasks = listOf(
+            createMockTask(UUID.randomUUID(), "Task 1", TaskStatus.COMPLETED),
+            createMockTask(UUID.randomUUID(), "Task 2", TaskStatus.CANCELLED)
+        )
+
+        coEvery { mockTaskRepo.findByFeature(featureId, null, null, 1000) } returns Result.Success(mixedTasks)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(featureId, "testing", "feature", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Feature with completed and cancelled tasks should be allowed to transition to testing")
+    }
+
+    @Test
+    fun `prerequisite - feature COMPLETED still blocks with in-progress tasks alongside cancelled`() = runBlocking {
+        val featureId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val mixedTasks = listOf(
+            createMockTask(UUID.randomUUID(), "Task 1", TaskStatus.COMPLETED),
+            createMockTask(UUID.randomUUID(), "Task 2", TaskStatus.CANCELLED),
+            createMockTask(UUID.randomUUID(), "Task 3", TaskStatus.IN_PROGRESS)
+        )
+
+        coEvery { mockTaskRepo.findByFeature(featureId, null, null, 1000) } returns Result.Success(mixedTasks)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(featureId, "completed", "feature", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Feature with in-progress tasks should still be blocked from completing")
+    }
+
+    @Test
+    fun `prerequisite - task IN_PROGRESS succeeds when blocker is cancelled`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val blockingDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = blockerId,
+            toTaskId = taskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+
+        val cancelledBlocker = createMockTask(blockerId, "Cancelled Blocker", TaskStatus.CANCELLED)
+
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(cancelledBlocker)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Cancelled blocker should not block task from starting")
+    }
+
+    @Test
+    fun `prerequisite - project COMPLETED allows mix of completed and archived features`() = runBlocking {
+        val projectId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val features = listOf(
+            createMockFeature(UUID.randomUUID(), "Feature 1", FeatureStatus.COMPLETED),
+            createMockFeature(UUID.randomUUID(), "Feature 2", FeatureStatus.ARCHIVED)
+        )
+
+        coEvery { mockFeatureRepo.findByProject(projectId, 1000) } returns Result.Success(features)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(projectId, "completed", "project", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Project with completed and archived features should be allowed to complete")
+    }
+
+    @Test
+    fun `prerequisite - project COMPLETED still blocks with in-development features alongside archived`() = runBlocking {
+        val projectId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val features = listOf(
+            createMockFeature(UUID.randomUUID(), "Feature 1", FeatureStatus.COMPLETED),
+            createMockFeature(UUID.randomUUID(), "Feature 2", FeatureStatus.ARCHIVED),
+            createMockFeature(UUID.randomUUID(), "Feature 3", FeatureStatus.IN_DEVELOPMENT)
+        )
+
+        coEvery { mockFeatureRepo.findByProject(projectId, 1000) } returns Result.Success(features)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(projectId, "completed", "project", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Project with in-development features should still be blocked from completing")
+    }
+
     // ========== EDGE CASE TESTS (13 tests) ==========
 
     @Test

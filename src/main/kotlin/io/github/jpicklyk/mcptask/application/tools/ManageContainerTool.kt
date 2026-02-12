@@ -797,6 +797,38 @@ Docs: task-orchestrator://docs/tools/manage-container
         val status = if (statusStr != null) parseProjectStatus(statusStr) else existing.status
         val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
 
+        // Validate status transition when status is being changed
+        if (statusStr != null) {
+            val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+            val prerequisiteContext = StatusValidator.PrerequisiteContext(
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            val transitionValidation = statusValidator.validateTransition(
+                currentStatusStr,
+                statusStr,
+                "project",
+                id,
+                prerequisiteContext,
+                existing.tags
+            )
+            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+                return errorResponse(
+                    message = transitionValidation.reason,
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    additionalData = buildJsonObject {
+                        put("currentStatus", currentStatusStr)
+                        put("attemptedStatus", statusStr)
+                        if (transitionValidation.suggestions.isNotEmpty()) {
+                            put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
+                        }
+                    }
+                )
+            }
+        }
+
         val updated = existing.update(
             name = name,
             description = description,
@@ -837,6 +869,38 @@ Docs: task-orchestrator://docs/tools/manage-container
         val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
 
         val requiresVerification = optionalBoolean(params, "requiresVerification", existing.requiresVerification)
+
+        // Validate status transition when status is being changed
+        if (statusStr != null) {
+            val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+            val prerequisiteContext = StatusValidator.PrerequisiteContext(
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            val transitionValidation = statusValidator.validateTransition(
+                currentStatusStr,
+                statusStr,
+                "feature",
+                id,
+                prerequisiteContext,
+                existing.tags
+            )
+            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+                return errorResponse(
+                    message = transitionValidation.reason,
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    additionalData = buildJsonObject {
+                        put("currentStatus", currentStatusStr)
+                        put("attemptedStatus", statusStr)
+                        if (transitionValidation.suggestions.isNotEmpty()) {
+                            put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
+                        }
+                    }
+                )
+            }
+        }
 
         // Validate project exists if changed
         if (projectId != null && projectId != existing.projectId) {
@@ -894,6 +958,38 @@ Docs: task-orchestrator://docs/tools/manage-container
         val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
 
         val requiresVerification = optionalBoolean(params, "requiresVerification", existing.requiresVerification)
+
+        // Validate status transition when status is being changed
+        if (statusStr != null) {
+            val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
+            val prerequisiteContext = StatusValidator.PrerequisiteContext(
+                taskRepository = context.taskRepository(),
+                featureRepository = context.featureRepository(),
+                projectRepository = context.projectRepository(),
+                dependencyRepository = context.dependencyRepository()
+            )
+            val transitionValidation = statusValidator.validateTransition(
+                currentStatusStr,
+                statusStr,
+                "task",
+                id,
+                prerequisiteContext,
+                existing.tags
+            )
+            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
+                return errorResponse(
+                    message = transitionValidation.reason,
+                    code = ErrorCodes.VALIDATION_ERROR,
+                    additionalData = buildJsonObject {
+                        put("currentStatus", currentStatusStr)
+                        put("attemptedStatus", statusStr)
+                        if (transitionValidation.suggestions.isNotEmpty()) {
+                            put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
+                        }
+                    }
+                )
+            }
+        }
 
         // Validate feature exists if changed
         if (featureId != null && featureId != existing.featureId) {

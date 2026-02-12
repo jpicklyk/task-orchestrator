@@ -228,7 +228,8 @@ class StatusValidator {
     }
 
     /**
-     * Helper to validate all tasks are completed for a feature.
+     * Helper to validate all tasks are completed (or cancelled) for a feature.
+     * Both "completed" and "cancelled" are terminal states that count as resolved.
      */
     private suspend fun validateAllTasksCompleted(
         featureId: java.util.UUID,
@@ -249,9 +250,11 @@ class StatusValidator {
             )
         }
 
+        // Terminal task statuses: completed and cancelled both count as resolved
+        val terminalTaskStatuses = setOf("completed", "cancelled")
         val incompleteTasks = tasks.filter { task ->
             val statusStr = task.status.name.lowercase().replace('_', '-')
-            statusStr != "completed"
+            statusStr !in terminalTaskStatuses
         }
 
         if (incompleteTasks.isNotEmpty()) {
@@ -291,6 +294,8 @@ class StatusValidator {
                 }
 
                 // Check if any blocking tasks are incomplete
+                // Both "completed" and "cancelled" are terminal states that resolve a blocker
+                val terminalTaskStatuses = setOf("completed", "cancelled")
                 val blockingTaskIds = blockingDeps.map { it.fromTaskId }
                 val incompleteBlockers = mutableListOf<String>()
 
@@ -300,7 +305,7 @@ class StatusValidator {
                         val blocker = blockerResult.getOrNull()
                         if (blocker != null) {
                             val statusStr = blocker.status.name.lowercase().replace('_', '-')
-                            if (statusStr != "completed") {
+                            if (statusStr !in terminalTaskStatuses) {
                                 incompleteBlockers.add("\"${blocker.title}\" (${blocker.status.name})")
                             }
                         }
@@ -371,9 +376,11 @@ class StatusValidator {
                     )
                 }
 
+                // Terminal feature statuses: completed and archived both count as resolved
+                val terminalFeatureStatuses = setOf("completed", "archived")
                 val incompleteFeatures = features.filter { feature ->
                     val statusStr = feature.status.name.lowercase().replace('_', '-')
-                    statusStr != "completed"
+                    statusStr !in terminalFeatureStatuses
                 }
 
                 if (incompleteFeatures.isNotEmpty()) {

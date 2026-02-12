@@ -595,13 +595,56 @@ class ManageContainerToolTest {
     @Nested
     inner class UpdateOperationTests {
         @Test
-        fun `should update task successfully`() = runBlocking {
+        fun `should update task with valid status transition`() = runBlocking {
+            // Valid transition: PENDING -> IN_PROGRESS
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "task")
                 put("id", taskId.toString())
                 put("title", "Updated Task")
                 put("status", "in-progress")
+            }
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(title = "Updated Task", status = TaskStatus.IN_PROGRESS))
+            // Mock dependency check for IN_PROGRESS prerequisite validation
+            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
+        }
+
+        @Test
+        fun `should reject task update with invalid status transition`() = runBlocking {
+            // Invalid transition: PENDING -> COMPLETED (skips in-progress and testing)
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("id", taskId.toString())
+                put("title", "Updated Task")
+                put("status", "completed")
+            }
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
+        }
+
+        @Test
+        fun `should update task without status change without validation`() = runBlocking {
+            // Update only title, no status field — should NOT trigger StatusValidator
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("id", taskId.toString())
+                put("title", "Updated Task")
             }
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
@@ -615,17 +658,22 @@ class ManageContainerToolTest {
         }
 
         @Test
-        fun `should update feature successfully`() = runBlocking {
+        fun `should update feature with valid status transition`() = runBlocking {
+            // Valid transition: IN_DEVELOPMENT -> TESTING
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "feature")
                 put("id", featureId.toString())
                 put("name", "Updated Feature")
-                put("status", "completed")
+                put("status", "testing")
             }
 
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature.copy(name = "Updated Feature"))
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature.copy(name = "Updated Feature", status = FeatureStatus.TESTING))
+            // Mock task check for TESTING prerequisite validation (requires all tasks completed)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
+                listOf(mockTask.copy(status = TaskStatus.COMPLETED))
+            )
 
             val result = tool.execute(params, context)
 
@@ -635,7 +683,28 @@ class ManageContainerToolTest {
         }
 
         @Test
-        fun `should update project successfully`() = runBlocking {
+        fun `should reject feature update with invalid status transition`() = runBlocking {
+            // Invalid transition: IN_DEVELOPMENT -> COMPLETED (skips testing and validating)
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("name", "Updated Feature")
+                put("status", "completed")
+            }
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
+        }
+
+        @Test
+        fun `should update project with valid status transition`() = runBlocking {
+            // Valid transition: IN_DEVELOPMENT -> COMPLETED
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "project")
@@ -645,13 +714,41 @@ class ManageContainerToolTest {
             }
 
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            coEvery { mockProjectRepository.update(any()) } returns Result.Success(mockProject.copy(name = "Updated Project"))
+            coEvery { mockProjectRepository.update(any()) } returns Result.Success(mockProject.copy(name = "Updated Project", status = ProjectStatus.COMPLETED))
+            // Mock feature check for COMPLETED prerequisite validation (requires all features completed)
+            coEvery { mockFeatureRepository.findByProject(projectId, 1000) } returns Result.Success(
+                listOf(mockFeature.copy(status = FeatureStatus.COMPLETED))
+            )
 
             val result = tool.execute(params, context)
 
             val resultObj = result.jsonObject
             assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
             assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
+        }
+
+        @Test
+        fun `should reject project update with invalid status transition`() = runBlocking {
+            // Invalid transition: IN_DEVELOPMENT -> ARCHIVED (skips completed)
+            // Note: archived is terminal but not next in sequence from in-development
+            // However, archived is an emergency_transition for projects, so it IS allowed.
+            // Let's use a truly invalid transition by starting from a terminal status.
+            val completedProject = mockProject.copy(status = ProjectStatus.COMPLETED)
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("name", "Updated Project")
+                put("status", "planning")
+            }
+
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(completedProject)
+
+            val result = tool.execute(params, context)
+
+            val resultObj = result.jsonObject
+            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("terminal status") == true)
         }
 
         @Test
