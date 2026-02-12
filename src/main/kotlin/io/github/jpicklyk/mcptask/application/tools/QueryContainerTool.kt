@@ -1219,16 +1219,33 @@ Docs: task-orchestrator://docs/tools/query-container
      * This is very cheap (single query + in-memory groupBy) and provides
      * 99% token reduction vs fetching all tasks (14,400 → 100 tokens for 50 tasks).
      *
+     * When a StatusProgressionService is available via the context, each byStatus entry
+     * includes a role annotation and a byRole aggregate is added:
+     * ```json
+     * {
+     *   "total": 8,
+     *   "byStatus": {
+     *     "completed": { "count": 5, "role": "terminal" },
+     *     "in-progress": { "count": 3, "role": "work" }
+     *   },
+     *   "byRole": { "queue": 0, "work": 3, "review": 0, "blocked": 0, "terminal": 5 }
+     * }
+     * ```
+     *
+     * Without the service, byStatus entries contain `{ "count": N }` (no role) and byRole is omitted.
+     *
      * @param context Tool execution context
      * @param featureId Optional feature ID to count tasks for
      * @param projectId Optional project ID to count tasks for
-     * @return JsonObject with total and byStatus counts
+     * @return JsonObject with total, byStatus (role-annotated), and optional byRole counts
      */
     private suspend fun buildTaskCounts(
         context: ToolExecutionContext,
         featureId: UUID? = null,
         projectId: UUID? = null
     ): JsonObject {
+        val progressionService = context.statusProgressionService()
+
         val tasksResult = if (featureId != null) {
             context.taskRepository().findByFeature(featureId)
         } else if (projectId != null) {
@@ -1245,29 +1262,62 @@ Docs: task-orchestrator://docs/tools/query-container
             return buildJsonObject {
                 put("total", 0)
                 put("byStatus", buildJsonObject {})
+                if (progressionService != null) {
+                    put("byRole", buildJsonObject {
+                        put("queue", 0); put("work", 0); put("review", 0)
+                        put("blocked", 0); put("terminal", 0)
+                    })
+                }
             }
         }
 
         return when (tasksResult) {
             is Result.Success -> {
                 val tasks = tasksResult.data
+                val statusGroups = tasks.groupBy { it.status }
+
+                // Pre-compute role counts if service is available
+                val roleCounts = if (progressionService != null) {
+                    mutableMapOf("queue" to 0, "work" to 0, "review" to 0, "blocked" to 0, "terminal" to 0)
+                } else null
+
                 buildJsonObject {
                     put("total", tasks.size)
                     put("byStatus", buildJsonObject {
-                        tasks.groupBy { it.status }
-                            .forEach { (status, taskList) ->
-                                put(
-                                    status.name.lowercase().replace('_', '-'),
-                                    taskList.size
-                                )
+                        statusGroups.forEach { (status, taskList) ->
+                            val statusName = status.name.lowercase().replace('_', '-')
+                            val count = taskList.size
+                            val role = progressionService?.getRoleForStatus(statusName, "task")
+
+                            if (role != null && roleCounts != null) {
+                                roleCounts[role] = (roleCounts[role] ?: 0) + count
                             }
+
+                            put(statusName, buildJsonObject {
+                                put("count", count)
+                                if (role != null) {
+                                    put("role", role)
+                                }
+                            })
+                        }
                     })
+                    if (roleCounts != null) {
+                        put("byRole", buildJsonObject {
+                            roleCounts.forEach { (role, count) -> put(role, count) }
+                        })
+                    }
                 }
             }
             is Result.Error -> {
                 buildJsonObject {
                     put("total", 0)
                     put("byStatus", buildJsonObject {})
+                    if (progressionService != null) {
+                        put("byRole", buildJsonObject {
+                            put("queue", 0); put("work", 0); put("review", 0)
+                            put("blocked", 0); put("terminal", 0)
+                        })
+                    }
                 }
             }
         }

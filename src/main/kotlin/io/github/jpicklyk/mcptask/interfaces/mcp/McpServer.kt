@@ -67,18 +67,18 @@ class McpServer(
         // Initialize repository provider
         repositoryProvider = DefaultRepositoryProvider(databaseManager)
 
-        // Initialize tool execution context
-        toolExecutionContext = ToolExecutionContext(repositoryProvider)
+        // Initialize status progression services (before tool context so tools can use them)
+        statusValidator = StatusValidator()
+        statusProgressionService = StatusProgressionServiceImpl(statusValidator)
+
+        // Initialize tool execution context with status progression service
+        toolExecutionContext = ToolExecutionContext(repositoryProvider, statusProgressionService)
 
         // Initialize template initializer
         templateInitializer = TemplateInitializerImpl(repositoryProvider.templateRepository())
 
         // Initialize templates
         initializeTemplates()
-
-        // Initialize status progression services
-        statusValidator = StatusValidator()
-        statusProgressionService = StatusProgressionServiceImpl(statusValidator)
 
         // Configure the server
         val server = configureServer()

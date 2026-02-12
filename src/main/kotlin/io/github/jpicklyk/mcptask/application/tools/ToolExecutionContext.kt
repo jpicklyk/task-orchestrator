@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools
 
+import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.domain.repository.*
 import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 
@@ -8,10 +9,19 @@ import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
  * This is passed to tools during execution to provide access to common resources.
  *
  * @property repositoryProvider Provider of repository instances
+ * @param statusProgressionService Optional status progression service for role-aware features
  */
 class ToolExecutionContext(
-    val repositoryProvider: RepositoryProvider
+    val repositoryProvider: RepositoryProvider,
+    private val statusProgressionService: StatusProgressionService? = null
 ) {
+    /**
+     * Gets the StatusProgressionService instance, if available.
+     *
+     * @return The StatusProgressionService or null if not configured
+     */
+    fun statusProgressionService(): StatusProgressionService? = statusProgressionService
+
     /**
      * Gets the TaskRepository instance.
      *

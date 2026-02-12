@@ -1537,16 +1537,19 @@ query_container(operation="get", containerType="feature", id="...")
 New approach (EFFICIENT):
 query_container(operation="get", containerType="feature", id="...")
 → Returns feature with taskCounts = ~100 tokens
-→ taskCounts: {total: 50, byStatus: {completed: 25, in-progress: 15, pending: 10}}
+→ taskCounts: {total: 50, byStatus: {completed: {count: 25, role: "terminal"}, in-progress: {count: 15, role: "work"}, pending: {count: 10, role: "queue"}}, byRole: {queue: 10, work: 15, review: 0, blocked: 0, terminal: 25}}
 ```
 
 **Token Savings**: 99% (14,300 tokens saved!)
+
+**Role Annotations**: Each `byStatus` entry includes a `role` field mapping to workflow semantics (`queue`, `work`, `review`, `blocked`, `terminal`). The `byRole` aggregate lets you quickly assess how much work is queued vs. in-flight vs. done without parsing individual statuses.
 
 **Use taskCounts for**:
 - Feature progress checks
 - Project status overview
 - Sprint planning
 - Completion validation
+- Role-based workflow analysis (e.g., how many tasks are in review vs. blocked)
 
 ### Selective Section Loading
 

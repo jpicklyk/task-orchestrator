@@ -1317,8 +1317,8 @@ class QueryContainerToolTest {
 
                 val byStatus = taskCounts["byStatus"]?.jsonObject
                 assertNotNull(byStatus)
-                assertEquals(3, byStatus!!["completed"]?.jsonPrimitive?.int)
-                assertEquals(2, byStatus["pending"]?.jsonPrimitive?.int)
+                assertEquals(3, byStatus!!["completed"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+                assertEquals(2, byStatus["pending"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
 
                 // Verify per-feature taskCounts
                 val featuresList = data?.get("features")?.jsonArray
@@ -1376,8 +1376,8 @@ class QueryContainerToolTest {
                 assertEquals(2, f1Counts!!["total"]?.jsonPrimitive?.int)
                 val f1ByStatus = f1Counts["byStatus"]?.jsonObject
                 assertNotNull(f1ByStatus)
-                assertEquals(1, f1ByStatus!!["completed"]?.jsonPrimitive?.int)
-                assertEquals(1, f1ByStatus["pending"]?.jsonPrimitive?.int)
+                assertEquals(1, f1ByStatus!!["completed"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+                assertEquals(1, f1ByStatus["pending"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
 
                 // Feature 2: 2 in-progress, 1 completed
                 val f2 = features[1].jsonObject
@@ -1386,8 +1386,8 @@ class QueryContainerToolTest {
                 assertEquals(3, f2Counts!!["total"]?.jsonPrimitive?.int)
                 val f2ByStatus = f2Counts["byStatus"]?.jsonObject
                 assertNotNull(f2ByStatus)
-                assertEquals(2, f2ByStatus!!["in-progress"]?.jsonPrimitive?.int)
-                assertEquals(1, f2ByStatus["completed"]?.jsonPrimitive?.int)
+                assertEquals(2, f2ByStatus!!["in-progress"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+                assertEquals(1, f2ByStatus["completed"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
 
                 // Project-level totals should still be correct
                 val projectCounts = data?.get("taskCounts")?.jsonObject
@@ -1559,9 +1559,9 @@ class QueryContainerToolTest {
 
                 val byStatus = taskCounts["byStatus"]?.jsonObject
                 assertNotNull(byStatus)
-                assertEquals(6, byStatus!!["completed"]?.jsonPrimitive?.int)
-                assertEquals(3, byStatus["in-progress"]?.jsonPrimitive?.int)
-                assertEquals(1, byStatus["pending"]?.jsonPrimitive?.int)
+                assertEquals(6, byStatus!!["completed"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+                assertEquals(3, byStatus["in-progress"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+                assertEquals(1, byStatus["pending"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
             }
         }
 
@@ -2189,8 +2189,8 @@ class QueryContainerToolTest {
             val taskCounts = data["taskCounts"]?.jsonObject
             assertNotNull(taskCounts)
             assertEquals(5, taskCounts!!["total"]?.jsonPrimitive?.int)
-            assertEquals(3, taskCounts["byStatus"]?.jsonObject?.get("completed")?.jsonPrimitive?.int)
-            assertEquals(2, taskCounts["byStatus"]?.jsonObject?.get("pending")?.jsonPrimitive?.int)
+            assertEquals(3, taskCounts["byStatus"]?.jsonObject?.get("completed")?.jsonObject?.get("count")?.jsonPrimitive?.int)
+            assertEquals(2, taskCounts["byStatus"]?.jsonObject?.get("pending")?.jsonObject?.get("count")?.jsonPrimitive?.int)
 
             // Verify projectId is present
             assertEquals(projectId.toString(), data["projectId"]?.jsonPrimitive?.content)
@@ -2238,9 +2238,9 @@ class QueryContainerToolTest {
 
             val byStatus = taskCounts["byStatus"]?.jsonObject
             assertNotNull(byStatus)
-            assertEquals(6, byStatus!!["completed"]?.jsonPrimitive?.int)
-            assertEquals(3, byStatus["in-progress"]?.jsonPrimitive?.int)
-            assertEquals(1, byStatus["pending"]?.jsonPrimitive?.int)
+            assertEquals(6, byStatus!!["completed"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+            assertEquals(3, byStatus["in-progress"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
+            assertEquals(1, byStatus["pending"]?.jsonObject?.get("count")?.jsonPrimitive?.int)
         }
 
         @Test
@@ -2836,6 +2836,197 @@ class QueryContainerToolTest {
 
             val resultObj = result.jsonObject
             assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+        }
+    }
+
+    @Nested
+    inner class TaskCountsRoleAnnotationTests {
+        private lateinit var mockStatusProgressionService: io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
+        private lateinit var roleAwareContext: ToolExecutionContext
+
+        @BeforeEach
+        fun setupRoleAwareContext() {
+            mockStatusProgressionService = mockk()
+
+            // Map standard task statuses to roles
+            every { mockStatusProgressionService.getRoleForStatus("completed", "task", any()) } returns "terminal"
+            every { mockStatusProgressionService.getRoleForStatus("cancelled", "task", any()) } returns "terminal"
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("blocked", "task", any()) } returns "blocked"
+            every { mockStatusProgressionService.getRoleForStatus("testing", "task", any()) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("deferred", "task", any()) } returns "terminal"
+
+            roleAwareContext = ToolExecutionContext(mockRepositoryProvider, mockStatusProgressionService)
+        }
+
+        @Test
+        fun `byStatus includes role annotations when service available`() = runBlocking {
+            val completedTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val pendingTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+            val inProgressTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.IN_PROGRESS)
+            val allTasks = listOf(completedTask, pendingTask, inProgressTask)
+
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+            }
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 20) } returns Result.Success(allTasks)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 100) } returns Result.Success(allTasks)
+
+            val result = tool.execute(params, roleAwareContext)
+
+            val response = result.jsonObject
+            assertTrue(response["success"]?.jsonPrimitive?.boolean == true)
+
+            val data = response["data"]?.jsonObject
+            val taskCounts = data?.get("taskCounts")?.jsonObject
+            assertNotNull(taskCounts)
+
+            val byStatus = taskCounts!!["byStatus"]?.jsonObject
+            assertNotNull(byStatus)
+
+            // Verify completed has count=1 and role=terminal
+            val completedEntry = byStatus!!["completed"]?.jsonObject
+            assertNotNull(completedEntry)
+            assertEquals(1, completedEntry!!["count"]?.jsonPrimitive?.int)
+            assertEquals("terminal", completedEntry["role"]?.jsonPrimitive?.content)
+
+            // Verify pending has count=1 and role=queue
+            val pendingEntry = byStatus["pending"]?.jsonObject
+            assertNotNull(pendingEntry)
+            assertEquals(1, pendingEntry!!["count"]?.jsonPrimitive?.int)
+            assertEquals("queue", pendingEntry["role"]?.jsonPrimitive?.content)
+
+            // Verify in-progress has count=1 and role=work
+            val inProgressEntry = byStatus["in-progress"]?.jsonObject
+            assertNotNull(inProgressEntry)
+            assertEquals(1, inProgressEntry!!["count"]?.jsonPrimitive?.int)
+            assertEquals("work", inProgressEntry["role"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `byRole includes all five standard roles even when zero`() = runBlocking {
+            val completedTask1 = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val completedTask2 = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val completedTask3 = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val allTasks = listOf(completedTask1, completedTask2, completedTask3)
+
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+            }
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 20) } returns Result.Success(allTasks)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 100) } returns Result.Success(allTasks)
+
+            val result = tool.execute(params, roleAwareContext)
+
+            val response = result.jsonObject
+            val data = response["data"]?.jsonObject
+            val taskCounts = data?.get("taskCounts")?.jsonObject
+            assertNotNull(taskCounts)
+
+            val byRole = taskCounts!!["byRole"]?.jsonObject
+            assertNotNull(byRole, "byRole should be present when StatusProgressionService is available")
+
+            // All five standard roles should be present
+            assertEquals(0, byRole!!["queue"]?.jsonPrimitive?.int)
+            assertEquals(0, byRole["work"]?.jsonPrimitive?.int)
+            assertEquals(0, byRole["review"]?.jsonPrimitive?.int)
+            assertEquals(0, byRole["blocked"]?.jsonPrimitive?.int)
+            assertEquals(3, byRole["terminal"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `byStatus omits role when service returns null for unknown status`() = runBlocking {
+            // Override the "pending" mapping to return null for this test
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns null
+
+            val pendingTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+            val completedTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val allTasks = listOf(pendingTask, completedTask)
+
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+            }
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 20) } returns Result.Success(allTasks)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 100) } returns Result.Success(allTasks)
+
+            val result = tool.execute(params, roleAwareContext)
+
+            val response = result.jsonObject
+            val data = response["data"]?.jsonObject
+            val taskCounts = data?.get("taskCounts")?.jsonObject
+            val byStatus = taskCounts?.get("byStatus")?.jsonObject
+            assertNotNull(byStatus)
+
+            // Pending should have count but no role (service returned null)
+            val pendingEntry = byStatus!!["pending"]?.jsonObject
+            assertNotNull(pendingEntry)
+            assertEquals(1, pendingEntry!!["count"]?.jsonPrimitive?.int)
+            assertNull(pendingEntry["role"], "role should be absent when service returns null")
+
+            // Completed should still have role=terminal
+            val completedEntry = byStatus["completed"]?.jsonObject
+            assertNotNull(completedEntry)
+            assertEquals(1, completedEntry!!["count"]?.jsonPrimitive?.int)
+            assertEquals("terminal", completedEntry["role"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `taskCounts degrades gracefully without StatusProgressionService`() = runBlocking {
+            // Use context WITHOUT StatusProgressionService (the default class-level context)
+            val noServiceContext = ToolExecutionContext(mockRepositoryProvider)
+
+            val completedTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val pendingTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+            val allTasks = listOf(completedTask, pendingTask)
+
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+            }
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 20) } returns Result.Success(allTasks)
+            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 100) } returns Result.Success(allTasks)
+
+            val result = tool.execute(params, noServiceContext)
+
+            val response = result.jsonObject
+            val data = response["data"]?.jsonObject
+            val taskCounts = data?.get("taskCounts")?.jsonObject
+            assertNotNull(taskCounts)
+
+            assertEquals(2, taskCounts!!["total"]?.jsonPrimitive?.int)
+
+            val byStatus = taskCounts["byStatus"]?.jsonObject
+            assertNotNull(byStatus)
+
+            // byStatus entries should have count but no role
+            val completedEntry = byStatus!!["completed"]?.jsonObject
+            assertNotNull(completedEntry)
+            assertEquals(1, completedEntry!!["count"]?.jsonPrimitive?.int)
+            assertNull(completedEntry["role"], "role should be absent without StatusProgressionService")
+
+            val pendingEntry = byStatus["pending"]?.jsonObject
+            assertNotNull(pendingEntry)
+            assertEquals(1, pendingEntry!!["count"]?.jsonPrimitive?.int)
+            assertNull(pendingEntry["role"], "role should be absent without StatusProgressionService")
+
+            // byRole should be absent entirely
+            assertNull(taskCounts["byRole"], "byRole should be absent without StatusProgressionService")
         }
     }
 }

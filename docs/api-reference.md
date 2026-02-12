@@ -370,9 +370,12 @@ Returns a specific entity with hierarchical child data and task counts. Section 
     "taskCounts": {
       "total": 8,
       "byStatus": {
-        "completed": 3,
-        "in-progress": 2,
-        "pending": 3
+        "completed": { "count": 3, "role": "terminal" },
+        "in-progress": { "count": 2, "role": "work" },
+        "pending": { "count": 3, "role": "queue" }
+      },
+      "byRole": {
+        "queue": 3, "work": 2, "review": 0, "blocked": 0, "terminal": 3
       }
     },
     "tasks": [
@@ -419,6 +422,11 @@ Returns a specific entity with hierarchical child data and task counts. Section 
 | **Feature** | Feature metadata | Array of tasks + task counts |
 | **Task** | Task metadata | Dependencies (blocking and blockedBy arrays) |
 
+**Task Counts with Role Annotations**: When the StatusProgressionService is available, `taskCounts` includes role annotations from the workflow configuration:
+- `byStatus` entries are objects with `count` and `role` fields (e.g., `"completed": {"count": 3, "role": "terminal"}`)
+- `byRole` provides an aggregate count across five standard roles: `queue`, `work`, `review`, `blocked`, `terminal`
+- If the service is unavailable, `byStatus` entries contain only `count` (no `role`), and `byRole` is omitted
+
 **Example - Scoped Project Overview**:
 ```json
 {
@@ -444,9 +452,12 @@ Returns a specific entity with hierarchical child data and task counts. Section 
     "taskCounts": {
       "total": 45,
       "byStatus": {
-        "completed": 28,
-        "in-progress": 10,
-        "pending": 7
+        "completed": { "count": 28, "role": "terminal" },
+        "in-progress": { "count": 10, "role": "work" },
+        "pending": { "count": 7, "role": "queue" }
+      },
+      "byRole": {
+        "queue": 7, "work": 10, "review": 0, "blocked": 0, "terminal": 28
       }
     },
     "features": [
@@ -460,7 +471,10 @@ Returns a specific entity with hierarchical child data and task counts. Section 
         "taskCounts": {
           "total": 12,
           "byStatus": {
-            "completed": 12
+            "completed": { "count": 12, "role": "terminal" }
+          },
+          "byRole": {
+            "queue": 0, "work": 0, "review": 0, "blocked": 0, "terminal": 12
           }
         }
       },
@@ -474,9 +488,12 @@ Returns a specific entity with hierarchical child data and task counts. Section 
         "taskCounts": {
           "total": 18,
           "byStatus": {
-            "completed": 10,
-            "in-progress": 5,
-            "pending": 3
+            "completed": { "count": 10, "role": "terminal" },
+            "in-progress": { "count": 5, "role": "work" },
+            "pending": { "count": 3, "role": "queue" }
+          },
+          "byRole": {
+            "queue": 3, "work": 5, "review": 0, "blocked": 0, "terminal": 10
           }
         }
       }
