@@ -858,7 +858,7 @@ IS_BLOCKED_BY: Task A cannot start until Task B completes
 RELATES_TO: Tasks are related but no strict ordering
 
 Step 3: Create dependency
-manage_dependency(operation="create",
+manage_dependencies(operation="create",
     fromTaskId: [source task],
     toTaskId: [target task],
     type: [relationship type]
@@ -880,7 +880,7 @@ AI applies pattern:
 1. query_container(operation="search", containerType="task",query: "API implementation") → Task A
 2. query_container(operation="search", containerType="task",query: "database schema") → Task B
 3. Relationship: Task B BLOCKS Task A
-4. manage_dependency(operation="create",
+4. manage_dependencies(operation="create",
      fromTaskId: task-B-id,
      toTaskId: task-A-id,
      type: "BLOCKS"
@@ -918,7 +918,7 @@ For each component:
     )
 
 Step 5: Establish dependencies
-manage_dependency(operation="create") between tasks with ordering requirements
+manage_dependencies(operation="create") between tasks with ordering requirements
 
 Step 6: Verify breakdown
 query_container(operation="get", containerType="feature",id: feature-id, includeTasks: true)

@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.integration
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
-import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.test.mock.*
 import kotlinx.coroutines.runBlocking
@@ -36,7 +36,7 @@ class FeatureDependencyStatisticsTest {
     // Tools
     private lateinit var manageContainerTool: ManageContainerTool
     private lateinit var queryContainerTool: QueryContainerTool
-    private lateinit var manageDependencyTool: ManageDependencyTool
+    private lateinit var manageDependenciesTool: ManageDependenciesTool
     
     // Test entities
     private lateinit var featureA: Feature
@@ -75,7 +75,7 @@ class FeatureDependencyStatisticsTest {
         // Initialize tools
         manageContainerTool = ManageContainerTool()
         queryContainerTool = QueryContainerTool()
-        manageDependencyTool = ManageDependencyTool()
+        manageDependenciesTool = ManageDependenciesTool()
         
         // Create test features
         featureA = Feature(
@@ -570,7 +570,7 @@ class FeatureDependencyStatisticsTest {
             "type" to JsonPrimitive(type)
         ))
 
-        val response = manageDependencyTool.execute(params, executionContext)
+        val response = manageDependenciesTool.execute(params, executionContext)
         val responseObj = response as JsonObject
 
         assertTrue(

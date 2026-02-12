@@ -229,15 +229,15 @@ object ToolDocumentationResources {
 
     private fun addManageDependencyDocumentation(server: Server) {
         server.addResource(
-            uri = "task-orchestrator://docs/tools/manage-dependency",
-            name = "manage_dependency Tool Documentation",
-            description = "Detailed documentation for manage_dependency - unified write operations for task dependencies",
+            uri = "task-orchestrator://docs/tools/manage-dependencies",
+            name = "manage_dependencies Tool Documentation",
+            description = "Detailed documentation for manage_dependencies - unified write operations for task dependencies with batch support",
             mimeType = "text/markdown"
         ) { _ ->
             ReadResourceResult(
                 contents = listOf(
                     TextResourceContents(
-                        uri = "task-orchestrator://docs/tools/manage-dependency",
+                        uri = "task-orchestrator://docs/tools/manage-dependencies",
                         mimeType = "text/markdown",
                         text = loadDocumentation("manage-dependency.md")
                     )

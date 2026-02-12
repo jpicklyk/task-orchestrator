@@ -642,21 +642,21 @@ task4 = manage_container(
 )
 
 // Step 3: Create dependencies (linear chain)
-manage_dependency(
+manage_dependencies(
   operation="create",
   fromTaskId="[task-1-id]",  // Orders schema
   toTaskId="[task-2-id]",    // Order creation API
   type="BLOCKS"
 )
 
-manage_dependency(
+manage_dependencies(
   operation="create",
   fromTaskId="[task-2-id]",  // Order creation API
   toTaskId="[task-3-id]",    // Payment integration
   type="BLOCKS"
 )
 
-manage_dependency(
+manage_dependencies(
   operation="create",
   fromTaskId="[task-3-id]",  // Payment integration
   toTaskId="[task-4-id]",    // Order fulfillment
@@ -778,10 +778,10 @@ task5 = manage_container(
 )
 
 // Step 3: Create dependencies
-manage_dependency(operation="create", fromTaskId="[task-1-id]", toTaskId="[task-2-id]", type="BLOCKS")
-manage_dependency(operation="create", fromTaskId="[task-2-id]", toTaskId="[task-4-id]", type="BLOCKS")
-manage_dependency(operation="create", fromTaskId="[task-3-id]", toTaskId="[task-4-id]", type="BLOCKS")
-manage_dependency(operation="create", fromTaskId="[task-4-id]", toTaskId="[task-5-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-1-id]", toTaskId="[task-2-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-2-id]", toTaskId="[task-4-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-3-id]", toTaskId="[task-4-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-4-id]", toTaskId="[task-5-id]", type="BLOCKS")
 
 // Step 4: Analyze dependencies and create batches
 // Expected batching result:
@@ -851,9 +851,9 @@ task3 = manage_container(
 
 // Step 3: Create circular dependencies
 // A → B → C → A (circular!)
-manage_dependency(operation="create", fromTaskId="[task-a-id]", toTaskId="[task-b-id]", type="BLOCKS")
-manage_dependency(operation="create", fromTaskId="[task-b-id]", toTaskId="[task-c-id]", type="BLOCKS")
-manage_dependency(operation="create", fromTaskId="[task-c-id]", toTaskId="[task-a-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-a-id]", toTaskId="[task-b-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-b-id]", toTaskId="[task-c-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-c-id]", toTaskId="[task-a-id]", type="BLOCKS")
 
 // Step 4: Try to create execution batches
 // Expected: Circular dependency detected
@@ -1104,7 +1104,7 @@ task2 = manage_container(
   status="backlog"
 )
 
-manage_dependency(operation="create", fromTaskId="[task-1-id]", toTaskId="[task-2-id]", type="BLOCKS")
+manage_dependencies(operation="create", fromTaskId="[task-1-id]", toTaskId="[task-2-id]", type="BLOCKS")
 
 // Step 2: Try to start task2 without completing task1
 // "Use Status Progression Skill to start task: Create API"

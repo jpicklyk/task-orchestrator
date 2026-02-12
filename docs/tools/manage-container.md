@@ -1538,7 +1538,7 @@ Response:
 - **query_sections** - Retrieve sections with selective loading
 - **get_next_status** - Intelligent status progression recommendations
 - **query_dependencies** - Query task dependencies with filtering
-- **manage_dependency** - Create and remove task dependencies
+- **manage_dependencies** - Create and remove task dependencies with batch support
 
 ---
 

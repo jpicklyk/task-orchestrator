@@ -90,6 +90,58 @@ class MockDependencyRepository : DependencyRepository {
         return toDelete.size
     }
 
+    override fun createBatch(dependencies: List<Dependency>): List<Dependency> {
+        if (dependencies.isEmpty()) return emptyList()
+
+        // Phase 1: Check for duplicates within the batch
+        val seen = mutableSetOf<Triple<UUID, UUID, DependencyType>>()
+        for (dep in dependencies) {
+            val key = Triple(dep.fromTaskId, dep.toTaskId, dep.type)
+            if (!seen.add(key)) {
+                throw ValidationException(
+                    "Duplicate dependency within batch: ${dep.fromTaskId} -> ${dep.toTaskId} (${dep.type})"
+                )
+            }
+        }
+
+        // Phase 2: Check for duplicates against existing dependencies
+        for (dep in dependencies) {
+            val existing = this.dependencies.values.find { existing ->
+                existing.fromTaskId == dep.fromTaskId &&
+                        existing.toTaskId == dep.toTaskId &&
+                        existing.type == dep.type
+            }
+            if (existing != null) {
+                throw ValidationException(
+                    "A dependency of type ${dep.type} already exists between tasks ${dep.fromTaskId} and ${dep.toTaskId}"
+                )
+            }
+        }
+
+        // Phase 3: Cycle detection — add each dependency incrementally, checking cycles before each add
+        // This matches the behavior of the single create() method and existing DFS-based cycle detection.
+        val added = mutableListOf<UUID>()
+        try {
+            for (dep in dependencies) {
+                // Check cycle using existing hasCyclicDependency (which uses the current graph state)
+                if (hasCyclicDependency(dep.fromTaskId, dep.toTaskId)) {
+                    throw ValidationException(
+                        "Creating these dependencies would result in a circular dependency chain"
+                    )
+                }
+                // Add to graph for subsequent checks within the batch
+                this.dependencies[dep.id] = dep
+                added.add(dep.id)
+            }
+        } catch (e: ValidationException) {
+            // Rollback all added dependencies
+            added.forEach { this.dependencies.remove(it) }
+            throw e
+        }
+
+        return dependencies
+    }
+
     override fun hasCyclicDependency(fromTaskId: UUID, toTaskId: UUID): Boolean {
         if (shouldThrowOnCycleCheck) {
             throw RuntimeException("Test exception during cycle check")

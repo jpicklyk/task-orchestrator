@@ -39,4 +39,4 @@ Before completing a project:
 
 ## Cross-Feature Dependencies
 
-Tasks in different features can block each other via `manage_dependency`. Use `get_blocked_tasks(projectId=...)` to see blockers across the whole project. See `dependency-analysis` skill for patterns.
+Tasks in different features can block each other via `manage_dependencies`. Use `get_blocked_tasks(projectId=...)` to see blockers across the whole project. See `dependency-analysis` skill for patterns.

@@ -10,7 +10,7 @@ import io.github.jpicklyk.mcptask.application.tools.QueryContainerTool
 import io.github.jpicklyk.mcptask.application.tools.QueryTemplatesTool
 import io.github.jpicklyk.mcptask.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
 import io.github.jpicklyk.mcptask.application.tools.section.QuerySectionsTool
@@ -234,7 +234,7 @@ class McpServer(
 
             // Dependency management - Query and manage task dependencies
             QueryDependenciesTool(null, null),
-            ManageDependencyTool(null, null),
+            ManageDependenciesTool(null, null),
 
             // Workflow optimization - Task recommendations and blocking analysis
             GetNextTaskTool(),

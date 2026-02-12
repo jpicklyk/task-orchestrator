@@ -64,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dependency graph querying for AI agents
   - Replaces `get_task_dependencies`
 
-- **✏️ manage_dependency** - Dependency management with validation
+- **✏️ manage_dependencies** - Dependency management with batch support, pattern shortcuts, and validation
   - 2 operations: `create`, `delete`
   - Circular dependency detection
   - Dependency validation logic

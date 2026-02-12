@@ -1,10 +1,10 @@
-# manage_dependency Tool - Detailed Documentation
+# manage_dependencies Tool - Detailed Documentation
 
 ## Overview
 
-The `manage_dependency` tool provides unified write operations for task dependency management. It consolidates dependency creation and deletion into a single, efficient interface with two core operations: `create` and `delete` with comprehensive validation including circular dependency detection and duplicate prevention.
+The `manage_dependencies` tool provides unified write operations for task dependency management. It consolidates dependency creation and deletion into a single, efficient interface with two core operations: `create` and `delete` with comprehensive validation including circular dependency detection and duplicate prevention.
 
-**Key Feature (v2.0+):** The `manage_dependency` tool handles all write operations for task dependencies with extensive validation, cycle detection, and multiple deletion methods through a single interface.
+**Key Feature (v2.0+):** The `manage_dependencies` tool handles all write operations for task dependencies with extensive validation, cycle detection, and multiple deletion methods through a single interface.
 
 **Resource**: `task-orchestrator://docs/tools/manage-dependency`
 
@@ -1060,7 +1060,7 @@ Use with query_dependencies to build task workflow visualization:
 
 ### With Planning Specialist
 
-Planning Specialist uses manage_dependency to:
+Planning Specialist uses manage_dependencies to:
 1. Create initial dependency structure when breaking down features
 2. Validate no circular dependencies exist
 3. Create sequential task chains for implementation teams
@@ -1069,7 +1069,7 @@ Planning Specialist uses manage_dependency to:
 
 When task status changes:
 1. If task is marked completed, dependent tasks may become unblocked
-2. If task is deleted, manage_dependency cleans up relationships
+2. If task is deleted, manage_dependencies cleans up relationships
 3. get_blocked_tasks updates based on dependency completion status
 
 ### With Task Search and Filtering
@@ -1178,8 +1178,8 @@ All examples use consistent IDs:
 
 ## Version History
 
-- **v2.0.0** (2025-10-24): Initial comprehensive documentation for manage_dependency tool
-- **v2.0.0-beta** (2025-10-19): manage_dependency tool release as part of v2.0 consolidation
+- **v2.0.0** (2025-10-24): Initial comprehensive documentation for manage_dependencies tool
+- **v2.0.0-beta** (2025-10-19): manage_dependencies tool release as part of v2.0 consolidation
 
 ---
 

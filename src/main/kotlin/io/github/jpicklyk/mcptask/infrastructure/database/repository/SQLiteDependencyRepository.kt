@@ -50,6 +50,63 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         dependency
     }
 
+    override fun createBatch(dependencies: List<Dependency>): List<Dependency> = transaction(databaseManager.getDatabase()) {
+        if (dependencies.isEmpty()) {
+            return@transaction emptyList()
+        }
+
+        // Phase 1: Check for duplicates within the batch itself
+        val seen = mutableSetOf<Triple<UUID, UUID, DependencyType>>()
+        for (dep in dependencies) {
+            val key = Triple(dep.fromTaskId, dep.toTaskId, dep.type)
+            if (!seen.add(key)) {
+                throw ValidationException(
+                    "Duplicate dependency within batch: ${dep.fromTaskId} -> ${dep.toTaskId} (${dep.type})"
+                )
+            }
+        }
+
+        // Phase 2: Check for duplicates against existing dependencies
+        for (dep in dependencies) {
+            val existing = DependenciesTable
+                .selectAll().where {
+                    (DependenciesTable.fromTaskId eq dep.fromTaskId) and
+                            (DependenciesTable.toTaskId eq dep.toTaskId) and
+                            (DependenciesTable.type eq dep.type)
+                }
+                .singleOrNull()
+
+            if (existing != null) {
+                throw ValidationException(
+                    "A dependency of type ${dep.type} already exists between tasks ${dep.fromTaskId} and ${dep.toTaskId}"
+                )
+            }
+        }
+
+        // Phase 3: Incremental cycle detection — check and insert each dependency sequentially.
+        // Uses the existing checkCyclicDependencyInternal which matches the established DFS
+        // reachability semantics (checks if toTaskId can reach fromTaskId in the effective graph).
+        // Each dependency is inserted before checking the next, so subsequent checks see earlier
+        // batch members in the graph. Transaction rollback handles atomicity on failure.
+        for (dep in dependencies) {
+            if (checkCyclicDependencyInternal(dep.fromTaskId, dep.toTaskId)) {
+                throw ValidationException(
+                    "Creating these dependencies would result in a circular dependency chain"
+                )
+            }
+
+            DependenciesTable.insert {
+                it[id] = dep.id
+                it[fromTaskId] = dep.fromTaskId
+                it[toTaskId] = dep.toTaskId
+                it[type] = dep.type
+                it[createdAt] = dep.createdAt
+            }
+        }
+
+        dependencies
+    }
+
     override fun findById(id: UUID): Dependency? = transaction(databaseManager.getDatabase()) {
         DependenciesTable.selectAll().where { DependenciesTable.id eq id }
             .map { it.toDependency() }

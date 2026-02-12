@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.github.jpicklyk.mcptask.test.mock.*
@@ -28,7 +28,7 @@ class DependencyCyclePreventionTest {
     private lateinit var executionContext: ToolExecutionContext
     
     // Tools
-    private lateinit var manageDependencyTool: ManageDependencyTool
+    private lateinit var manageDependenciesTool: ManageDependenciesTool
     
     // Test tasks
     private lateinit var taskA: Task
@@ -59,7 +59,7 @@ class DependencyCyclePreventionTest {
         executionContext = ToolExecutionContext(repositoryProvider)
 
         // Initialize tools
-        manageDependencyTool = ManageDependencyTool()
+        manageDependenciesTool = ManageDependenciesTool()
         
         // Create test tasks
         taskA = Task(id = UUID.randomUUID(), title = "Task A", summary = "Test task A", status = TaskStatus.PENDING)
@@ -86,7 +86,7 @@ class DependencyCyclePreventionTest {
             "type" to JsonPrimitive("BLOCKS")
         ))
 
-        val response1 = manageDependencyTool.execute(dep1Params, executionContext)
+        val response1 = manageDependenciesTool.execute(dep1Params, executionContext)
         val responseObj1 = response1 as JsonObject
         assertTrue(responseObj1["success"]?.jsonPrimitive?.boolean == true, "First dependency should be created successfully")
         
@@ -98,7 +98,7 @@ class DependencyCyclePreventionTest {
             "type" to JsonPrimitive("BLOCKS")
         ))
 
-        val response2 = manageDependencyTool.execute(dep2Params, executionContext)
+        val response2 = manageDependenciesTool.execute(dep2Params, executionContext)
         val responseObj2 = response2 as JsonObject
         
         assertEquals(false, responseObj2["success"]?.jsonPrimitive?.boolean, "Second dependency should fail")
@@ -121,7 +121,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskB.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response1 = manageDependencyTool.execute(dep1Params, executionContext)
+        val response1 = manageDependenciesTool.execute(dep1Params, executionContext)
         assertTrue((response1 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // Create B -> C dependency
@@ -131,7 +131,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskC.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response2 = manageDependencyTool.execute(dep2Params, executionContext)
+        val response2 = manageDependenciesTool.execute(dep2Params, executionContext)
         assertTrue((response2 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // Attempt to create C -> A dependency (should fail due to cycle)
@@ -141,7 +141,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskA.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response3 = manageDependencyTool.execute(dep3Params, executionContext)
+        val response3 = manageDependenciesTool.execute(dep3Params, executionContext)
         val responseObj3 = response3 as JsonObject
         
         assertEquals(false, responseObj3["success"]?.jsonPrimitive?.boolean, "Third dependency should fail")
@@ -164,7 +164,7 @@ class DependencyCyclePreventionTest {
             "type" to JsonPrimitive("BLOCKS")
         ))
 
-        val response = manageDependencyTool.execute(selfDepParams, executionContext)
+        val response = manageDependenciesTool.execute(selfDepParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(false, responseObj["success"]?.jsonPrimitive?.boolean, "Self-dependency should fail")
@@ -187,7 +187,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskB.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response1 = manageDependencyTool.execute(dep1Params, executionContext)
+        val response1 = manageDependenciesTool.execute(dep1Params, executionContext)
         assertTrue((response1 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // Create B RELATES_TO C
@@ -197,7 +197,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskC.id.toString()),
             "type" to JsonPrimitive("RELATES_TO")
         ))
-        val response2 = manageDependencyTool.execute(dep2Params, executionContext)
+        val response2 = manageDependenciesTool.execute(dep2Params, executionContext)
         assertTrue((response2 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // Attempt to create C IS_BLOCKED_BY A (should fail due to cycle)
@@ -207,7 +207,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskA.id.toString()),
             "type" to JsonPrimitive("IS_BLOCKED_BY")
         ))
-        val response3 = manageDependencyTool.execute(dep3Params, executionContext)
+        val response3 = manageDependenciesTool.execute(dep3Params, executionContext)
         val responseObj3 = response3 as JsonObject
         
         assertEquals(false, responseObj3["success"]?.jsonPrimitive?.boolean, "Mixed-type cycle should fail")
@@ -235,7 +235,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskB.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response1 = manageDependencyTool.execute(dep1Params, executionContext)
+        val response1 = manageDependenciesTool.execute(dep1Params, executionContext)
         assertTrue((response1 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // B -> C
@@ -245,7 +245,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskC.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response2 = manageDependencyTool.execute(dep2Params, executionContext)
+        val response2 = manageDependenciesTool.execute(dep2Params, executionContext)
         assertTrue((response2 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // A -> D
@@ -255,7 +255,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskD.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response3 = manageDependencyTool.execute(dep3Params, executionContext)
+        val response3 = manageDependenciesTool.execute(dep3Params, executionContext)
         assertTrue((response3 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // D -> E
@@ -265,7 +265,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskE.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response4 = manageDependencyTool.execute(dep4Params, executionContext)
+        val response4 = manageDependenciesTool.execute(dep4Params, executionContext)
         assertTrue((response4 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // Attempt to create E -> A (should fail due to cycle)
@@ -275,7 +275,7 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskA.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response5 = manageDependencyTool.execute(dep5Params, executionContext)
+        val response5 = manageDependenciesTool.execute(dep5Params, executionContext)
         val responseObj5 = response5 as JsonObject
         
         assertEquals(false, responseObj5["success"]?.jsonPrimitive?.boolean, "Complex cycle should be detected")
@@ -309,7 +309,7 @@ class DependencyCyclePreventionTest {
                 "type" to JsonPrimitive(type)
             ))
 
-            val response = manageDependencyTool.execute(params, executionContext)
+            val response = manageDependenciesTool.execute(params, executionContext)
             val responseObj = response as JsonObject
             
             assertTrue(
@@ -338,7 +338,7 @@ class DependencyCyclePreventionTest {
                 "type" to JsonPrimitive(type)
             ))
 
-            val response = manageDependencyTool.execute(params, executionContext)
+            val response = manageDependenciesTool.execute(params, executionContext)
             assertTrue((response as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
         }
 
@@ -350,7 +350,7 @@ class DependencyCyclePreventionTest {
             "type" to JsonPrimitive("BLOCKS")
         ))
 
-        val response = manageDependencyTool.execute(cycleParams, executionContext)
+        val response = manageDependenciesTool.execute(cycleParams, executionContext)
         val responseObj = response as JsonObject
         
         assertEquals(false, responseObj["success"]?.jsonPrimitive?.boolean, "Cycle should be detected after valid dependencies")
@@ -373,11 +373,11 @@ class DependencyCyclePreventionTest {
             "toTaskId" to JsonPrimitive(taskB.id.toString()),
             "type" to JsonPrimitive("BLOCKS")
         ))
-        val response1 = manageDependencyTool.execute(dep1Params, executionContext)
+        val response1 = manageDependenciesTool.execute(dep1Params, executionContext)
         assertTrue((response1 as JsonObject)["success"]?.jsonPrimitive?.boolean == true)
 
         // Attempt to create the same dependency again (should fail due to duplicate)
-        val response2 = manageDependencyTool.execute(dep1Params, executionContext)
+        val response2 = manageDependenciesTool.execute(dep1Params, executionContext)
         val responseObj2 = response2 as JsonObject
         
         assertEquals(false, responseObj2["success"]?.jsonPrimitive?.boolean, "Duplicate dependency should fail")

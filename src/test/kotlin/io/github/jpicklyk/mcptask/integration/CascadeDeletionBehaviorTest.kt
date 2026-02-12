@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.integration
 
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
-import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependencyTool
+import io.github.jpicklyk.mcptask.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.application.tools.section.ManageSectionsTool
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -33,7 +33,7 @@ class CascadeDeletionBehaviorTest {
     
     // Tools
     private lateinit var manageContainerTool: ManageContainerTool
-    private lateinit var manageDependencyTool: ManageDependencyTool
+    private lateinit var manageDependenciesTool: ManageDependenciesTool
     private lateinit var manageSectionsTool: ManageSectionsTool
     
     // Test tasks
@@ -67,7 +67,7 @@ class CascadeDeletionBehaviorTest {
         
         // Initialize tools
         manageContainerTool = ManageContainerTool(null, null)
-        manageDependencyTool = ManageDependencyTool(null, null)
+        manageDependenciesTool = ManageDependenciesTool(null, null)
         manageSectionsTool = ManageSectionsTool(null, null)
         
         // Create test tasks with different roles in dependency chain
@@ -423,7 +423,7 @@ class CascadeDeletionBehaviorTest {
             "type" to JsonPrimitive(type.name)
         ))
 
-        val response = manageDependencyTool.execute(params, executionContext)
+        val response = manageDependenciesTool.execute(params, executionContext)
         assertTrue((response as JsonObject)["success"]?.jsonPrimitive?.boolean == true, "Dependency creation should succeed")
     }
 

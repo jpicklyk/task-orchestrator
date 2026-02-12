@@ -57,6 +57,17 @@ interface DependencyRepository {
     fun deleteByTaskId(taskId: UUID): Int
     
     /**
+     * Creates multiple dependencies atomically in a single transaction.
+     * Validates all dependencies (existence, duplicates, cycles) before inserting any.
+     * Cycle detection considers the entire batch as a graph.
+     *
+     * @param dependencies The list of dependencies to create
+     * @return The list of created dependencies
+     * @throws ValidationException if any dependency fails validation (entire batch is rolled back)
+     */
+    fun createBatch(dependencies: List<Dependency>): List<Dependency>
+
+    /**
      * Checks if adding a dependency would create a cycle.
      * @param fromTaskId The source task ID
      * @param toTaskId The target task ID

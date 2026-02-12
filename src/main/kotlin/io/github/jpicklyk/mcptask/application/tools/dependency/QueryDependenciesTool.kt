@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools.dependency
 
+import io.github.jpicklyk.mcptask.application.service.DependencyGraphService
 import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
@@ -56,6 +57,7 @@ Parameters:
 | direction | enum | No | incoming, outgoing, all (default: all) |
 | type | enum | No | BLOCKS, IS_BLOCKED_BY, RELATES_TO, all (default: all) |
 | includeTaskInfo | boolean | No | Include task details (title, status) (default: false) |
+| neighborsOnly | boolean | No | When true (default), returns only immediate neighbors. When false, performs full graph traversal with analysis. |
 
 Directions:
 - incoming: Dependencies TO this task (tasks that block this task)
@@ -64,8 +66,15 @@ Directions:
 
 Returns dependency objects with counts breakdown and applied filters.
 
+When neighborsOnly=false, adds a "graph" key with:
+- chain: topologically sorted task IDs
+- depth: maximum chain depth
+- criticalPath: longest path through the graph
+- bottlenecks: tasks with high fan-out (blocking many others)
+- parallelizable: groups of tasks at the same depth that can run concurrently
+
 Usage: Consolidates dependency queries with filtering (read-only).
-Related: manage_dependency
+Related: manage_dependencies
 Docs: task-orchestrator://docs/tools/query-dependencies
 """
 
@@ -100,6 +109,13 @@ Docs: task-orchestrator://docs/tools/query-dependencies
                         "type" to JsonPrimitive("boolean"),
                         "description" to JsonPrimitive("Include task details for related tasks"),
                         "default" to JsonPrimitive(false)
+                    )
+                ),
+                "neighborsOnly" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("boolean"),
+                        "description" to JsonPrimitive("When true (default), returns only immediate neighbors. When false, performs full graph traversal with chain ordering, critical path, bottleneck identification, and parallelizable task groups."),
+                        "default" to JsonPrimitive(true)
                     )
                 )
             )
@@ -143,6 +159,7 @@ Docs: task-orchestrator://docs/tools/query-dependencies
             val direction = optionalString(params, "direction") ?: "all"
             val typeFilter = optionalString(params, "type") ?: "all"
             val includeTaskInfo = optionalBoolean(params, "includeTaskInfo", false)
+            val neighborsOnly = optionalBoolean(params, "neighborsOnly", true)
 
             // Validate task exists
             val taskResult = context.taskRepository().getById(taskId)
@@ -238,6 +255,50 @@ Docs: task-orchestrator://docs/tools/query-dependencies
                 }
             }
 
+            // Build graph analysis if requested
+            val graphData = if (!neighborsOnly) {
+                val graphService = DependencyGraphService(
+                    context.dependencyRepository(),
+                    context.taskRepository()
+                )
+                val graphResult = graphService.analyzeGraph(taskId, direction, typeFilter, includeTaskInfo)
+                buildJsonObject {
+                    put("chain", buildJsonArray {
+                        graphResult.chain.forEach { add(JsonPrimitive(it.toString())) }
+                    })
+                    put("depth", graphResult.depth)
+                    put("criticalPath", buildJsonArray {
+                        graphResult.criticalPath.forEach { add(JsonPrimitive(it.toString())) }
+                    })
+                    put("bottlenecks", buildJsonArray {
+                        graphResult.bottlenecks.forEach { bottleneck ->
+                            add(buildJsonObject {
+                                put("taskId", bottleneck.taskId.toString())
+                                put("fanOut", bottleneck.fanOut)
+                                if (bottleneck.title != null) {
+                                    put("title", bottleneck.title)
+                                }
+                            })
+                        }
+                    })
+                    put("parallelizable", buildJsonArray {
+                        graphResult.parallelizable.forEach { group ->
+                            add(buildJsonObject {
+                                put("depth", group.depth)
+                                put("tasks", buildJsonArray {
+                                    group.tasks.forEach { add(JsonPrimitive(it.toString())) }
+                                })
+                            })
+                        }
+                    })
+                    if (graphResult.warnings.isNotEmpty()) {
+                        put("warnings", buildJsonArray {
+                            graphResult.warnings.forEach { add(JsonPrimitive(it)) }
+                        })
+                    }
+                }
+            } else null
+
             successResponse(
                 buildJsonObject {
                     put("taskId", taskId.toString())
@@ -247,7 +308,11 @@ Docs: task-orchestrator://docs/tools/query-dependencies
                         put("direction", direction)
                         put("type", typeFilter)
                         put("includeTaskInfo", includeTaskInfo)
+                        put("neighborsOnly", neighborsOnly)
                     })
+                    if (graphData != null) {
+                        put("graph", graphData)
+                    }
                 },
                 "Dependencies retrieved successfully"
             )

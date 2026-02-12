@@ -525,5 +525,268 @@ class QueryDependenciesToolTest {
         assertEquals(3, counts["total"]?.jsonPrimitive?.int)
     }
 
+    // ========== GRAPH TRAVERSAL TESTS (neighborsOnly=false) ==========
+
+    @Test
+    fun `neighborsOnly defaults to true - no graph key in response`() = runBlocking {
+        // Create a chain: testTask -> relatedTask1 -> relatedTask2
+        val dep1 = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS
+        )
+        val dep2 = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.BLOCKS
+        )
+
+        mockDependencyRepository.addDependency(dep1)
+        mockDependencyRepository.addDependency(dep2)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+
+        // Graph key should be ABSENT when neighborsOnly=true (default)
+        assertFalse(data.containsKey("graph"))
+
+        // Filters should include neighborsOnly=true
+        val filters = data["filters"]!!.jsonObject
+        assertTrue(filters["neighborsOnly"]?.jsonPrimitive?.boolean == true)
+    }
+
+    @Test
+    fun `neighborsOnly=true explicitly - no graph key in response`() = runBlocking {
+        val dep = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS
+        )
+        mockDependencyRepository.addDependency(dep)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("neighborsOnly", true)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        assertFalse(data.containsKey("graph"))
+    }
+
+    @Test
+    fun `neighborsOnly=false with linear chain returns graph analysis`() = runBlocking {
+        // Chain: testTask -> relatedTask1 -> relatedTask2 -> relatedTask3
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS
+        ))
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.BLOCKS
+        ))
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = relatedTask2Id,
+            toTaskId = relatedTask3Id,
+            type = DependencyType.BLOCKS
+        ))
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "outgoing")
+            put("neighborsOnly", false)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+
+        // Graph key should be present
+        assertTrue(data.containsKey("graph"))
+        val graph = data["graph"]!!.jsonObject
+
+        // Chain should have 4 elements
+        val chain = graph["chain"]!!.jsonArray
+        assertEquals(4, chain.size)
+
+        // Depth should be 3
+        assertEquals(3, graph["depth"]?.jsonPrimitive?.int)
+
+        // Critical path should have 4 elements
+        val criticalPath = graph["criticalPath"]!!.jsonArray
+        assertEquals(4, criticalPath.size)
+
+        // No bottlenecks (linear chain)
+        val bottlenecks = graph["bottlenecks"]!!.jsonArray
+        assertEquals(0, bottlenecks.size)
+
+        // No parallelizable groups (linear chain)
+        val parallelizable = graph["parallelizable"]!!.jsonArray
+        assertEquals(0, parallelizable.size)
+    }
+
+    @Test
+    fun `neighborsOnly=false with diamond graph detects bottleneck and parallel groups`() = runBlocking {
+        // Diamond: testTask -> [relatedTask1, relatedTask2] -> relatedTask3
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS
+        ))
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.BLOCKS
+        ))
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = relatedTask3Id,
+            type = DependencyType.BLOCKS
+        ))
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = relatedTask2Id,
+            toTaskId = relatedTask3Id,
+            type = DependencyType.BLOCKS
+        ))
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "outgoing")
+            put("neighborsOnly", false)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val graph = data["graph"]!!.jsonObject
+
+        // Depth should be 2
+        assertEquals(2, graph["depth"]?.jsonPrimitive?.int)
+
+        // testTask is a bottleneck (fan-out 2)
+        val bottlenecks = graph["bottlenecks"]!!.jsonArray
+        assertTrue(bottlenecks.size >= 1)
+        val bottleneck = bottlenecks[0].jsonObject
+        assertEquals(testTaskId.toString(), bottleneck["taskId"]?.jsonPrimitive?.content)
+        assertEquals(2, bottleneck["fanOut"]?.jsonPrimitive?.int)
+
+        // relatedTask1 and relatedTask2 are parallelizable at depth 1
+        val parallelizable = graph["parallelizable"]!!.jsonArray
+        assertTrue(parallelizable.size >= 1)
+        val group = parallelizable[0].jsonObject
+        assertEquals(1, group["depth"]?.jsonPrimitive?.int)
+        val tasks = group["tasks"]!!.jsonArray
+        assertEquals(2, tasks.size)
+    }
+
+    @Test
+    fun `neighborsOnly=false with no dependencies returns minimal graph`() = runBlocking {
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("neighborsOnly", false)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val graph = data["graph"]!!.jsonObject
+
+        // Chain should contain just the start task
+        val chain = graph["chain"]!!.jsonArray
+        assertEquals(1, chain.size)
+        assertEquals(testTaskId.toString(), chain[0].jsonPrimitive.content)
+
+        // Depth should be 0
+        assertEquals(0, graph["depth"]?.jsonPrimitive?.int)
+
+        // Critical path should be just the start task
+        val criticalPath = graph["criticalPath"]!!.jsonArray
+        assertEquals(1, criticalPath.size)
+
+        // No bottlenecks or parallelizable groups
+        assertEquals(0, graph["bottlenecks"]!!.jsonArray.size)
+        assertEquals(0, graph["parallelizable"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `neighborsOnly=false preserves existing dependencies and counts in response`() = runBlocking {
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS
+        ))
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "outgoing")
+            put("neighborsOnly", false)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+
+        // Original response fields should still be present
+        assertTrue(data.containsKey("taskId"))
+        assertTrue(data.containsKey("dependencies"))
+        assertTrue(data.containsKey("counts"))
+        assertTrue(data.containsKey("filters"))
+
+        // And graph should also be present
+        assertTrue(data.containsKey("graph"))
+
+        // Counts should still work
+        val counts = data["counts"]!!.jsonObject
+        assertEquals(1, counts["total"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun `neighborsOnly=false with includeTaskInfo includes titles in bottlenecks`() = runBlocking {
+        // Fan-out: testTask -> [relatedTask1, relatedTask2]
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS
+        ))
+        mockDependencyRepository.addDependency(Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.BLOCKS
+        ))
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "outgoing")
+            put("neighborsOnly", false)
+            put("includeTaskInfo", true)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val graph = data["graph"]!!.jsonObject
+
+        val bottlenecks = graph["bottlenecks"]!!.jsonArray
+        assertTrue(bottlenecks.size >= 1)
+        val bottleneck = bottlenecks[0].jsonObject
+        assertTrue(bottleneck.containsKey("title"))
+        assertEquals("Test Task", bottleneck["title"]?.jsonPrimitive?.content)
+    }
+
     // Note: shouldUseLocking() is protected and cannot be tested directly
 }

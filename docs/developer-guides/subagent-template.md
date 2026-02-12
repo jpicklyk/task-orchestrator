@@ -792,7 +792,7 @@ Your detailed [work output type] goes **in the task sections** and **in project 
 **Tools required**:
 - `query_container`, `manage_container`, `manage_sections`
 - `query_templates`, `apply_template`
-- `manage_dependency` (Planning Specialist)
+- `manage_dependencies` (Planning Specialist)
 - `Read` (for checking agent-mapping.yaml, etc.)
 
 **Skip**:

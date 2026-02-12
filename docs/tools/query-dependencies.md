@@ -904,7 +904,7 @@ async function canCompleteTask(taskId) {
 
 ✅ **Use type filters for hard dependencies** - Filter to BLOCKS when analyzing critical paths
 
-✅ **Combine with manage_dependency** - Use query to verify before creating/deleting dependencies
+✅ **Combine with manage_dependencies** - Use query to verify before creating/deleting dependencies
 
 ✅ **Check task existence first** - Verify task exists before dependency query (prevents not found errors)
 
@@ -985,7 +985,7 @@ async function canCompleteTask(taskId) {
 
 ## Integration with Related Tools
 
-### With manage_dependency
+### With manage_dependencies
 
 Use `query_dependencies` to verify dependencies before creating/deleting:
 
@@ -999,7 +999,7 @@ const existing = await query_dependencies({
 
 if (!existing.data.dependencies.find(d => d.toTaskId === "task-b-uuid")) {
   // Safe to create
-  await manage_dependency({
+  await manage_dependencies({
     operation: "create",
     fromTaskId: "task-a-uuid",
     toTaskId: "task-b-uuid",
@@ -1212,7 +1212,7 @@ if (!VALID_TYPES.includes(type)) {
 
 ### Related Documentation
 
-- **[manage_dependency Tool](manage-dependency.md)** - Create/delete dependencies
+- **[manage_dependencies Tool](manage-dependency.md)** - Create/delete dependencies
 - **[get_blocked_tasks Tool](get-blocked-tasks.md)** - Identify blocked tasks
 - **[get_next_task Tool](get-next-task.md)** - Get next unblocked task
 - **[Dependency Analysis Skill]** - Claude Code skill for dependency queries
@@ -1242,7 +1242,7 @@ All examples use consistent IDs:
 ## See Also
 
 - [API Reference](../api-reference.md) - Complete tool documentation
-- [manage_dependency Tool](manage-dependency.md) - Dependency creation/deletion
+- [manage_dependencies Tool](manage-dependency.md) - Dependency creation/deletion
 - [get_blocked_tasks Tool](get-blocked-tasks.md) - Blocked task identification
 - [Quick Start Guide](../quick-start.md) - Common workflows
 - [Task Dependencies Guide](../guidelines/task-dependencies.md) - Dependency concepts and best practices

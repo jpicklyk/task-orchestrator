@@ -25,7 +25,7 @@ The MCP Task Orchestrator v2.0 provides **12 MCP tools** for AI-driven project m
   - [apply_template](#apply_template) ✏️
 - [Dependency Tools](#dependency-tools)
   - [query_dependencies](#query_dependencies) 🔍
-  - [manage_dependency](#manage_dependency) ✏️
+  - [manage_dependencies](#manage_dependencies) ✏️
 - [Workflow Tools](#workflow-tools)
   - [get_next_task](#get_next_task) 🔍
   - [get_blocked_tasks](#get_blocked_tasks) 🔍
@@ -87,7 +87,7 @@ The MCP Task Orchestrator v2.0 provides **12 MCP tools** for AI-driven project m
 | `apply_template` | ✏️ WRITE | (dedicated tool) | Apply templates to entities |
 | **Dependency Tools** |
 | `query_dependencies` | 🔍 READ | (single operation with filtering) | Read task dependencies |
-| `manage_dependency` | ✏️ WRITE | create, delete | Dependency management |
+| `manage_dependencies` | ✏️ WRITE | create, delete | Dependency management with batch support and pattern shortcuts |
 | **Workflow Tools** |
 | `get_next_task` | 🔍 READ | (single operation) | Intelligent task recommendation with dependency checking |
 | `get_blocked_tasks` | 🔍 READ | (single operation) | Dependency blocking analysis |
@@ -1745,6 +1745,7 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
 | `direction` | enum | No | `incoming`, `outgoing`, `all` (default: `all`) |
 | `type` | enum | No | `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO`, `all` |
 | `includeTaskInfo` | boolean | No | Include task details (default: false) |
+| `neighborsOnly` | boolean | No | When `true` (default), returns only immediate neighbors. When `false`, adds a `graph` object with chain depth, critical path, bottlenecks, and parallelizable task groups. |
 
 #### Dependency Types
 
@@ -1809,11 +1810,11 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
 
 ---
 
-### manage_dependency
+### manage_dependencies
 
 **Permission**: ✏️ WRITE
 
-**Purpose**: Create and delete task dependencies
+**Purpose**: Create and delete task dependencies with batch support
 
 **Operations**: `create`, `delete`
 
@@ -1822,11 +1823,29 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `operation` | enum | **Yes** | `create` or `delete` |
-| `id` | UUID | Varies | Dependency ID (for `delete`) |
-| `fromTaskId` | UUID | Varies | Source task ID (for `create` and alternative `delete`) |
-| `toTaskId` | UUID | Varies | Target task ID (for `create` and alternative `delete`) |
+| `dependencies` | array | No | Array of `{fromTaskId, toTaskId, type?}` objects (create, batch mode) |
+| `pattern` | enum | No | Shortcut pattern: `linear`, `fan-out`, `fan-in` (create) |
+| `taskIds` | array | No | Ordered task IDs for `linear` pattern (create) |
+| `source` | UUID | No | Source task ID for `fan-out` pattern (create) |
+| `targets` | array | No | Target task IDs for `fan-out` pattern (create) |
+| `sources` | array | No | Source task IDs for `fan-in` pattern (create) |
+| `target` | UUID | No | Target task ID for `fan-in` pattern (create) |
+| `fromTaskId` | UUID | No | Source task ID (legacy single create; delete by relationship) |
+| `toTaskId` | UUID | No | Target task ID (legacy single create; delete by relationship) |
 | `type` | enum | No | `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` (default: `BLOCKS`) |
+| `id` | UUID | No | Dependency ID (for `delete` by ID) |
 | `deleteAll` | boolean | No | Delete all matching dependencies (default: false) |
+
+#### Create Modes (mutually exclusive)
+
+1. **dependencies array** — Explicit list of dependency objects for full control
+2. **pattern shortcut** — Generate dependencies from a named pattern:
+   - `linear` + `taskIds=[A,B,C,D]` → A→B, B→C, C→D
+   - `fan-out` + `source=A` + `targets=[B,C,D]` → A→B, A→C, A→D
+   - `fan-in` + `sources=[B,C,D]` + `target=E` → B→E, C→E, D→E
+3. **legacy single** — Single `fromTaskId` + `toTaskId` (backward compatible)
+
+Batch creation is atomic — if any dependency fails validation (cycle, duplicate, missing task), none are created.
 
 ---
 
@@ -2156,7 +2175,7 @@ v2.0 introduces **clear permission separation** between read and write operation
 - `manage_container` - Create/update/delete containers
 - `manage_sections` - Add/update/delete sections
 - `manage_template` - Create/update/delete templates
-- `manage_dependency` - Create/delete dependencies
+- `manage_dependencies` - Create/delete dependencies
 - `apply_template` - Apply templates to entities
 - `request_transition` - Trigger-based status transitions
 
@@ -2317,7 +2336,7 @@ AI Workflow:
 3. query_templates(operation="list", targetEntityType="TASK")
 4. manage_container(operation="create", containerType="task",
                    title="Implement OAuth", templateIds=[...])
-5. manage_dependency(operation="create", fromTaskId="...", toTaskId="...")
+5. manage_dependencies(operation="create", fromTaskId="...", toTaskId="...")
 ```
 
 ---
@@ -2391,7 +2410,7 @@ AI Workflow:
 | `get_sections` | `query_sections` | (no operation parameter) |
 | `add_section` | `manage_sections` | `add` |
 | `list_templates` | `query_templates` | `list` |
-| `create_dependency` | `manage_dependency` | `create` |
+| `create_dependency` | `manage_dependencies` | `create` |
 
 ---
 

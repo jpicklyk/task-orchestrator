@@ -51,4 +51,25 @@ Dependencies control work ordering and block status transitions until prerequisi
 
 ## Deleting Dependencies
 
-Use `manage_dependency(operation="delete")` — by dependency ID, by task pair (`fromTaskId` + `toTaskId`), or all dependencies for a task (`deleteAll=true`).
+Use `manage_dependencies(operation="delete")` — by dependency ID, by task pair (`fromTaskId` + `toTaskId`), or all dependencies for a task (`deleteAll=true`).
+
+## Batch Creation
+
+`manage_dependencies` supports creating multiple dependencies in a single call:
+
+- **Explicit array:** `dependencies=[{fromTaskId, toTaskId, type?}, ...]` — full control over each edge
+- **Pattern shortcuts:** Generate common topologies from task ID lists:
+  - `pattern="linear"` + `taskIds=[A,B,C,D]` → A blocks B blocks C blocks D
+  - `pattern="fan-out"` + `source=A` + `targets=[B,C,D]` → A blocks B, C, and D
+  - `pattern="fan-in"` + `sources=[B,C,D]` + `target=E` → B, C, D all block E
+
+Batch creation is atomic — if any dependency fails validation (cycle, duplicate, missing task), none are created.
+
+## Graph Traversal
+
+`query_dependencies` supports full graph analysis with `neighborsOnly=false`:
+
+- Default (`neighborsOnly=true`): Returns only immediate neighbors of the queried task
+- `neighborsOnly=false`: Adds a `graph` object with chain depth, critical path, bottlenecks, and parallelizable task groups
+
+Use graph traversal for dependency audits, sprint planning, and bottleneck identification.

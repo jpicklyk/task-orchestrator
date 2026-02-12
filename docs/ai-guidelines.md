@@ -70,8 +70,8 @@ The Task Orchestrator exposes 12 MCP tools organized into categories:
 - **`apply_template`** - Apply template to entity
 
 ### Dependency Management
-- **`query_dependencies`** - Query task dependencies
-- **`manage_dependency`** - Create, update, delete dependencies
+- **`query_dependencies`** - Query task dependencies. Use `neighborsOnly=false` for full graph traversal.
+- **`manage_dependencies`** - Create and delete dependencies with batch support, pattern shortcuts (`linear`, `fan-out`, `fan-in`), and legacy single-pair creation.
 
 ### Workflow Optimization
 - **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
@@ -2138,7 +2138,7 @@ After completing feature implementation:
 After discovering blocker:
 1. query_dependencies(taskId=[blocked-task])
 2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → priority: high
-3. manage_dependency(operation="create", ...) as needed
+3. manage_dependencies(operation="create", ...) as needed
 ```
 
 **Sprint Planning Pattern**:

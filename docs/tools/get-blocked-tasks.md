@@ -580,7 +580,7 @@ for (const id of highPriorityIds) {
 - **query_container** (search): Find tasks by criteria (including status)
 - **manage_container** (setStatus): Update task status to unblock dependent tasks
 - **query_container** (search by featureId): Get all tasks in a feature to check blockers
-- **manage_dependency** (create): Create new dependencies between tasks
+- **manage_dependencies** (create): Create new dependencies between tasks
 
 ## See Also
 
