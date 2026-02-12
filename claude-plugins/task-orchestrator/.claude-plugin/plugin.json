@@ -11,5 +11,6 @@
   "license": "MIT",
   "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
   "skills": "./skills/",
-  "outputStyles": "./output-styles/"
+  "outputStyles": "./output-styles/",
+  "hooks": "./hooks/session-hooks.json"
 }
