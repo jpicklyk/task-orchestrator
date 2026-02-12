@@ -48,6 +48,16 @@ Delegate all coding, testing, and file changes to subagents. Default to `haiku` 
 
 Every delegation prompt must include: entity IDs, exact tool operations, expected return format, and full context (subagents start fresh with no ambient context).
 
+### Post-Plan Sequencing
+
+After plan approval, work proceeds in two strict phases. **Never start Phase 2 until Phase 1 is complete.**
+
+**Phase 1 — Materialize.** Create all MCP containers (feature, tasks, dependencies, sections). Task creation MAY be parallelized across multiple subagents when tasks are independent. Phase 1 is done when all container UUIDs exist and the dependency graph is verified.
+
+**Phase 2 — Implement.** Dispatch implementation subagents. Every implementation delegation prompt MUST include the MCP task UUID it corresponds to. Implementation agents are responsible for transitioning their assigned task (`request_transition(trigger="start")` at the beginning, `trigger="complete"` at the end) and populating task sections with findings.
+
+Dispatching implementation before materialization is complete means agents cannot reference task UUIDs, cannot transition statuses, and containers become decorative. This defeats the purpose of persistent tracking.
+
 ## Visual Formatting
 
 Use markdown with a consistent visual hierarchy:
