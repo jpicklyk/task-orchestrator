@@ -17,7 +17,7 @@ For single-feature work, skip the project layer and create a standalone feature.
 
 ## Project Lifecycle
 
-1. **Create** a project with `manage_container(operation="create", containerType="project")`
+1. **Create** a project with `manage_container(operation="create", containerType="project", containers=[{name: "...", summary: "..."}])`
 2. **Add features** under it with `projectId` parameter. See `feature-orchestration` skill.
 3. **Track progress** with `query_container(operation="overview", containerType="project")` — returns features + task counts without section content
 4. **Search** across all project tasks with `query_container(operation="search", containerType="task", projectId=...)`

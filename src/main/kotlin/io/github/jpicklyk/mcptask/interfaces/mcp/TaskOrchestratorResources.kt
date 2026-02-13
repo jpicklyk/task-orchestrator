@@ -284,14 +284,14 @@ This overview focuses on WHEN and WHY to use Task Orchestrator. For specific HOW
 ### The Problem with Assumptions
 ```
 ❌ WRONG: Assuming templates exist
-manage_container(operation="create", containerType="task",..., templateIds: ["task-implementation-workflow-uuid"])
+manage_container(operation="create", containerType="task", containers=[{...}], templateIds=["task-implementation-workflow-uuid"])
 // Fails if template disabled, deleted, or has different UUID
 
 ✅ CORRECT: Discovering templates first
 query_templates(targetEntityType: "TASK", isEnabled: true)
 // Review available templates
 // Select appropriate template IDs from results
-manage_container(operation="create", containerType="task",..., templateIds: [discovered-uuid])
+manage_container(operation="create", containerType="task", containers=[{...}], templateIds=[discovered-uuid])
 ```
 
 ### Dynamic Template Ecosystem
@@ -331,9 +331,8 @@ Match templates to your needs:
 **Step 4: Apply During Creation**
 ```
 manage_container(operation="create", containerType="task",
-    title: "...",
-    summary: "...",
-    templateIds: [selected-uuids-from-discovery]
+    containers=[{title: "...", summary: "..."}],
+    templateIds=[selected-uuids-from-discovery]
 )
 ```
 
@@ -448,7 +447,7 @@ templates = query_templates(targetEntityType: "TASK", tags: "implementation")
 selected = find template matching "Task Implementation"
 
 manage_container(operation="create", containerType="task",
-    templateIds: [selected.id]
+    containers=[{...}], templateIds=[selected.id]
 )
 ```
 
@@ -460,7 +459,7 @@ implementation = find "Task Implementation Workflow"
 git = find "Local Git Branching Workflow"
 
 manage_container(operation="create", containerType="task",
-    templateIds: [implementation.id, git.id]
+    containers=[{...}], templateIds=[implementation.id, git.id]
 )
 ```
 
@@ -474,7 +473,7 @@ git = find "Local Git Branching"
 testing = find "Testing Strategy"
 
 manage_container(operation="create", containerType="task",
-    templateIds: [implementation.id, technical.id, git.id, testing.id]
+    containers=[{...}], templateIds=[implementation.id, technical.id, git.id, testing.id]
 )
 ```
 
@@ -487,7 +486,7 @@ requirements = find "Requirements Specification"
 technical = find "Technical Approach"
 
 manage_container(operation="create", containerType="feature",
-    templateIds: [context.id, requirements.id, technical.id]
+    containers=[{...}], templateIds=[context.id, requirements.id, technical.id]
 )
 ```
 
@@ -499,7 +498,7 @@ bug_workflow = find "Bug Investigation Workflow"
 git = find "Local Git Branching"
 
 manage_container(operation="create", containerType="task",
-    templateIds: [bug_workflow.id, git.id]
+    containers=[{...}], templateIds=[bug_workflow.id, git.id]
 )
 ```
 
@@ -508,14 +507,14 @@ manage_container(operation="create", containerType="task",
 ### ❌ Mistake 1: Hardcoding Template IDs
 ```
 // NEVER do this
-manage_container(operation="create", containerType="task",templateIds: ["550e8400-e29b-41d4-a716-446655440000"])
+manage_container(operation="create", containerType="task", containers=[{...}], templateIds=["550e8400-e29b-41d4-a716-446655440000"])
 ```
 
 ### ✅ Solution: Always Discover
 ```
 templates = query_templates(targetEntityType: "TASK")
 selected = templates.find(name: "Task Implementation Workflow")
-manage_container(operation="create", containerType="task",templateIds: [selected.id])
+manage_container(operation="create", containerType="task", containers=[{...}], templateIds=[selected.id])
 ```
 
 ### ❌ Mistake 2: Assuming Template Names
@@ -546,7 +545,7 @@ templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 ### ❌ Mistake 4: Over-templating
 ```
 // Too many templates creates noise
-manage_container(operation="create", containerType="task",templateIds: [all_discovered_templates])
+manage_container(operation="create", containerType="task", containers=[{...}], templateIds=[all_discovered_templates])
 ```
 
 ### ✅ Solution: Select Relevant Templates
@@ -691,12 +690,14 @@ requirements_template = find template with "Requirements"
 
 Step 4: Create feature with templates
 manage_container(operation="create", containerType="feature",
-    name: [extract feature name from user request],
-    summary: [comprehensive description based on user input],
-    status: "planning",
-    priority: [assess from context: high/medium/low],
-    templateIds: [selected template IDs],
-    tags: [derive from feature type and domain]
+    containers=[{
+        name: [extract feature name from user request],
+        summary: [comprehensive description based on user input],
+        status: "planning",
+        priority: [assess from context: high/medium/low],
+        tags: [derive from feature type and domain]
+    }],
+    templateIds=[selected template IDs]
 )
 
 Step 5: Confirm creation and suggest next steps
@@ -711,11 +712,13 @@ AI applies pattern:
 1. query_container(operation="overview") - check existing work
 2. query_templates(targetEntityType: "FEATURE") - discover templates
 3. manage_container(operation="create", containerType="feature",
-     name: "OAuth Authentication Integration",
-     summary: "Implement OAuth 2.0 authentication with Google and GitHub providers...",
-     priority: "high",
-     templateIds: [context-id, requirements-id],
-     tags: "authentication,oauth,security,user-management"
+     containers=[{
+       name: "OAuth Authentication Integration",
+       summary: "Implement OAuth 2.0 authentication with Google and GitHub providers...",
+       priority: "high",
+       tags: "authentication,oauth,security,user-management"
+     }],
+     templateIds=[context-id, requirements-id]
    )
 4. "Feature created with 2 documentation templates. Ready to create implementation tasks?"
 ```
@@ -747,16 +750,18 @@ Analyze requirements:
 
 Step 5: Create task
 manage_container(operation="create", containerType="task",
-    title: [specific, actionable title],
-    summary: [detailed description with acceptance criteria],
-    complexity: [assessed complexity],
-    priority: [high/medium/low based on urgency],
-    templateIds: [selected template IDs],
-    tags: [task-type, component, technology]
+    containers=[{
+        title: [specific, actionable title],
+        summary: [detailed description with acceptance criteria],
+        complexity: [assessed complexity],
+        priority: [high/medium/low based on urgency],
+        tags: [task-type, component, technology]
+    }],
+    templateIds=[selected template IDs]
 )
 
 Step 6: Update status when starting
-request_transition(containerId="task-id", containerType="task", trigger="start")
+request_transition(transitions=[{containerId: "task-id", containerType: "task", trigger: "start"}])
 ```
 
 **Example**:
@@ -769,12 +774,14 @@ AI applies pattern:
 3. query_templates(targetEntityType: "TASK")
 4. Assess complexity: Medium (4-6) - API + validation + tests
 5. manage_container(operation="create", containerType="task",
-     title: "Implement user profile management API endpoints",
-     summary: "Create REST API endpoints for user profile CRUD operations. Include: GET /profile, PUT /profile, validation, error handling, tests",
-     complexity: 5,
-     priority: "medium",
-     templateIds: [impl-workflow-id, git-workflow-id, technical-approach-id],
-     tags: "task-type-feature,api,backend,user-management"
+     containers=[{
+       title: "Implement user profile management API endpoints",
+       summary: "Create REST API endpoints for user profile CRUD operations. Include: GET /profile, PUT /profile, validation, error handling, tests",
+       complexity: 5,
+       priority: "medium",
+       tags: "task-type-feature,api,backend,user-management"
+     }],
+     templateIds=[impl-workflow-id, git-workflow-id, technical-approach-id]
    )
 6. "Task created with git branching workflow. Ready to start implementation?"
 ```
@@ -801,12 +808,14 @@ Low: Minor issue, cosmetic problem
 
 Step 4: Create bug task
 manage_container(operation="create", containerType="task",
-    title: [clear bug description with impact],
-    summary: [symptoms, reproduction steps, initial impact],
-    priority: [based on severity assessment],
-    complexity: [initial estimate: 3-5 for investigation],
-    templateIds: [bug-workflow-id, git-workflow-id],
-    tags: "task-type-bug,severity-[level],component-[area]"
+    containers=[{
+        title: [clear bug description with impact],
+        summary: [symptoms, reproduction steps, initial impact],
+        priority: [based on severity assessment],
+        complexity: [initial estimate: 3-5 for investigation],
+        tags: "task-type-bug,severity-[level],component-[area]"
+    }],
+    templateIds=[bug-workflow-id, git-workflow-id]
 )
 
 Step 5: Begin systematic investigation
@@ -822,12 +831,14 @@ AI applies pattern:
 2. query_templates(tags: "bug")
 3. Assess: High severity (login is critical, affects all users)
 4. manage_container(operation="create", containerType="task",
-     title: "Login page blank screen after credential submission",
-     summary: "Symptoms: Blank white screen appears after entering credentials and clicking login. User session not established. Reproduction: Navigate to /login, enter valid credentials, click submit. Expected: Dashboard loads. Actual: Blank screen.",
-     priority: "high",
-     complexity: 4,
-     templateIds: [bug-investigation-id, git-branching-id],
-     tags: "task-type-bug,severity-high,component-frontend,authentication"
+     containers=[{
+       title: "Login page blank screen after credential submission",
+       summary: "Symptoms: Blank white screen appears after entering credentials and clicking login. User session not established. Reproduction: Navigate to /login, enter valid credentials, click submit. Expected: Dashboard loads. Actual: Blank screen.",
+       priority: "high",
+       complexity: 4,
+       tags: "task-type-bug,severity-high,component-frontend,authentication"
+     }],
+     templateIds=[bug-investigation-id, git-branching-id]
    )
 5. "Bug task created. Following investigation workflow to determine root cause..."
 ```
@@ -900,9 +911,7 @@ RELATES_TO: Tasks are related but no strict ordering
 
 Step 3: Create dependency
 manage_dependencies(operation="create",
-    fromTaskId: [source task],
-    toTaskId: [target task],
-    type: [relationship type]
+    dependencies=[{fromTaskId: [source task], toTaskId: [target task], type: [relationship type]}]
 )
 
 Step 4: Verify no cycles
@@ -922,9 +931,7 @@ AI applies pattern:
 2. query_container(operation="search", containerType="task",query: "database schema") → Task B
 3. Relationship: Task B BLOCKS Task A
 4. manage_dependencies(operation="create",
-     fromTaskId: task-B-id,
-     toTaskId: task-A-id,
-     type: "BLOCKS"
+     dependencies=[{fromTaskId: task-B-id, toTaskId: task-A-id, type: "BLOCKS"}]
    )
 5. "Dependency created: Database schema blocks API implementation. Work on database schema first."
 ```
@@ -950,12 +957,14 @@ templates = query_templates(targetEntityType: "TASK", isEnabled: true)
 Step 4: Create tasks for each component
 For each component:
     manage_container(operation="create", containerType="task",
-        title: [specific component implementation],
-        summary: [clear scope and criteria],
-        featureId: feature-id,
-        complexity: [3-6 for manageable tasks],
-        templateIds: [relevant templates],
-        tags: [component-specific tags]
+        containers=[{
+            title: [specific component implementation],
+            summary: [clear scope and criteria],
+            complexity: [3-6 for manageable tasks],
+            tags: [component-specific tags]
+        }],
+        featureId=feature-id,
+        templateIds=[relevant templates]
     )
 
 Step 5: Establish dependencies
@@ -1031,7 +1040,7 @@ Pattern recognition → Template discovery → Pattern execution with templates
 **Example flow**:
 1. Recognize: "Create feature" intent
 2. Discover: query_templates(targetEntityType: "FEATURE")
-3. Execute: manage_container(operation="create", containerType="feature") with discovered templates
+3. Execute: manage_container(operation="create", containerType="feature", containers=[{...}], templateIds=[...])
 ```
 
 ### Natural Language Flexibility
@@ -1185,9 +1194,9 @@ Task Orchestrator provides guidance through multiple channels:
 ```
 1. query_container(operation="overview") - Understand current state
 2. query_templates(targetEntityType="TASK") - Discover templates
-3. manage_container(operation="create", ..., templateIds=[...]) - Create with templates
+3. manage_container(operation="create", ..., containers=[{...}], templateIds=[...]) - Create with templates
 4. get_next_status(containerId, containerType) - Check progression
-5. request_transition(containerId, containerType, trigger="start") - Apply status change (preferred)
+5. request_transition(transitions=[{containerId, containerType, trigger: "start"}]) - Apply status change (preferred)
 ```
 
 ## Status Workflow Management
@@ -1221,7 +1230,7 @@ Entities with `requiresVerification=true` cannot be completed until a Verificati
 **How It Works:**
 1. Create a Verification section with JSON acceptance criteria: `[{"criteria": "description", "pass": false}, ...]`
 2. As you verify each condition, update the criterion's `pass` to `true`
-3. The server blocks `request_transition(trigger="complete")` until ALL criteria pass
+3. The server blocks `request_transition(transitions=[{..., trigger: "complete"}])` until ALL criteria pass
 
 **When to Use:**
 - **Use** for implementation tasks, bug fixes, features with formal requirements
@@ -1295,7 +1304,7 @@ This resource contains a ready-to-use instruction block for your project's CLAUD
 
 1. **Create a project** (if you haven't already):
    ```
-   manage_container(operation="create", containerType="project", name="Your Project Name", summary="Description")
+   manage_container(operation="create", containerType="project", containers=[{name: "Your Project Name", summary: "Description"}])
    ```
    Note the returned project UUID.
 
@@ -1315,7 +1324,7 @@ All features and tasks belong to this project. Always pass `projectId` when crea
 
 ### Workflow Rules
 
-1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`. For batch changes, use the `transitions` array parameter. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
+1. **Status changes** — Use `request_transition(transitions=[{containerId, containerType, trigger: "start"|"complete"|"cancel"|"block"|"hold"}])`. Always wrap in a `transitions` array, even for single transitions. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
 
 2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
 

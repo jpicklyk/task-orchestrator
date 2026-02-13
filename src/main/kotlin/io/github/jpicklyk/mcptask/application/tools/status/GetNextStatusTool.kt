@@ -74,7 +74,7 @@ class GetNextStatusTool(
         - Validation before applying status transitions
 
         To apply recommended status:
-        request_transition(containerId="...", containerType="...", trigger="start")
+        request_transition(transitions=[{containerId: "...", containerType: "...", trigger: "start"}])
 
         Related tools: request_transition, manage_container, query_container
 

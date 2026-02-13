@@ -19,7 +19,7 @@ One-liner: Generate and install a CLAUDE.md instruction block that teaches AI ag
 
 2. **Resolve or create the MCP project** — If no project UUID exists in CLAUDE.md:
    - Ask the user for a project name using AskUserQuestion
-   - Create the project: `manage_container(operation="create", containerType="project", name="...", summary="...")`
+   - Create the project: `manage_container(operation="create", containerType="project", containers=[{name: "...", summary: "..."}])`
    - Capture the returned UUID
 
 3. **Generate the CLAUDE.md block** — Output the block below with `{name}` and `{uuid}` replaced with actual values. Present it to the user as a markdown code fence they can paste into their CLAUDE.md.

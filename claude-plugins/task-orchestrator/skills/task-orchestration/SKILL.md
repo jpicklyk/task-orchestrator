@@ -10,7 +10,7 @@ Tasks are the primary work items, organized under Features and Projects. Every t
 ## Project Initialization
 
 If no project exists yet, create one before any other work:
-1. `manage_container(operation="create", containerType="project", name="...", summary="...")`
+1. `manage_container(operation="create", containerType="project", containers=[{name: "...", summary: "..."}])`
 2. Store the project UUID in the repository's `CLAUDE.md` (e.g., `## Project: <name> (<uuid>)`) so future sessions can reference it without querying.
 3. All subsequent features and standalone tasks must reference this `projectId`.
 
