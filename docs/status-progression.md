@@ -90,6 +90,18 @@ Task Orchestrator v2.0 uses an **event-driven status progression pattern** where
 
 This architecture ensures status progression adapts to your custom workflows without hardcoding status names in Skills.
 
+### Cascade Lifecycle Prerequisites
+
+Cascade events only fire when the parent entity is in the correct lifecycle state. Event handlers are keyed by the parent's **current status**, so skipping lifecycle steps causes cascades to silently not fire.
+
+**Required sequence for task-to-feature cascades:**
+
+1. **Start first task** → `first_task_started` cascade fires → advance feature to `in-development`
+2. **Complete all tasks** → `all_tasks_complete` cascade fires → advance feature to `testing`
+3. **Complete feature** → `all_features_complete` cascade fires → advance project to `completed`
+
+If step 1 is skipped (e.g., tasks are completed directly without being started first), the feature stays in `planning` and no `all_tasks_complete` handler matches — the cascade never fires. Always act on `cascadeEvents` in transition responses to keep parent entities in the correct lifecycle state.
+
 ## Status Flow Diagrams
 
 ### Feature Flow (Default - Software Development)

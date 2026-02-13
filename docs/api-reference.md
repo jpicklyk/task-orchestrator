@@ -2394,11 +2394,14 @@ const progress = (flowPosition / (flowSequence.length - 1)) * 100;
 
 #### Cascade Detection
 
-When a task or feature completes, `request_transition` checks if parent entities should automatically advance:
+When a task or feature completes, `request_transition` checks if parent entities should automatically advance.
+
+**Important:** Cascades only fire when the parent entity is in the expected lifecycle state. The `all_tasks_complete` handler requires the feature to be in `in-development` (work role). If the feature is still in `planning`, the cascade silently does not fire. Always act on `first_task_started` cascades to advance the feature before expecting task completion cascades.
 
 **Feature Cascade Example**:
 ```
-Task completes → All sibling tasks terminal → Feature auto-advances to "testing"
+First task starts → first_task_started cascade → Feature advances to "in-development"
+All tasks complete → all_tasks_complete cascade → Feature advances to "testing"
 ```
 
 **Response with cascade**:
