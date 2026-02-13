@@ -35,7 +35,7 @@ Generate a Tier 1 dashboard for the current project.
 
 Status symbols: ◉ in-progress/in-development, ⊘ blocked/on-hold, ○ pending/planning
 
-**Completed:** {count} features (list names inline, comma-separated)
+**Completed:** {count} features
 
 ### Action Items
 
