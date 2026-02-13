@@ -102,8 +102,44 @@ Sections hold detailed content (technical approach, test plan, notes). Templates
 - **Surgical edit:** `manage_sections(operation="updateText")` with `oldText`/`newText` — avoids rewriting entire content
 - **Add/bulk create:** `manage_sections` operations `add` and `bulkCreate`
 
+**Section tags** enable targeted retrieval: `query_sections(tags="requirements,api")` returns only sections matching those tags. Templates automatically set tags on created sections. Add custom tags via `manage_sections(operation="updateMetadata", tags="...")` for cross-entity filtering.
+
 ## Finding Work
 
 - **Smart recommendation:** `get_next_task` — respects dependencies, sorts by priority then complexity (quick wins first)
 - **Filtered search:** `query_container(operation="search")` — supports multi-value filters (`status="pending,in-progress"`) and negation (`status="!completed,!cancelled"`)
 - **Export:** `query_container(operation="export")` — full markdown representation with all sections
+
+### Query Operation Selection
+
+| Operation | Returns | Use When |
+|-----------|---------|----------|
+| `overview` | Metadata + child counts, no sections | Status checks, dashboards — default choice for most queries |
+| `get` | Full entity, optional sections via `includeSections` | Need to read or update section content |
+| `search` | Minimal result set (id, title, status, priority) | Finding entities by criteria, filtering across containers |
+| `export` | Complete markdown with all sections and children | Snapshot before feature completion, archival, sharing outside MCP |
+
+Default to `overview` for token efficiency (85-90% reduction vs `get` with sections). Use `export` specifically before feature completion to preserve task details that cleanup will delete.
+
+## Standalone Tasks vs Feature Tasks
+
+| Scenario | Container Pattern | Tags |
+|----------|-------------------|------|
+| Implementation work for a feature | Feature task (`featureId` set) | Functional tags |
+| Cross-session action item (deferred topic, follow-up) | Standalone task (`projectId` only, no `featureId`) | `action-item` |
+| Tech debt or refactoring | Standalone task | `tech-debt`, `action-item` |
+| Bug discovered during feature work | Feature task | `bug` (survives feature completion cleanup) |
+| Standalone bug not tied to a feature | Standalone task | `bug` |
+
+Standalone tasks are not affected by feature completion cleanup. Use them for items that should persist independently of any feature lifecycle.
+
+## MCP Resources
+
+For detailed reference beyond this skill, the MCP server provides on-demand guideline resources:
+- `task-orchestrator://guidelines/usage-overview` — decision framework for when to use Task Orchestrator
+- `task-orchestrator://guidelines/template-strategy` — template discovery patterns and selection trees
+- `task-orchestrator://guidelines/task-management` — intent recognition and 6 executable workflow patterns
+- `task-orchestrator://guidelines/workflow-integration` — status flows, verification gates, update efficiency
+- `task-orchestrator://docs/tools/{tool-name}` — per-tool documentation (13 tools)
+
+Reference these via @-mention in Claude Code or `ReadResource` in other MCP clients when you need deeper guidance on a specific tool or pattern.

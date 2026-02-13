@@ -10,8 +10,48 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
  * These resources provide discoverable guidelines that AI agents can reference
  * to understand when and how to use Task Orchestrator tools effectively.
  * Resources focus on WHEN/WHY principles rather than detailed HOW instructions.
+ *
+ * ## Two-Layer Setup Instructions Architecture
+ *
+ * Non-plugin agents (those using only `.mcp.json`, not the Claude Code plugin) need
+ * workflow guidance injected into their project's CLAUDE.md (or equivalent instructions file).
+ * This is delivered through a two-layer system:
+ *
+ * **Layer 1 — `server.instructions` (every session, ~80 tokens):**
+ * [McpServer.configureServer] passes [SETUP_INSTRUCTIONS_VERSION] into the MCP `Server`
+ * constructor's `instructions` parameter. The MCP protocol delivers this string to agents
+ * once during `initialize`. It tells the agent to look for a version marker comment
+ * (`<!-- mcp-task-orchestrator-setup: vN -->`) in their project config and, if missing or
+ * outdated, read the on-demand resource.
+ *
+ * **Layer 2 — MCP Resource (on demand, ~600 tokens):**
+ * [addSetupInstructionsResource] registers `task-orchestrator://guidelines/setup-instructions`,
+ * which contains the full CLAUDE.md template with all workflow rules, status flow tables,
+ * cleanup warnings, and resource links. Agents read this only when they need to install or
+ * update the instructions block.
+ *
+ * **Version lifecycle:** When the CLAUDE.md template changes, bump [SETUP_INSTRUCTIONS_VERSION].
+ * Agents with an older marker will detect the mismatch via Layer 1 and re-read Layer 2
+ * to get the updated template.
+ *
+ * @see McpServer.configureServer where `server.instructions` references this version constant
  */
 object TaskOrchestratorResources {
+
+    /**
+     * Version marker embedded in the CLAUDE.md template output.
+     *
+     * This version string appears in three places and must stay in sync:
+     * 1. **`server.instructions`** in [McpServer.configureServer] — tells agents which version to look for
+     * 2. **MCP Resource content** in [addSetupInstructionsResource] — the template agents copy into CLAUDE.md
+     * 3. **Plugin skill** at `claude-plugins/task-orchestrator/skills/setup-instructions/SKILL.md` —
+     *    the Claude Code plugin's `/setup-instructions` skill template output
+     *
+     * When the CLAUDE.md template changes materially, bump this to `"v2"`, `"v3"`, etc.
+     * Agents whose CLAUDE.md contains an older marker will be prompted by `server.instructions`
+     * to re-read the setup resource and update their instructions block.
+     */
+    const val SETUP_INSTRUCTIONS_VERSION = "v1"
 
     /**
      * Configures all Task Orchestrator guideline resources with the MCP server.
@@ -21,6 +61,7 @@ object TaskOrchestratorResources {
         addTemplateStrategyResource(server)
         addTaskManagementPatternsResource(server)
         addWorkflowIntegrationResource(server)
+        addSetupInstructionsResource(server)
     }
 
     /**
@@ -1210,6 +1251,135 @@ If completion is blocked, the response includes which specific criteria failed.
                         )
                     )
                 )
+        }
+    }
+
+    /**
+     * Adds the setup instructions resource — **Layer 2** of the two-layer architecture.
+     *
+     * Registers `task-orchestrator://guidelines/setup-instructions` as an on-demand MCP
+     * resource. Agents are directed here by Layer 1 (`server.instructions` in
+     * [McpServer.configureServer]) when their project's CLAUDE.md is missing the
+     * `<!-- mcp-task-orchestrator-setup: vN -->` marker or has an older version.
+     *
+     * The resource contains:
+     * - Installation steps (create project, copy block, verify marker)
+     * - Complete CLAUDE.md template with `{PROJECT_NAME}` / `{PROJECT_UUID}` placeholders
+     * - 6 workflow rules, tag-driven status flow tables, completion cleanup warning
+     * - Dependency batch creation guidance, session start pattern, deep-reference links
+     *
+     * The template embeds [SETUP_INSTRUCTIONS_VERSION] so the installed block can be
+     * version-checked by Layer 1 in future sessions.
+     *
+     * @see SETUP_INSTRUCTIONS_VERSION for version lifecycle documentation
+     * @see McpServer.configureServer where Layer 1 references this resource URI
+     */
+    private fun addSetupInstructionsResource(server: Server) {
+        server.addResource(
+            uri = "task-orchestrator://guidelines/setup-instructions",
+            name = "Setup Instructions — CLAUDE.md Template",
+            description = "Complete CLAUDE.md instruction block template for configuring any AI agent to use MCP Task Orchestrator effectively. Read this resource when the server.instructions marker is missing from your project configuration.",
+            mimeType = "text/markdown"
+        ) { _ ->
+            ReadResourceResult(
+                contents = listOf(
+                    TextResourceContents(
+                        uri = "task-orchestrator://guidelines/setup-instructions",
+                        mimeType = "text/markdown",
+                        text = """
+# MCP Task Orchestrator — Setup Instructions
+
+## What This Is
+
+This resource contains a ready-to-use instruction block for your project's CLAUDE.md (or equivalent agent instructions file). Adding this block teaches your AI agent the essential workflow rules for MCP Task Orchestrator.
+
+## How to Install
+
+1. **Create a project** (if you haven't already):
+   ```
+   manage_container(operation="create", containerType="project", name="Your Project Name", summary="Description")
+   ```
+   Note the returned project UUID.
+
+2. **Copy the block below** into your CLAUDE.md, replacing `{PROJECT_NAME}` with your project name and `{PROJECT_UUID}` with the UUID from step 1.
+
+3. **Verify** by checking that the marker comment `<!-- mcp-task-orchestrator-setup: $SETUP_INSTRUCTIONS_VERSION -->` is present at the top of the block.
+
+---
+
+## CLAUDE.md Block (copy below this line)
+
+```markdown
+<!-- mcp-task-orchestrator-setup: $SETUP_INSTRUCTIONS_VERSION -->
+## MCP Task Orchestrator — Project: {PROJECT_NAME} (`{PROJECT_UUID}`)
+
+All features and tasks belong to this project. Always pass `projectId` when creating features or standalone tasks so they remain queryable.
+
+### Workflow Rules
+
+1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`, never `manage_container(setStatus)`. For batch changes, use the `transitions` array parameter. `setStatus` skips validation, cascade detection, and unblocked task identification.
+
+2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
+
+3. **Post-transition handling** — After every `request_transition`, check the response for:
+   - `cascadeEvents` — parent entities that should advance (act on them)
+   - `unblockedTasks` — downstream tasks now available to start
+   - Flow context (`activeFlow`, `flowSequence`, `flowPosition`)
+
+4. **Token-efficient queries** — Default to `query_container(operation="overview")` for status checks and dashboards. Use `get` only when you need section content. Use `export` for full markdown snapshots before completion or archival.
+
+5. **Work selection** — Use `get_next_task(projectId="{PROJECT_UUID}")` for dependency-aware, priority-sorted recommendations instead of manual searching. Use `get_blocked_tasks` to identify bottlenecks.
+
+6. **Completion requirements** — Tasks: summary populated, dependencies resolved, required sections filled. Features: all child tasks in terminal status (completed or cancelled). Projects: all features completed.
+
+### Status Flows (Tag-Driven)
+
+Tags applied at creation time select which status flow an entity follows:
+
+| Entity | Tags | Flow |
+|--------|------|------|
+| Task | _(default)_ | backlog → pending → in-progress → testing → completed |
+| Task | `bug`, `bugfix`, `fix` | pending → in-progress → testing → completed |
+| Task | `documentation`, `docs` | pending → in-progress → in-review → completed |
+| Task | `hotfix`, `emergency` | in-progress → testing → completed |
+| Feature | _(default)_ | draft → planning → in-development → testing → validating → completed |
+| Feature | `prototype`, `poc`, `spike` | draft → in-development → completed |
+| Feature | `experiment`, `research` | draft → in-development → archived |
+
+### Completion Cleanup
+
+When a feature reaches terminal status (completed/archived), its child tasks are **automatically deleted** — including their sections and dependencies. Tasks tagged `bug`, `bugfix`, `fix`, `hotfix`, or `critical` are retained. Use `query_container(operation="export")` on a feature BEFORE completing it to preserve a full markdown snapshot of all task content.
+
+### Dependency Batch Creation
+
+Use `manage_dependencies` with a `dependencies` array or pattern shortcuts (`linear`, `fan-out`, `fan-in`) for creating multiple dependencies at once. Avoid creating them one at a time.
+
+### Session Start
+
+Begin each session by checking project state:
+```
+query_container(operation="overview", containerType="project", id="{PROJECT_UUID}")
+```
+
+### MCP Resources (Deep Reference)
+
+For detailed guidance beyond these rules, read these MCP resources:
+- `task-orchestrator://guidelines/usage-overview` — decision framework for when to use Task Orchestrator
+- `task-orchestrator://guidelines/template-strategy` — template discovery patterns and selection trees
+- `task-orchestrator://guidelines/task-management` — intent recognition and 6 executable workflow patterns
+- `task-orchestrator://guidelines/workflow-integration` — status flows, verification gates, update efficiency
+- `task-orchestrator://docs/tools/{tool-name}` — per-tool documentation (13 tools)
+```
+
+---
+
+## Version History
+
+- **$SETUP_INSTRUCTIONS_VERSION**: Initial release — 6 workflow rules, tag-driven status flows, completion cleanup, dependency patterns, session start, resource links
+                        """.trimIndent()
+                    )
+                )
+            )
         }
     }
 }

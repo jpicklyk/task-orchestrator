@@ -30,6 +30,30 @@ Default flow: `draft` -> `planning` -> `in-development` -> `testing` -> `validat
 - **Next task:** `get_next_task(featureId=...)`
 - **Blockers:** `get_blocked_tasks(featureId=...)`
 
+## Feature Tagging
+
+Tags drive workflow selection and enable filtering. Apply them via the `tags` parameter on create/update.
+
+### Workflow Tags
+
+These tags select which status flow a feature follows:
+
+| Tags | Flow | Use When |
+|------|------|----------|
+| `prototype`, `poc`, `spike` | draft → in-development → completed | Rapid validation, skip planning/testing |
+| `experiment`, `research` | draft → in-development → archived | Exploratory work, may not reach completion |
+
+Without workflow tags, the default feature flow applies: draft → planning → in-development → testing → validating → completed.
+
+### Organizational Tags
+
+Use for filtering and categorization:
+- **Domain area:** `authentication`, `api`, `database`, `ui`, `infrastructure`
+- **Work type:** `tech-debt`, `enhancement`, `migration`, `integration`
+- **Priority signals:** `blocking`, `deferred`, `critical`
+
+Tags are searchable via `query_container(operation="search", tags="authentication")`.
+
 ## Completion Workflow
 
 Before completing a feature:
@@ -38,6 +62,8 @@ Before completing a feature:
 2. Review feature sections with `query_sections`
 3. Check readiness with `get_next_status`
 4. Complete with `request_transition(trigger="complete")`
+
+**Cleanup warning:** Completing a feature triggers automatic deletion of child tasks (except those tagged `bug`/`bugfix`/`fix`/`hotfix`/`critical`). To preserve task details, export the feature first with `query_container(operation="export")`. See `status-progression` skill for full cleanup details and configuration options.
 
 Watch for **cascade events** in the response — they may suggest advancing the parent project status.
 

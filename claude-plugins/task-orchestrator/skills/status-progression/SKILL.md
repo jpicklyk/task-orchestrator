@@ -69,10 +69,36 @@ Emergency triggers bypass normal flow. Always include `summary` for emergency tr
 
 Use `manage_container(operation="setStatus")` for statuses that don't map to a trigger. Prefer `request_transition` for normal workflow.
 
-## Cascade Events
+## Post-Transition Response
 
-Transition responses may include `cascadeEvents` suggesting parent entity status updates (e.g., all tasks completed -> advance feature). Always check and act on these.
+Transition responses include important follow-up data. Always check for:
 
-## Cascade Events
+- **`cascadeEvents`** — suggestions to advance parent entity status (e.g., all tasks completed → advance feature). Act on these by calling `request_transition` on the parent.
+- **`unblockedTasks`** — downstream tasks whose blocking dependencies are now resolved. Use `get_next_task` to pick them up.
+- **Flow context** — `activeFlow`, `flowSequence`, `flowPosition` indicate the entity's current workflow position.
 
-Transition responses may include `unblockedTasks` listing downstream tasks now available. Check `get_next_task` after completing work to pick up newly unblocked items.
+## Completion Cleanup
+
+When a feature reaches terminal status (`completed` or `archived`), its child tasks are **automatically deleted** — including their sections and dependencies. This is expected lifecycle behavior, not data loss.
+
+**What survives cleanup:**
+- The feature itself and its sections (preserved as the durable record)
+- Tasks tagged with retain tags: `bug`, `bugfix`, `fix`, `hotfix`, `critical`
+- Standalone tasks (no `featureId`)
+- Projects (never deleted)
+
+**Preservation pattern:** Before completing a feature, use `query_container(operation="export", containerType="feature", id=...)` to generate a full markdown snapshot of the feature and all its tasks.
+
+**Disabling cleanup:** Set `completion_cleanup.enabled: false` in `.taskorchestrator/config.yaml`.
+
+## Configuration Override
+
+Status flows, validation rules, cascade behavior, and cleanup settings can be customized via `.taskorchestrator/config.yaml` in the project root (or the directory pointed to by `AGENT_CONFIG_DIR`).
+
+Configurable areas:
+- `status_progression` — custom flows, tag-to-flow mappings, terminal statuses, emergency transitions, status roles
+- `status_validation` — `enforce_sequential`, `allow_backward`, `allow_emergency`, `validate_prerequisites`
+- `completion_cleanup` — `enabled`, `retain_tags` for tasks that survive cleanup
+- `auto_cascade` — `enabled`, `max_depth` for automatic cascade application
+
+The server ships with sensible defaults. Override only what you need.

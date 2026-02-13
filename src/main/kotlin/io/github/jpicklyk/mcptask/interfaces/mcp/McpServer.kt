@@ -143,8 +143,21 @@ class McpServer(
 
     /**
      * Configures the server with comprehensive metadata, tools, and capabilities.
+     *
+     * The `instructions` parameter is **Layer 1** of the two-layer setup architecture
+     * documented in [TaskOrchestratorResources]. It is delivered to agents once during
+     * MCP `initialize` and tells them to check for the version marker
+     * `<!-- mcp-task-orchestrator-setup: vN -->` in their CLAUDE.md. If missing or outdated,
+     * agents read the on-demand MCP resource `task-orchestrator://guidelines/setup-instructions`
+     * (Layer 2) to install the full workflow instruction block.
+     *
+     * @see TaskOrchestratorResources.SETUP_INSTRUCTIONS_VERSION version constant shared by both layers
+     * @see TaskOrchestratorResources.addSetupInstructionsResource Layer 2 resource registration
      */
     private fun configureServer(): Server {
+        // Layer 1: Short versioned pointer sent to every agent at init (~80 tokens).
+        // Directs agents to Layer 2 (MCP resource) when their CLAUDE.md is missing or outdated.
+        // See TaskOrchestratorResources KDoc for the full two-layer architecture explanation.
         val server = Server(
             serverInfo = Implementation(
                 name = getServerName(),
@@ -157,7 +170,10 @@ class McpServer(
                     resources = ServerCapabilities.Resources(subscribe = null, listChanged = null),
                     logging = JsonObject(emptyMap())
                 )
-            )
+            ),
+            instructions = """
+                Check your project's CLAUDE.md (or equivalent agent instructions file) for the marker <!-- mcp-task-orchestrator-setup: ${TaskOrchestratorResources.SETUP_INSTRUCTIONS_VERSION} -->. If missing or an older version, read the MCP resource task-orchestrator://guidelines/setup-instructions and follow its setup steps to add essential workflow rules.
+            """.trimIndent()
         )
         
         // Add comprehensive server metadata and description
