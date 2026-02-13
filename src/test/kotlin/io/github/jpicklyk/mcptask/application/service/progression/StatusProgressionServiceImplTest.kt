@@ -84,6 +84,9 @@ class StatusProgressionServiceImplTest {
               pending: queue
               in-progress: work
               testing: review
+              changes-requested: work
+              ready-for-qa: review
+              investigating: work
               blocked: blocked
               completed: terminal
               cancelled: terminal
@@ -109,6 +112,8 @@ class StatusProgressionServiceImplTest {
               planning: queue
               in-development: work
               testing: review
+              pending-review: review
+              on-hold: blocked
               blocked: blocked
               completed: terminal
               cancelled: terminal
@@ -129,6 +134,7 @@ class StatusProgressionServiceImplTest {
             status_roles:
               planning: queue
               active: work
+              deployed: terminal
               completed: terminal
               archived: terminal
     """.trimIndent()
@@ -938,6 +944,145 @@ class StatusProgressionServiceImplTest {
             assertEquals("terminal", completedRole)
             assertEquals("blocked", blockedRole)
             assertNull(pendingRole) // Not in terminal or emergency, so not inferred
+        }
+
+        @Test
+        fun `getRoleForStatus returns work for changes-requested task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "changes-requested",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns review for ready-for-qa task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "ready-for-qa",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("review", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns work for investigating task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "investigating",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns terminal for deferred task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "deferred",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("terminal", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns blocked for on-hold feature status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "on-hold",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals("blocked", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns review for pending-review feature status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending-review",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals("review", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns terminal for deployed project status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "deployed",
+                containerType = "project"
+            )
+
+            // Assert
+            assertEquals("terminal", role)
+        }
+
+        @Test
+        fun `getRoleForStatus with custom role mapping overrides default`() {
+            // Arrange - create config with custom role mapping where in-progress is mapped to review
+            val customConfigYaml = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                    emergency_transitions:
+                      - blocked
+                    status_roles:
+                      backlog: queue
+                      pending: queue
+                      in-progress: review
+                      completed: terminal
+                      blocked: blocked
+            """.trimIndent()
+            createConfigFile(customConfigYaml)
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "in-progress",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("review", role)
         }
     }
 

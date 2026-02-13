@@ -542,4 +542,172 @@ class GetNextStatusToolTest {
             assertEquals("bug_fix_flow", data["activeFlow"]?.jsonPrimitive?.content)
         }
     }
+
+    @Nested
+    inner class StatusRoleTests {
+        @Test
+        fun `should include currentRole and nextRole in Ready recommendation for task`() = runBlocking {
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+            }
+
+            // Mock task repository
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+
+            // Mock service response with role information
+            val recommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow workflow",
+                currentRole = "queue",
+                nextRole = "work"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-progress",
+                    containerType = "task",
+                    tags = listOf("backend", "api"),
+                    containerId = taskId
+                )
+            } returns recommendation
+
+            // Execute tool
+            val result = tool.execute(params, context) as JsonObject
+
+            // Verify response includes role information
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            assertEquals("queue", data["currentRole"]?.jsonPrimitive?.content)
+            assertEquals("work", data["nextRole"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should include currentRole and nextRole in Ready recommendation for feature`() = runBlocking {
+            val params = buildJsonObject {
+                put("containerId", featureId.toString())
+                put("containerType", "feature")
+            }
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+
+            // Mock service response with role information
+            val recommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in workflow",
+                currentRole = "queue",
+                nextRole = "work"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = listOf("api"),
+                    containerId = featureId
+                )
+            } returns recommendation
+
+            // Execute tool
+            val result = tool.execute(params, context) as JsonObject
+
+            // Verify response includes role information
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            assertEquals("queue", data["currentRole"]?.jsonPrimitive?.content)
+            assertEquals("work", data["nextRole"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should include currentRole and nextRole in Ready recommendation for project`() = runBlocking {
+            val params = buildJsonObject {
+                put("containerId", projectId.toString())
+                put("containerType", "project")
+            }
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock service response with role information
+            val recommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "active",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "active", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in workflow",
+                currentRole = "queue",
+                nextRole = "work"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "project",
+                    tags = listOf("kotlin"),
+                    containerId = projectId
+                )
+            } returns recommendation
+
+            // Execute tool
+            val result = tool.execute(params, context) as JsonObject
+
+            // Verify response includes role information
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            assertEquals("queue", data["currentRole"]?.jsonPrimitive?.content)
+            assertEquals("work", data["nextRole"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should handle null role fields gracefully`() = runBlocking {
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+            }
+
+            // Mock task repository
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+
+            // Mock service response with null role information
+            val recommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow workflow",
+                currentRole = null,
+                nextRole = null
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-progress",
+                    containerType = "task",
+                    tags = listOf("backend", "api"),
+                    containerId = taskId
+                )
+            } returns recommendation
+
+            // Execute tool
+            val result = tool.execute(params, context) as JsonObject
+
+            // Verify response handles null roles without crashing
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            // Roles should be absent when null
+            assertNull(data["currentRole"])
+            assertNull(data["nextRole"])
+        }
+    }
 }

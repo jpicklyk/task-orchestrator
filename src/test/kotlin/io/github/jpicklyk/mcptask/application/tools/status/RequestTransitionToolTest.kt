@@ -854,6 +854,242 @@ class RequestTransitionToolTest {
     }
 
     @Nested
+    inner class StatusRoleTransitionTests {
+        @Test
+        fun `should include previousRole and newRole for feature transition`() = runBlocking {
+            val feature = Feature(
+                id = featureId,
+                name = "Test Feature",
+                description = "Test description",
+                summary = "Test summary",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.HIGH,
+                projectId = projectId,
+                tags = emptyList(),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+
+            // Mock getNextStatus to resolve "start" trigger to target status
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                reason = "Next status in workflow"
+            )
+
+            // Mock role lookups for in-development -> testing boundary
+            every { mockStatusProgressionService.getRoleForStatus("in-development", "feature", any()) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("testing", "feature", any()) } returns "review"
+
+            // Mock getFlowPath for flow context in response
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "archived")
+            )
+
+            // Mock the update
+            val testingFeature = feature.update(status = FeatureStatus.TESTING)
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(testingFeature)
+
+            // Mock task repository for feature prerequisite validation (feature needs at least one task)
+            val completedTask = Task(
+                id = UUID.randomUUID(),
+                title = "Completed Task",
+                description = "Test",
+                summary = "Test",
+                status = TaskStatus.COMPLETED,
+                priority = Priority.MEDIUM,
+                complexity = 3,
+                tags = emptyList(),
+                featureId = featureId,
+                projectId = projectId,
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+            coEvery { mockTaskRepository.findByFeature(featureId, any(), any(), any()) } returns Result.Success(listOf(completedTask))
+
+            // Mock dependency repos (used by StatusValidator)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", featureId.toString())
+                put("containerType", "feature")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"]!!.jsonObject
+            assertEquals("in-development", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("testing", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", data["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("review", data["newRole"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `should include previousRole and newRole for project transition`() = runBlocking {
+            val project = Project(
+                id = projectId,
+                name = "Test Project",
+                description = "Test description",
+                summary = "Test summary",
+                status = ProjectStatus.PLANNING,
+                tags = emptyList(),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
+
+            // Mock getNextStatus to resolve "start" trigger to target status
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-development",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in workflow"
+            )
+
+            // Mock role lookups for planning -> in-development boundary
+            every { mockStatusProgressionService.getRoleForStatus("planning", "project", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-development", "project", any()) } returns "work"
+
+            // Mock getFlowPath for flow context in response
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("archived")
+            )
+
+            // Mock the update
+            val inDevProject = project.update(status = ProjectStatus.IN_DEVELOPMENT)
+            coEvery { mockProjectRepository.update(any()) } returns Result.Success(inDevProject)
+
+            // Mock feature repository for project prerequisite validation
+            coEvery { mockFeatureRepository.findByProject(projectId, any()) } returns Result.Success(emptyList())
+
+            // Mock dependency repos (used by StatusValidator)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", projectId.toString())
+                put("containerType", "project")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"]!!.jsonObject
+            assertEquals("planning", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-development", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("queue", data["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("work", data["newRole"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `should correctly serialize review role for in-review status`() = runBlocking {
+            val inReviewTask = Task(
+                id = taskId,
+                title = "Test Task",
+                description = "Test description",
+                summary = "Test summary",
+                status = TaskStatus.IN_REVIEW,
+                priority = Priority.HIGH,
+                complexity = 5,
+                tags = listOf("backend"),
+                featureId = featureId,
+                projectId = projectId,
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inReviewTask)
+
+            // Mock getNextStatus to resolve "start" trigger to target status
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "with_review_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "in-review", "changes-requested", "testing", "completed"),
+                currentPosition = 5,
+                matchedTags = emptyList(),
+                reason = "Next status in workflow"
+            )
+
+            // Mock role lookups for in-review -> testing boundary (both review role)
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", any()) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("testing", "task", any()) } returns "review"
+
+            // Mock getFlowPath for flow context in response
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "with_review_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "in-review", "changes-requested", "testing", "completed"),
+                currentPosition = 5,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "cancelled")
+            )
+
+            // Mock the update
+            val testingTask = inReviewTask.copy(status = TaskStatus.TESTING)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(testingTask)
+
+            // Mock dependency repos (used by StatusValidator)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"]!!.jsonObject
+            assertEquals("in-review", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("testing", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("review", data["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("review", data["newRole"]!!.jsonPrimitive.content)
+        }
+    }
+
+    @Nested
     inner class BatchExecutionTests {
         @Test
         fun `should process batch transitions with mixed success and failure`() = runBlocking {
@@ -2229,6 +2465,281 @@ status_validation:
             assertTrue(
                 cascadeEvents == null || cascadeEvents.isEmpty(),
                 "Should not have cascade events when tasks are still incomplete"
+            )
+        }
+
+        @Test
+        fun `should pass custom maxDepth=1 to applyCascades`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.PENDING)
+            val inProgressTask = task.copy(status = TaskStatus.IN_PROGRESS)
+
+            setupCommonMocks()
+
+            // Override cascade config with maxDepth=1
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 1)
+
+            // Mock getNextStatus for start trigger
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status"
+            )
+
+            // Task lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // applyStatusChange
+                Result.Success(inProgressTask), // verification gate
+                Result.Success(inProgressTask)  // additional
+            )
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 1) } returns emptyList()
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            // Verify applyCascades was called with maxDepth=1
+            coVerify { mockCascadeService.applyCascades(taskAId, "task", 0, 1) }
+        }
+
+        @Test
+        fun `should pass custom maxDepth=5 to applyCascades`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.PENDING)
+            val inProgressTask = task.copy(status = TaskStatus.IN_PROGRESS)
+
+            setupCommonMocks()
+
+            // Override cascade config with maxDepth=5
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 5)
+
+            // Mock getNextStatus for start trigger
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status"
+            )
+
+            // Task lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // applyStatusChange
+                Result.Success(inProgressTask), // verification gate
+                Result.Success(inProgressTask)  // additional
+            )
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 5) } returns emptyList()
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            // Verify applyCascades was called with maxDepth=5
+            coVerify { mockCascadeService.applyCascades(taskAId, "task", 0, 5) }
+        }
+
+        @Test
+        fun `should not call applyCascades when auto_cascade disabled`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.PENDING)
+            val inProgressTask = task.copy(status = TaskStatus.IN_PROGRESS)
+
+            setupCommonMocks()
+
+            // Default mock has auto_cascade disabled (enabled=false, maxDepth=3)
+            // This is set in @BeforeEach setup()
+
+            // Mock getNextStatus for start trigger
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status"
+            )
+
+            // Task lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // applyStatusChange
+                Result.Success(inProgressTask), // verification gate
+                Result.Success(inProgressTask)  // additional
+            )
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            // Verify applyCascades was NOT called
+            coVerify(exactly = 0) { mockCascadeService.applyCascades(any(), any(), any(), any()) }
+
+            // Verify detectCascadeEvents WAS called (legacy behavior)
+            coVerify { mockCascadeService.detectCascadeEvents(any(), any()) }
+        }
+
+        @Test
+        fun `should include cascadeEvents with applied=false when auto_cascade disabled`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            // Default mock has auto_cascade disabled (enabled=false, maxDepth=3)
+            // Override detectCascadeEvents to return non-empty suggestions
+            coEvery { mockCascadeService.detectCascadeEvents(any(), any()) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.CascadeEvent(
+                    event = "all_tasks_complete",
+                    targetType = io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType.FEATURE,
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    currentStatus = "in-development",
+                    suggestedStatus = "completed",
+                    flow = "default_flow",
+                    automatic = true,
+                    reason = "All tasks completed"
+                )
+            )
+
+            // Mock getNextStatus for complete trigger
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                reason = "Next status"
+            )
+
+            // Task lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // StatusValidator prerequisite check
+                Result.Success(task),           // applyStatusChange
+                Result.Success(task),           // verification gate
+                Result.Success(completedTask),  // detectCascadeEvents
+                Result.Success(completedTask)   // additional
+            )
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(completedTask)
+
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify cascadeEvents are present
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents, "cascadeEvents should be present with detected suggestions")
+            assertTrue(cascadeEvents!!.isNotEmpty(), "Should have cascade events from detectCascadeEvents")
+
+            // Verify events are NOT applied (suggestions only)
+            val firstCascade = cascadeEvents[0].jsonObject
+            assertEquals("all_tasks_complete", firstCascade["event"]!!.jsonPrimitive.content)
+            assertEquals("feature", firstCascade["targetType"]!!.jsonPrimitive.content)
+
+            // When auto_cascade is disabled, cascadeEvents from detectCascadeEvents don't have "applied" field
+            // They're suggestions, not applied cascades
+            val appliedField = firstCascade["applied"]
+            // Either the field is absent, or it's false
+            assertTrue(
+                appliedField == null || !appliedField.jsonPrimitive.boolean,
+                "Cascade events should not be marked as applied when auto_cascade is disabled"
             )
         }
     }

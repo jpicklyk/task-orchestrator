@@ -72,6 +72,15 @@ class StatusProgressionIntegrationTest {
               - testing
               - archived
 
+            with_review_flow:
+              - backlog
+              - pending
+              - in-progress
+              - in-review
+              - changes-requested
+              - testing
+              - completed
+
             terminal_statuses:
               - completed
               - cancelled
@@ -95,6 +104,8 @@ class StatusProgressionIntegrationTest {
                 flow: documentation_flow
               - tags: [experimental, prototype, spike]
                 flow: experimental_flow
+              - tags: [review, code-review]
+                flow: with_review_flow
 
           features:
             default_flow:
@@ -109,6 +120,20 @@ class StatusProgressionIntegrationTest {
               - demo
               - decision
 
+            experimental_flow:
+              - draft
+              - in-development
+              - archived
+
+            with_review_flow:
+              - draft
+              - planning
+              - in-development
+              - testing
+              - validating
+              - pending-review
+              - completed
+
             terminal_statuses:
               - completed
               - cancelled
@@ -121,6 +146,10 @@ class StatusProgressionIntegrationTest {
             flow_mappings:
               - tags: [prototype, spike, poc]
                 flow: rapid_prototype_flow
+              - tags: [experiment, experimental]
+                flow: experimental_flow
+              - tags: [formal-review, review]
+                flow: with_review_flow
 
           projects:
             default_flow:
@@ -128,12 +157,25 @@ class StatusProgressionIntegrationTest {
               - active
               - completed
 
+            with_deploy_flow:
+              - planning
+              - in-development
+              - completed
+              - deployed
+              - archived
+
             terminal_statuses:
               - completed
               - archived
+              - cancelled
+              - deployed
 
             emergency_transitions:
               - archived
+
+            flow_mappings:
+              - tags: [deploy, production]
+                flow: with_deploy_flow
     """.trimIndent()
 
     @BeforeEach
@@ -729,6 +771,311 @@ class StatusProgressionIntegrationTest {
             // Assert
             assertIs<NextStatusRecommendation.Ready>(result)
             assertEquals("default_flow", result.activeFlow)
+        }
+    }
+
+    @Nested
+    inner class UntestedFlowTests {
+
+        @Test
+        fun `should select with_review_flow for task with review tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "backlog",
+                containerType = "task",
+                tags = listOf("review"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("pending", result.recommendedStatus)
+            assertEquals("with_review_flow", result.activeFlow)
+            assertEquals(listOf("backlog", "pending", "in-progress", "in-review", "changes-requested", "testing", "completed"), result.flowSequence)
+        }
+
+        @Test
+        fun `should progress through in-review to changes-requested in task with_review_flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "in-review",
+                containerType = "task",
+                tags = listOf("code-review"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("changes-requested", result.recommendedStatus)
+            assertEquals("with_review_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should allow backward from changes-requested in with_review_flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = listOf("review"),
+                currentStatus = "changes-requested"
+            )
+
+            // Assert - verify in-progress is in the flow path (backward allowed)
+            assertEquals("with_review_flow", result.activeFlow)
+            assertTrue(result.flowSequence.contains("in-progress"))
+            assertTrue(result.flowSequence.contains("changes-requested"))
+            val inProgressPos = result.flowSequence.indexOf("in-progress")
+            val changesRequestedPos = result.flowSequence.indexOf("changes-requested")
+            assertTrue(inProgressPos < changesRequestedPos)
+        }
+
+        @Test
+        fun `should select with_review_flow for feature with formal-review tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "draft",
+                containerType = "feature",
+                tags = listOf("formal-review"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("planning", result.recommendedStatus)
+            assertEquals("with_review_flow", result.activeFlow)
+            assertTrue(result.flowSequence.contains("pending-review"))
+        }
+
+        @Test
+        fun `should progress feature through validating to pending-review`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "validating",
+                containerType = "feature",
+                tags = listOf("formal-review"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("pending-review", result.recommendedStatus)
+            assertEquals("with_review_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should select with_deploy_flow for project with deploy tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "project",
+                tags = listOf("deploy"),
+                currentStatus = null
+            )
+
+            // Assert
+            assertEquals("with_deploy_flow", result.activeFlow)
+            assertEquals(listOf("planning", "in-development", "completed", "deployed", "archived"), result.flowSequence)
+        }
+
+        @Test
+        fun `should progress project from in-development to completed in with_deploy_flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "in-development",
+                containerType = "project",
+                tags = listOf("deploy"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("completed", result.recommendedStatus)
+            assertEquals("with_deploy_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should recognize deployed as terminal in with_deploy_flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "deployed",
+                containerType = "project",
+                tags = listOf("deploy"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Terminal>(result)
+            assertEquals("deployed", result.terminalStatus)
+        }
+
+        @Test
+        fun `should return in-development as next for feature experimental_flow via getNextStatus`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "draft",
+                containerType = "feature",
+                tags = listOf("experiment"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("in-development", result.recommendedStatus)
+            assertEquals("experimental_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should recognize archived as terminal in feature experimental_flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "archived",
+                containerType = "feature",
+                tags = listOf("experiment"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Terminal>(result)
+            assertEquals("archived", result.terminalStatus)
+        }
+
+        @Test
+        fun `should return correct 3-step sequence for feature experimental_flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "feature",
+                tags = listOf("experiment"),
+                currentStatus = null
+            )
+
+            // Assert
+            assertEquals("experimental_flow", result.activeFlow)
+            assertEquals(listOf("draft", "in-development", "archived"), result.flowSequence)
+        }
+    }
+
+    @Nested
+    inner class FeatureFlowMappingTests {
+
+        @Test
+        fun `should select rapid_prototype_flow for feature with prototype tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "idea",
+                containerType = "feature",
+                tags = listOf("prototype"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("rapid_prototype_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should select experimental_flow for feature with experiment tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "draft",
+                containerType = "feature",
+                tags = listOf("experiment"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("experimental_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should fall back to default_flow when no feature tags match`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "planning",
+                containerType = "feature",
+                tags = listOf("unrecognized"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("default_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should respect feature flow_mappings priority ordering`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act - feature with both "prototype" and "experiment" tags
+            val result = service.getNextStatus(
+                currentStatus = "idea",
+                containerType = "feature",
+                tags = listOf("prototype", "experiment"),
+                containerId = null
+            )
+
+            // Assert - rapid_prototype_flow is defined first, should win
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("rapid_prototype_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should match feature flow_mappings case-insensitively`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "idea",
+                containerType = "feature",
+                tags = listOf("Prototype"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("rapid_prototype_flow", result.activeFlow)
         }
     }
 }

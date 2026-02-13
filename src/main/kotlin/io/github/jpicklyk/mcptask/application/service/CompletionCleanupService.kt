@@ -211,13 +211,17 @@ class CompletionCleanupService(
      */
     private fun loadRawConfig(): Map<String, Any?>? {
         val configPath = getConfigPath()
-        if (!Files.exists(configPath)) {
-            return null
+        val inputStream = if (Files.exists(configPath)) {
+            Files.newInputStream(configPath)
+        } else {
+            // Fall back to bundled default config
+            this::class.java.classLoader.getResourceAsStream("configuration/default-config.yaml")
+                ?: return null
         }
 
         return try {
-            Files.newInputStream(configPath).use { inputStream ->
-                Yaml().load<Map<String, Any?>>(inputStream)
+            inputStream.use { stream ->
+                Yaml().load<Map<String, Any?>>(stream)
             }
         } catch (e: Exception) {
             logger.error("Failed to load config from $configPath", e)
