@@ -20,7 +20,7 @@ kramdown:
 header_pages:
   - quick-start.md
   - api-reference.md
-  - workflow-prompts.md
+  - workflow-patterns.md
   - templates.md
   - troubleshooting.md
 
