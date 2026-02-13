@@ -161,20 +161,28 @@ class StatusValidationRulesTest {
         val response = manageContainerTool.execute(buildJsonObject {
             put("operation", "create")
             put("containerType", "task")
-            put("title", title)
-            put("summary", "Test summary")
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("title", title)
+                    put("summary", "Test summary")
+                })
+            })
         }, executionContext)
         val jsonResponse = response as JsonObject
-        return jsonResponse["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        return jsonResponse["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
     }
 
     // Helper function to set task status
     private suspend fun setTaskStatus(taskId: String, status: String): JsonObject {
         val response = manageContainerTool.execute(buildJsonObject {
-            put("operation", "setStatus")
+            put("operation", "update")
             put("containerType", "task")
-            put("id", taskId)
-            put("status", status)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("id", taskId)
+                    put("status", status)
+                })
+            })
         }, executionContext)
         return response as JsonObject
     }
@@ -192,6 +200,9 @@ class StatusValidationRulesTest {
             val result = setTaskStatus(taskId, "completed")
 
             assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            val data = result["data"]?.jsonObject
+            assertEquals(0, data?.get("failed")?.jsonPrimitive?.int,
                 "Should allow skipping statuses when enforce_sequential=false")
         }
 
@@ -204,12 +215,16 @@ class StatusValidationRulesTest {
             // Try to skip from pending directly to completed
             val result = setTaskStatus(taskId, "completed")
 
-            assertFalse(result["success"]?.jsonPrimitive?.boolean == true,
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = result["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
                 "Should block skipping statuses when enforce_sequential=true")
-            val errorMessage = result["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("Cannot skip statuses") == true,
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("Cannot skip statuses") == true,
                 "Error should mention skipped statuses")
-            assertTrue(errorMessage?.contains("in-progress") == true,
+            assertTrue(errorDetails?.contains("in-progress") == true,
                 "Error should list the skipped status")
         }
 
@@ -221,13 +236,16 @@ class StatusValidationRulesTest {
 
             // Move through statuses sequentially: pending → in-progress → testing → completed
             val result1 = setTaskStatus(taskId, "in-progress")
-            assertTrue(result1["success"]?.jsonPrimitive?.boolean == true, "pending → in-progress should succeed")
+            assertTrue(result1["success"]?.jsonPrimitive?.boolean == true, "Batch operations return success=true")
+            assertEquals(0, result1["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int, "pending → in-progress should succeed")
 
             val result2 = setTaskStatus(taskId, "testing")
-            assertTrue(result2["success"]?.jsonPrimitive?.boolean == true, "in-progress → testing should succeed")
+            assertTrue(result2["success"]?.jsonPrimitive?.boolean == true, "Batch operations return success=true")
+            assertEquals(0, result2["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int, "in-progress → testing should succeed")
 
             val result3 = setTaskStatus(taskId, "completed")
-            assertTrue(result3["success"]?.jsonPrimitive?.boolean == true, "testing → completed should succeed")
+            assertTrue(result3["success"]?.jsonPrimitive?.boolean == true, "Batch operations return success=true")
+            assertEquals(0, result3["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int, "testing → completed should succeed")
         }
     }
 
@@ -248,6 +266,8 @@ class StatusValidationRulesTest {
             val result = setTaskStatus(taskId, "in-progress")
 
             assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, result["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow backward transition when allow_backward=true")
         }
 
@@ -264,10 +284,14 @@ class StatusValidationRulesTest {
             // Try to move backward: testing → in-progress
             val result = setTaskStatus(taskId, "in-progress")
 
-            assertFalse(result["success"]?.jsonPrimitive?.boolean == true,
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = result["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
                 "Should block backward transition when allow_backward=false")
-            val errorMessage = result["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("Backward transition") == true,
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("Backward transition") == true,
                 "Error should mention backward transition")
         }
 
@@ -279,10 +303,12 @@ class StatusValidationRulesTest {
 
             // Forward transitions should still work
             val result1 = setTaskStatus(taskId, "in-progress")
-            assertTrue(result1["success"]?.jsonPrimitive?.boolean == true, "pending → in-progress should succeed")
+            assertTrue(result1["success"]?.jsonPrimitive?.boolean == true, "Batch operations return success=true")
+            assertEquals(0, result1["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int, "pending → in-progress should succeed")
 
             val result2 = setTaskStatus(taskId, "testing")
-            assertTrue(result2["success"]?.jsonPrimitive?.boolean == true, "in-progress → testing should succeed")
+            assertTrue(result2["success"]?.jsonPrimitive?.boolean == true, "Batch operations return success=true")
+            assertEquals(0, result2["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int, "in-progress → testing should succeed")
         }
     }
 
@@ -301,6 +327,8 @@ class StatusValidationRulesTest {
             // Jump to blocked (emergency transition)
             val result1 = setTaskStatus(taskId, "blocked")
             assertTrue(result1["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, result1["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow emergency transition to blocked when allow_emergency=true")
 
             // Reset to in-progress
@@ -309,6 +337,8 @@ class StatusValidationRulesTest {
             // Jump to cancelled (emergency transition)
             val result2 = setTaskStatus(taskId, "cancelled")
             assertTrue(result2["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, result2["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow emergency transition to cancelled when allow_emergency=true")
         }
 
@@ -340,6 +370,8 @@ class StatusValidationRulesTest {
             // From pending → blocked
             val result1 = setTaskStatus(taskId, "blocked")
             assertTrue(result1["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, result1["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow emergency transition from pending")
 
             // Create another task and test from different status
@@ -350,6 +382,8 @@ class StatusValidationRulesTest {
             // From testing → cancelled
             val result2 = setTaskStatus(taskId2, "cancelled")
             assertTrue(result2["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, result2["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow emergency transition from testing")
         }
     }
@@ -370,7 +404,9 @@ class StatusValidationRulesTest {
 
             // 1. Can't skip statuses
             val skipResult = setTaskStatus(taskId, "completed")
-            assertFalse(skipResult["success"]?.jsonPrimitive?.boolean == true,
+            assertTrue(skipResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            assertEquals(1, skipResult["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should block skipping with strict rules")
 
             // 2. Move forward sequentially
@@ -379,7 +415,9 @@ class StatusValidationRulesTest {
 
             // 3. Can't go backward
             val backwardResult = setTaskStatus(taskId, "in-progress")
-            assertFalse(backwardResult["success"]?.jsonPrimitive?.boolean == true,
+            assertTrue(backwardResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            assertEquals(1, backwardResult["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should block backward with strict rules")
         }
 
@@ -397,16 +435,22 @@ class StatusValidationRulesTest {
             // Can skip statuses
             val skipResult = setTaskStatus(taskId, "testing")
             assertTrue(skipResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, skipResult["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow skipping with relaxed rules")
 
             // Can go backward
             val backwardResult = setTaskStatus(taskId, "pending")
             assertTrue(backwardResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, backwardResult["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow backward with relaxed rules")
 
             // Can jump to emergency status
             val emergencyResult = setTaskStatus(taskId, "blocked")
             assertTrue(emergencyResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations return success=true")
+            assertEquals(0, emergencyResult["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should allow emergency transition with relaxed rules")
         }
     }

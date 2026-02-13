@@ -283,7 +283,7 @@ if (next.data.recommendations.length === 0) {
   console.log(`Recommended task: ${task.title}`);
 
   // Start work on recommended task
-  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
+  await request_transition({ containerId: task.taskId, containerType: "task", trigger: "start" });
 
   // Get full task details
   const fullTask = await query_container({
@@ -300,11 +300,10 @@ if (next.data.recommendations.length === 0) {
 ### Workflow 2: Task Completion Cycle
 ```javascript
 // Step 1: Complete current task
-await manage_container({
-  operation: "setStatus",
+await request_transition({
+  containerId: currentTaskId,
   containerType: "task",
-  id: currentTaskId,
-  status: "completed"
+  trigger: "complete"
 });
 
 await manage_container({
@@ -321,11 +320,10 @@ const next = await get_next_task({});
 if (next.data.recommendations.length > 0) {
   const nextTask = next.data.recommendations[0];
 
-  await manage_container({
-    operation: "setStatus",
+  await request_transition({
+    containerId: nextTask.taskId,
     containerType: "task",
-    id: nextTask.taskId,
-    status: "in-progress"
+    trigger: "start"
   });
 
   console.log(`Now working on: ${nextTask.title}`);
@@ -399,12 +397,12 @@ while (true) {
   console.log(`Working on: ${task.title}`);
 
   // Mark in progress
-  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
+  await request_transition({ containerId: task.taskId, containerType: "task", trigger: "start" });
 
   // ... do the work ...
 
   // Mark complete
-  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "completed" });
+  await request_transition({ containerId: task.taskId, containerType: "task", trigger: "complete" });
 
   // Loop to get next task
 }
@@ -556,7 +554,7 @@ const recommended = next.data.recommendations[0];
 
 // ❌ Ignoring recommendation to work on different task
 const otherTask = await query_container({ operation: "get", containerType: "task", id: "some-other-task-id" });
-await manage_container({ operation: "setStatus", containerType: "task", id: otherTask.id, status: "in-progress" });
+await request_transition({ containerId: otherTask.id, containerType: "task", trigger: "start" });
 ```
 
 **Problem**: Algorithm chose best task based on priority and blockers
@@ -571,7 +569,7 @@ const next = await get_next_task({ limit: 5 });
 ```javascript
 const next = await get_next_task({});
 const task = next.data.recommendations[0];
-await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
+await request_transition({ containerId: task.taskId, containerType: "task", trigger: "start" });
 // ❌ Crashes if no recommendations available
 ```
 
@@ -585,7 +583,7 @@ if (next.data.recommendations.length === 0) {
   // Handle blocked tasks
 } else {
   const task = next.data.recommendations[0];
-  await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "in-progress" });
+  await request_transition({ containerId: task.taskId, containerType: "task", trigger: "start" });
 }
 ```
 
@@ -644,7 +642,7 @@ async function autoWorkflow(projectId) {
     if (handler) {
       console.log(`Auto-executing: ${task.title}`);
       await handler.execute(task);
-      await manage_container({ operation: "setStatus", containerType: "task", id: task.taskId, status: "completed" });
+      await request_transition({ containerId: task.taskId, containerType: "task", trigger: "complete" });
     } else {
       console.log(`Manual task: ${task.title}`);
       // Queue for human
@@ -680,7 +678,8 @@ async function assignTasksToTeam(teamMembers) {
 ## Related Tools
 
 - **get_blocked_tasks**: See what tasks are blocked (complementary view)
-- **manage_container(operation="setStatus")**: Mark recommended task as in-progress
+- **request_transition(trigger="start")**: Mark recommended task as in-progress
+- **request_transition(trigger="complete")**: Mark task as completed with validation
 - **query_container(operation="get")**: Get full task details after selecting recommendation
 - **manage_container(operation="update")**: Update task after completion
 - **query_container(operation="search")**: Find tasks by specific criteria (alternative to recommendations)

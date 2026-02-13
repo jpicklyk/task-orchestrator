@@ -22,7 +22,7 @@ import java.util.*
 
 /**
  * Consolidated MCP tool for write operations on all container types (project, feature, task).
- * Includes 5 operations: create, update, delete, setStatus, and bulkUpdate.
+ * Includes 3 operations: create, update, delete. All operations use array parameters (containers for create/update, ids for delete).
  *
  * This tool unifies container management across all entity types, reducing token overhead
  * and providing a consistent interface for AI agents.
@@ -31,6 +31,15 @@ class ManageContainerTool(
     lockingService: SimpleLockingService? = null,
     sessionManager: SimpleSessionManager? = null
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
+
+    private data class BulkCreateResult(
+        val id: UUID?,
+        val name: String?,
+        val status: String?,
+        val appliedTemplates: List<JsonObject> = emptyList(),
+        val error: String? = null,
+        val errorCode: String? = null
+    )
 
     private val statusValidator = StatusValidator()
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
@@ -57,31 +66,45 @@ class ManageContainerTool(
 
     override val description: String = """Unified write operations for containers (project, feature, task).
 
-Operations: create, update, delete, setStatus, bulkUpdate
+Operations: create, update, delete — all operations use array parameters for batch support (max 100 items per call).
 
 Parameters:
 | Field | Type | Required | Description |
-| operation | enum | Yes | create, update, delete, setStatus, bulkUpdate |
+| operation | enum | Yes | create, update, delete |
 | containerType | enum | Yes | project, feature, task |
-| id | UUID | Varies | Container ID (required for: update, delete, setStatus) |
-| ids | array | No | Container IDs (required for: bulkUpdate) |
-| name/title | string | Varies | Name/title (required for: create) |
-| summary | string | No | Brief summary (max 500 chars) |
-| description | string | No | Detailed description |
-| status | enum | No | Container status |
-| priority | enum | No | Priority (feature/task only) |
-| complexity | integer | No | Complexity 1-10 (task only) |
-| projectId | UUID | No | Parent project ID (feature/task) |
-| featureId | UUID | No | Parent feature ID (task only) |
-| templateIds | array | No | Templates to apply (create only) |
-| requiresVerification | boolean | No | Require verification gate before completion (default: false, feature/task only) |
-| tags | string | No | Comma-separated tags |
-| deleteSections | boolean | No | Delete sections (default: true) |
-| force | boolean | No | Force delete with dependencies |
-| containers | array | No | Bulk update array (bulkUpdate only) |
+| containers | array | Varies | Array of container objects (required for: create, update). Max 100 items. |
+| ids | array | Varies | Array of container UUIDs (required for: delete). Max 100 items. |
+| projectId | UUID | No | Default parent project ID inherited by all items (create only) |
+| featureId | UUID | No | Default parent feature ID inherited by all items (create only, task containers) |
+| templateIds | array | No | Default template UUIDs inherited by all items (create only) |
+| tags | string | No | Default comma-separated tags inherited by all items (create only) |
+| deleteSections | boolean | No | Delete sections when deleting (default: true, delete only) |
+| force | boolean | No | Force delete with dependencies (default: false, delete only) |
 
-Usage: Consolidates create/update/delete/setStatus/bulkUpdate for all container types.
-Related: query_container, get_next_task, get_blocked_tasks
+Create operation:
+- containers array item: { name/title (required), description, summary, status, priority, complexity, projectId, featureId, templateIds, requiresVerification, tags }
+- Top-level projectId, featureId, templateIds, and tags serve as shared defaults for all items
+- Per-item fields override shared defaults
+
+Update operation:
+- containers array item: { id (required), name/title, description, summary, status, priority, complexity, projectId, featureId, requiresVerification, tags }
+- Partial updates supported — only provide fields to change
+- Status changes trigger validation automatically
+
+Delete operation:
+- ids array: UUIDs of containers to delete
+- deleteSections: whether to delete associated sections (default: true)
+- force: bypass dependency checks (default: false)
+
+Response shapes:
+- Create: { items: [{id, title/name, status, appliedTemplates}], created: N, failed: N, failures: [...] }
+- Update: { items: [{id, modifiedAt}], updated: N, failed: N, failures: [...], cascadeEvents: [...], unblockedTasks: [...] }
+- Delete: { ids: [...], deleted: N, failed: N, failures: [...] }
+
+All batch operations return success: true even when all items fail (check data.failed count).
+
+Usage: Consolidates create/update/delete for all container types with batch support. Prefer request_transition for workflow-based status changes with cascade detection.
+Related: query_container, get_next_task, get_blocked_tasks, request_transition
 Docs: task-orchestrator://docs/tools/manage-container
 """
 
@@ -92,7 +115,7 @@ Docs: task-orchestrator://docs/tools/manage-container
                     mapOf(
                         "type" to JsonPrimitive("string"),
                         "description" to JsonPrimitive("Operation to perform"),
-                        "enum" to JsonArray(listOf("create", "update", "delete", "setStatus", "bulkUpdate").map { JsonPrimitive(it) })
+                        "enum" to JsonArray(listOf("create", "update", "delete").map { JsonPrimitive(it) })
                     )
                 ),
                 "containerType" to JsonObject(
@@ -102,96 +125,31 @@ Docs: task-orchestrator://docs/tools/manage-container
                         "enum" to JsonArray(listOf("project", "feature", "task").map { JsonPrimitive(it) })
                     )
                 ),
-                "id" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Container ID (required for: update, delete, setStatus)"),
-                        "format" to JsonPrimitive("uuid")
-                    )
-                ),
-                "ids" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("array"),
-                        "description" to JsonPrimitive("Container IDs (deprecated, use containers array for bulkUpdate)"),
-                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid")))
-                    )
-                ),
-                "name" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Container name (project/feature) or title (task)")
-                    )
-                ),
-                "title" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Task title (alias for name)")
-                    )
-                ),
-                "description" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Detailed description")
-                    )
-                ),
-                "summary" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Brief summary (max 500 chars)")
-                    )
-                ),
-                "status" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Container status")
-                    )
-                ),
-                "priority" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Priority level (feature/task)"),
-                        "enum" to JsonArray(Priority.entries.map { JsonPrimitive(it.name.lowercase()) })
-                    )
-                ),
-                "complexity" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("integer"),
-                        "description" to JsonPrimitive("Complexity 1-10 (task only)"),
-                        "minimum" to JsonPrimitive(1),
-                        "maximum" to JsonPrimitive(10)
-                    )
-                ),
                 "projectId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Parent project ID (feature/task)"),
+                        "description" to JsonPrimitive("Default parent project ID inherited by all items (create only)"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "featureId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Parent feature ID (task only)"),
+                        "description" to JsonPrimitive("Default parent feature ID inherited by all items (create only, task containers)"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "tags" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Comma-separated tags")
+                        "description" to JsonPrimitive("Default comma-separated tags inherited by all items (create only)")
                     )
                 ),
                 "templateIds" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("array"),
-                        "description" to JsonPrimitive("Template IDs to apply (create only)"),
+                        "description" to JsonPrimitive("Default template IDs inherited by all items (create only)"),
                         "items" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid")))
-                    )
-                ),
-                "requiresVerification" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("boolean"),
-                        "description" to JsonPrimitive("Require verification section before completing (default: false)")
                     )
                 ),
                 "deleteSections" to JsonObject(
@@ -211,7 +169,7 @@ Docs: task-orchestrator://docs/tools/manage-container
                 "containers" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("array"),
-                        "description" to JsonPrimitive("Array of containers for bulkUpdate (max 100)"),
+                        "description" to JsonPrimitive("Array of container objects for create/update (max 100)"),
                         "items" to JsonObject(
                             mapOf(
                                 "type" to JsonPrimitive("object"),
@@ -225,14 +183,22 @@ Docs: task-orchestrator://docs/tools/manage-container
                                         "status" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                         "priority" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                                         "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
-                                        "projectId" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                                        "featureId" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                        "projectId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                        "featureId" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))),
+                                        "templateIds" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid"))))),
+                                        "requiresVerification" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
                                         "tags" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                                     )
-                                ),
-                                "required" to JsonArray(listOf(JsonPrimitive("id")))
+                                )
                             )
                         )
+                    )
+                ),
+                "ids" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("array"),
+                        "description" to JsonPrimitive("Array of container IDs for delete (max 100)"),
+                        "items" to JsonObject(mapOf("type" to JsonPrimitive("string"), "format" to JsonPrimitive("uuid")))
                     )
                 )
             )
@@ -245,8 +211,8 @@ Docs: task-orchestrator://docs/tools/manage-container
         val containerType = requireString(params, "containerType")
 
         // Validate operation
-        if (operation !in listOf("create", "update", "delete", "setStatus", "bulkUpdate")) {
-            throw ToolValidationException("Invalid operation: $operation. Must be one of: create, update, delete, setStatus, bulkUpdate")
+        if (operation !in listOf("create", "update", "delete")) {
+            throw ToolValidationException("Invalid operation: $operation. Must be one of: create, update, delete")
         }
 
         // Validate container type
@@ -254,49 +220,119 @@ Docs: task-orchestrator://docs/tools/manage-container
             throw ToolValidationException("Invalid containerType: $containerType. Must be one of: project, feature, task")
         }
 
-        // Validate ID for operations that require it
-        if (operation in listOf("update", "delete", "setStatus")) {
-            val idStr = requireString(params, "id")
-            try {
-                UUID.fromString(idStr)
-            } catch (_: IllegalArgumentException) {
-                throw ToolValidationException("Invalid $containerType ID format. Must be a valid UUID.")
-            }
+        when (operation) {
+            "create" -> validateBatchCreateParams(params, containerType)
+            "update" -> validateBatchUpdateParams(params, containerType)
+            "delete" -> validateBatchDeleteParams(params)
         }
 
-        // Validate name/title for create
+        // Validate shared default fields (create only)
         if (operation == "create") {
-            val name = optionalString(params, if (containerType == "task") "title" else "name")
-                ?: optionalString(params, "name") // Allow both name and title
-                ?: optionalString(params, "title")
-            if (name.isNullOrBlank()) {
-                throw ToolValidationException("${if (containerType == "task") "Title" else "Name"} is required for create operation")
-            }
+            validateSharedDefaults(params, containerType)
         }
-
-        // Validate bulk update
-        if (operation == "bulkUpdate") {
-            validateBulkUpdateParams(params, containerType)
-        }
-
-        // Validate optional parameters
-        validateOptionalParams(params, containerType)
     }
 
-    private fun validateBulkUpdateParams(params: JsonElement, containerType: String) {
+    private fun validateBatchCreateParams(params: JsonElement, containerType: String) {
         val containersArray = params.jsonObject["containers"]
-            ?: throw ToolValidationException("Missing required parameter for bulkUpdate: containers")
+            ?: throw ToolValidationException("Missing required parameter for create: containers")
 
         if (containersArray !is JsonArray) {
             throw ToolValidationException("Parameter 'containers' must be an array")
         }
 
         if (containersArray.isEmpty()) {
-            throw ToolValidationException("At least one container must be provided for bulkUpdate")
+            throw ToolValidationException("At least one container must be provided for create")
         }
 
         if (containersArray.size > 100) {
-            throw ToolValidationException("Maximum 100 containers allowed for bulkUpdate (got ${containersArray.size})")
+            throw ToolValidationException("Maximum 100 containers allowed per call (got ${containersArray.size})")
+        }
+
+        containersArray.forEachIndexed { index, containerElement ->
+            if (containerElement !is JsonObject) {
+                throw ToolValidationException("Container at index $index must be an object")
+            }
+
+            val containerObj = containerElement.jsonObject
+
+            // Validate name/title is present
+            val name = containerObj["name"]?.jsonPrimitive?.content
+                ?: containerObj["title"]?.jsonPrimitive?.content
+            if (name.isNullOrBlank()) {
+                throw ToolValidationException("Container at index $index missing required field: ${if (containerType == "task") "title" else "name"}")
+            }
+
+            // Validate status if present (config-aware via StatusValidator)
+            containerObj["status"]?.jsonPrimitive?.content?.let { status ->
+                val validationResult = statusValidator.validateStatus(status, containerType)
+                if (validationResult is StatusValidator.ValidationResult.Invalid) {
+                    throw ToolValidationException("At index $index: ${validationResult.reason}")
+                }
+            }
+
+            // Validate priority (if applicable)
+            if (containerType in listOf("feature", "task")) {
+                containerObj["priority"]?.jsonPrimitive?.content?.let { priority ->
+                    if (!isValidPriority(priority)) {
+                        throw ToolValidationException("Invalid priority at index $index: $priority")
+                    }
+                }
+            }
+
+            // Validate complexity (task only)
+            if (containerType == "task") {
+                containerObj["complexity"]?.let {
+                    val complexity = if (it is JsonPrimitive && it.isString) it.content.toIntOrNull() else it.jsonPrimitive.intOrNull
+                    if (complexity == null || complexity < 1 || complexity > 10) {
+                        throw ToolValidationException("Invalid complexity at index $index: must be 1-10")
+                    }
+                }
+            }
+
+            // Validate per-item UUID fields
+            containerObj["projectId"]?.jsonPrimitive?.content?.let { projectId ->
+                try { UUID.fromString(projectId) } catch (_: IllegalArgumentException) {
+                    throw ToolValidationException("Invalid projectId at index $index: not a valid UUID")
+                }
+            }
+
+            containerObj["featureId"]?.jsonPrimitive?.content?.let { featureId ->
+                try { UUID.fromString(featureId) } catch (_: IllegalArgumentException) {
+                    throw ToolValidationException("Invalid featureId at index $index: not a valid UUID")
+                }
+            }
+
+            // Validate per-item templateIds
+            containerObj["templateIds"]?.let { templateIdsElement ->
+                if (templateIdsElement !is JsonArray) {
+                    throw ToolValidationException("templateIds at index $index must be an array of UUIDs")
+                }
+                templateIdsElement.forEachIndexed { tIdx, item ->
+                    if (item !is JsonPrimitive || !item.isString) {
+                        throw ToolValidationException("templateIds[$tIdx] at container index $index must be a string UUID")
+                    }
+                    try { UUID.fromString(item.content) } catch (_: IllegalArgumentException) {
+                        throw ToolValidationException("templateIds[$tIdx] at container index $index is not a valid UUID")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun validateBatchUpdateParams(params: JsonElement, containerType: String) {
+        val containersArray = params.jsonObject["containers"]
+            ?: throw ToolValidationException("Missing required parameter for update: containers")
+
+        if (containersArray !is JsonArray) {
+            throw ToolValidationException("Parameter 'containers' must be an array")
+        }
+
+        if (containersArray.isEmpty()) {
+            throw ToolValidationException("At least one container must be provided for update")
+        }
+
+        if (containersArray.size > 100) {
+            throw ToolValidationException("Maximum 100 containers allowed for update (got ${containersArray.size})")
         }
 
         containersArray.forEachIndexed { index, containerElement ->
@@ -350,69 +386,63 @@ Docs: task-orchestrator://docs/tools/manage-container
         }
     }
 
-    private fun validateOptionalParams(params: JsonElement, containerType: String) {
-        // Validate status if present (config-aware via StatusValidator)
-        optionalString(params, "status")?.let { status ->
-            val validationResult = statusValidator.validateStatus(status, containerType)
-            if (validationResult is StatusValidator.ValidationResult.Invalid) {
-                throw ToolValidationException(validationResult.reason)
-            }
+    private fun validateBatchDeleteParams(params: JsonElement) {
+        val idsArray = params.jsonObject["ids"]
+            ?: throw ToolValidationException("Missing required parameter for delete: ids")
+
+        if (idsArray !is JsonArray) {
+            throw ToolValidationException("Parameter 'ids' must be an array")
         }
 
-        // Validate priority if present (feature/task only)
-        if (containerType in listOf("feature", "task")) {
-            optionalString(params, "priority")?.let { priority ->
-                if (!isValidPriority(priority)) {
-                    throw ToolValidationException("Invalid priority: $priority. Must be one of: high, medium, low")
-                }
-            }
+        if (idsArray.isEmpty()) {
+            throw ToolValidationException("At least one ID must be provided for delete")
         }
 
-        // Validate complexity if present (task only)
-        if (containerType == "task") {
-            optionalInt(params, "complexity")?.let { complexity ->
-                if (complexity < 1 || complexity > 10) {
-                    throw ToolValidationException("Complexity must be between 1 and 10")
-                }
-            }
+        if (idsArray.size > 100) {
+            throw ToolValidationException("Maximum 100 IDs allowed per delete call (got ${idsArray.size})")
         }
 
-        // Validate UUID parameters
+        idsArray.forEachIndexed { index, idElement ->
+            val idStr = (idElement as? JsonPrimitive)?.content
+                ?: throw ToolValidationException("ID at index $index must be a string")
+            try {
+                UUID.fromString(idStr)
+            } catch (_: IllegalArgumentException) {
+                throw ToolValidationException("Invalid UUID at index $index: $idStr")
+            }
+        }
+    }
+
+    private fun validateSharedDefaults(params: JsonElement, containerType: String) {
+        // Validate shared projectId default
         optionalString(params, "projectId")?.let { projectId ->
             if (projectId.isNotEmpty()) {
-                try {
-                    UUID.fromString(projectId)
-                } catch (_: IllegalArgumentException) {
+                try { UUID.fromString(projectId) } catch (_: IllegalArgumentException) {
                     throw ToolValidationException("Invalid projectId format. Must be a valid UUID")
                 }
             }
         }
 
+        // Validate shared featureId default
         optionalString(params, "featureId")?.let { featureId ->
             if (featureId.isNotEmpty()) {
-                try {
-                    UUID.fromString(featureId)
-                } catch (_: IllegalArgumentException) {
+                try { UUID.fromString(featureId) } catch (_: IllegalArgumentException) {
                     throw ToolValidationException("Invalid featureId format. Must be a valid UUID")
                 }
             }
         }
 
-        // Validate templateIds if present
+        // Validate shared templateIds default
         val paramsObj = params as? JsonObject
         paramsObj?.get("templateIds")?.let { templateIdsElement ->
             if (templateIdsElement !is JsonArray) {
                 throw ToolValidationException("Parameter 'templateIds' must be an array of strings (UUIDs)")
             }
-
             templateIdsElement.forEachIndexed { index, item ->
                 if (item !is JsonPrimitive || !item.isString) {
                     throw ToolValidationException("templateIds[$index] must be a string (UUID)")
                 }
-
-                try {
-                    UUID.fromString(item.content)
-                } catch (_: IllegalArgumentException) {
+                try { UUID.fromString(item.content) } catch (_: IllegalArgumentException) {
                     throw ToolValidationException("templateIds[$index] is not a valid UUID format")
                 }
             }
@@ -464,28 +494,8 @@ Docs: task-orchestrator://docs/tools/manage-container
 
             when (operation) {
                 "create" -> executeCreate(params, context, containerType)
-                "update" -> {
-                    val id = extractEntityId(params, "id")
-                    val entityType = getEntityType(containerType)
-                    executeWithLocking("update_$containerType", entityType, id) {
-                        executeUpdate(params, context, containerType, id)
-                    }
-                }
-                "delete" -> {
-                    val id = extractEntityId(params, "id")
-                    val entityType = getEntityType(containerType)
-                    executeWithLocking("delete_$containerType", entityType, id) {
-                        executeDelete(params, context, containerType, id)
-                    }
-                }
-                "setStatus" -> {
-                    val id = extractEntityId(params, "id")
-                    val entityType = getEntityType(containerType)
-                    executeWithLocking("set_status_$containerType", entityType, id) {
-                        executeSetStatus(params, context, containerType, id)
-                    }
-                }
-                "bulkUpdate" -> executeBulkUpdate(params, context, containerType)
+                "update" -> executeBatchUpdate(params, context, containerType)
+                "delete" -> executeBatchDelete(params, context, containerType)
                 else -> errorResponse(
                     message = "Invalid operation: $operation",
                     code = ErrorCodes.VALIDATION_ERROR
@@ -514,23 +524,138 @@ Docs: task-orchestrator://docs/tools/manage-container
         context: ToolExecutionContext,
         containerType: String
     ): JsonElement {
-        logger.info("Executing create operation for $containerType")
+        logger.info("Executing batch create operation for $containerType")
 
-        return when (containerType) {
-            "project" -> createProject(params, context)
-            "feature" -> createFeature(params, context)
-            "task" -> createTask(params, context)
-            else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
+        val containersArray = params.jsonObject["containers"] as JsonArray
+
+        // Extract shared defaults from top-level params
+        val sharedDefaults = extractSharedDefaults(params)
+
+        // Cache parent validation for shared defaults
+        val sharedProjectId = sharedDefaults["projectId"]
+        val sharedFeatureId = sharedDefaults["featureId"]
+
+        if (sharedProjectId != null) {
+            when (context.repositoryProvider.projectRepository().getById(UUID.fromString(sharedProjectId))) {
+                is Result.Error -> return errorResponse(
+                    "Shared default project not found",
+                    ErrorCodes.RESOURCE_NOT_FOUND,
+                    "No project exists with ID $sharedProjectId"
+                )
+                is Result.Success -> { /* exists */ }
+            }
         }
+
+        if (sharedFeatureId != null && containerType == "task") {
+            when (context.repositoryProvider.featureRepository().getById(UUID.fromString(sharedFeatureId))) {
+                is Result.Error -> return errorResponse(
+                    "Shared default feature not found",
+                    ErrorCodes.RESOURCE_NOT_FOUND,
+                    "No feature exists with ID $sharedFeatureId"
+                )
+                is Result.Success -> { /* exists */ }
+            }
+        }
+
+        val successItems = mutableListOf<JsonObject>()
+        val failures = mutableListOf<JsonObject>()
+
+        // Track validated parent IDs to avoid redundant lookups
+        val validatedProjectIds = mutableSetOf<UUID>()
+        val validatedFeatureIds = mutableSetOf<UUID>()
+        if (sharedProjectId != null) validatedProjectIds.add(UUID.fromString(sharedProjectId))
+        if (sharedFeatureId != null) validatedFeatureIds.add(UUID.fromString(sharedFeatureId))
+
+        containersArray.forEachIndexed { index, containerElement ->
+            val containerObj = containerElement.jsonObject
+
+            try {
+                // Merge per-item fields with shared defaults
+                val mergedParams = mergeWithDefaults(containerObj, sharedDefaults)
+
+                val result = when (containerType) {
+                    "project" -> createProjectFromBatch(mergedParams, context)
+                    "feature" -> createFeatureFromBatch(mergedParams, context, validatedProjectIds)
+                    "task" -> createTaskFromBatch(mergedParams, context, validatedProjectIds, validatedFeatureIds)
+                    else -> BulkCreateResult(null, null, null, error = "Unsupported container type: $containerType", errorCode = ErrorCodes.VALIDATION_ERROR)
+                }
+
+                if (result.error != null) {
+                    failures.add(buildJsonObject {
+                        put("index", index)
+                        result.name?.let { put("name", it) }
+                        put("error", buildJsonObject {
+                            put("code", result.errorCode ?: ErrorCodes.INTERNAL_ERROR)
+                            put("message", result.error)
+                        })
+                    })
+                } else {
+                    successItems.add(buildJsonObject {
+                        put("id", result.id.toString())
+                        if (containerType == "task") {
+                            put("title", result.name ?: "")
+                        } else {
+                            put("name", result.name ?: "")
+                        }
+                        put("status", result.status ?: "pending")
+                        if (result.appliedTemplates.isNotEmpty()) {
+                            put("appliedTemplates", JsonArray(result.appliedTemplates))
+                        }
+                    })
+                }
+            } catch (e: Exception) {
+                failures.add(buildJsonObject {
+                    put("index", index)
+                    put("error", buildJsonObject {
+                        put("code", ErrorCodes.INTERNAL_ERROR)
+                        put("message", e.message ?: "Unknown error")
+                    })
+                })
+            }
+        }
+
+        val message = if (successItems.isNotEmpty()) {
+            "Created ${successItems.size} ${containerType}(s)${if (failures.isNotEmpty()) " (${failures.size} failed)" else ""}"
+        } else {
+            "All ${failures.size} ${containerType}(s) failed to create"
+        }
+
+        // Check if any created items had templates applied
+        val anyTemplatesApplied = successItems.any { item ->
+            val templates = item["appliedTemplates"]
+            templates != null && templates is JsonArray && templates.isNotEmpty()
+        }
+        val showTemplateWarning = successItems.isNotEmpty() && !anyTemplatesApplied &&
+            containerType in listOf("task", "feature")
+
+        return successResponse(
+            buildJsonObject {
+                put("items", JsonArray(successItems))
+                put("created", successItems.size)
+                put("failed", failures.size)
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
+                if (showTemplateWarning) {
+                    put("warning", "No templates applied. Use query_templates to discover " +
+                        "templates for structured workflows, then include templateIds in the create call.")
+                }
+            },
+            message
+        )
     }
 
-    private suspend fun createProject(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val name = requireString(params, "name")
-        val description = optionalString(params, "description")
-        val summary = optionalString(params, "summary") ?: ""
-        val statusStr = optionalString(params, "status") ?: "planning"
+    private suspend fun createProjectFromBatch(
+        mergedParams: JsonObject,
+        context: ToolExecutionContext
+    ): BulkCreateResult {
+        val name = mergedParams["name"]?.jsonPrimitive?.content
+            ?: mergedParams["title"]?.jsonPrimitive?.content ?: ""
+        val description = mergedParams["description"]?.jsonPrimitive?.content
+        val summary = mergedParams["summary"]?.jsonPrimitive?.content ?: ""
+        val statusStr = mergedParams["status"]?.jsonPrimitive?.content ?: "planning"
         val status = parseProjectStatus(statusStr)
-        val tags = parseTags(params)
+        val tags = mergedParams["tags"]?.jsonPrimitive?.content?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
 
         val project = Project(
             name = name,
@@ -541,59 +666,51 @@ Docs: task-orchestrator://docs/tools/manage-container
         )
 
         return when (val result = context.projectRepository().create(project)) {
-            is Result.Success -> {
-                val createdProject = result.data
-                successResponse(
-                    buildJsonObject {
-                        put("id", createdProject.id.toString())
-                        put("name", createdProject.name)
-                        put("status", createdProject.status.name.lowercase().replace('_', '-'))
-                        put("createdAt", createdProject.createdAt.toString())
-                    },
-                    "Project created successfully"
-                )
-            }
-            is Result.Error -> errorResponse(
-                "Failed to create project: ${result.error}",
-                when (result.error) {
-                    is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
-                    is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
-                    is RepositoryError.ConflictError -> ErrorCodes.CONFLICT_ERROR
-                    else -> ErrorCodes.DATABASE_ERROR
-                },
-                result.error.toString()
+            is Result.Success -> BulkCreateResult(
+                id = result.data.id,
+                name = result.data.name,
+                status = result.data.status.name.lowercase().replace('_', '-')
+            )
+            is Result.Error -> BulkCreateResult(
+                id = null,
+                name = name,
+                status = null,
+                error = "Failed to create project: ${result.error}",
+                errorCode = ErrorCodes.DATABASE_ERROR
             )
         }
     }
 
-    private suspend fun createFeature(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val name = requireString(params, "name")
-        val description = optionalString(params, "description")
-        val summary = optionalString(params, "summary") ?: ""
-        val statusStr = optionalString(params, "status") ?: "planning"
+    private suspend fun createFeatureFromBatch(
+        mergedParams: JsonObject,
+        context: ToolExecutionContext,
+        validatedProjectIds: MutableSet<UUID>
+    ): BulkCreateResult {
+        val name = mergedParams["name"]?.jsonPrimitive?.content
+            ?: mergedParams["title"]?.jsonPrimitive?.content ?: ""
+        val description = mergedParams["description"]?.jsonPrimitive?.content
+        val summary = mergedParams["summary"]?.jsonPrimitive?.content ?: ""
+        val statusStr = mergedParams["status"]?.jsonPrimitive?.content ?: "planning"
         val status = parseFeatureStatus(statusStr)
-        val priorityStr = optionalString(params, "priority") ?: "medium"
+        val priorityStr = mergedParams["priority"]?.jsonPrimitive?.content ?: "medium"
         val priority = parsePriority(priorityStr)
-        val projectId = optionalString(params, "projectId")?.let {
+        val projectId = mergedParams["projectId"]?.jsonPrimitive?.content?.let {
             if (it.isEmpty()) null else UUID.fromString(it)
         }
-        val tags = parseTags(params)
+        val tags = mergedParams["tags"]?.jsonPrimitive?.content?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        val requiresVerification = mergedParams["requiresVerification"]?.jsonPrimitive?.booleanOrNull ?: false
 
-        // Validate project exists if specified
-        if (projectId != null) {
+        // Validate project exists (with caching)
+        if (projectId != null && projectId !in validatedProjectIds) {
             when (context.repositoryProvider.projectRepository().getById(projectId)) {
-                is Result.Error -> return errorResponse(
-                    "Project not found",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
-                    "No project exists with ID $projectId"
+                is Result.Error -> return BulkCreateResult(
+                    id = null, name = name, status = null,
+                    error = "Project not found: $projectId",
+                    errorCode = ErrorCodes.RESOURCE_NOT_FOUND
                 )
-                is Result.Success -> { /* Project exists */ }
+                is Result.Success -> validatedProjectIds.add(projectId)
             }
         }
-
-        // Get template IDs
-        val templateIds = extractTemplateIds(params)
-        val requiresVerification = optionalBoolean(params, "requiresVerification", false)
 
         val feature = Feature(
             name = name,
@@ -610,96 +727,75 @@ Docs: task-orchestrator://docs/tools/manage-container
             is Result.Success -> {
                 val createdFeature = result.data
 
-                // Apply templates if specified
-                val appliedTemplatesResult = if (templateIds.isNotEmpty()) {
-                    context.repositoryProvider.templateRepository()
-                        .applyMultipleTemplates(templateIds, EntityType.FEATURE, createdFeature.id)
-                } else null
+                // Apply templates
+                val templateIds = extractTemplateIdsFromObject(mergedParams)
+                val appliedTemplates = if (templateIds.isNotEmpty()) {
+                    applyTemplatesAndBuildResponse(templateIds, EntityType.FEATURE, createdFeature.id, context)
+                } else emptyList()
 
-                val message = if (appliedTemplatesResult is Result.Success && appliedTemplatesResult.data.isNotEmpty()) {
-                    val templateCount = appliedTemplatesResult.data.size
-                    val sectionCount = appliedTemplatesResult.data.values.sumOf { it.size }
-                    "Feature created successfully with $templateCount template(s) applied, creating $sectionCount section(s)"
-                } else {
-                    "Feature created successfully"
-                }
-
-                successResponse(
-                    buildJsonObject {
-                        put("id", createdFeature.id.toString())
-                        put("name", createdFeature.name)
-                        put("status", createdFeature.status.name.lowercase().replace('_', '-'))
-                        put("createdAt", createdFeature.createdAt.toString())
-                        if (appliedTemplatesResult is Result.Success && appliedTemplatesResult.data.isNotEmpty()) {
-                            put("appliedTemplates", buildJsonArray {
-                                appliedTemplatesResult.data.forEach { (templateId, sections) ->
-                                    add(buildJsonObject {
-                                        put("templateId", templateId.toString())
-                                        put("sectionsCreated", sections.size)
-                                    })
-                                }
-                            })
-                        }
-                    },
-                    message
+                BulkCreateResult(
+                    id = createdFeature.id,
+                    name = createdFeature.name,
+                    status = createdFeature.status.name.lowercase().replace('_', '-'),
+                    appliedTemplates = appliedTemplates
                 )
             }
-            is Result.Error -> errorResponse(
-                "Failed to create feature: ${result.error}",
-                when (result.error) {
-                    is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
-                    is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
-                    is RepositoryError.ConflictError -> ErrorCodes.CONFLICT_ERROR
-                    else -> ErrorCodes.DATABASE_ERROR
-                },
-                result.error.toString()
+            is Result.Error -> BulkCreateResult(
+                id = null, name = name, status = null,
+                error = "Failed to create feature: ${result.error}",
+                errorCode = ErrorCodes.DATABASE_ERROR
             )
         }
     }
 
-    private suspend fun createTask(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val title = optionalString(params, "title") ?: requireString(params, "name")
-        val description = optionalString(params, "description")
-        val summary = optionalString(params, "summary") ?: ""
-        val statusStr = optionalString(params, "status") ?: "pending"
+    private suspend fun createTaskFromBatch(
+        mergedParams: JsonObject,
+        context: ToolExecutionContext,
+        validatedProjectIds: MutableSet<UUID>,
+        validatedFeatureIds: MutableSet<UUID>
+    ): BulkCreateResult {
+        val title = mergedParams["title"]?.jsonPrimitive?.content
+            ?: mergedParams["name"]?.jsonPrimitive?.content ?: ""
+        val description = mergedParams["description"]?.jsonPrimitive?.content
+        val summary = mergedParams["summary"]?.jsonPrimitive?.content ?: ""
+        val statusStr = mergedParams["status"]?.jsonPrimitive?.content ?: "pending"
         val status = parseTaskStatus(statusStr)
-        val priorityStr = optionalString(params, "priority") ?: "medium"
+        val priorityStr = mergedParams["priority"]?.jsonPrimitive?.content ?: "medium"
         val priority = parsePriority(priorityStr)
-        val complexity = optionalInt(params, "complexity") ?: 5
-        val projectId = optionalString(params, "projectId")?.let {
+        val complexity = mergedParams["complexity"]?.let {
+            if (it is JsonPrimitive && it.isString) it.content.toIntOrNull() else it.jsonPrimitive.intOrNull
+        } ?: 5
+        val projectId = mergedParams["projectId"]?.jsonPrimitive?.content?.let {
             if (it.isEmpty()) null else UUID.fromString(it)
         }
-        val featureId = optionalString(params, "featureId")?.let {
+        val featureId = mergedParams["featureId"]?.jsonPrimitive?.content?.let {
             if (it.isEmpty()) null else UUID.fromString(it)
         }
-        val tags = parseTags(params)
+        val tags = mergedParams["tags"]?.jsonPrimitive?.content?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        val requiresVerification = mergedParams["requiresVerification"]?.jsonPrimitive?.booleanOrNull ?: false
 
-        // Validate parent entities exist
-        if (projectId != null) {
+        // Validate parent entities (with caching)
+        if (projectId != null && projectId !in validatedProjectIds) {
             when (context.repositoryProvider.projectRepository().getById(projectId)) {
-                is Result.Error -> return errorResponse(
-                    "Project not found",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
-                    "No project exists with ID $projectId"
+                is Result.Error -> return BulkCreateResult(
+                    id = null, name = title, status = null,
+                    error = "Project not found: $projectId",
+                    errorCode = ErrorCodes.RESOURCE_NOT_FOUND
                 )
-                is Result.Success -> { /* Project exists */ }
+                is Result.Success -> validatedProjectIds.add(projectId)
             }
         }
 
-        if (featureId != null) {
+        if (featureId != null && featureId !in validatedFeatureIds) {
             when (context.repositoryProvider.featureRepository().getById(featureId)) {
-                is Result.Error -> return errorResponse(
-                    "Feature not found",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
-                    "No feature exists with ID $featureId"
+                is Result.Error -> return BulkCreateResult(
+                    id = null, name = title, status = null,
+                    error = "Feature not found: $featureId",
+                    errorCode = ErrorCodes.RESOURCE_NOT_FOUND
                 )
-                is Result.Success -> { /* Feature exists */ }
+                is Result.Success -> validatedFeatureIds.add(featureId)
             }
         }
-
-        // Get template IDs
-        val templateIds = extractTemplateIds(params)
-        val requiresVerification = optionalBoolean(params, "requiresVerification", false)
 
         val task = Task(
             title = title,
@@ -718,425 +814,29 @@ Docs: task-orchestrator://docs/tools/manage-container
             is Result.Success -> {
                 val createdTask = result.data
 
-                // Apply templates if specified
-                val appliedTemplatesResult = if (templateIds.isNotEmpty()) {
-                    context.repositoryProvider.templateRepository()
-                        .applyMultipleTemplates(templateIds, EntityType.TASK, createdTask.id)
-                } else null
+                // Apply templates
+                val templateIds = extractTemplateIdsFromObject(mergedParams)
+                val appliedTemplates = if (templateIds.isNotEmpty()) {
+                    applyTemplatesAndBuildResponse(templateIds, EntityType.TASK, createdTask.id, context)
+                } else emptyList()
 
-                val message = if (appliedTemplatesResult is Result.Success && appliedTemplatesResult.data.isNotEmpty()) {
-                    val templateCount = appliedTemplatesResult.data.size
-                    val sectionCount = appliedTemplatesResult.data.values.sumOf { it.size }
-                    "Task created successfully with $templateCount template(s) applied, creating $sectionCount section(s)"
-                } else {
-                    "Task created successfully"
-                }
-
-                successResponse(
-                    buildJsonObject {
-                        put("id", createdTask.id.toString())
-                        put("title", createdTask.title)
-                        put("status", createdTask.status.name.lowercase().replace('_', '-'))
-                        put("createdAt", createdTask.createdAt.toString())
-                        if (appliedTemplatesResult is Result.Success && appliedTemplatesResult.data.isNotEmpty()) {
-                            put("appliedTemplates", buildJsonArray {
-                                appliedTemplatesResult.data.forEach { (templateId, sections) ->
-                                    add(buildJsonObject {
-                                        put("templateId", templateId.toString())
-                                        put("sectionsCreated", sections.size)
-                                    })
-                                }
-                            })
-                        }
-                    },
-                    message
+                BulkCreateResult(
+                    id = createdTask.id,
+                    name = createdTask.title,
+                    status = createdTask.status.name.lowercase().replace('_', '-'),
+                    appliedTemplates = appliedTemplates
                 )
             }
-            is Result.Error -> errorResponse(
-                "Failed to create task: ${result.error}",
-                when (result.error) {
-                    is RepositoryError.ValidationError -> ErrorCodes.VALIDATION_ERROR
-                    is RepositoryError.NotFound -> ErrorCodes.RESOURCE_NOT_FOUND
-                    is RepositoryError.ConflictError -> ErrorCodes.CONFLICT_ERROR
-                    else -> ErrorCodes.DATABASE_ERROR
-                },
-                result.error.toString()
+            is Result.Error -> BulkCreateResult(
+                id = null, name = title, status = null,
+                error = "Failed to create task: ${result.error}",
+                errorCode = ErrorCodes.DATABASE_ERROR
             )
         }
     }
 
     // ========== UPDATE OPERATION ==========
-
-    private suspend fun executeUpdate(
-        params: JsonElement,
-        context: ToolExecutionContext,
-        containerType: String,
-        id: UUID
-    ): JsonElement {
-        logger.info("Executing update operation for $containerType: $id")
-
-        return when (containerType) {
-            "project" -> updateProject(params, context, id)
-            "feature" -> updateFeature(params, context, id)
-            "task" -> updateTask(params, context, id)
-            else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
-        }
-    }
-
-    private suspend fun updateProject(params: JsonElement, context: ToolExecutionContext, id: UUID): JsonElement {
-        val existingResult = context.projectRepository().getById(id)
-        val existing = when (existingResult) {
-            is Result.Success -> existingResult.data
-            is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve project") { JsonNull }
-        }
-
-        val name = optionalString(params, "name") ?: existing.name
-        val description = optionalString(params, "description") ?: existing.description
-        val summary = optionalString(params, "summary") ?: existing.summary
-        val statusStr = optionalString(params, "status")
-        val status = if (statusStr != null) parseProjectStatus(statusStr) else existing.status
-        val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
-
-        // Validate status transition when status is being changed
-        if (statusStr != null) {
-            val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-            val prerequisiteContext = StatusValidator.PrerequisiteContext(
-                taskRepository = context.taskRepository(),
-                featureRepository = context.featureRepository(),
-                projectRepository = context.projectRepository(),
-                dependencyRepository = context.dependencyRepository()
-            )
-            val transitionValidation = statusValidator.validateTransition(
-                currentStatusStr,
-                statusStr,
-                "project",
-                id,
-                prerequisiteContext,
-                existing.tags
-            )
-            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
-                return errorResponse(
-                    message = transitionValidation.reason,
-                    code = ErrorCodes.VALIDATION_ERROR,
-                    additionalData = buildJsonObject {
-                        put("currentStatus", currentStatusStr)
-                        put("attemptedStatus", statusStr)
-                        if (transitionValidation.suggestions.isNotEmpty()) {
-                            put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
-                        }
-                    }
-                )
-            }
-        }
-
-        val updated = existing.update(
-            name = name,
-            description = description,
-            summary = summary,
-            status = status,
-            tags = tags
-        )
-
-        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val newStatusStr = status.name.lowercase().replace('_', '-')
-        val statusChanged = statusStr != null && currentStatusStr != newStatusStr
-
-        val updateResult = context.projectRepository().update(updated)
-
-        return when (updateResult) {
-            is Result.Success -> {
-                val updatedProject = updateResult.data
-
-                // Detect cascade events after status change
-                val cascadeEvents = if (statusChanged) {
-                    detectUpdateCascades(id, "project", context)
-                } else emptyList()
-
-                val message = buildString {
-                    append("Project updated successfully")
-                    if (cascadeEvents.isNotEmpty()) {
-                        append(". ${cascadeEvents.size} cascade event(s) detected")
-                    }
-                }
-
-                successResponse(
-                    buildJsonObject {
-                        put("id", updatedProject.id.toString())
-                        put("status", updatedProject.status.name.lowercase().replace('_', '-'))
-                        put("modifiedAt", updatedProject.modifiedAt.toString())
-                        if (cascadeEvents.isNotEmpty()) {
-                            put("cascadeEvents", JsonArray(cascadeEvents))
-                        }
-                    },
-                    message
-                )
-            }
-            is Result.Error -> handleRepositoryResult(updateResult, "Project updated successfully") { JsonNull }
-        }
-    }
-
-    private suspend fun updateFeature(params: JsonElement, context: ToolExecutionContext, id: UUID): JsonElement {
-        val existingResult = context.featureRepository().getById(id)
-        val existing = when (existingResult) {
-            is Result.Success -> existingResult.data
-            is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve feature") { JsonNull }
-        }
-
-        val name = optionalString(params, "name") ?: existing.name
-        val description = optionalString(params, "description") ?: existing.description
-        val summary = optionalString(params, "summary") ?: existing.summary
-        val statusStr = optionalString(params, "status")
-        val status = if (statusStr != null) parseFeatureStatus(statusStr) else existing.status
-        val priorityStr = optionalString(params, "priority")
-        val priority = if (priorityStr != null) parsePriority(priorityStr) else existing.priority
-        val projectId = optionalString(params, "projectId")?.let {
-            if (it.isEmpty()) null else UUID.fromString(it)
-        } ?: existing.projectId
-        val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
-
-        val requiresVerification = optionalBoolean(params, "requiresVerification", existing.requiresVerification)
-
-        // Validate status transition when status is being changed
-        if (statusStr != null) {
-            val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-            val prerequisiteContext = StatusValidator.PrerequisiteContext(
-                taskRepository = context.taskRepository(),
-                featureRepository = context.featureRepository(),
-                projectRepository = context.projectRepository(),
-                dependencyRepository = context.dependencyRepository()
-            )
-            val transitionValidation = statusValidator.validateTransition(
-                currentStatusStr,
-                statusStr,
-                "feature",
-                id,
-                prerequisiteContext,
-                existing.tags
-            )
-            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
-                return errorResponse(
-                    message = transitionValidation.reason,
-                    code = ErrorCodes.VALIDATION_ERROR,
-                    additionalData = buildJsonObject {
-                        put("currentStatus", currentStatusStr)
-                        put("attemptedStatus", statusStr)
-                        if (transitionValidation.suggestions.isNotEmpty()) {
-                            put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
-                        }
-                    }
-                )
-            }
-        }
-
-        // Validate project exists if changed
-        if (projectId != null && projectId != existing.projectId) {
-            when (context.repositoryProvider.projectRepository().getById(projectId)) {
-                is Result.Error -> return errorResponse(
-                    "Project not found",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
-                    "No project exists with ID $projectId"
-                )
-                is Result.Success -> { /* Project exists */ }
-            }
-        }
-
-        val updated = existing.update(
-            name = name,
-            description = description,
-            summary = summary,
-            status = status,
-            priority = priority,
-            projectId = projectId,
-            requiresVerification = requiresVerification,
-            tags = tags
-        )
-
-        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val newStatusStr = status.name.lowercase().replace('_', '-')
-        val statusChanged = statusStr != null && currentStatusStr != newStatusStr
-
-        val updateResult = context.featureRepository().update(updated)
-
-        return when (updateResult) {
-            is Result.Success -> {
-                val updatedFeature = updateResult.data
-
-                // Detect cascade events after status change
-                val cascadeEvents = if (statusChanged) {
-                    detectUpdateCascades(id, "feature", context)
-                } else emptyList()
-
-                val message = buildString {
-                    append("Feature updated successfully")
-                    if (cascadeEvents.isNotEmpty()) {
-                        append(". ${cascadeEvents.size} cascade event(s) detected")
-                    }
-                }
-
-                successResponse(
-                    buildJsonObject {
-                        put("id", updatedFeature.id.toString())
-                        put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
-                        put("modifiedAt", updatedFeature.modifiedAt.toString())
-                        if (cascadeEvents.isNotEmpty()) {
-                            put("cascadeEvents", JsonArray(cascadeEvents))
-                        }
-                    },
-                    message
-                )
-            }
-            is Result.Error -> handleRepositoryResult(updateResult, "Feature updated successfully") { JsonNull }
-        }
-    }
-
-    private suspend fun updateTask(params: JsonElement, context: ToolExecutionContext, id: UUID): JsonElement {
-        val existingResult = context.taskRepository().getById(id)
-        val existing = when (existingResult) {
-            is Result.Success -> existingResult.data
-            is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve task") { JsonNull }
-        }
-
-        val title = optionalString(params, "title") ?: optionalString(params, "name") ?: existing.title
-        val description = optionalString(params, "description") ?: existing.description
-        val summary = optionalString(params, "summary") ?: existing.summary
-        val statusStr = optionalString(params, "status")
-        val status = if (statusStr != null) parseTaskStatus(statusStr) else existing.status
-        val priorityStr = optionalString(params, "priority")
-        val priority = if (priorityStr != null) parsePriority(priorityStr) else existing.priority
-        val complexity = optionalInt(params, "complexity") ?: existing.complexity
-        val featureId = optionalString(params, "featureId")?.let {
-            if (it.isEmpty()) null else UUID.fromString(it)
-        } ?: existing.featureId
-        val tags = optionalString(params, "tags")?.let { parseTags(params) } ?: existing.tags
-
-        val requiresVerification = optionalBoolean(params, "requiresVerification", existing.requiresVerification)
-
-        // Validate status transition when status is being changed
-        if (statusStr != null) {
-            val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-            val prerequisiteContext = StatusValidator.PrerequisiteContext(
-                taskRepository = context.taskRepository(),
-                featureRepository = context.featureRepository(),
-                projectRepository = context.projectRepository(),
-                dependencyRepository = context.dependencyRepository()
-            )
-            val transitionValidation = statusValidator.validateTransition(
-                currentStatusStr,
-                statusStr,
-                "task",
-                id,
-                prerequisiteContext,
-                existing.tags
-            )
-            if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
-                return errorResponse(
-                    message = transitionValidation.reason,
-                    code = ErrorCodes.VALIDATION_ERROR,
-                    additionalData = buildJsonObject {
-                        put("currentStatus", currentStatusStr)
-                        put("attemptedStatus", statusStr)
-                        if (transitionValidation.suggestions.isNotEmpty()) {
-                            put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
-                        }
-                    }
-                )
-            }
-        }
-
-        // Validate feature exists if changed
-        if (featureId != null && featureId != existing.featureId) {
-            when (context.repositoryProvider.featureRepository().getById(featureId)) {
-                is Result.Error -> return errorResponse(
-                    "Feature not found",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
-                    "No feature exists with ID $featureId"
-                )
-                is Result.Success -> { /* Feature exists */ }
-            }
-        }
-
-        val updated = existing.copy(
-            title = title,
-            description = description,
-            summary = summary,
-            status = status,
-            priority = priority,
-            complexity = complexity,
-            featureId = featureId,
-            requiresVerification = requiresVerification,
-            tags = tags,
-            modifiedAt = Instant.now()
-        )
-
-        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val newStatusStr = status.name.lowercase().replace('_', '-')
-        val statusChanged = statusStr != null && currentStatusStr != newStatusStr
-        val isTerminalStatus = newStatusStr in listOf("completed", "cancelled")
-
-        val updateResult = context.taskRepository().update(updated)
-
-        return when (updateResult) {
-            is Result.Success -> {
-                val updatedTask = updateResult.data
-
-                // Detect cascade events and unblocked tasks after status change
-                val cascadeEvents = if (statusChanged) {
-                    detectUpdateCascades(id, "task", context)
-                } else emptyList()
-
-                val unblockedTasks = if (statusChanged && isTerminalStatus) {
-                    findUpdateUnblockedTasks(id, context)
-                } else emptyList()
-
-                val message = buildString {
-                    append("Task updated successfully")
-                    if (cascadeEvents.isNotEmpty()) {
-                        append(". ${cascadeEvents.size} cascade event(s) detected")
-                    }
-                    if (unblockedTasks.isNotEmpty()) {
-                        append(". ${unblockedTasks.size} task(s) now unblocked")
-                    }
-                }
-
-                successResponse(
-                    buildJsonObject {
-                        put("id", updatedTask.id.toString())
-                        put("status", updatedTask.status.name.lowercase().replace('_', '-'))
-                        put("modifiedAt", updatedTask.modifiedAt.toString())
-                        if (cascadeEvents.isNotEmpty()) {
-                            put("cascadeEvents", JsonArray(cascadeEvents))
-                        }
-                        if (unblockedTasks.isNotEmpty()) {
-                            put("unblockedTasks", JsonArray(unblockedTasks))
-                        }
-                    },
-                    message
-                )
-            }
-            is Result.Error -> handleRepositoryResult(updateResult, "Task updated successfully") { JsonNull }
-        }
-    }
-
-    // ========== DELETE OPERATION ==========
-
-    private suspend fun executeDelete(
-        params: JsonElement,
-        context: ToolExecutionContext,
-        containerType: String,
-        id: UUID
-    ): JsonElement {
-        logger.info("Executing delete operation for $containerType: $id")
-
-        val force = optionalBoolean(params, "force", false)
-        val deleteSections = optionalBoolean(params, "deleteSections", true)
-
-        return when (containerType) {
-            "project" -> deleteProject(context, id, force, deleteSections)
-            "feature" -> deleteFeature(context, id, force, deleteSections)
-            "task" -> deleteTask(context, id, force, deleteSections)
-            else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
-        }
-    }
+    // Note: Update now always uses batch path (executeBatchUpdate) even for single items
 
     private suspend fun deleteProject(
         context: ToolExecutionContext,
@@ -1433,390 +1133,93 @@ Docs: task-orchestrator://docs/tools/manage-container
         }
     }
 
-    // ========== SET STATUS OPERATION ==========
 
-    private suspend fun executeSetStatus(
-        params: JsonElement,
-        context: ToolExecutionContext,
-        containerType: String,
-        id: UUID
-    ): JsonElement {
-        logger.info("Executing setStatus operation for $containerType: $id")
+    // ========== DELETE OPERATION ==========
 
-        val statusStr = requireString(params, "status")
-
-        return when (containerType) {
-            "project" -> setProjectStatus(context, id, statusStr)
-            "feature" -> setFeatureStatus(context, id, statusStr)
-            "task" -> setTaskStatus(context, id, statusStr)
-            else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
-        }
-    }
-
-    private suspend fun setProjectStatus(context: ToolExecutionContext, id: UUID, statusStr: String): JsonElement {
-        // Get existing project
-        val existingResult = context.projectRepository().getById(id)
-        val existing = when (existingResult) {
-            is Result.Success -> existingResult.data
-            is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve project") { JsonNull }
-        }
-
-        // Build prerequisite context for validation
-        val prerequisiteContext = StatusValidator.PrerequisiteContext(
-            taskRepository = context.taskRepository(),
-            featureRepository = context.featureRepository(),
-            projectRepository = context.projectRepository(),
-            dependencyRepository = context.dependencyRepository()
-        )
-
-        // Validate transition with StatusValidator (including prerequisites)
-        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val transitionValidation = statusValidator.validateTransition(
-            currentStatusStr,
-            statusStr,
-            "project",
-            id,
-            prerequisiteContext,
-            existing.tags
-        )
-
-        if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
-            return errorResponse(
-                message = transitionValidation.reason,
-                code = ErrorCodes.VALIDATION_ERROR,
-                additionalData = buildJsonObject {
-                    put("currentStatus", currentStatusStr)
-                    put("attemptedStatus", statusStr)
-                    if (transitionValidation.suggestions.isNotEmpty()) {
-                        put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
-                    }
-                }
-            )
-        }
-
-        // Parse and update
-        val status = parseProjectStatus(statusStr)
-        val updated = existing.update(status = status)
-
-        // Prepare success message (include advisory if present)
-        val successMessage = if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-            "Project status updated to ${status.name.lowercase().replace('_', '-')}. Advisory: ${transitionValidation.advisory}"
-        } else {
-            "Project status updated to ${status.name.lowercase().replace('_', '-')}"
-        }
-
-        val updateResult = context.projectRepository().update(updated)
-
-        return when (updateResult) {
-            is Result.Success -> {
-                val updatedProject = updateResult.data
-
-                // Detect cascade events after status change
-                val workflowService = createWorkflowService(context)
-                val cascadeEvents = workflowService.detectCascadeEvents(
-                    updatedProject.id,
-                    ContainerType.PROJECT
-                )
-
-                successResponse(
-                    message = successMessage,
-                    data = buildJsonObject {
-                        put("id", updatedProject.id.toString())
-                        put("status", updatedProject.status.name.lowercase().replace('_', '-'))
-                        put("modifiedAt", updatedProject.modifiedAt.toString())
-                        if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-                            put("advisory", transitionValidation.advisory)
-                        }
-                        if (cascadeEvents.isNotEmpty()) {
-                            put("cascadeEvents", JsonArray(
-                                cascadeEvents.map { ev ->
-                                    buildJsonObject {
-                                        put("event", ev.event)
-                                        put("targetType", ev.targetType.name.lowercase())
-                                        put("targetId", ev.targetId.toString())
-                                        put("targetName", ev.targetName)
-                                        put("currentStatus", ev.currentStatus)
-                                        put("suggestedStatus", ev.suggestedStatus)
-                                        put("flow", ev.flow)
-                                        put("automatic", ev.automatic)
-                                        put("reason", ev.reason)
-                                    }
-                                }
-                            ))
-                        }
-                    }
-                )
-            }
-            is Result.Error -> handleRepositoryResult(updateResult, "Failed to update project") { JsonNull }
-        }
-    }
-
-    private suspend fun setFeatureStatus(context: ToolExecutionContext, id: UUID, statusStr: String): JsonElement {
-        // Get existing feature
-        val existingResult = context.featureRepository().getById(id)
-        val existing = when (existingResult) {
-            is Result.Success -> existingResult.data
-            is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve feature") { JsonNull }
-        }
-
-        // Build prerequisite context for validation
-        val prerequisiteContext = StatusValidator.PrerequisiteContext(
-            taskRepository = context.taskRepository(),
-            featureRepository = context.featureRepository(),
-            projectRepository = context.projectRepository(),
-            dependencyRepository = context.dependencyRepository()
-        )
-
-        // Validate transition with StatusValidator (including prerequisites)
-        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val transitionValidation = statusValidator.validateTransition(
-            currentStatusStr,
-            statusStr,
-            "feature",
-            id,
-            prerequisiteContext,
-            existing.tags
-        )
-
-        if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
-            return errorResponse(
-                message = transitionValidation.reason,
-                code = ErrorCodes.VALIDATION_ERROR,
-                additionalData = buildJsonObject {
-                    put("currentStatus", currentStatusStr)
-                    put("attemptedStatus", statusStr)
-                    if (transitionValidation.suggestions.isNotEmpty()) {
-                        put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
-                    }
-                }
-            )
-        }
-
-        // Verification gate check: block completion if verification criteria not met
-        if (statusStr.uppercase().replace('-', '_') == "COMPLETED" && existing.requiresVerification) {
-            val gateResult = VerificationGateService.checkVerificationSection(id, "feature", context)
-            if (gateResult is VerificationGateService.VerificationCheckResult.Failed) {
-                return errorResponse(
-                    message = "Completion blocked: ${gateResult.reason}",
-                    code = ErrorCodes.VALIDATION_ERROR,
-                    additionalData = buildJsonObject {
-                        put("gate", "verification")
-                        if (gateResult.failingCriteria.isNotEmpty()) {
-                            put("failingCriteria", JsonArray(
-                                gateResult.failingCriteria.map { JsonPrimitive(it) }
-                            ))
-                        }
-                    }
-                )
-            }
-        }
-
-        // Parse and update
-        val status = parseFeatureStatus(statusStr)
-        val updated = existing.update(status = status)
-
-        // Prepare success message (include advisory if present)
-        val successMessage = if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-            "Feature status updated to ${status.name.lowercase().replace('_', '-')}. Advisory: ${transitionValidation.advisory}"
-        } else {
-            "Feature status updated to ${status.name.lowercase().replace('_', '-')}"
-        }
-
-        val updateResult = context.featureRepository().update(updated)
-
-        return when (updateResult) {
-            is Result.Success -> {
-                val updatedFeature = updateResult.data
-
-                // Detect cascade events after status change
-                val workflowService = createWorkflowService(context)
-                val cascadeEvents = workflowService.detectCascadeEvents(
-                    updatedFeature.id,
-                    ContainerType.FEATURE
-                )
-
-                // Run completion cleanup for feature status changes
-                val cleanupResult = runCompletionCleanup(updatedFeature.id, statusStr, context)
-
-                val finalMessage = if (cleanupResult != null && cleanupResult.performed) {
-                    "$successMessage. Cleanup: ${cleanupResult.tasksDeleted} task(s) deleted, ${cleanupResult.tasksRetained} retained."
-                } else {
-                    successMessage
-                }
-
-                successResponse(
-                    message = finalMessage,
-                    data = buildJsonObject {
-                        put("id", updatedFeature.id.toString())
-                        put("status", updatedFeature.status.name.lowercase().replace('_', '-'))
-                        put("modifiedAt", updatedFeature.modifiedAt.toString())
-                        if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-                            put("advisory", transitionValidation.advisory)
-                        }
-                        if (cascadeEvents.isNotEmpty()) {
-                            put("cascadeEvents", JsonArray(
-                                cascadeEvents.map { ev ->
-                                    buildJsonObject {
-                                        put("event", ev.event)
-                                        put("targetType", ev.targetType.name.lowercase())
-                                        put("targetId", ev.targetId.toString())
-                                        put("targetName", ev.targetName)
-                                        put("currentStatus", ev.currentStatus)
-                                        put("suggestedStatus", ev.suggestedStatus)
-                                        put("flow", ev.flow)
-                                        put("automatic", ev.automatic)
-                                        put("reason", ev.reason)
-                                    }
-                                }
-                            ))
-                        }
-                        if (cleanupResult != null && cleanupResult.performed) {
-                            put("cleanup", buildJsonObject {
-                                put("performed", true)
-                                put("tasksDeleted", cleanupResult.tasksDeleted)
-                                put("tasksRetained", cleanupResult.tasksRetained)
-                                if (cleanupResult.retainedTaskIds.isNotEmpty()) {
-                                    put("retainedTaskIds", JsonArray(
-                                        cleanupResult.retainedTaskIds.map { JsonPrimitive(it.toString()) }
-                                    ))
-                                }
-                                put("sectionsDeleted", cleanupResult.sectionsDeleted)
-                                put("dependenciesDeleted", cleanupResult.dependenciesDeleted)
-                                put("reason", cleanupResult.reason)
-                            })
-                        }
-                    }
-                )
-            }
-            is Result.Error -> handleRepositoryResult(updateResult, "Failed to update feature") { JsonNull }
-        }
-    }
-
-    private suspend fun setTaskStatus(context: ToolExecutionContext, id: UUID, statusStr: String): JsonElement {
-        // Get existing task
-        val existingResult = context.taskRepository().getById(id)
-        val existing = when (existingResult) {
-            is Result.Success -> existingResult.data
-            is Result.Error -> return handleRepositoryResult(existingResult, "Failed to retrieve task") { JsonNull }
-        }
-
-        // Build prerequisite context for validation
-        val prerequisiteContext = StatusValidator.PrerequisiteContext(
-            taskRepository = context.taskRepository(),
-            featureRepository = context.featureRepository(),
-            projectRepository = context.projectRepository(),
-            dependencyRepository = context.dependencyRepository()
-        )
-
-        // Validate transition with StatusValidator (including prerequisites)
-        val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
-        val transitionValidation = statusValidator.validateTransition(
-            currentStatusStr,
-            statusStr,
-            "task",
-            id,
-            prerequisiteContext,
-            existing.tags
-        )
-
-        if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
-            return errorResponse(
-                message = transitionValidation.reason,
-                code = ErrorCodes.VALIDATION_ERROR,
-                additionalData = buildJsonObject {
-                    put("currentStatus", currentStatusStr)
-                    put("attemptedStatus", statusStr)
-                    if (transitionValidation.suggestions.isNotEmpty()) {
-                        put("suggestions", JsonArray(transitionValidation.suggestions.map { JsonPrimitive(it) }))
-                    }
-                }
-            )
-        }
-
-        // Verification gate check: block completion if verification criteria not met
-        if (statusStr.uppercase().replace('-', '_') == "COMPLETED" && existing.requiresVerification) {
-            val gateResult = VerificationGateService.checkVerificationSection(id, "task", context)
-            if (gateResult is VerificationGateService.VerificationCheckResult.Failed) {
-                return errorResponse(
-                    message = "Completion blocked: ${gateResult.reason}",
-                    code = ErrorCodes.VALIDATION_ERROR,
-                    additionalData = buildJsonObject {
-                        put("gate", "verification")
-                        if (gateResult.failingCriteria.isNotEmpty()) {
-                            put("failingCriteria", JsonArray(
-                                gateResult.failingCriteria.map { JsonPrimitive(it) }
-                            ))
-                        }
-                    }
-                )
-            }
-        }
-
-        // Parse and update
-        val status = parseTaskStatus(statusStr)
-        val updated = existing.copy(status = status, modifiedAt = Instant.now())
-
-        // Prepare success message (include advisory if present)
-        val successMessage = if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-            "Task status updated to ${status.name.lowercase().replace('_', '-')}. Advisory: ${transitionValidation.advisory}"
-        } else {
-            "Task status updated to ${status.name.lowercase().replace('_', '-')}"
-        }
-
-        val updateResult = context.taskRepository().update(updated)
-
-        return when (updateResult) {
-            is Result.Success -> {
-                val updatedTask = updateResult.data
-
-                // Detect cascade events after status change
-                val workflowService = createWorkflowService(context)
-                val cascadeEvents = workflowService.detectCascadeEvents(
-                    updatedTask.id,
-                    ContainerType.TASK
-                )
-
-                successResponse(
-                    message = successMessage,
-                    data = buildJsonObject {
-                        put("id", updatedTask.id.toString())
-                        put("status", updatedTask.status.name.lowercase().replace('_', '-'))
-                        put("modifiedAt", updatedTask.modifiedAt.toString())
-                        if (transitionValidation is StatusValidator.ValidationResult.ValidWithAdvisory) {
-                            put("advisory", transitionValidation.advisory)
-                        }
-                        if (cascadeEvents.isNotEmpty()) {
-                            put("cascadeEvents", JsonArray(
-                                cascadeEvents.map { ev ->
-                                    buildJsonObject {
-                                        put("event", ev.event)
-                                        put("targetType", ev.targetType.name.lowercase())
-                                        put("targetId", ev.targetId.toString())
-                                        put("targetName", ev.targetName)
-                                        put("currentStatus", ev.currentStatus)
-                                        put("suggestedStatus", ev.suggestedStatus)
-                                        put("flow", ev.flow)
-                                        put("automatic", ev.automatic)
-                                        put("reason", ev.reason)
-                                    }
-                                }
-                            ))
-                        }
-                    }
-                )
-            }
-            is Result.Error -> handleRepositoryResult(updateResult, "Failed to update task") { JsonNull }
-        }
-    }
-
-    // ========== BULK UPDATE OPERATION ==========
-
-    private suspend fun executeBulkUpdate(
+    private suspend fun executeBatchDelete(
         params: JsonElement,
         context: ToolExecutionContext,
         containerType: String
     ): JsonElement {
-        logger.info("Executing bulkUpdate operation for $containerType")
+        logger.info("Executing batch delete operation for $containerType")
+
+        val idsArray = params.jsonObject["ids"] as JsonArray
+        val force = optionalBoolean(params, "force", false)
+        val deleteSections = optionalBoolean(params, "deleteSections", true)
+
+        val deletedIds = mutableListOf<String>()
+        val failures = mutableListOf<JsonObject>()
+
+        idsArray.forEachIndexed { index, idElement ->
+            val idStr = idElement.jsonPrimitive.content
+            try {
+                val id = UUID.fromString(idStr)
+                val result = when (containerType) {
+                    "project" -> deleteProject(context, id, force, deleteSections)
+                    "feature" -> deleteFeature(context, id, force, deleteSections)
+                    "task" -> deleteTask(context, id, force, deleteSections)
+                    else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
+                }
+
+                // Check if the result indicates success
+                val resultObj = result as? JsonObject
+                val success = resultObj?.get("success")?.jsonPrimitive?.booleanOrNull ?: false
+                if (success) {
+                    deletedIds.add(idStr)
+                } else {
+                    val errorMsg = resultObj?.get("error")?.let { err ->
+                        if (err is JsonObject) err["message"]?.jsonPrimitive?.content
+                        else err.jsonPrimitive.content
+                    } ?: "Delete failed"
+                    failures.add(buildJsonObject {
+                        put("index", index)
+                        put("id", idStr)
+                        put("error", buildJsonObject {
+                            put("code", ErrorCodes.OPERATION_FAILED)
+                            put("message", errorMsg)
+                        })
+                    })
+                }
+            } catch (e: Exception) {
+                logger.error("Error deleting $containerType $idStr in batch delete", e)
+                failures.add(buildJsonObject {
+                    put("index", index)
+                    put("id", idStr)
+                    put("error", buildJsonObject {
+                        put("code", ErrorCodes.INTERNAL_ERROR)
+                        put("message", e.message ?: "Unknown error")
+                    })
+                })
+            }
+        }
+
+        val message = if (deletedIds.isNotEmpty()) {
+            "Deleted ${deletedIds.size} ${containerType}(s)${if (failures.isNotEmpty()) " (${failures.size} failed)" else ""}"
+        } else {
+            "All ${idsArray.size} ${containerType}(s) failed to delete"
+        }
+
+        return successResponse(
+            buildJsonObject {
+                put("ids", JsonArray(deletedIds.map { JsonPrimitive(it) }))
+                put("deleted", deletedIds.size)
+                put("failed", failures.size)
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
+            },
+            message
+        )
+    }
+
+    // ========== BATCH UPDATE OPERATION ==========
+
+    private suspend fun executeBatchUpdate(
+        params: JsonElement,
+        context: ToolExecutionContext,
+        containerType: String
+    ): JsonElement {
+        logger.info("Executing batchUpdate operation for $containerType")
 
         val containersArray = params.jsonObject["containers"] as JsonArray
 
@@ -1945,99 +1348,10 @@ Docs: task-orchestrator://docs/tools/manage-container
             if (allUnblockedTasks.isNotEmpty()) append(". ${allUnblockedTasks.size} task(s) now unblocked")
         }
 
-        return if (successCount == 0 && failedCount > 0) {
-            errorResponse(
-                "Failed to update any ${containerType}s",
-                ErrorCodes.OPERATION_FAILED,
-                "All $totalRequested ${containerType}s failed to update",
-                responseData
-            )
-        } else {
-            successResponse(responseData, message)
-        }
+        return successResponse(responseData, message)
     }
 
-    /**
-     * Detects cascade events after a single entity update with status change.
-     * Used by update operations.
-     */
-    private suspend fun detectUpdateCascades(
-        containerId: UUID,
-        containerType: String,
-        context: ToolExecutionContext
-    ): List<JsonObject> {
-        return try {
-            val workflowService: WorkflowService = WorkflowServiceImpl(
-                workflowConfigLoader = WorkflowConfigLoaderImpl(),
-                taskRepository = context.taskRepository(),
-                featureRepository = context.featureRepository(),
-                projectRepository = context.projectRepository(),
-                statusValidator = statusValidator
-            )
-            val ct = ContainerType.valueOf(containerType.uppercase())
-            val events = workflowService.detectCascadeEvents(containerId, ct)
-            events.map { ev ->
-                buildJsonObject {
-                    put("event", ev.event)
-                    put("targetType", ev.targetType.name.lowercase())
-                    put("targetId", ev.targetId.toString())
-                    put("suggestedStatus", ev.suggestedStatus)
-                    put("reason", ev.reason)
-                }
-            }
-        } catch (e: Exception) {
-            logger.warn("Failed to detect cascade events for $containerId: ${e.message}")
-            emptyList()
-        }
-    }
 
-    /**
-     * Finds downstream tasks that are now fully unblocked after a task update to completed/cancelled.
-     * Used by task update operation.
-     */
-    private suspend fun findUpdateUnblockedTasks(
-        completedTaskId: UUID,
-        context: ToolExecutionContext
-    ): List<JsonObject> {
-        return try {
-            val outgoingDeps = context.dependencyRepository().findByFromTaskId(completedTaskId)
-            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
-
-            if (blocksDeps.isEmpty()) return emptyList()
-
-            val unblockedTasks = mutableListOf<JsonObject>()
-
-            for (dep in blocksDeps) {
-                val downstreamTaskId = dep.toTaskId
-                val downstreamTask = context.taskRepository().getById(downstreamTaskId).getOrNull() ?: continue
-                val downstreamStatus = downstreamTask.status.name.lowercase().replace('_', '-')
-                if (downstreamStatus in listOf("completed", "cancelled")) continue
-
-                val incomingDeps = context.dependencyRepository().findByToTaskId(downstreamTaskId)
-                val incomingBlockers = incomingDeps.filter { it.type == DependencyType.BLOCKS }
-
-                val allBlockersResolved = incomingBlockers.all { blocker ->
-                    val blockerTask = context.taskRepository().getById(blocker.fromTaskId).getOrNull()
-                    if (blockerTask != null) {
-                        val blockerStatus = blockerTask.status.name.lowercase().replace('_', '-')
-                        blockerStatus in listOf("completed", "cancelled")
-                    } else true
-                }
-
-                if (allBlockersResolved) {
-                    unblockedTasks.add(buildJsonObject {
-                        put("taskId", downstreamTaskId.toString())
-                        put("title", downstreamTask.title)
-                    })
-                }
-            }
-
-            unblockedTasks
-        } catch (e: Exception) {
-            logger.warn("Failed to find newly unblocked tasks for $completedTaskId: ${e.message}")
-            emptyList()
-        }
-    }
 
     /**
      * Detects cascade events after a bulk status change, mirroring the pattern in RequestTransitionTool.
@@ -2364,6 +1678,60 @@ Docs: task-orchestrator://docs/tools/manage-container
         }
     }
 
+    private fun extractSharedDefaults(params: JsonElement): Map<String, String?> {
+        val paramsObj = params as? JsonObject ?: return emptyMap()
+        return mapOf(
+            "projectId" to paramsObj["projectId"]?.jsonPrimitive?.content,
+            "featureId" to paramsObj["featureId"]?.jsonPrimitive?.content,
+            "tags" to paramsObj["tags"]?.jsonPrimitive?.content
+        )
+        // templateIds handled separately since it's an array
+    }
+
+    private fun mergeWithDefaults(containerObj: JsonObject, sharedDefaults: Map<String, String?>): JsonObject {
+        val merged = buildJsonObject {
+            // Start with shared defaults
+            sharedDefaults.forEach { (key, value) ->
+                if (value != null && !containerObj.containsKey(key)) {
+                    put(key, value)
+                }
+            }
+            // Copy all per-item fields (these override defaults)
+            containerObj.forEach { (key, value) ->
+                put(key, value)
+            }
+        }
+        return merged
+    }
+
+    private fun extractTemplateIdsFromObject(obj: JsonObject): List<UUID> {
+        val templateIdsArray = obj["templateIds"] as? JsonArray ?: return emptyList()
+        return templateIdsArray.mapNotNull { item ->
+            if (item is JsonPrimitive && item.isString) {
+                try { UUID.fromString(item.content) } catch (_: Exception) { null }
+            } else null
+        }
+    }
+
+    private suspend fun applyTemplatesAndBuildResponse(
+        templateIds: List<UUID>,
+        entityType: EntityType,
+        entityId: UUID,
+        context: ToolExecutionContext
+    ): List<JsonObject> {
+        val appliedResult = context.repositoryProvider.templateRepository()
+            .applyMultipleTemplates(templateIds, entityType, entityId)
+
+        return if (appliedResult is Result.Success && appliedResult.data.isNotEmpty()) {
+            appliedResult.data.map { (templateId, sections) ->
+                buildJsonObject {
+                    put("templateId", templateId.toString())
+                    put("sectionsCreated", sections.size)
+                }
+            }
+        } else emptyList()
+    }
+
     // Status parsing methods
     // Note: Status validation is handled by StatusValidator in validateParams()
 
@@ -2444,28 +1812,38 @@ Docs: task-orchestrator://docs/tools/manage-container
         val data = (result as? JsonObject)?.get("data")?.jsonObject
         return when (operation) {
             "create" -> {
-                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
-                val name = data?.get("name")?.jsonPrimitive?.content
-                    ?: data?.get("title")?.jsonPrimitive?.content ?: ""
-                "Created $containerType '$name' ($id)"
+                val created = data?.get("created")?.jsonPrimitive?.intOrNull ?: 0
+                val failed = data?.get("failed")?.jsonPrimitive?.intOrNull ?: 0
+                if (created == 1 && failed == 0) {
+                    val item = data?.get("items")?.jsonArray?.firstOrNull()?.jsonObject
+                    val name = item?.get("name")?.jsonPrimitive?.content
+                        ?: item?.get("title")?.jsonPrimitive?.content ?: ""
+                    val id = item?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                    "Created $containerType '$name' ($id)"
+                } else {
+                    "Created $created ${containerType}(s)${if (failed > 0) " ($failed failed)" else ""}"
+                }
             }
             "update" -> {
-                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
-                "Updated $containerType ($id)"
+                val updated = data?.get("updated")?.jsonPrimitive?.intOrNull ?: 0
+                val failed = data?.get("failed")?.jsonPrimitive?.intOrNull ?: 0
+                if (updated == 1 && failed == 0) {
+                    val item = data?.get("items")?.jsonArray?.firstOrNull()?.jsonObject
+                    val id = item?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                    "Updated $containerType ($id)"
+                } else {
+                    "Updated $updated ${containerType}(s)${if (failed > 0) " ($failed failed)" else ""}"
+                }
             }
             "delete" -> {
-                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
-                "Deleted $containerType ($id)"
-            }
-            "setStatus" -> {
-                val id = data?.get("id")?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
-                val status = data?.get("status")?.jsonPrimitive?.content ?: ""
-                "$containerType ($id) status set to $status"
-            }
-            "bulkUpdate" -> {
-                val updated = data?.get("updated")?.jsonPrimitive?.content ?: "0"
-                val failed = data?.get("failed")?.jsonPrimitive?.content ?: "0"
-                "Bulk updated $updated ${containerType}(s)${if (failed != "0") " ($failed failed)" else ""}"
+                val deleted = data?.get("deleted")?.jsonPrimitive?.intOrNull ?: 0
+                val failed = data?.get("failed")?.jsonPrimitive?.intOrNull ?: 0
+                if (deleted == 1 && failed == 0) {
+                    val id = data?.get("ids")?.jsonArray?.firstOrNull()?.jsonPrimitive?.content?.let { shortId(it) } ?: ""
+                    "Deleted $containerType ($id)"
+                } else {
+                    "Deleted $deleted ${containerType}(s)${if (failed > 0) " ($failed failed)" else ""}"
+                }
             }
             else -> "Container operation completed"
         }

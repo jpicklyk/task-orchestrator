@@ -1038,7 +1038,7 @@ Features and projects returned by `get` or `overview` include `taskCounts`:
 
 ## Related Tools
 
-- **manage_container** - Write operations (create, update, delete, setStatus)
+- **manage_container** - Write operations (create, update, delete)
 - **query_sections** - Query section content with selective loading
 - **manage_sections** - Modify section content
 - **get_next_task** - Intelligent task recommendation with dependency filtering

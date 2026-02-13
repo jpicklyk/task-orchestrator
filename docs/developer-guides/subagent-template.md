@@ -29,22 +29,22 @@ model: [sonnet|opus]
    - `manage_sections(operation="add", ...)` - Add sections for [specific content types]
 5. **[Agent-specific validation step if applicable]**: [e.g., "Run tests", "Build project", "Validate markup"]
 6. **Populate task summary field** (REQUIRED - at most 500 chars):
-   - `manage_container(operation="update", containerType="task", id="...", summary="...")`
+   - `manage_container(operation="update", containerType="task", containers=[{id="...", summary="..."}])`
    - Brief 2-3 sentence summary of what was done, test results, what's ready
    - **CRITICAL**: Summary is REQUIRED and validated before task completion (at most 500 chars)
    - **VALIDATION**: System enforces maximum 500 character limit - task cannot be completed without valid summary
-   - If missing or invalid, setStatus will fail - summary must be populated BEFORE step 8
+   - If missing or invalid, request_transition will fail - summary must be populated BEFORE step 8
 7. **Create "Files Changed" section**:
    - `manage_sections(operation="add", entityType="TASK", entityId="...", title="Files Changed", content="...", ordinal=999, tags="files-changed,completion")`
    - Markdown list of files modified/created with brief descriptions
    - Helps downstream tasks and git hooks parse changes
-8. **Mark task complete**:
+8. **Mark task complete** via `request_transition`:
    - **PREREQUISITE CHECK**: Verify summary field is populated and valid (at most 500 chars)
-   - `manage_container(operation="setStatus", containerType="task", id="...", status="completed")`
+   - `request_transition(containerId="...", containerType="task", trigger="complete")`
    - ONLY after all validation passes, work is complete, AND summary field is populated
-   - **WARNING**: setStatus will FAIL if summary is missing or > 500 chars
+   - **WARNING**: request_transition will FAIL if summary is missing or > 500 chars
    - **VALIDATION BLOCKS COMPLETION**: The system will reject completion attempts without valid summary
-   - If setStatus fails, populate/fix summary field (step 6) then retry
+   - If request_transition fails, populate/fix summary field (step 6) then retry
 9. **Return minimal output to orchestrator**:
    - Format: "✅ [Task title] completed. [Optional 1 sentence of critical context]"
    - Or if blocked: "⚠️ BLOCKED\n\nReason: [one sentence]\nRequires: [action needed]"
@@ -76,9 +76,9 @@ model: [sonnet|opus]
 ### Summary Validation Rules
 
 **Character count**: At most 500 characters (strictly enforced)
-- Too short (< 300): setStatus will FAIL
-- Too long (> 500): setStatus will FAIL
-- Missing/empty: setStatus will FAIL
+- Too short (< 300): request_transition will FAIL
+- Too long (> 500): request_transition will FAIL
+- Missing/empty: request_transition will FAIL
 
 **When to populate**: ALWAYS populate in step 6, BEFORE marking task complete (step 8)
 
@@ -125,13 +125,13 @@ model: [sonnet|opus]
 ```
 "Implemented authentication. Tests pass. Ready for review."
 ```
-*Character count: 62 - setStatus will FAIL*
+*Character count: 62 - request_transition will FAIL*
 
 ❌ **Too long (> 500 chars)**:
 ```
 "I implemented a comprehensive user authentication system with multiple endpoints including login, logout, registration, password reset, email verification, and token refresh functionality. The implementation uses JWT tokens with RS256 signing algorithm and includes refresh token rotation for enhanced security. I created extensive unit tests covering all edge cases and integration tests for the complete authentication workflow. The database schema was updated with new tables for users, refresh tokens, and email verification codes. All tests are passing and the code has been reviewed for security vulnerabilities..."
 ```
-*Character count: 623 - setStatus will FAIL*
+*Character count: 623 - request_transition will FAIL*
 
 ❌ **Missing key information**:
 ```
@@ -141,16 +141,16 @@ model: [sonnet|opus]
 
 ### Handling Summary Validation Failures
 
-**If setStatus fails with summary validation error**:
+**If request_transition fails with summary validation error**:
 
 1. Check current summary character count
 2. Update summary (at most 500 chars):
    ```
-   manage_container(operation="update", containerType="task", id="...", summary="[up to 500 char summary]")
+   manage_container(operation="update", containerType="task", containers=[{id="...", summary="[up to 500 char summary]"}])
    ```
-3. Retry setStatus:
+3. Retry transition:
    ```
-   manage_container(operation="setStatus", containerType="task", id="...", status="completed")
+   request_transition(containerId="...", containerType="task", trigger="complete")
    ```
 
 **Prevention tip**: Use a character counter or write summary in text editor first, verify length, then populate field.
@@ -214,18 +214,18 @@ recommend_agent(taskId="task-uuid")
 
 **v2.0 uses config-driven status workflows** with prerequisite validation. When marking tasks complete:
 
-**DON'T manually call setStatus without validation:**
+**DON'T use manage_container for status changes:**
 ```javascript
-❌ manage_container(operation="setStatus", status="completed")  // May fail if prerequisites not met
+❌ manage_container(operation="update", containers=[{id="...", status="completed"}])  // Skips validation and cascade detection
 ```
 
-**DO use prerequisite-aware status changes:**
+**DO use request_transition with named triggers:**
 ```javascript
 ✅ Step 1: Populate summary (at most 500 chars - REQUIRED)
-manage_container(operation="update", id="...", summary="...")
+manage_container(operation="update", containerType="task", containers=[{id="...", summary="..."}])
 
 ✅ Step 2: Complete tasks with validation
-manage_container(operation="setStatus", id="...", status="completed")
+request_transition(containerId="...", containerType="task", trigger="complete")
 // System validates: summary length, no blocking dependencies, required sections
 // Fails with clear error if prerequisites not met
 ```
@@ -236,10 +236,10 @@ manage_container(operation="setStatus", id="...", status="completed")
 - ✅ Feature completion: All tasks must be completed before feature can complete
 - ✅ Project completion: All features must be completed
 
-**If setStatus fails:**
+**If request_transition fails:**
 1. Read error message for specific blocker (e.g., "Summary required (at most 500 chars)")
 2. Fix the prerequisite (e.g., expand summary to 300+ chars)
-3. Retry setStatus
+3. Retry request_transition
 4. Repeat until prerequisites met
 
 **Status Progression Skill (Claude Code only):**
@@ -248,7 +248,7 @@ The Status Progression Skill provides AI-friendly status guidance by:
 - Explaining prerequisite validation errors
 - Suggesting next valid status transitions
 
-**Note**: Subagents call `manage_container(operation="setStatus")` directly. The Skill is for orchestrator-level coordination.
+**Note**: Subagents call `request_transition(trigger="complete")` directly. The Skill is for orchestrator-level coordination.
 
 ## [Agent-Specific Critical Section if needed]
 
@@ -496,13 +496,13 @@ model: sonnet|opus
    - `manage_sections(operation="add", ...)` - Add new sections
 5. **Run tests and validate** (if applicable)
 6. **Populate task summary field** (REQUIRED - at most 500 chars):
-   - `manage_container(operation="update", summary="...")`
+   - `manage_container(operation="update", containerType="task", containers=[{id="...", summary="..."}])`
    - **CRITICAL**: Summary is validated - must be at most 500 chars
    - Include: what was done, validation results, what's ready
 7. **Create "Files Changed" section**: `manage_sections(operation="add", title="Files Changed", ordinal=999, tags="files-changed,completion")`
 8. **Mark task complete** (requires valid summary):
    - **PREREQUISITE**: Verify summary field is populated (at most 500 chars)
-   - `manage_container(operation="setStatus", status="completed")`
+   - `request_transition(containerId="...", containerType="task", trigger="complete")`
    - **WARNING**: Will FAIL if summary is missing/invalid
 9. **Return minimal output**: "✅ [Task] completed. [Optional context]"
 ```
@@ -854,8 +854,8 @@ Before finalizing a specialist file, verify:
 - [ ] Minimal response philosophy emphasized (✅ brief status, not full results)
 - [ ] Self-service dependency reading pattern used
 - [ ] Task summary field population instructions included (REQUIRED - at most 500 chars)
-- [ ] Summary validation emphasis in workflow step 6 and step 8 (prerequisite check)
-- [ ] Warning that summary validation blocks task completion
+- [ ] Summary validation emphasis in workflow step 6 and step 8 (prerequisite check via request_transition)
+- [ ] Warning that summary validation blocks task completion (request_transition will fail)
 - [ ] "Files Changed" section creation instructions included (ordinal 999, tags "files-changed,completion")
 - [ ] v2.0 Query Patterns section with scoped overview pattern
 - [ ] Agent Routing section with recommend_agent usage

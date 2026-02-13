@@ -57,7 +57,7 @@ The AI Guidelines system provides AI agents with comprehensive knowledge about h
 The Task Orchestrator exposes 12 MCP tools organized into categories:
 
 ### Container Management (unified CRUD for Projects/Features/Tasks)
-- **`manage_container`** - Write operations: create, update, delete, setStatus, bulkUpdate
+- **`manage_container`** - Write operations: create, update, delete (all use array parameters)
 - **`query_container`** - Read operations: get, search, export, overview
 
 ### Section Management
@@ -1627,51 +1627,36 @@ After:
 
 ## Status Updates
 
-### Using `manage_container` and `request_transition` for Status Changes
+### Using `request_transition` for Status Changes
 
-**Two approaches for status changes:**
+**Use request_transition with named triggers** for workflow-validated status transitions:
 
-1. **`request_transition`** - Use named triggers for workflow-validated status transitions:
-   ```
-   request_transition(containerId="uuid", containerType="task", trigger="start")
-   request_transition(containerId="uuid", containerType="task", trigger="complete")
-   ```
-   Triggers: `start`, `complete`, `cancel`, `block`, `hold`
-
-2. **`manage_container(operation="setStatus")`** - Direct status setting:
-   ```
-   manage_container(operation="setStatus", containerType="task", id="uuid", status="completed")
-   ```
-
-### When to Use Each
-
-✅ **Use `request_transition` when**:
-- Following workflow-defined status progressions
-- Want trigger-based validation
-- Prefer semantic triggers over raw status values
-
-✅ **Use `manage_container(operation="setStatus")` when**:
-- Only changing status (no other fields)
-- User says "mark as completed", "set to in-progress", etc.
-- Quick status updates during work
-
-✅ **Use `manage_container(operation="update")` when**:
-- Updating multiple fields simultaneously (status + priority + complexity)
-- Changing tags or associations
-
-✅ **Use `manage_container(operation="bulkUpdate")` when**:
-- Updating 3+ entities at once
-
-### AI Decision Tree
-
+```javascript
+request_transition(containerId="uuid", containerType="task", trigger="start")
+request_transition(containerId="uuid", containerType="task", trigger="complete")
 ```
-User requests status update?
-  ├─ Workflow-validated transition? → Use request_transition with trigger
-  ├─ Only status changing?
-  │  ├─ Single entity? → Use manage_container(operation="setStatus")
-  │  └─ 3+ entities? → Use manage_container(operation="bulkUpdate")
-  └─ Multiple fields changing? → Use manage_container(operation="update")
+
+**Available triggers**: `start`, `complete`, `cancel`, `block`, `hold`
+
+**Batch transitions** (multiple entities):
+```javascript
+request_transition(
+  transitions=[
+    {containerId: "task-1", containerType: "task", trigger: "complete"},
+    {containerId: "task-2", containerType: "task", trigger: "complete"}
+  ]
+)
 ```
+
+### Why Use request_transition
+
+✅ **Validation**: Checks prerequisites before allowing transition
+✅ **Cascades**: Automatically detects when parent entities should advance
+✅ **Unblocked tasks**: Reports newly unblocked downstream work
+✅ **Flow context**: Returns activeFlow, flowSequence, flowPosition
+✅ **Role annotations**: Provides previousRole, newRole for semantic context
+
+> **Tip:** When completing or cancelling a blocker task, check the `unblockedTasks` array in the `request_transition` response to discover downstream tasks that are now fully unblocked, without needing a separate `get_next_task` call.
 
 ### Example AI Patterns
 
@@ -1681,24 +1666,17 @@ User: "Start working on task X"
 AI: request_transition(containerId=X, containerType="task", trigger="start")
 ```
 
-> **Tip:** When completing or cancelling a blocker task, check the `unblockedTasks` array in the `request_transition` response to discover downstream tasks that are now fully unblocked, without needing a separate `get_next_task` call.
-
-**Simple Status Update**:
+**Complete with Validation**:
 ```
 User: "Mark task X as done"
-AI: manage_container(operation="setStatus", containerType="task", id=X, status="completed")
+AI: request_transition(containerId=X, containerType="task", trigger="complete")
 ```
 
-**Multi-Field Update**:
+**Multi-Field Update** (when changing non-status fields):
 ```
-User: "Update task X to high priority and mark as in-progress"
-AI: manage_container(operation="update", containerType="task", id=X, priority="high", status="in-progress")
-```
-
-**Bulk Status Update**:
-```
-User: "Mark all these tasks as completed"
-AI: manage_container(operation="bulkUpdate", containerType="task", containers=[...]) (if 3+ tasks)
+User: "Update task X to high priority and add backend tag"
+AI: manage_container(operation="update", containerType="task", id=X,
+                    priority="high", tags="backend,api,auth")
 ```
 
 ---
@@ -1940,7 +1918,7 @@ AI:
 
 **AI Workflow**:
 ```
-1. manage_container(operation="setStatus", containerType="task", id=X, status="completed")
+1. request_transition(containerId=X, containerType="task", trigger="complete")
 2. get_next_task --limit 3 (get fresh recommendations)
 3. Present options with context:
    - "Here are your top 3 unblocked tasks"
@@ -2031,7 +2009,7 @@ User asks about what to work on?
   ├─ "Show me easy tasks" → get_next_task --limit 10 (filter complexity ≤ 3)
   ├─ "What's most important?" → get_next_task --limit 1 (top priority)
   ├─ "Just finished task X"
-  │  ├─ manage_container(operation="setStatus", containerType="task", status="completed")
+  │  ├─ request_transition(containerId=X, containerType="task", trigger="complete")
   │  └─ get_next_task --limit 3
   └─ "What's ready to start?" → get_next_task (auto-excludes blocked)
 ```
@@ -2104,19 +2082,19 @@ AI:
 
 **Problem**: Updating multiple tasks individually wastes 90-95% tokens through repeated tool calls and responses.
 
-**Solution**: Use `manage_container(operation="bulkUpdate")` for 3+ task updates to achieve 70-95% token savings.
+**Solution**: Use `manage_container(operation="update")` with a `containers` array for 3+ task updates to achieve 70-95% token savings.
 
-### When to Use Bulk Updates
+### When to Use Array Updates
 
 **Priority Adjustments** (Updating urgency across tasks):
 ```
-❌ INEFFICIENT:
-manage_container(operation="update", containerType="task", id="task-1", priority="high")
-manage_container(operation="update", containerType="task", id="task-2", priority="high")
-manage_container(operation="update", containerType="task", id="task-3", priority="high")
+❌ INEFFICIENT (3 separate calls):
+manage_container(operation="update", containerType="task", containers=[{"id": "task-1", "priority": "high"}])
+manage_container(operation="update", containerType="task", containers=[{"id": "task-2", "priority": "high"}])
+manage_container(operation="update", containerType="task", containers=[{"id": "task-3", "priority": "high"}])
 
 ✅ EFFICIENT:
-manage_container(operation="bulkUpdate", containerType="task", containers=[
+manage_container(operation="update", containerType="task", containers=[
   {"id": "task-1", "priority": "high"},
   {"id": "task-2", "priority": "high"},
   {"id": "task-3", "priority": "high"}
@@ -2129,15 +2107,15 @@ manage_container(operation="bulkUpdate", containerType="task", containers=[
 ```
 After completing feature implementation:
 1. query_container(operation="search", containerType="task", featureId=[id], status="in-progress")
-2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → status: completed
-3. manage_container(operation="setStatus", containerType="feature", id=[id], status="completed")
+2. request_transition(transitions=[{containerId: "task-1", containerType: "task", trigger: "complete"}, ...])
+3. request_transition(containerId=[id], containerType="feature", trigger="complete")
 ```
 
 **Priority Triage Pattern**:
 ```
 After discovering blocker:
 1. query_dependencies(taskId=[blocked-task])
-2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → priority: high
+2. manage_container(operation="update", containerType="task", containers=[{"id": "task-1", "priority": "high"}, ...])
 3. manage_dependencies(operation="create", ...) as needed
 ```
 
@@ -2145,14 +2123,14 @@ After discovering blocker:
 ```
 When starting sprint:
 1. query_container(operation="search", containerType="task", status="pending", priority="high")
-2. manage_container(operation="bulkUpdate", containerType="task", containers=[...]) → status: in-progress
+2. request_transition(transitions=[{containerId: "task-1", containerType: "task", trigger: "start"}, ...])
 3. query_container(operation="overview") to track progress
 ```
 
 ### AI Agent Guidelines
 
-1. **Use bulk operations for 3+ task updates** - Single operation vs multiple calls
-2. **Combine with search** - Find tasks then bulk update in one call
+1. **Use array-based updates for 3+ task updates** - Single operation vs multiple calls
+2. **Combine with search** - Find tasks then update with containers array in one call
 3. **Minimal field updates** - Only send id + changed fields per task
 4. **Leverage partial updates** - Each task can update different fields
 

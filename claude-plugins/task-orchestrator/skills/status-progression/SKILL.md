@@ -67,7 +67,7 @@ Emergency triggers bypass normal flow. Always include `summary` for emergency tr
 
 ## Direct Override
 
-Use `manage_container(operation="setStatus")` for statuses that don't map to a trigger. Prefer `request_transition` for normal workflow.
+Use `manage_container(operation="update", containers=[{id, status}])` for statuses that don't map to a trigger. Prefer `request_transition` for normal workflow with validation and cascade detection.
 
 ## Post-Transition Response
 

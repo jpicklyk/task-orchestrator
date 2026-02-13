@@ -40,7 +40,7 @@ All features and tasks belong to this project. Always pass `projectId` when crea
 
 ### Workflow Rules
 
-1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`, never `manage_container(setStatus)`. For batch changes, use the `transitions` array parameter. `setStatus` skips validation, cascade detection, and unblocked task identification.
+1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`. For batch changes, use the `transitions` array parameter. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
 
 2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
 

@@ -61,9 +61,13 @@ class ProjectCascadeDeleteTest {
         val createProjectParams = buildJsonObject {
             put("operation", "create")
             put("containerType", "project")
-            put("name", "Project to Delete")
-            put("summary", "Project for testing cascade deletion")
-            put("status", ProjectStatus.PLANNING.name)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("name", "Project to Delete")
+                    put("summary", "Project for testing cascade deletion")
+                    put("status", ProjectStatus.PLANNING.name)
+                })
+            })
         }
 
         val projectResult = manageContainerTool.execute(createProjectParams, executionContext) as JsonObject
@@ -72,15 +76,19 @@ class ProjectCascadeDeleteTest {
             "Project creation should be successful"
         )
 
-        val projectId = projectResult["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        val projectId = projectResult["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
 
         // Create a feature associated with the project
         val createFeatureParams = buildJsonObject {
             put("operation", "create")
             put("containerType", "feature")
-            put("name", "Feature in Project")
-            put("summary", "Feature for testing cascade deletion")
             put("projectId", projectId)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("name", "Feature in Project")
+                    put("summary", "Feature for testing cascade deletion")
+                })
+            })
         }
 
         val featureResult = manageContainerTool.execute(createFeatureParams, executionContext) as JsonObject
@@ -89,25 +97,33 @@ class ProjectCascadeDeleteTest {
             "Feature creation should be successful"
         )
 
-        val featureId = featureResult["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        val featureId = featureResult["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
 
         // Create a task associated with the feature and project
         val task1Params = buildJsonObject {
             put("operation", "create")
             put("containerType", "task")
-            put("title", "Task in Feature")
-            put("summary", "Task for testing cascade deletion")
             put("featureId", featureId)
             put("projectId", projectId)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("title", "Task in Feature")
+                    put("summary", "Task for testing cascade deletion")
+                })
+            })
         }
 
         // Create a task directly associated with the project
         val task2Params = buildJsonObject {
             put("operation", "create")
             put("containerType", "task")
-            put("title", "Task in Project")
-            put("summary", "Task for testing direct project association")
             put("projectId", projectId)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("title", "Task in Project")
+                    put("summary", "Task for testing direct project association")
+                })
+            })
         }
 
         val task1Result = manageContainerTool.execute(task1Params, executionContext) as JsonObject
@@ -158,7 +174,9 @@ class ProjectCascadeDeleteTest {
         val deleteProjectParams = buildJsonObject {
             put("operation", "delete")
             put("containerType", "project")
-            put("id", projectId)
+            put("ids", buildJsonArray {
+                add(projectId)
+            })
             put("force", true)  // This will delete even with associated entities
             put("deleteSections", true)  // Also delete sections
         }
@@ -186,9 +204,13 @@ class ProjectCascadeDeleteTest {
         val createProjectParams = buildJsonObject {
             put("operation", "create")
             put("containerType", "project")
-            put("name", "Project with Dependencies")
-            put("summary", "Project with dependencies for testing force deletion")
-            put("status", ProjectStatus.PLANNING.name)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("name", "Project with Dependencies")
+                    put("summary", "Project with dependencies for testing force deletion")
+                    put("status", ProjectStatus.PLANNING.name)
+                })
+            })
         }
 
         val projectResult = manageContainerTool.execute(createProjectParams, executionContext) as JsonObject
@@ -197,15 +219,19 @@ class ProjectCascadeDeleteTest {
             "Project creation should be successful"
         )
 
-        val projectId = projectResult["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        val projectId = projectResult["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
 
         // Create a feature associated with the project
         val createFeatureParams = buildJsonObject {
             put("operation", "create")
             put("containerType", "feature")
-            put("name", "Feature in Project")
-            put("summary", "Feature creating a dependency")
             put("projectId", projectId)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("name", "Feature in Project")
+                    put("summary", "Feature creating a dependency")
+                })
+            })
         }
 
         val featureResult = manageContainerTool.execute(createFeatureParams, executionContext) as JsonObject
@@ -218,7 +244,9 @@ class ProjectCascadeDeleteTest {
         val deleteProjectParams = buildJsonObject {
             put("operation", "delete")
             put("containerType", "project")
-            put("id", projectId)
+            put("ids", buildJsonArray {
+                add(projectId)
+            })
             put("force", true)  // This will bypass dependency checks
         }
 

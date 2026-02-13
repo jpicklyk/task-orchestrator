@@ -151,161 +151,8 @@ class ManageContainerToolVerificationTest {
         )
     }
 
-    @Nested
-    inner class SetStatusVerificationGateTests {
-
-        @Test
-        fun `setStatus to completed with requiresVerification true and no verification section is blocked`() = runBlocking {
-            // Task is in testing status (one step before completed in v2 workflow)
-            val task = createTestTask(status = TaskStatus.TESTING, requiresVerification = true)
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
-            // Mock dependency check for status validation
-            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-            // No verification section
-            coEvery {
-                mockSectionRepository.getSectionsForEntity(EntityType.TASK, taskId)
-            } returns Result.Success(emptyList())
-
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "completed")
-            }
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Completion blocked") == true)
-        }
-
-        @Test
-        fun `setStatus to completed with requiresVerification true and all criteria passing is allowed`() = runBlocking {
-            val task = createTestTask(status = TaskStatus.TESTING, requiresVerification = true)
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
-            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-
-            // Verification section with all criteria passing
-            val verificationSection = createVerificationSection(
-                EntityType.TASK, taskId,
-                """[{"criteria": "Tests pass", "pass": true}, {"criteria": "Reviewed", "pass": true}]"""
-            )
-            coEvery {
-                mockSectionRepository.getSectionsForEntity(EntityType.TASK, taskId)
-            } returns Result.Success(listOf(verificationSection))
-
-            // Mock the update and cascade detection
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(task.copy(status = TaskStatus.COMPLETED))
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(createTestFeature())
-            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task)
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
-                Project(id = projectId, name = "Test Project", summary = "Test", status = ProjectStatus.IN_DEVELOPMENT)
-            )
-
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "completed")
-            }
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("completed") == true)
-        }
-
-        @Test
-        fun `setStatus to cancelled with requiresVerification true is allowed without gate`() = runBlocking {
-            val task = createTestTask(status = TaskStatus.IN_PROGRESS, requiresVerification = true)
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
-            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-
-            // No sections needed - cancellation should bypass verification gate
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(task.copy(status = TaskStatus.CANCELLED))
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(createTestFeature())
-            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task)
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
-                Project(id = projectId, name = "Test Project", summary = "Test", status = ProjectStatus.IN_DEVELOPMENT)
-            )
-
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "cancelled")
-            }
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("cancelled") == true)
-        }
-
-        @Test
-        fun `setStatus to completed with requiresVerification false is allowed without gate`() = runBlocking {
-            // Task does NOT require verification
-            val task = createTestTask(status = TaskStatus.TESTING, requiresVerification = false)
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
-            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-
-            // No sections - but that's fine because requiresVerification is false
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(task.copy(status = TaskStatus.COMPLETED))
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(createTestFeature())
-            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task)
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
-                Project(id = projectId, name = "Test Project", summary = "Test", status = ProjectStatus.IN_DEVELOPMENT)
-            )
-
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "completed")
-            }
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("completed") == true)
-        }
-
-        @Test
-        fun `setStatus to completed on feature with requiresVerification true and no section is blocked`() = runBlocking {
-            val feature = createTestFeature(status = FeatureStatus.VALIDATING, requiresVerification = true)
-
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            // Mock task check for completion prerequisite validation
-            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
-                listOf(createTestTask(status = TaskStatus.COMPLETED))
-            )
-            // No verification section
-            coEvery {
-                mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, featureId)
-            } returns Result.Success(emptyList())
-
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "feature")
-                put("id", featureId.toString())
-                put("status", "completed")
-            }
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Completion blocked") == true)
-        }
-    }
+    // NOTE: SetStatusVerificationGateTests removed - setStatus operation no longer exists in v2 API.
+    // Verification gate behavior is tested in RequestTransitionToolVerificationTest instead.
 
     @Nested
     inner class CreateWithVerificationFlagTests {
@@ -321,8 +168,12 @@ class ManageContainerToolVerificationTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "Verified Task")
-                put("requiresVerification", true)
+                putJsonArray("containers") {
+                    addJsonObject {
+                        put("title", "Verified Task")
+                        put("requiresVerification", true)
+                    }
+                }
             }
 
             val result = tool.execute(params, context)
@@ -343,7 +194,11 @@ class ManageContainerToolVerificationTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "Normal Task")
+                putJsonArray("containers") {
+                    addJsonObject {
+                        put("title", "Normal Task")
+                    }
+                }
             }
 
             val result = tool.execute(params, context)
@@ -370,8 +225,12 @@ class ManageContainerToolVerificationTest {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("requiresVerification", true)
+                putJsonArray("containers") {
+                    addJsonObject {
+                        put("id", taskId.toString())
+                        put("requiresVerification", true)
+                    }
+                }
             }
 
             val result = tool.execute(params, context)
@@ -394,8 +253,12 @@ class ManageContainerToolVerificationTest {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("requiresVerification", false)
+                putJsonArray("containers") {
+                    addJsonObject {
+                        put("id", taskId.toString())
+                        put("requiresVerification", false)
+                    }
+                }
             }
 
             val result = tool.execute(params, context)

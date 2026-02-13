@@ -149,7 +149,7 @@ private fun getConfigPath(): Path {
 The server exposes 13 MCP tools organized into categories:
 
 ### Container Management (unified CRUD for Projects/Features/Tasks)
-- **`manage_container`** - Write operations: create, update, delete, setStatus, bulkUpdate
+- **`manage_container`** - Write operations: create, update, delete (all use array parameters)
 - **`query_container`** - Read operations: get, search, export, overview
 
 ### Section Management

@@ -67,6 +67,6 @@ Before completing a feature:
 
 Watch for **cascade events** in the response — they may suggest advancing the parent project status.
 
-## Bulk Operations
+## Batch Operations
 
-Use `manage_container(operation="bulkUpdate")` with a `containers` array to update multiple tasks at once (priority, tags, etc.).
+Use `manage_container(operation="update")` with a `containers` array to update multiple entities at once (name/title, priority, tags, etc.). For status changes, use `request_transition` with the `transitions` array. All operations in manage_container use arrays now (max 100 items per call).

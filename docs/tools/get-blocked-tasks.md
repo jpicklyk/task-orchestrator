@@ -357,11 +357,10 @@ byPriority.high.forEach(task => {
 ### Workflow 2: Unblock Tasks as Work Completes
 ```javascript
 // Step 1: Complete a blocker task
-await manage_container({
-  operation: "setStatus",
+await request_transition({
+  containerId: "blocker-task-id",
   containerType: "task",
-  id: "blocker-task-id",
-  status: "completed"
+  trigger: "complete"
 });
 
 // Step 2: Check what this unblocked
@@ -423,7 +422,7 @@ if (blocked.data.totalBlocked === 0) {
 
   if (allComplete) {
     console.log("✅ Feature ready to mark complete!");
-    await manage_container({ operation: "setStatus", containerType: "feature", id: featureId, status: "completed" });
+    await request_transition({ containerId: featureId, containerType: "feature", trigger: "complete" });
   } else {
     const remaining = featureTasks.data.tasks.filter(t => t.status !== "completed");
     console.log(`⏳ ${remaining.length} unblocked tasks remaining`);
@@ -578,7 +577,7 @@ for (const id of highPriorityIds) {
 - **get_next_task**: Find unblocked tasks to work on
 - **query_dependencies**: Get detailed dependency information for specific task
 - **query_container** (search): Find tasks by criteria (including status)
-- **manage_container** (setStatus): Update task status to unblock dependent tasks
+- **request_transition**: Update task status to unblock dependent tasks
 - **query_container** (search by featureId): Get all tasks in a feature to check blockers
 - **manage_dependencies** (create): Create new dependencies between tasks
 

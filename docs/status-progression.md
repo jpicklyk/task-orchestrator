@@ -1210,47 +1210,20 @@ Cleanup runs when feature reaches any terminal status defined in `status_progres
 
 Tasks reaching terminal statuses do NOT trigger cleanup (only features trigger cleanup).
 
-## request_transition vs manage_container
+## request_transition for Status Changes
 
-Understanding when to use `request_transition` versus `manage_container(setStatus)` is critical for correct workflow behavior.
-
-| Aspect | request_transition | manage_container(setStatus) |
-|--------|-------------------|---------------------------|
-| **Validation** | Full prerequisite + dependency checks | No validation |
-| **Cascades** | Automatic detection via `WorkflowServiceImpl.detectCascadeEvents()` | None |
-| **Unblocked tasks** | Reports newly unblocked downstream tasks | None |
-| **Flow context** | Returns activeFlow, flowSequence, flowPosition | None |
-| **Role annotations** | Returns previousRole, newRole | None |
-| **Batch support** | `transitions` array with aggregate cascade detection | `bulkUpdate` (but hooks block status changes) |
-| **Trigger-based** | Named triggers (start, complete, cancel, block, hold) | Raw status values |
-| **Verification gates** | Enforces `requiresVerification` flag | Skips verification |
-| **Completion cleanup** | Triggers cleanup on terminal status | Triggers cleanup on terminal status |
-
-### When to Use request_transition
-
-**Always use request_transition for status changes.** It provides:
+**Always use request_transition for status changes.** The tool provides:
 - Validation to prevent invalid transitions
-- Cascade detection to advance parent entities
+- Cascade detection to advance parent entities automatically
 - Unblocked task identification for workflow optimization
 - Flow context for progress tracking
 - Role annotations for semantic understanding
+- Auto-cascade support (configurable via `.taskorchestrator/config.yaml`)
 
-### When to Use manage_container
+### Using request_transition
 
-**Never use manage_container(setStatus) for status changes.** The only valid use case for `manage_container` with status is:
-- **Initial entity creation**: Setting status during `operation="create"` (not recommended, entities default to appropriate starting status)
+Use named triggers instead of raw status values:
 
-For all status changes after creation, use `request_transition`.
-
-### Example Comparison
-
-**Wrong approach** (skips validation and cascades):
-```javascript
-// Dangerous - no validation, no cascades
-manage_container(operation="setStatus", containerType="task", id="...", status="completed")
-```
-
-**Correct approach** (full workflow support):
 ```javascript
 // Correct - validation, cascades, unblocked tasks, flow context
 request_transition(containerId="...", containerType="task", trigger="complete")
@@ -1266,15 +1239,30 @@ request_transition(containerId="...", containerType="task", trigger="complete")
 }
 ```
 
+### Available Triggers
+
+- `start` - Progress to next status in workflow flow
+- `complete` - Move to completed (validates prerequisites)
+- `cancel` - Move to cancelled (emergency transition)
+- `block` - Move to blocked (emergency transition)
+- `hold` - Move to on-hold (emergency transition)
+
+### Batch Transitions
+
+For updating multiple entities, use the `transitions` array:
+
+```javascript
+request_transition(
+  transitions=[
+    {containerId: "task-1", containerType: "task", trigger: "complete"},
+    {containerId: "task-2", containerType: "task", trigger: "complete"}
+  ]
+)
+```
+
 ## Best Practices
 
 ### 1. Use request_transition for Status Changes
-
-**Don't:**
-```javascript
-// NEVER use manage_container for status changes (skips validation and cascades)
-manage_container(operation="setStatus", status="completed")
-```
 
 **Do:**
 ```javascript
@@ -1284,6 +1272,8 @@ request_transition(containerId="uuid", containerType="task", trigger="complete")
 // Response includes flow context, cascadeEvents, and unblockedTasks
 // No need for get_next_status beforehand (optional for preview only)
 ```
+
+**Available triggers**: `start`, `complete`, `cancel`, `block`, `hold`
 
 ### 2. Use Tag-Based Flows
 

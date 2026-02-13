@@ -122,44 +122,56 @@ class ValidationPipelineIntegrationTest {
         val response = manageContainerTool.execute(buildJsonObject {
             put("operation", "create")
             put("containerType", "project")
-            put("name", name)
-            put("summary", "Test project summary")
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("name", name)
+                    put("summary", "Test project summary")
+                })
+            })
         }, executionContext)
         val jsonResponse = response as JsonObject
         if (jsonResponse["success"]?.jsonPrimitive?.boolean != true) {
             fail<String>("Failed to create project: ${jsonResponse["message"]?.jsonPrimitive?.content}")
         }
-        return jsonResponse["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        return jsonResponse["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
     }
 
     private suspend fun createFeature(projectId: String, name: String = "Test Feature"): String {
         val response = manageContainerTool.execute(buildJsonObject {
             put("operation", "create")
             put("containerType", "feature")
-            put("name", name)
-            put("summary", "Test feature summary")
             put("projectId", projectId)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("name", name)
+                    put("summary", "Test feature summary")
+                })
+            })
         }, executionContext)
         val jsonResponse = response as JsonObject
         if (jsonResponse["success"]?.jsonPrimitive?.boolean != true) {
             fail<String>("Failed to create feature: ${jsonResponse["message"]?.jsonPrimitive?.content}")
         }
-        return jsonResponse["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        return jsonResponse["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
     }
 
     private suspend fun createTask(featureId: String, title: String = "Test Task", summary: String = "Short summary"): String {
         val response = manageContainerTool.execute(buildJsonObject {
             put("operation", "create")
             put("containerType", "task")
-            put("title", title)
-            put("summary", summary)
             put("featureId", featureId)
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("title", title)
+                    put("summary", summary)
+                })
+            })
         }, executionContext)
         val jsonResponse = response as JsonObject
         if (jsonResponse["success"]?.jsonPrimitive?.boolean != true) {
             fail<String>("Failed to create task: ${jsonResponse["message"]?.jsonPrimitive?.content}")
         }
-        return jsonResponse["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content!!
+        return jsonResponse["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("id")?.jsonPrimitive?.content!!
     }
 
     // ========== MANAGE CONTAINER TOOL INTEGRATION TESTS (5 tests) ==========
@@ -177,26 +189,38 @@ class ValidationPipelineIntegrationTest {
             // First transition through intermediate statuses
             // PENDING -> IN_PROGRESS
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "in-progress")
+                    })
+                })
             }, executionContext)
 
             // IN_PROGRESS -> TESTING
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "testing")
+                    })
+                })
             }, executionContext)
 
             // Now attempt TESTING -> COMPLETED with short summary (should succeed with new rules)
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
@@ -214,20 +238,28 @@ class ValidationPipelineIntegrationTest {
 
             // Attempt to transition to IN_DEVELOPMENT without tasks (should fail)
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "in-development")
+                    })
+                })
             }
 
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
             val setStatusResult = setStatusResponse as JsonObject
 
-            // Should fail because no tasks exist
-            assertFalse(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
-                "Setting feature to IN_DEVELOPMENT should fail without tasks")
-            val errorMessage = setStatusResult["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("at least 1 task") == true,
+            // Should return success=true with failed items
+            assertTrue(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = setStatusResult["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
+                "Should have 1 failed item")
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("at least 1 task") == true,
                 "Error should mention task requirement")
         }
 
@@ -249,20 +281,28 @@ class ValidationPipelineIntegrationTest {
 
             // Attempt to start task2 while task1 is still PENDING (should fail)
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", task2Id)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", task2Id)
+                        put("status", "in-progress")
+                    })
+                })
             }
 
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
             val setStatusResult = setStatusResponse as JsonObject
 
-            // Should fail because of blocking dependency
-            assertFalse(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
-                "Setting blocked task to IN_PROGRESS should fail")
-            val errorMessage = setStatusResult["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("blocked by") == true,
+            // Should return success=true with failed items
+            assertTrue(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = setStatusResult["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
+                "Should have 1 failed item")
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("blocked by") == true,
                 "Error should mention blocking dependencies")
         }
 
@@ -273,28 +313,40 @@ class ValidationPipelineIntegrationTest {
 
             // Transition project to IN_DEVELOPMENT first (prerequisite for COMPLETED)
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "project")
-                put("id", projectId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", projectId)
+                        put("status", "in-development")
+                    })
+                })
             }, executionContext)
 
             // Attempt to complete project (should fail because feature is not completed)
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "project")
-                put("id", projectId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", projectId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
             val setStatusResult = setStatusResponse as JsonObject
 
-            // Should fail because feature is not completed
-            assertFalse(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
-                "Setting project to COMPLETED should fail with incomplete features")
-            val errorMessage = setStatusResult["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("feature(s) not completed") == true,
+            // Should return success=true with failed items
+            assertTrue(setStatusResult["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = setStatusResult["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
+                "Should have 1 failed item")
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("feature(s) not completed") == true,
                 "Error should mention incomplete features")
         }
 
@@ -306,17 +358,25 @@ class ValidationPipelineIntegrationTest {
 
             // Transition through intermediate statuses to reach TESTING
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "in-progress")
+                    })
+                })
             }, executionContext)
 
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "testing")
+                    })
+                })
             }, executionContext)
 
             // Now update the summary to be exactly 500 characters (should be allowed)
@@ -330,10 +390,14 @@ class ValidationPipelineIntegrationTest {
 
             // Attempt to complete with summary at exactly 500 chars - should succeed
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val setStatusResponse = manageContainerTool.execute(setStatusParams, executionContext)
@@ -357,21 +421,29 @@ class ValidationPipelineIntegrationTest {
 
             // Try to transition to IN_DEVELOPMENT without tasks
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "in-development")
+                    })
+                })
             }
 
             val response = manageContainerTool.execute(setStatusParams, executionContext)
             val result = response as JsonObject
 
             // Verify comprehensive error response
-            assertFalse(result["success"]?.jsonPrimitive?.boolean == true)
-
-            val errorMessage = result["message"]?.jsonPrimitive?.content
-            assertNotNull(errorMessage, "Should have error message")
-            assertTrue(errorMessage?.contains("at least 1 task") == true,
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = result["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
+                "Should have 1 failed item")
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertNotNull(errorDetails, "Should have error details")
+            assertTrue(errorDetails?.contains("at least 1 task") == true,
                 "Error should explain prerequisite requirement")
         }
 
@@ -393,20 +465,30 @@ class ValidationPipelineIntegrationTest {
 
             // Try to start dependent task
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", task2Id)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", task2Id)
+                        put("status", "in-progress")
+                    })
+                })
             }
 
             val response = manageContainerTool.execute(setStatusParams, executionContext)
             val result = response as JsonObject
 
             // Verify error includes blocking task details
-            val errorMessage = result["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("blocked by") == true,
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = result["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
+                "Should have 1 failed item")
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("blocked by") == true,
                 "Error should mention blocking")
-            assertTrue(errorMessage?.contains("Blocker Task") == true,
+            assertTrue(errorDetails?.contains("Blocker Task") == true,
                 "Error should include blocking task title")
         }
 
@@ -419,17 +501,25 @@ class ValidationPipelineIntegrationTest {
 
             // Transition through intermediate statuses to reach TESTING
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "in-progress")
+                    })
+                })
             }, executionContext)
 
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "testing")
+                    })
+                })
             }, executionContext)
 
             // Update task summary to exactly 500 characters (at the limit)
@@ -443,10 +533,14 @@ class ValidationPipelineIntegrationTest {
 
             // Try to complete - should succeed
             val setStatusParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val response = manageContainerTool.execute(setStatusParams, executionContext)
@@ -471,10 +565,14 @@ class ValidationPipelineIntegrationTest {
             val createTaskParams = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "Backlog Task")
-                put("summary", "Task in backlog")
-                put("status", "backlog")
                 put("featureId", featureId)
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Backlog Task")
+                        put("summary", "Task in backlog")
+                        put("status", "backlog")
+                    })
+                })
             }
 
             val response = manageContainerTool.execute(createTaskParams, executionContext)
@@ -483,7 +581,7 @@ class ValidationPipelineIntegrationTest {
             assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
                 "Should successfully create task with BACKLOG status")
 
-            val status = result["data"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+            val status = result["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("status")?.jsonPrimitive?.content
             assertEquals("backlog", status, "Status should be backlog")
         }
 
@@ -497,10 +595,14 @@ class ValidationPipelineIntegrationTest {
                 val createTaskParams = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "task")
-                    put("title", "Review Task $statusFormat")
-                    put("summary", "Task in review")
-                    put("status", statusFormat)
                     put("featureId", featureId)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Review Task $statusFormat")
+                            put("summary", "Task in review")
+                            put("status", statusFormat)
+                        })
+                    })
                 }
 
                 val response = manageContainerTool.execute(createTaskParams, executionContext)
@@ -509,7 +611,7 @@ class ValidationPipelineIntegrationTest {
                 assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
                     "Should successfully parse IN_REVIEW status format: $statusFormat")
 
-                val status = result["data"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+                val status = result["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("status")?.jsonPrimitive?.content
                 assertEquals("in-review", status, "Status should normalize to in-review")
             }
         }
@@ -524,10 +626,14 @@ class ValidationPipelineIntegrationTest {
                 val createTaskParams = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "task")
-                    put("title", "Changes Task $statusFormat")
-                    put("summary", "Task needs changes")
-                    put("status", statusFormat)
                     put("featureId", featureId)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Changes Task $statusFormat")
+                            put("summary", "Task needs changes")
+                            put("status", statusFormat)
+                        })
+                    })
                 }
 
                 val response = manageContainerTool.execute(createTaskParams, executionContext)
@@ -536,7 +642,7 @@ class ValidationPipelineIntegrationTest {
                 assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
                     "Should successfully parse CHANGES_REQUESTED status format: $statusFormat")
 
-                val status = result["data"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+                val status = result["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("status")?.jsonPrimitive?.content
                 assertEquals("changes-requested", status, "Status should normalize to changes-requested")
             }
         }
@@ -551,10 +657,14 @@ class ValidationPipelineIntegrationTest {
                 val createTaskParams = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "task")
-                    put("title", "Hold Task $statusFormat")
-                    put("summary", "Task on hold")
-                    put("status", statusFormat)
                     put("featureId", featureId)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Hold Task $statusFormat")
+                            put("summary", "Task on hold")
+                            put("status", statusFormat)
+                        })
+                    })
                 }
 
                 val response = manageContainerTool.execute(createTaskParams, executionContext)
@@ -563,7 +673,7 @@ class ValidationPipelineIntegrationTest {
                 assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
                     "Should successfully parse ON_HOLD status format: $statusFormat")
 
-                val status = result["data"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+                val status = result["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("status")?.jsonPrimitive?.content
                 assertEquals("on-hold", status, "Status should normalize to on-hold")
             }
         }
@@ -575,10 +685,14 @@ class ValidationPipelineIntegrationTest {
             val createFeatureParams = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "feature")
-                put("name", "Draft Feature")
-                put("summary", "Feature in draft")
-                put("status", "draft")
                 put("projectId", projectId)
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "Draft Feature")
+                        put("summary", "Feature in draft")
+                        put("status", "draft")
+                    })
+                })
             }
 
             val response = manageContainerTool.execute(createFeatureParams, executionContext)
@@ -587,7 +701,7 @@ class ValidationPipelineIntegrationTest {
             assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
                 "Should successfully create feature with DRAFT status")
 
-            val status = result["data"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+            val status = result["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("status")?.jsonPrimitive?.content
             assertEquals("draft", status, "Status should be draft")
         }
 
@@ -600,10 +714,14 @@ class ValidationPipelineIntegrationTest {
                 val createFeatureParams = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "feature")
-                    put("name", "Hold Feature $statusFormat")
-                    put("summary", "Feature on hold")
-                    put("status", statusFormat)
                     put("projectId", projectId)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("name", "Hold Feature $statusFormat")
+                            put("summary", "Feature on hold")
+                            put("status", statusFormat)
+                        })
+                    })
                 }
 
                 val response = manageContainerTool.execute(createFeatureParams, executionContext)
@@ -612,7 +730,7 @@ class ValidationPipelineIntegrationTest {
                 assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
                     "Should successfully parse ON_HOLD status format: $statusFormat")
 
-                val status = result["data"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+                val status = result["data"]?.jsonObject?.get("items")?.jsonArray?.get(0)?.jsonObject?.get("status")?.jsonPrimitive?.content
                 assertEquals("on-hold", status, "Status should normalize to on-hold")
             }
         }
@@ -636,10 +754,14 @@ class ValidationPipelineIntegrationTest {
 
             // 4. Try to transition feature to IN_DEVELOPMENT (should succeed - has task)
             val featureToDevParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "in-development")
+                    })
+                })
             }
 
             val featureToDevResponse = manageContainerTool.execute(featureToDevParams, executionContext)
@@ -649,26 +771,38 @@ class ValidationPipelineIntegrationTest {
             // 5. Complete the task (transition through intermediate statuses)
             // PENDING -> IN_PROGRESS
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "in-progress")
+                    })
+                })
             }, executionContext)
 
             // IN_PROGRESS -> TESTING
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "testing")
+                    })
+                })
             }, executionContext)
 
             // TESTING -> COMPLETED
             val completeTaskParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val completeTaskResponse = manageContainerTool.execute(completeTaskParams, executionContext)
@@ -678,26 +812,38 @@ class ValidationPipelineIntegrationTest {
             // 6. Complete the feature (transition through intermediate statuses)
             // IN_DEVELOPMENT -> TESTING
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "testing")
+                    })
+                })
             }, executionContext)
 
             // TESTING -> VALIDATING
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "validating")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "validating")
+                    })
+                })
             }, executionContext)
 
             // VALIDATING -> COMPLETED
             val completeFeatureParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val completeFeatureResponse = manageContainerTool.execute(completeFeatureParams, executionContext)
@@ -707,18 +853,26 @@ class ValidationPipelineIntegrationTest {
             // 7. Complete the project (transition through intermediate statuses)
             // PLANNING -> IN_DEVELOPMENT
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "project")
-                put("id", projectId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", projectId)
+                        put("status", "in-development")
+                    })
+                })
             }, executionContext)
 
             // IN_DEVELOPMENT -> COMPLETED (projects have shorter flow)
             val completeProjectParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "project")
-                put("id", projectId)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", projectId)
+                        put("status", "completed")
+                    })
+                })
             }
 
             val completeProjectResponse = manageContainerTool.execute(completeProjectParams, executionContext)
@@ -744,36 +898,55 @@ class ValidationPipelineIntegrationTest {
 
             // Try to start task2 (should fail - blocked)
             val startTask2Params = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", task2Id)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", task2Id)
+                        put("status", "in-progress")
+                    })
+                })
             }
 
             val startTask2Response = manageContainerTool.execute(startTask2Params, executionContext)
-            assertFalse((startTask2Response as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
+            val result = startTask2Response as JsonObject
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            assertEquals(1, result["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Task2 should not start while blocked")
 
             // Complete task1 (transition through intermediate statuses)
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", task1Id)
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", task1Id)
+                        put("status", "in-progress")
+                    })
+                })
             }, executionContext)
 
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", task1Id)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", task1Id)
+                        put("status", "testing")
+                    })
+                })
             }, executionContext)
 
             val completeTask1Params = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "task")
-                put("id", task1Id)
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", task1Id)
+                        put("status", "completed")
+                    })
+                })
             }
 
             manageContainerTool.execute(completeTask1Params, executionContext)
@@ -791,14 +964,21 @@ class ValidationPipelineIntegrationTest {
 
             // Try to transition to IN_DEVELOPMENT (should fail - no tasks)
             val toDevParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "in-development")
+                    })
+                })
             }
 
             val toDevResponse1 = manageContainerTool.execute(toDevParams, executionContext)
-            assertFalse((toDevResponse1 as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
+            val result1 = toDevResponse1 as JsonObject
+            assertTrue(result1["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            assertEquals(1, result1["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int,
                 "Should fail without tasks")
 
             // Fix prerequisite - create a task
@@ -818,26 +998,38 @@ class ValidationPipelineIntegrationTest {
 
             // Transition feature to IN_DEVELOPMENT first
             manageContainerTool.execute(buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "in-development")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "in-development")
+                    })
+                })
             }, executionContext)
 
             // Try to transition to TESTING (should fail - task not completed)
             val toTestingParams = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId)
-                put("status", "testing")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId)
+                        put("status", "testing")
+                    })
+                })
             }
 
             val toTestingResponse = manageContainerTool.execute(toTestingParams, executionContext)
-            assertFalse((toTestingResponse as JsonObject)["success"]?.jsonPrimitive?.boolean == true,
+            val result = toTestingResponse as JsonObject
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true,
+                "Batch operations always return success=true")
+            val data = result["data"]?.jsonObject
+            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int,
                 "Should fail with incomplete tasks")
-
-            val errorMessage = toTestingResponse["message"]?.jsonPrimitive?.content
-            assertTrue(errorMessage?.contains("not completed") == true,
+            val failures = data?.get("failures")?.jsonArray
+            val errorDetails = failures?.get(0)?.jsonObject?.get("error")?.jsonObject?.get("details")?.jsonPrimitive?.content
+            assertTrue(errorDetails?.contains("not completed") == true,
                 "Error should mention incomplete tasks")
         }
     }

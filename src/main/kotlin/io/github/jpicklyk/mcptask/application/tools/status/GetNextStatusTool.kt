@@ -22,7 +22,7 @@ import java.util.UUID
  * - Prerequisite readiness (via StatusValidator integration)
  * - Terminal status blocking
  *
- * NOTE: This tool only SUGGESTS next status. Use ManageContainerTool with setStatus operation to actually apply the status change.
+ * NOTE: This tool only SUGGESTS next status. Use request_transition tool to actually apply the status change.
  */
 class GetNextStatusTool(
     private val statusProgressionService: StatusProgressionService
@@ -74,9 +74,9 @@ class GetNextStatusTool(
         - Validation before applying status transitions
 
         To apply recommended status:
-        manage_container(operation="setStatus", containerType="...", id="...", status="[recommendedStatus]")
+        request_transition(containerId="...", containerType="...", trigger="start")
 
-        Related tools: manage_container (setStatus), query_container
+        Related tools: request_transition, manage_container, query_container
 
         For detailed examples: task-orchestrator://docs/tools/get-next-status
     """.trimIndent()

@@ -149,7 +149,7 @@ Response includes `previousRole` and `newRole` fields indicating the semantic ro
 Auto-Cascade: By default, cascade events are automatically applied after each transition. When a task completes and all tasks in the feature are done, the feature is automatically advanced. When all features in a project are done, the project is automatically advanced. This is recursive up to max_depth (default: 3). Configure via auto_cascade section in .taskorchestrator/config.yaml. Set auto_cascade.enabled=false to return cascade events as suggestions only (legacy behavior).
 
 get_next_status is optional (useful for preview but not required) before requesting transitions.
-Related: manage_container (setStatus), get_next_status"""
+Related: manage_container, get_next_status"""
 
     override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(

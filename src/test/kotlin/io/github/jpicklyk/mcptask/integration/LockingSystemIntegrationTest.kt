@@ -9,8 +9,7 @@ import io.github.jpicklyk.mcptask.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.infrastructure.database.repository.*
 import io.github.jpicklyk.mcptask.infrastructure.repository.DefaultRepositoryProvider
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -64,13 +63,17 @@ class LockingSystemIntegrationTest {
 
         // Create update tool with locking
         val updateTool = ManageContainerTool()
-        val updateParams = JsonObject(mapOf(
-            "operation" to JsonPrimitive("update"),
-            "containerType" to JsonPrimitive("task"),
-            "id" to JsonPrimitive(task.id.toString()),
-            "title" to JsonPrimitive("Updated Task Title"),
-            "status" to JsonPrimitive("in_progress")
-        ))
+        val updateParams = buildJsonObject {
+            put("operation", "update")
+            put("containerType", "task")
+            put("containers", buildJsonArray {
+                add(buildJsonObject {
+                    put("id", task.id.toString())
+                    put("title", "Updated Task Title")
+                    put("status", "in-progress")
+                })
+            })
+        }
 
         // When - Perform update operation
         assertEquals(0, lockingService.getActiveOperationCount(), "Should start with no active operations")

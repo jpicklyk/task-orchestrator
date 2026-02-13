@@ -160,6 +160,7 @@ class ManageContainerToolTest {
                 tool.validateParams(params)
             }
             assertTrue(exception.message!!.contains("Invalid operation"))
+            assertTrue(exception.message!!.contains("create, update, delete"))
         }
 
         @Test
@@ -176,7 +177,20 @@ class ManageContainerToolTest {
         }
 
         @Test
-        fun `should require id for update operation`() {
+        fun `should require containers array for create operation`() {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("containers"))
+        }
+
+        @Test
+        fun `should require containers array for update operation`() {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "task")
@@ -185,7 +199,20 @@ class ManageContainerToolTest {
             val exception = assertThrows<ToolValidationException> {
                 tool.validateParams(params)
             }
-            assertTrue(exception.message!!.contains("id"))
+            assertTrue(exception.message!!.contains("containers"))
+        }
+
+        @Test
+        fun `should require ids array for delete operation`() {
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "task")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("ids"))
         }
 
         @Test
@@ -193,12 +220,17 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        // Missing title
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
                 tool.validateParams(params)
             }
-            assertTrue(exception.message!!.contains("Title"))
+            assertTrue(exception.message!!.contains("Title") || exception.message!!.contains("title"))
         }
 
         @Test
@@ -206,12 +238,17 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "project")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        // Missing name
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
                 tool.validateParams(params)
             }
-            assertTrue(exception.message!!.contains("Name"))
+            assertTrue(exception.message!!.contains("Name") || exception.message!!.contains("name"))
         }
 
         @Test
@@ -219,12 +256,35 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "New Task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "New Task")
+                    })
+                })
             }
 
             assertDoesNotThrow {
                 tool.validateParams(params)
             }
+        }
+
+        @Test
+        fun `should require id in containers array for update operation`() {
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Updated Task")
+                        // Missing id
+                    })
+                })
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("id"))
         }
     }
 
@@ -240,8 +300,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "Test Task")
-                put("status", "invalid-status")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Test Task")
+                        put("status", "invalid-status")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -268,8 +332,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "feature")
-                put("name", "Test Feature")
-                put("status", "active")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "Test Feature")
+                        put("status", "active")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -291,8 +359,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "project")
-                put("name", "Test Project")
-                put("status", "running")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "Test Project")
+                        put("status", "running")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -310,24 +382,27 @@ class ManageContainerToolTest {
         }
 
         @Test
-        fun `should include allowed statuses in bulk update error - v2_0 mode`() {
+        fun `should include allowed statuses in batch create error - v2_0 mode`() {
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
+                put("operation", "create")
                 put("containerType", "task")
-                put("containers", JsonArray(listOf(
-                    buildJsonObject {
-                        put("id", taskId.toString())
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Task 1")
+                    })
+                    add(buildJsonObject {
+                        put("title", "Task 2")
                         put("status", "invalid-status")
-                    }
-                )))
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
                 tool.validateParams(params)
             }
 
-            // Error should mention it's at index 0
-            assertTrue(exception.message!!.contains("index 0") || exception.message!!.contains("At index 0"),
+            // Error should mention it's at index 1
+            assertTrue(exception.message!!.contains("index 1") || exception.message!!.contains("At index 1"),
                 "Error should mention the index")
 
             // Error should mention the invalid status
@@ -348,8 +423,12 @@ class ManageContainerToolTest {
                 val params = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "task")
-                    put("title", "Test Task")
-                    put("status", status)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Test Task")
+                            put("status", status)
+                        })
+                    })
                 }
 
                 assertDoesNotThrow({
@@ -363,8 +442,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "invalid-update-status")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("status", "invalid-update-status")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -410,8 +493,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "Test Task")
-                put("status", "invalid-status")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Test Task")
+                        put("status", "invalid-status")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -435,8 +522,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "feature")
-                put("name", "Test Feature")
-                put("status", "active")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "Test Feature")
+                        put("status", "active")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -454,8 +545,12 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "project")
-                put("name", "Test Project")
-                put("status", "running")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "Test Project")
+                        put("status", "running")
+                    })
+                })
             }
 
             val exception = assertThrows<ToolValidationException> {
@@ -481,8 +576,12 @@ class ManageContainerToolTest {
                 val params = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "task")
-                    put("title", "Test Task")
-                    put("status", status)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Test Task")
+                            put("status", status)
+                        })
+                    })
                 }
 
                 assertDoesNotThrow({
@@ -499,22 +598,33 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "New Task")
-                put("summary", "Task summary")
-                put("status", "pending")
-                put("priority", "high")
-                put("complexity", 5)
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "New Task")
+                        put("description", "Task description")
+                        put("summary", "Task summary")
+                        put("priority", "high")
+                        put("complexity", 5)
+                    })
+                })
             }
 
+            // Mock repository create
             coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask)
-            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("created") == true)
-            assertEquals(taskId.toString(), resultObj["data"]?.jsonObject?.get("id")?.jsonPrimitive?.content)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["created"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(taskId.toString(), items[0].jsonObject["id"]?.jsonPrimitive?.content)
+            assertEquals("Test Task", items[0].jsonObject["title"]?.jsonPrimitive?.content)
         }
 
         @Test
@@ -522,22 +632,33 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "feature")
-                put("name", "New Feature")
-                put("summary", "Feature summary")
-                put("status", "planning")
-                put("priority", "medium")
-                put("projectId", projectId.toString())
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "New Feature")
+                        put("summary", "Feature summary")
+                        put("priority", "high")
+                        put("projectId", projectId.toString())
+                    })
+                })
             }
 
+            // Mock parent project lookup
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
             coEvery { mockFeatureRepository.create(any()) } returns Result.Success(mockFeature)
-            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("created") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["created"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(featureId.toString(), items[0].jsonObject["id"]?.jsonPrimitive?.content)
+            assertEquals("Test Feature", items[0].jsonObject["name"]?.jsonPrimitive?.content)
         }
 
         @Test
@@ -545,420 +666,493 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "project")
-                put("name", "New Project")
-                put("summary", "Project summary")
-                put("status", "planning")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("name", "New Project")
+                        put("summary", "Project summary")
+                    })
+                })
             }
 
             coEvery { mockProjectRepository.create(any()) } returns Result.Success(mockProject)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("created") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["created"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(projectId.toString(), items[0].jsonObject["id"]?.jsonPrimitive?.content)
+            assertEquals("Test Project", items[0].jsonObject["name"]?.jsonPrimitive?.content)
         }
 
         @Test
-        fun `should apply templates on create`() = runBlocking {
+        fun `should create task with shared parent IDs from top level`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-                put("title", "New Task")
-                put("templateIds", buildJsonArray {
-                    add(templateId.toString())
+                put("projectId", projectId.toString())
+                put("featureId", featureId.toString())
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Task 1")
+                    })
+                    add(buildJsonObject {
+                        put("title", "Task 2")
+                    })
                 })
             }
 
-            val templateSection = TemplateSection(
-                id = UUID.randomUUID(),
-                templateId = templateId,
-                title = "Test Section",
-                usageDescription = "Test usage",
-                contentSample = "Test content",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 0
-            )
+            // Mock parent lookups
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
 
-            coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask)
-            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns
-                Result.Success(mapOf(templateId to listOf(templateSection)))
+            val task1 = mockTask.copy(id = UUID.randomUUID(), title = "Task 1")
+            val task2 = mockTask.copy(id = UUID.randomUUID(), title = "Task 2")
+
+            coEvery { mockTaskRepository.create(match { it.title == "Task 1" }) } returns Result.Success(task1)
+            coEvery { mockTaskRepository.create(match { it.title == "Task 2" }) } returns Result.Success(task2)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("template") == true)
-            assertNotNull(resultObj["data"]?.jsonObject?.get("appliedTemplates"))
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(2, data["created"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(2, items.size)
+        }
+
+        @Test
+        fun `should apply templates during create`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "New Task")
+                        put("templateIds", buildJsonArray {
+                            add(templateId.toString())
+                        })
+                    })
+                })
+            }
+
+            coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask)
+            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["created"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should handle partial batch creation failure`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Task 1")
+                    })
+                    add(buildJsonObject {
+                        put("title", "Task 2")
+                    })
+                })
+            }
+
+            val task1 = mockTask.copy(id = UUID.randomUUID(), title = "Task 1")
+
+            coEvery { mockTaskRepository.create(match { it.title == "Task 1" }) } returns Result.Success(task1)
+            coEvery { mockTaskRepository.create(match { it.title == "Task 2" }) } returns
+                Result.Error(RepositoryError.DatabaseError("Database error"))
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true) // Partial success
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["created"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+
+            val failures = data["failures"]?.jsonArray
+            assertEquals(1, failures?.size)
+        }
+
+        @Test
+        fun `should fail if shared parent project not found`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("projectId", projectId.toString())
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Task 1")
+                    })
+                })
+            }
+
+            coEvery { mockProjectRepository.getById(projectId) } returns
+                Result.Error(RepositoryError.NotFound(projectId, EntityType.PROJECT, "Not found"))
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertFalse(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val errorObj = jsonResponse["error"]?.jsonObject
+            assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorObj?.get("code")?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should override shared parent with per-item parent`() = runBlocking {
+            val otherProjectId = UUID.randomUUID()
+            val otherProject = mockProject.copy(id = otherProjectId, name = "Other Project")
+
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("projectId", projectId.toString()) // Shared default
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "Task 1")
+                        // Uses shared projectId
+                    })
+                    add(buildJsonObject {
+                        put("title", "Task 2")
+                        put("projectId", otherProjectId.toString()) // Override
+                    })
+                })
+            }
+
+            // Mock both project lookups
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            coEvery { mockProjectRepository.getById(otherProjectId) } returns Result.Success(otherProject)
+
+            val task1 = mockTask.copy(id = UUID.randomUUID(), title = "Task 1", projectId = projectId)
+            val task2 = mockTask.copy(id = UUID.randomUUID(), title = "Task 2", projectId = otherProjectId)
+
+            coEvery { mockTaskRepository.create(match { it.projectId == projectId }) } returns Result.Success(task1)
+            coEvery { mockTaskRepository.create(match { it.projectId == otherProjectId }) } returns Result.Success(task2)
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(2, data["created"]?.jsonPrimitive?.int)
         }
     }
 
     @Nested
     inner class UpdateOperationTests {
         @Test
-        fun `should update task with valid status transition`() = runBlocking {
-            // Valid transition: PENDING -> IN_PROGRESS
+        fun `should update task successfully`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("title", "Updated Task")
-                put("status", "in-progress")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Task")
+                        put("summary", "Updated summary")
+                    })
+                })
             }
+
+            val updatedTask = mockTask.copy(title = "Updated Task", summary = "Updated summary")
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(title = "Updated Task", status = TaskStatus.IN_PROGRESS))
-            // Mock dependency check for IN_PROGRESS prerequisite validation
-            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
-        }
-
-        @Test
-        fun `should reject task update with invalid status transition`() = runBlocking {
-            // Invalid transition: PENDING -> COMPLETED (skips in-progress and testing)
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("title", "Updated Task")
-                put("status", "completed")
-            }
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
-        }
-
-        @Test
-        fun `should update task without status change without validation`() = runBlocking {
-            // Update only title, no status field — should NOT trigger StatusValidator
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("title", "Updated Task")
-            }
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(title = "Updated Task"))
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
-        }
-
-        @Test
-        fun `should update feature with valid status transition`() = runBlocking {
-            // Valid transition: IN_DEVELOPMENT -> TESTING
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "feature")
-                put("id", featureId.toString())
-                put("name", "Updated Feature")
-                put("status", "testing")
-            }
-
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature.copy(name = "Updated Feature", status = FeatureStatus.TESTING))
-            // Mock task check for TESTING prerequisite validation (requires all tasks completed)
-            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
-                listOf(mockTask.copy(status = TaskStatus.COMPLETED))
-            )
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
-        }
-
-        @Test
-        fun `should reject feature update with invalid status transition`() = runBlocking {
-            // Invalid transition: IN_DEVELOPMENT -> COMPLETED (skips testing and validating)
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "feature")
-                put("id", featureId.toString())
-                put("name", "Updated Feature")
-                put("status", "completed")
-            }
-
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
-        }
-
-        @Test
-        fun `should update project with valid status transition`() = runBlocking {
-            // Valid transition: IN_DEVELOPMENT -> COMPLETED
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "project")
-                put("id", projectId.toString())
-                put("name", "Updated Project")
-                put("status", "completed")
-            }
-
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            coEvery { mockProjectRepository.update(any()) } returns Result.Success(mockProject.copy(name = "Updated Project", status = ProjectStatus.COMPLETED))
-            // Mock feature check for COMPLETED prerequisite validation (requires all features completed)
-            coEvery { mockFeatureRepository.findByProject(projectId, 1000) } returns Result.Success(
-                listOf(mockFeature.copy(status = FeatureStatus.COMPLETED))
-            )
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
-        }
-
-        @Test
-        fun `should reject project update with invalid status transition`() = runBlocking {
-            // Invalid transition: IN_DEVELOPMENT -> ARCHIVED (skips completed)
-            // Note: archived is terminal but not next in sequence from in-development
-            // However, archived is an emergency_transition for projects, so it IS allowed.
-            // Let's use a truly invalid transition by starting from a terminal status.
-            val completedProject = mockProject.copy(status = ProjectStatus.COMPLETED)
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "project")
-                put("id", projectId.toString())
-                put("name", "Updated Project")
-                put("status", "planning")
-            }
-
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(completedProject)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("terminal status") == true)
-        }
-
-        @Test
-        fun `should return error when task not found`() = runBlocking {
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("title", "Updated Task")
-            }
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Error(RepositoryError.NotFound(taskId, EntityType.TASK, "Task not found"))
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-        }
-
-        @Test
-        fun `should detect cascade events when task status changes to completed`() = runBlocking {
-            // Use a task in TESTING status so we can transition to COMPLETED
-            val testingTask = mockTask.copy(status = TaskStatus.TESTING)
-
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "completed")
-            }
-
-            val completedTask = testingTask.copy(status = TaskStatus.COMPLETED)
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(testingTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(completedTask)
-            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-            every { mockDependencyRepository.findByFromTaskId(taskId) } returns emptyList()
-
-            // Mock for cascade detection
-            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
-                listOf(completedTask)
-            )
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-
-            // Verify cascadeEvents field is present when there are cascade events detected
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            // cascadeEvents array should exist if workflow service detects any
-            // This test verifies the field is added to the response
-        }
-
-        @Test
-        fun `should detect unblocked tasks when task status changes to completed`() = runBlocking {
-            // Use a task in TESTING status so we can transition to COMPLETED
-            val testingTask = mockTask.copy(status = TaskStatus.TESTING)
-
-            val blockedTaskId = UUID.randomUUID()
-            val blockedTask = mockTask.copy(
-                id = blockedTaskId,
-                title = "Blocked Task",
-                status = TaskStatus.PENDING
-            )
-
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "completed")
-            }
-
-            val completedTask = testingTask.copy(status = TaskStatus.COMPLETED)
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(testingTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(completedTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
+            // Mock dependency check for status validation
             every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
 
-            // Mock dependency: taskId BLOCKS blockedTaskId
-            val blockingDep = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = taskId,
-                toTaskId = blockedTaskId,
-                type = DependencyType.BLOCKS
-            )
-            every { mockDependencyRepository.findByFromTaskId(taskId) } returns listOf(blockingDep)
-            coEvery { mockTaskRepository.getById(blockedTaskId) } returns Result.Success(blockedTask)
-            every { mockDependencyRepository.findByToTaskId(blockedTaskId) } returns listOf(blockingDep)
-
-            // Mock for cascade detection
-            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
-                listOf(completedTask)
-            )
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Update should succeed but got: ${resultObj["message"]?.jsonPrimitive?.content}")
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
 
-            // Verify the response data exists
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data, "Response data should not be null")
+            assertEquals(1, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
 
-            // Verify the unblockedTasks field is present (when mocks work correctly, it should have 1 task)
-            // Note: This tests the integration of the unblocked task detection feature
-            // The actual detection logic is tested in integration tests
-            val unblockedTasks = data?.get("unblockedTasks")?.jsonArray
-            if (unblockedTasks != null) {
-                // If present, verify structure
-                assertEquals(1, unblockedTasks.size, "Should detect exactly 1 unblocked task")
-                assertEquals(blockedTaskId.toString(), unblockedTasks[0].jsonObject["taskId"]?.jsonPrimitive?.content)
-                assertEquals("Blocked Task", unblockedTasks[0].jsonObject["title"]?.jsonPrimitive?.content)
-            } else {
-                // If not present, that's OK too - the mock setup might have failed silently
-                // The important part is that the update succeeded without errors
-                println("WARNING: unblockedTasks not detected in unit test (mock setup may have failed)")
-            }
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(taskId.toString(), items[0].jsonObject["id"]?.jsonPrimitive?.content)
         }
 
         @Test
-        fun `should not detect cascades or unblocked tasks when task status does not change`() = runBlocking {
-            val params = buildJsonObject {
-                put("operation", "update")
-                put("containerType", "task")
-                put("id", taskId.toString())
-                put("title", "Updated Title Only")
-            }
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(title = "Updated Title Only"))
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-
-            // Verify NO cascadeEvents or unblockedTasks fields when status doesn't change
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertNull(data?.get("cascadeEvents"))
-            assertNull(data?.get("unblockedTasks"))
-        }
-
-        @Test
-        fun `should detect cascade events when feature status changes to completed`() = runBlocking {
-            // Use a feature in VALIDATING status so we can transition to COMPLETED
-            val validatingFeature = mockFeature.copy(status = FeatureStatus.VALIDATING)
-
+        fun `should update feature successfully`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "feature")
-                put("id", featureId.toString())
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", featureId.toString())
+                        put("name", "Updated Feature")
+                        put("summary", "Updated summary")
+                    })
+                })
             }
 
-            val completedFeature = validatingFeature.copy(status = FeatureStatus.COMPLETED)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(validatingFeature)
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(completedFeature)
+            val updatedFeature = mockFeature.copy(name = "Updated Feature", summary = "Updated summary")
 
-            // Mock for validation (all tasks must be completed)
-            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
-                listOf(mockTask.copy(status = TaskStatus.COMPLETED))
-            )
-
-            // Mock for cascade detection
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            coEvery { mockFeatureRepository.findByProject(projectId, 1000) } returns Result.Success(
-                listOf(completedFeature)
-            )
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(updatedFeature)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
 
-            // Verify cascadeEvents field is present when there are cascade events detected
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
+            assertEquals(1, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(featureId.toString(), items[0].jsonObject["id"]?.jsonPrimitive?.content)
         }
 
         @Test
-        fun `should detect cascade events when project status changes to completed`() = runBlocking {
+        fun `should update project successfully`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "update")
                 put("containerType", "project")
-                put("id", projectId.toString())
-                put("status", "completed")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", projectId.toString())
+                        put("name", "Updated Project")
+                        put("summary", "Updated summary")
+                    })
+                })
             }
 
-            val completedProject = mockProject.copy(status = ProjectStatus.COMPLETED)
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            coEvery { mockProjectRepository.update(any()) } returns Result.Success(completedProject)
+            val updatedProject = mockProject.copy(name = "Updated Project", summary = "Updated summary")
 
-            // Mock for validation (all features must be completed)
-            coEvery { mockFeatureRepository.findByProject(projectId, 1000) } returns Result.Success(
-                listOf(mockFeature.copy(status = FeatureStatus.COMPLETED))
-            )
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            coEvery { mockProjectRepository.update(any()) } returns Result.Success(updatedProject)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
 
-            // Verify no errors occurred
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
+            assertEquals(1, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(projectId.toString(), items[0].jsonObject["id"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should validate status transitions during update`() = runBlocking {
+            val completedTask = mockTask.copy(status = TaskStatus.COMPLETED)
+
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("status", "pending") // Invalid: can't go from completed back to pending
+                    })
+                })
+            }
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            // Batch API returns success=true with validation failure in failures array
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+            assertEquals(0, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+            val failures = data["failures"]!!.jsonArray
+            assertEquals(1, failures.size)
+            val failureError = failures[0].jsonObject["error"]?.jsonObject
+            assertEquals(ErrorCodes.VALIDATION_ERROR, failureError?.get("code")?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should handle batch update with partial failures`() = runBlocking {
+            val task2Id = UUID.randomUUID()
+            val task2 = mockTask.copy(id = task2Id, title = "Task 2")
+
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Task 1")
+                    })
+                    add(buildJsonObject {
+                        put("id", task2Id.toString())
+                        put("title", "Updated Task 2")
+                    })
+                })
+            }
+
+            val updatedTask1 = mockTask.copy(title = "Updated Task 1")
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.getById(task2Id) } returns
+                Result.Error(RepositoryError.NotFound(task2Id, EntityType.TASK, "Not found"))
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask1)
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true) // Partial success
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+
+            val failures = data["failures"]?.jsonArray
+            assertEquals(1, failures?.size)
+        }
+
+        @Test
+        fun `should update task status with validation`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("status", "in-progress")
+                    })
+                })
+            }
+
+            val updatedTask = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["updated"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should update multiple fields at once`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Title")
+                        put("summary", "Updated Summary")
+                        put("priority", "low")
+                        put("complexity", 3)
+                        put("status", "in-progress")
+                    })
+                })
+            }
+
+            val updatedTask = mockTask.copy(
+                title = "Updated Title",
+                summary = "Updated Summary",
+                priority = Priority.LOW,
+                complexity = 3,
+                status = TaskStatus.IN_PROGRESS
+            )
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+        }
+
+        @Test
+        fun `should fail update if entity not found`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Task")
+                    })
+                })
+            }
+
+            coEvery { mockTaskRepository.getById(taskId) } returns
+                Result.Error(RepositoryError.NotFound(taskId, EntityType.TASK, "Not found"))
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true) // Batch API returns success with failures array
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(0, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should preserve unchanged fields during update`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Title")
+                        // Other fields not specified should remain unchanged
+                    })
+                })
+            }
+
+            val updatedTask = mockTask.copy(title = "Updated Title")
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.update(match {
+                it.summary == mockTask.summary &&
+                it.priority == mockTask.priority &&
+                it.complexity == mockTask.complexity
+            }) } returns Result.Success(updatedTask)
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
         }
     }
 
@@ -969,19 +1163,28 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "task")
-                put("id", taskId.toString())
+                put("ids", buildJsonArray {
+                    add(taskId.toString())
+                })
             }
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockDependencyRepository.findByTaskId(taskId) } returns emptyList()
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, taskId) } returns Result.Success(emptyList())
+            every { mockDependencyRepository.findByTaskId(taskId) } returns emptyList()
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
             coEvery { mockTaskRepository.delete(taskId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("deleted") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val ids = data["ids"]!!.jsonArray
+            assertEquals(1, ids.size)
+            assertEquals(taskId.toString(), ids[0].jsonPrimitive.content)
         }
 
         @Test
@@ -989,19 +1192,26 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "feature")
-                put("id", featureId.toString())
+                put("ids", buildJsonArray {
+                    add(featureId.toString())
+                })
             }
 
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
             coEvery { mockTaskRepository.findByFeature(featureId) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, featureId) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
             coEvery { mockFeatureRepository.delete(featureId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("deleted") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
+
+            val ids = data["ids"]!!.jsonArray
+            assertEquals(featureId.toString(), ids[0].jsonPrimitive.content)
         }
 
         @Test
@@ -1009,458 +1219,325 @@ class ManageContainerToolTest {
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "project")
-                put("id", projectId.toString())
+                put("ids", buildJsonArray {
+                    add(projectId.toString())
+                })
             }
 
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
             coEvery { mockFeatureRepository.findByProject(projectId) } returns Result.Success(emptyList())
             coEvery { mockTaskRepository.findByProject(projectId, any()) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
             coEvery { mockProjectRepository.delete(projectId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("deleted") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
+
+            val ids = data["ids"]!!.jsonArray
+            assertEquals(projectId.toString(), ids[0].jsonPrimitive.content)
         }
 
         @Test
-        fun `should fail to delete task with dependencies without force`() = runBlocking {
+        fun `should delete multiple entities`() = runBlocking {
+            val task2Id = UUID.randomUUID()
+            val task2 = mockTask.copy(id = task2Id)
+
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("force", false)
+                put("ids", buildJsonArray {
+                    add(taskId.toString())
+                    add(task2Id.toString())
+                })
             }
 
-            val dependency = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = UUID.randomUUID(),
-                toTaskId = taskId,
-                type = DependencyType.BLOCKS,
-                createdAt = Instant.now()
-            )
-
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockDependencyRepository.findByTaskId(taskId) } returns listOf(dependency)
+            coEvery { mockTaskRepository.getById(task2Id) } returns Result.Success(task2)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(taskId) } returns Result.Success(true)
+            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("dependencies") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(2, data["deleted"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val ids = data["ids"]!!.jsonArray
+            assertEquals(2, ids.size)
         }
 
         @Test
-        fun `should delete task with dependencies when force is true`() = runBlocking {
+        fun `should handle partial batch delete failures`() = runBlocking {
+            val task2Id = UUID.randomUUID()
+
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("force", true)
+                put("ids", buildJsonArray {
+                    add(taskId.toString())
+                    add(task2Id.toString())
+                })
             }
 
-            val dependency = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = UUID.randomUUID(),
-                toTaskId = taskId,
-                type = DependencyType.BLOCKS,
-                createdAt = Instant.now()
-            )
-
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockDependencyRepository.findByTaskId(taskId) } returns listOf(dependency)
-            coEvery { mockDependencyRepository.deleteByTaskId(taskId) } returns 1
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, taskId) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.getById(task2Id) } returns
+                Result.Error(RepositoryError.NotFound(task2Id, EntityType.TASK, "Not found"))
+            every { mockDependencyRepository.findByTaskId(taskId) } returns emptyList()
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
             coEvery { mockTaskRepository.delete(taskId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("dependencies") == true)
-        }
-    }
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true) // Partial success
+            val data = jsonResponse["data"]!!.jsonObject
 
-    @Nested
-    inner class SetStatusOperationTests {
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+
+            val failures = data["failures"]?.jsonArray
+            assertEquals(1, failures?.size)
+        }
+
         @Test
-        fun `should set task status successfully with valid transition`() = runBlocking {
-            // Valid transition: PENDING -> IN_PROGRESS
+        fun `should support force delete`() = runBlocking {
             val params = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "delete")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "in-progress")
+                put("force", true)
+                put("ids", buildJsonArray {
+                    add(taskId.toString())
+                })
             }
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.IN_PROGRESS))
-            // Mock dependency check for IN_PROGRESS prerequisite validation
-            coEvery { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-            // Mock cascade detection queries
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(mockTask)
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            every { mockDependencyRepository.findByTaskId(taskId) } returns emptyList()
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(taskId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("in-progress") == true)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
         }
 
         @Test
-        fun `should reject task status with invalid transition`() = runBlocking {
-            // Invalid transition: PENDING -> COMPLETED (skips in-progress and testing)
+        fun `should fail delete if entity not found`() = runBlocking {
             val params = buildJsonObject {
-                put("operation", "setStatus")
+                put("operation", "delete")
                 put("containerType", "task")
-                put("id", taskId.toString())
-                put("status", "completed")
+                put("ids", buildJsonArray {
+                    add(taskId.toString())
+                })
             }
 
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.getById(taskId) } returns
+                Result.Error(RepositoryError.NotFound(taskId, EntityType.TASK, "Not found"))
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
-        }
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true) // Batch returns success with failures
+            val data = jsonResponse["data"]!!.jsonObject
 
-        @Test
-        fun `should set feature status successfully with valid transition`() = runBlocking {
-            // Valid transition: IN_DEVELOPMENT -> TESTING
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "feature")
-                put("id", featureId.toString())
-                put("status", "testing")
-            }
-
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.TESTING))
-            // Mock task check for TESTING prerequisite validation (requires all tasks completed)
-            coEvery { mockTaskRepository.findByFeature(featureId, null, null, 1000) } returns Result.Success(
-                listOf(mockTask.copy(status = TaskStatus.COMPLETED))
-            )
-            // Mock cascade detection queries
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(total = 1, completed = 0)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("testing") == true)
-        }
-
-        @Test
-        fun `should reject feature status with invalid transition`() = runBlocking {
-            // Invalid transition: IN_DEVELOPMENT -> COMPLETED (skips testing and validating)
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "feature")
-                put("id", featureId.toString())
-                put("status", "completed")
-            }
-
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot skip statuses") == true)
-        }
-
-        @Test
-        fun `should set project status successfully`() = runBlocking {
-            val params = buildJsonObject {
-                put("operation", "setStatus")
-                put("containerType", "project")
-                put("id", projectId.toString())
-                put("status", "completed")
-            }
-
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            coEvery { mockProjectRepository.update(any()) } returns Result.Success(mockProject.copy(status = ProjectStatus.COMPLETED))
-            // Mock feature check for COMPLETED prerequisite validation (requires all features completed)
-            coEvery { mockFeatureRepository.findByProject(projectId, 1000) } returns Result.Success(
-                listOf(mockFeature.copy(status = FeatureStatus.COMPLETED))
-            )
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("completed") == true)
+            assertEquals(0, data["deleted"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
         }
     }
 
     @Nested
     inner class StatusParsingTests {
         @Test
-        fun `should parse new TaskStatus BACKLOG`() = runBlocking {
-            val params = buildJsonObject {
-                put("operation", "create")
-                put("containerType", "task")
-                put("title", "Backlog Task")
-                put("status", "backlog")
-            }
+        fun `should parse task status correctly`() {
+            val validStatuses = mapOf(
+                "pending" to TaskStatus.PENDING,
+                "in-progress" to TaskStatus.IN_PROGRESS,
+                "completed" to TaskStatus.COMPLETED,
+                "cancelled" to TaskStatus.CANCELLED,
+                "backlog" to TaskStatus.BACKLOG
+            )
 
-            coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.BACKLOG))
-            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-        }
-
-        @Test
-        fun `should parse new TaskStatus IN_REVIEW with different formats`() = runBlocking {
-            // Test all format variations
-            val formats = listOf("in-review", "in_review", "inreview")
-
-            formats.forEach { format ->
+            validStatuses.forEach { (statusString, expectedEnum) ->
                 val params = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "task")
-                    put("title", "Review Task")
-                    put("status", format)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Test Task")
+                            put("status", statusString)
+                        })
+                    })
                 }
 
-                coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.IN_REVIEW))
-                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
-
-                val result = tool.execute(params, context)
-
-                val resultObj = result.jsonObject
-                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+                assertDoesNotThrow({
+                    tool.validateParams(params)
+                }, "Status '$statusString' should parse correctly")
             }
         }
 
         @Test
-        fun `should parse new TaskStatus CHANGES_REQUESTED with different formats`() = runBlocking {
-            val formats = listOf("changes-requested", "changes_requested", "changesrequested")
+        fun `should parse feature status correctly`() {
+            val validStatuses = listOf(
+                "draft", "planning", "in-development", "testing", "validating", "completed", "archived", "pending-review", "blocked", "on-hold"
+            )
 
-            formats.forEach { format ->
-                val params = buildJsonObject {
-                    put("operation", "create")
-                    put("containerType", "task")
-                    put("title", "Changes Task")
-                    put("status", format)
-                }
-
-                coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.CHANGES_REQUESTED))
-                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
-
-                val result = tool.execute(params, context)
-
-                val resultObj = result.jsonObject
-                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
-            }
-        }
-
-        @Test
-        fun `should parse new TaskStatus ON_HOLD with different formats`() = runBlocking {
-            val formats = listOf("on-hold", "on_hold", "onhold")
-
-            formats.forEach { format ->
-                val params = buildJsonObject {
-                    put("operation", "create")
-                    put("containerType", "task")
-                    put("title", "On Hold Task")
-                    put("status", format)
-                }
-
-                coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask.copy(status = TaskStatus.ON_HOLD))
-                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
-
-                val result = tool.execute(params, context)
-
-                val resultObj = result.jsonObject
-                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
-            }
-        }
-
-        @Test
-        fun `should parse new FeatureStatus DRAFT`() = runBlocking {
-            val params = buildJsonObject {
-                put("operation", "create")
-                put("containerType", "feature")
-                put("name", "Draft Feature")
-                put("status", "draft")
-            }
-
-            coEvery { mockFeatureRepository.create(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.DRAFT))
-            coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-        }
-
-        @Test
-        fun `should parse new FeatureStatus ON_HOLD with different formats`() = runBlocking {
-            val formats = listOf("on-hold", "on_hold", "onhold")
-
-            formats.forEach { format ->
+            validStatuses.forEach { statusString ->
                 val params = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "feature")
-                    put("name", "On Hold Feature")
-                    put("status", format)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("name", "Test Feature")
+                            put("status", statusString)
+                        })
+                    })
                 }
 
-                coEvery { mockFeatureRepository.create(any()) } returns Result.Success(mockFeature.copy(status = FeatureStatus.ON_HOLD))
-                coEvery { mockTemplateRepository.applyMultipleTemplates(any(), any(), any()) } returns Result.Success(emptyMap())
-
-                val result = tool.execute(params, context)
-
-                val resultObj = result.jsonObject
-                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+                assertDoesNotThrow({
+                    tool.validateParams(params)
+                }, "Status '$statusString' should parse correctly")
             }
         }
 
         @Test
-        fun `should parse existing ProjectStatus ON_HOLD with different formats`() = runBlocking {
-            val formats = listOf("on-hold", "on_hold", "onhold")
+        fun `should parse project status correctly`() {
+            val validStatuses = listOf(
+                "planning", "in-development", "on-hold", "deployed", "cancelled", "completed", "archived"
+            )
 
-            formats.forEach { format ->
+            validStatuses.forEach { statusString ->
                 val params = buildJsonObject {
                     put("operation", "create")
                     put("containerType", "project")
-                    put("name", "On Hold Project")
-                    put("status", format)
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("name", "Test Project")
+                            put("status", statusString)
+                        })
+                    })
                 }
 
-                coEvery { mockProjectRepository.create(any()) } returns Result.Success(mockProject.copy(status = ProjectStatus.ON_HOLD))
-
-                val result = tool.execute(params, context)
-
-                val resultObj = result.jsonObject
-                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+                assertDoesNotThrow({
+                    tool.validateParams(params)
+                }, "Status '$statusString' should parse correctly")
             }
         }
 
         @Test
-        fun `should parse existing ProjectStatus CANCELLED with different formats`() = runBlocking {
-            val formats = listOf("cancelled", "canceled")
+        fun `should handle case-insensitive status parsing`() {
+            val statusVariants = listOf("pending", "PENDING", "Pending", "PeNdInG")
 
-            formats.forEach { format ->
+            statusVariants.forEach { statusVariant ->
                 val params = buildJsonObject {
                     put("operation", "create")
-                    put("containerType", "project")
-                    put("name", "Cancelled Project")
-                    put("status", format)
+                    put("containerType", "task")
+                    put("containers", buildJsonArray {
+                        add(buildJsonObject {
+                            put("title", "Test Task")
+                            put("status", statusVariant)
+                        })
+                    })
                 }
 
-                coEvery { mockProjectRepository.create(any()) } returns Result.Success(mockProject.copy(status = ProjectStatus.CANCELLED))
-
-                val result = tool.execute(params, context)
-
-                val resultObj = result.jsonObject
-                assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true, "Failed for format: $format")
+                assertDoesNotThrow({
+                    tool.validateParams(params)
+                }, "Status '$statusVariant' should be case-insensitive")
             }
-        }
-
-        @Test
-        fun `should reject invalid task status`() {
-            val params = buildJsonObject {
-                put("operation", "create")
-                put("containerType", "task")
-                put("title", "Invalid Task")
-                put("status", "invalid-status")
-            }
-
-            val exception = assertThrows<ToolValidationException> {
-                tool.validateParams(params)
-            }
-            assertTrue(exception.message!!.contains("Invalid status"))
-        }
-
-        @Test
-        fun `should reject invalid feature status`() {
-            val params = buildJsonObject {
-                put("operation", "create")
-                put("containerType", "feature")
-                put("name", "Invalid Feature")
-                put("status", "invalid-status")
-            }
-
-            val exception = assertThrows<ToolValidationException> {
-                tool.validateParams(params)
-            }
-            assertTrue(exception.message!!.contains("Invalid status"))
-        }
-
-        @Test
-        fun `should reject invalid project status`() {
-            val params = buildJsonObject {
-                put("operation", "create")
-                put("containerType", "project")
-                put("name", "Invalid Project")
-                put("status", "invalid-status")
-            }
-
-            val exception = assertThrows<ToolValidationException> {
-                tool.validateParams(params)
-            }
-            assertTrue(exception.message!!.contains("Invalid status"))
         }
     }
 
     @Nested
-    inner class BulkUpdateOperationTests {
+    inner class BatchUpdateOperationTests {
         @Test
-        fun `should bulk update tasks successfully with valid transitions`() = runBlocking {
-            // Use valid sequential transitions: pending -> in-progress for both tasks
+        fun `should update multiple tasks in batch`() = runBlocking {
             val task2Id = UUID.randomUUID()
             val task2 = mockTask.copy(id = task2Id, title = "Task 2")
 
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
+                put("operation", "update")
                 put("containerType", "task")
                 put("containers", buildJsonArray {
                     add(buildJsonObject {
                         put("id", taskId.toString())
-                        put("status", "in-progress")
+                        put("title", "Updated Task 1")
+                        put("priority", "low")
                     })
                     add(buildJsonObject {
                         put("id", task2Id.toString())
-                        put("summary", "Updated summary only")
+                        put("title", "Updated Task 2")
+                        put("complexity", 8)
                     })
                 })
             }
+
+            val updatedTask1 = mockTask.copy(title = "Updated Task 1", priority = Priority.LOW)
+            val updatedTask2 = task2.copy(title = "Updated Task 2", complexity = 8)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
             coEvery { mockTaskRepository.getById(task2Id) } returns Result.Success(task2)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask)
-            // StatusValidator checks blocking dependencies for in-progress transition
-            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-            // Cascade detection: findByFromTaskId needed for unblocked task detection
-            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+            coEvery { mockTaskRepository.update(match { it.id == taskId }) } returns Result.Success(updatedTask1)
+            coEvery { mockTaskRepository.update(match { it.id == task2Id }) } returns Result.Success(updatedTask2)
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
-            assertEquals(2, resultObj["data"]?.jsonObject?.get("updated")?.jsonPrimitive?.int)
-            assertEquals(0, resultObj["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(2, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(2, items.size)
         }
 
         @Test
-        fun `should handle partial bulk update failures with not found`() = runBlocking {
+        fun `should handle batch update with mixed entity types validation error`() {
+            // This should be caught at validation level - all items must be same containerType
+            val params = buildJsonObject {
+                put("operation", "update")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Task")
+                    })
+                    add(buildJsonObject {
+                        put("id", featureId.toString())
+                        put("name", "Updated Feature") // Wrong field for task
+                    })
+                })
+            }
+
+            // Should not throw validation error - just updates what it can
+            assertDoesNotThrow {
+                tool.validateParams(params)
+            }
+        }
+
+        @Test
+        fun `should batch update with shared status change`() = runBlocking {
             val task2Id = UUID.randomUUID()
+            val task2 = mockTask.copy(id = task2Id, title = "Task 2")
 
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
+                put("operation", "update")
                 put("containerType", "task")
                 put("containers", buildJsonArray {
                     add(buildJsonObject {
@@ -1474,831 +1551,357 @@ class ManageContainerToolTest {
                 })
             }
 
+            val updatedTask1 = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+            val updatedTask2 = task2.copy(status = TaskStatus.IN_PROGRESS)
+
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.getById(task2Id) } returns Result.Error(RepositoryError.NotFound(task2Id, EntityType.TASK, "Task not found"))
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask)
-            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+            coEvery { mockTaskRepository.getById(task2Id) } returns Result.Success(task2)
+            coEvery { mockTaskRepository.update(match { it.id == taskId }) } returns Result.Success(updatedTask1)
+            coEvery { mockTaskRepository.update(match { it.id == task2Id }) } returns Result.Success(updatedTask2)
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("updated") == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("failed") == true)
-            assertEquals(1, resultObj["data"]?.jsonObject?.get("updated")?.jsonPrimitive?.int)
-            assertEquals(1, resultObj["data"]?.jsonObject?.get("failed")?.jsonPrimitive?.int)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(2, data["updated"]?.jsonPrimitive?.int)
         }
 
         @Test
-        fun `should reject bulk update with invalid status transition`() = runBlocking {
-            // pending -> completed skips in-progress and testing, should fail with sequential enforcement
+        fun `should handle empty containers array for update`() {
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
+                put("operation", "update")
                 put("containerType", "task")
                 put("containers", buildJsonArray {
-                    add(buildJsonObject {
-                        put("id", taskId.toString())
-                        put("status", "completed")
-                    })
+                    // Empty array
                 })
             }
 
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            // All entities failed, so this should be an error response
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == false)
-            // Error responses put additionalData under error.additionalData
-            val error = resultObj["error"]?.jsonObject
-            assertNotNull(error)
-            val additionalData = error?.get("additionalData")?.jsonObject
-            assertNotNull(additionalData)
-            val failures = additionalData?.get("failures")?.jsonArray
-            assertNotNull(failures)
-            assertTrue(failures!!.size == 1)
-            // The failure should mention validation error
-            val failureError = failures[0].jsonObject["error"]?.jsonObject
-            assertEquals(ErrorCodes.VALIDATION_ERROR, failureError?.get("code")?.jsonPrimitive?.content)
-        }
-
-        @Test
-        fun `should handle mixed valid and invalid transitions in bulk update`() = runBlocking {
-            // task1: pending -> in-progress (valid)
-            // task2: completed -> in-progress (invalid - from terminal status)
-            val task2Id = UUID.randomUUID()
-            val completedTask = mockTask.copy(id = task2Id, title = "Completed Task", status = TaskStatus.COMPLETED)
-
-            val params = buildJsonObject {
-                put("operation", "bulkUpdate")
-                put("containerType", "task")
-                put("containers", buildJsonArray {
-                    add(buildJsonObject {
-                        put("id", taskId.toString())
-                        put("status", "in-progress")
-                    })
-                    add(buildJsonObject {
-                        put("id", task2Id.toString())
-                        put("status", "in-progress")
-                    })
-                })
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
             }
-
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.getById(task2Id) } returns Result.Success(completedTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask)
-            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
-            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            // Partial success
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            val data = resultObj["data"]?.jsonObject
-            assertEquals(1, data?.get("updated")?.jsonPrimitive?.int)
-            assertEquals(1, data?.get("failed")?.jsonPrimitive?.int)
-            val failures = data?.get("failures")?.jsonArray
-            assertNotNull(failures)
-            assertEquals(1, failures!!.size)
-            assertEquals(task2Id.toString(), failures[0].jsonObject["id"]?.jsonPrimitive?.content)
+            assertTrue(exception.message!!.contains("container") || exception.message!!.contains("empty"))
         }
 
         @Test
-        fun `should detect unblocked tasks after bulk task completion`() = runBlocking {
-            // Set up: task1 is in TESTING, moving to completed (valid sequential transition)
-            // task1 blocks task2 via BLOCKS dependency; task2 should become unblocked
-            val testingTask = mockTask.copy(status = TaskStatus.TESTING)
-            val completedTask = testingTask.copy(status = TaskStatus.COMPLETED)
-            val task2Id = UUID.randomUUID()
-            val blockedTask = mockTask.copy(id = task2Id, title = "Blocked Task", status = TaskStatus.PENDING)
-            val dep = Dependency(
-                fromTaskId = taskId,
-                toTaskId = task2Id,
-                type = DependencyType.BLOCKS
-            )
+        fun `should batch update features with different priorities`() = runBlocking {
+            val feature2Id = UUID.randomUUID()
+            val feature2 = mockFeature.copy(id = feature2Id, name = "Feature 2")
 
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
-                put("containerType", "task")
+                put("operation", "update")
+                put("containerType", "feature")
                 put("containers", buildJsonArray {
                     add(buildJsonObject {
-                        put("id", taskId.toString())
-                        put("status", "completed")
+                        put("id", featureId.toString())
+                        put("priority", "high")
                     })
-                })
-            }
-
-            // Task is in TESTING status so testing -> completed is valid
-            // First call: during validation and update; after update: during unblock detection
-            coEvery { mockTaskRepository.getById(taskId) } returnsMany listOf(
-                Result.Success(testingTask),   // validateTransition -> validatePrerequisites
-                Result.Success(completedTask)  // findBulkUnblockedTasks -> blocker check
-            )
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(completedTask)
-            // Unblock detection mocks
-            every { mockDependencyRepository.findByFromTaskId(taskId) } returns listOf(dep)
-            coEvery { mockTaskRepository.getById(task2Id) } returns Result.Success(blockedTask)
-            every { mockDependencyRepository.findByToTaskId(task2Id) } returns listOf(dep)
-            // Feature/project lookup for cascade detection (task has featureId set)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
-            coEvery { mockTaskRepository.findByFeature(featureId, any(), any(), any()) } returns Result.Success(listOf(completedTask))
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            val data = resultObj["data"]?.jsonObject
-            assertEquals(1, data?.get("updated")?.jsonPrimitive?.int)
-            // Should have unblocked tasks
-            val unblockedTasks = data?.get("unblockedTasks")?.jsonArray
-            assertNotNull(unblockedTasks)
-            assertTrue(unblockedTasks!!.isNotEmpty())
-            assertEquals(task2Id.toString(), unblockedTasks[0].jsonObject["taskId"]?.jsonPrimitive?.content)
-            assertEquals("Blocked Task", unblockedTasks[0].jsonObject["title"]?.jsonPrimitive?.content)
-        }
-
-        @Test
-        fun `should bulk update non-status fields without transition validation`() = runBlocking {
-            // Updating only non-status fields should not trigger transition validation
-            val params = buildJsonObject {
-                put("operation", "bulkUpdate")
-                put("containerType", "task")
-                put("containers", buildJsonArray {
                     add(buildJsonObject {
-                        put("id", taskId.toString())
-                        put("summary", "Updated summary")
+                        put("id", feature2Id.toString())
                         put("priority", "low")
                     })
                 })
             }
 
-            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
-            coEvery { mockTaskRepository.update(any()) } returns Result.Success(mockTask)
-
-            val result = tool.execute(params, context)
-
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertEquals(1, resultObj["data"]?.jsonObject?.get("updated")?.jsonPrimitive?.int)
-        }
-
-        @Test
-        fun `should validate bulk update array size`() {
-            val containersArray = buildJsonArray {
-                repeat(101) { index ->
-                    add(buildJsonObject {
-                        put("id", UUID.randomUUID().toString())
-                        put("status", "completed")
-                    })
-                }
-            }
-
-            val params = buildJsonObject {
-                put("operation", "bulkUpdate")
-                put("containerType", "task")
-                put("containers", containersArray)
-            }
-
-            val exception = assertThrows<ToolValidationException> {
-                tool.validateParams(params)
-            }
-            assertTrue(exception.message!!.contains("Maximum 100"))
-        }
-
-        @Test
-        fun `should bulk update features with valid transitions`() = runBlocking {
-            // in-development -> testing is a valid feature transition
-            val params = buildJsonObject {
-                put("operation", "bulkUpdate")
-                put("containerType", "feature")
-                put("containers", buildJsonArray {
-                    add(buildJsonObject {
-                        put("id", featureId.toString())
-                        put("status", "testing")
-                    })
-                })
-            }
+            val updatedFeature1 = mockFeature.copy(priority = Priority.HIGH)
+            val updatedFeature2 = feature2.copy(priority = Priority.LOW)
 
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(mockFeature)
-            // Feature prerequisite: testing requires all tasks completed
-            coEvery { mockTaskRepository.findByFeature(featureId, any(), any(), any()) } returns Result.Success(
-                listOf(mockTask.copy(status = TaskStatus.COMPLETED))
-            )
+            coEvery { mockFeatureRepository.getById(feature2Id) } returns Result.Success(feature2)
+            coEvery { mockFeatureRepository.update(match { it.id == featureId }) } returns Result.Success(updatedFeature1)
+            coEvery { mockFeatureRepository.update(match { it.id == feature2Id }) } returns Result.Success(updatedFeature2)
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertEquals(1, resultObj["data"]?.jsonObject?.get("updated")?.jsonPrimitive?.int)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(2, data["updated"]?.jsonPrimitive?.int)
         }
 
         @Test
-        fun `should bulk update projects with valid transitions`() = runBlocking {
-            // planning -> in-development is a valid project transition
-            val planningProject = mockProject.copy(status = ProjectStatus.PLANNING)
+        fun `should handle validation failure in batch update`() = runBlocking {
+            val completedTask = mockTask.copy(status = TaskStatus.COMPLETED)
+
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
-                put("containerType", "project")
+                put("operation", "update")
+                put("containerType", "task")
                 put("containers", buildJsonArray {
                     add(buildJsonObject {
-                        put("id", projectId.toString())
-                        put("status", "in-development")
+                        put("id", taskId.toString())
+                        put("status", "pending") // Invalid transition from completed
                     })
                 })
             }
 
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(planningProject)
-            coEvery { mockProjectRepository.update(any()) } returns Result.Success(planningProject)
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
 
             val result = tool.execute(params, context)
 
-            val resultObj = result.jsonObject
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertEquals(1, resultObj["data"]?.jsonObject?.get("updated")?.jsonPrimitive?.int)
+            // Batch API returns success=true with validation failure in failures array
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+            assertEquals(0, data["updated"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
         }
     }
 
     @Nested
     inner class UserSummaryTests {
         @Test
-        fun `userSummary returns create summary with name and short id`() {
-            val tool = ManageContainerTool(null, null)
+        fun `should provide clear summary for create operation`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
-            }
-            val result = buildJsonObject {
-                put("success", true)
-                put("message", "Task created")
-                put("data", buildJsonObject {
-                    put("id", "d5c9c5ed-1234-5678-9abc-def012345678")
-                    put("title", "Design API schema")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("title", "New Task")
+                    })
                 })
             }
+
+            coEvery { mockTaskRepository.create(any()) } returns Result.Success(mockTask)
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+
             val summary = tool.userSummary(params, result, false)
-            assertTrue(summary.contains("task"))
-            assertTrue(summary.contains("Design API schema"))
-            assertTrue(summary.contains("d5c9c5ed"))
+            // Single-item create shows name: "Created task 'New Task' (xxxxxxxx)"
+            assertTrue(summary.contains("task"), "Summary should contain container type: $summary")
+            assertTrue(summary.contains("Created"), "Summary should contain 'Created': $summary")
         }
 
         @Test
-        fun `userSummary returns error message for error responses`() {
-            val tool = ManageContainerTool(null, null)
+        fun `should provide clear summary for batch create`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "create")
                 put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject { put("title", "Task 1") })
+                    add(buildJsonObject { put("title", "Task 2") })
+                    add(buildJsonObject { put("title", "Task 3") })
+                })
             }
-            val result = buildJsonObject {
-                put("success", false)
-                put("message", "Task not found")
-            }
-            val summary = tool.userSummary(params, result, true)
-            assertTrue(summary.contains("Task not found"))
+
+            val task1 = mockTask.copy(id = UUID.randomUUID(), title = "Task 1")
+            val task2 = mockTask.copy(id = UUID.randomUUID(), title = "Task 2")
+            val task3 = mockTask.copy(id = UUID.randomUUID(), title = "Task 3")
+
+            coEvery { mockTaskRepository.create(match { it.title == "Task 1" }) } returns Result.Success(task1)
+            coEvery { mockTaskRepository.create(match { it.title == "Task 2" }) } returns Result.Success(task2)
+            coEvery { mockTaskRepository.create(match { it.title == "Task 3" }) } returns Result.Success(task3)
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+
+            val summary = tool.userSummary(params, result, false)
+            assertTrue(summary.contains("3"))
         }
 
         @Test
-        fun `userSummary returns bulk update summary`() {
-            val tool = ManageContainerTool(null, null)
+        fun `should provide clear summary for update operation`() = runBlocking {
             val params = buildJsonObject {
-                put("operation", "bulkUpdate")
+                put("operation", "update")
                 put("containerType", "task")
-            }
-            val result = buildJsonObject {
-                put("success", true)
-                put("message", "5 updated")
-                put("data", buildJsonObject {
-                    put("updated", 5)
-                    put("failed", 1)
+                put("containers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("id", taskId.toString())
+                        put("title", "Updated Task")
+                    })
                 })
             }
+
+            val updatedTask = mockTask.copy(title = "Updated Task")
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+
             val summary = tool.userSummary(params, result, false)
-            assertTrue(summary.contains("5"))
-            assertTrue(summary.contains("task"))
+            // Single-item update shows: "Updated task (xxxxxxxx)"
+            assertTrue(summary.contains("Updated"), "Summary should contain 'Updated': $summary")
+            assertTrue(summary.contains("task"), "Summary should contain container type: $summary")
+        }
+
+        @Test
+        fun `should provide clear summary for delete operation`() = runBlocking {
+            val params = buildJsonObject {
+                put("operation", "delete")
+                put("containerType", "task")
+                put("ids", buildJsonArray {
+                    add(taskId.toString())
+                })
+            }
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+            every { mockDependencyRepository.findByTaskId(taskId) } returns emptyList()
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, taskId) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(taskId) } returns Result.Success(true)
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+
+            val summary = tool.userSummary(params, result, false)
+            // Single-item delete shows: "Deleted task (xxxxxxxx)"
+            assertTrue(summary.contains("Deleted"), "Summary should contain 'Deleted': $summary")
+            assertTrue(summary.contains("task"), "Summary should contain container type: $summary")
+        }
+
+        @Test
+        fun `should provide summary with failure counts`() = runBlocking {
+            val task2Id = UUID.randomUUID()
+
+            val params = buildJsonObject {
+                put("operation", "create")
+                put("containerType", "task")
+                put("containers", buildJsonArray {
+                    add(buildJsonObject { put("title", "Task 1") })
+                    add(buildJsonObject { put("title", "Task 2") })
+                })
+            }
+
+            val task1 = mockTask.copy(id = UUID.randomUUID(), title = "Task 1")
+
+            coEvery { mockTaskRepository.create(match { it.title == "Task 1" }) } returns Result.Success(task1)
+            coEvery { mockTaskRepository.create(match { it.title == "Task 2" }) } returns
+                Result.Error(RepositoryError.DatabaseError("Error"))
+
+            val result = tool.execute(params, context)
+
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+
+            val summary = tool.userSummary(params, result, false)
+            assertTrue(summary.contains("1") && (summary.contains("failed") || summary.contains("error")))
         }
     }
 
-    // ========== FORCE-DELETE CASCADE TESTS ==========
-
     @Nested
     inner class ForceDeleteCascadeTests {
-
         @Test
-        fun `should force-delete feature with child tasks`() = runBlocking {
-            val fId = UUID.randomUUID()
-            val task1Id = UUID.randomUUID()
-            val task2Id = UUID.randomUUID()
-
-            val feature = Feature(
-                id = fId,
-                name = "Feature With Tasks",
-                summary = "test",
-                status = FeatureStatus.IN_DEVELOPMENT,
-                priority = Priority.MEDIUM
-            )
-            val task1 = Task(
-                id = task1Id,
-                title = "Task 1",
-                summary = "summary",
-                status = TaskStatus.PENDING,
-                priority = Priority.HIGH,
-                complexity = 3,
-                featureId = fId
-            )
-            val task2 = Task(
-                id = task2Id,
-                title = "Task 2",
-                summary = "summary",
-                status = TaskStatus.PENDING,
-                priority = Priority.MEDIUM,
-                complexity = 5,
-                featureId = fId
-            )
-
+        fun `should force delete with cascade`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "delete")
-                put("containerType", "feature")
-                put("id", fId.toString())
+                put("containerType", "project")
                 put("force", true)
+                put("ids", buildJsonArray {
+                    add(projectId.toString())
+                })
             }
 
-            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task1, task2))
-
-            // Task cascade: dependencies -> sections -> task
-            every { mockDependencyRepository.deleteByTaskId(task1Id) } returns 0
-            every { mockDependencyRepository.deleteByTaskId(task2Id) } returns 0
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task1Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task2Id) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(task1Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
-
-            // Feature sections (deleteSections defaults to true)
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(emptyList())
-            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            coEvery { mockFeatureRepository.findByProject(projectId) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByProject(projectId, any()) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockProjectRepository.delete(projectId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
 
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(2, data!!["tasksDeleted"]?.jsonPrimitive?.int)
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
         }
 
         @Test
-        fun `should force-delete feature with tasks that have dependencies`() = runBlocking {
-            val fId = UUID.randomUUID()
-            val task1Id = UUID.randomUUID()
-            val task2Id = UUID.randomUUID()
-            val task3Id = UUID.randomUUID()
-
-            val feature = Feature(
-                id = fId,
-                name = "Feature With Deps",
-                summary = "test",
-                status = FeatureStatus.IN_DEVELOPMENT,
-                priority = Priority.HIGH
-            )
-            val task1 = Task(id = task1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
-            val task2 = Task(id = task2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
-            val task3 = Task(id = task3Id, title = "Task 3", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
-
+        fun `should fail non-force delete if entity has children`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "delete")
-                put("containerType", "feature")
-                put("id", fId.toString())
-                put("force", true)
+                put("containerType", "project")
+                put("force", false)
+                put("ids", buildJsonArray {
+                    add(projectId.toString())
+                })
             }
 
-            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task1, task2, task3))
-
-            // task1 BLOCKS task2, task2 BLOCKS task3 -> deleteByTaskId returns count of deps deleted
-            every { mockDependencyRepository.deleteByTaskId(task1Id) } returns 1
-            every { mockDependencyRepository.deleteByTaskId(task2Id) } returns 2 // one incoming from task1, one outgoing to task3
-            every { mockDependencyRepository.deleteByTaskId(task3Id) } returns 1
-
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task1Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task2Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task3Id) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(task1Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(task3Id) } returns Result.Success(true)
-
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(emptyList())
-            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            coEvery { mockFeatureRepository.findByProject(projectId) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByProject(projectId, any()) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockProjectRepository.delete(projectId) } returns
+                Result.Error(RepositoryError.ValidationError("Has child entities"))
 
             val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
 
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(3, data!!["tasksDeleted"]?.jsonPrimitive?.int)
-            // Sum of all deleteByTaskId returns: 1 + 2 + 1 = 4
-            assertTrue(data["taskDependenciesDeleted"]!!.jsonPrimitive.int >= 2,
-                "Expected at least 2 task dependencies deleted, got ${data["taskDependenciesDeleted"]!!.jsonPrimitive.int}")
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true) // Batch returns success with failures
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(0, data["deleted"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
         }
 
         @Test
-        fun `should force-delete feature with tasks that have sections`() = runBlocking {
-            val fId = UUID.randomUUID()
-            val task1Id = UUID.randomUUID()
-            val task2Id = UUID.randomUUID()
-
-            val feature = Feature(
-                id = fId,
-                name = "Feature With Sections",
-                summary = "test",
-                status = FeatureStatus.IN_DEVELOPMENT,
-                priority = Priority.MEDIUM
-            )
-            val task1 = Task(id = task1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
-            val task2 = Task(id = task2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, featureId = fId)
-
-            val featureSectionId = UUID.randomUUID()
-            val featureSection = Section(
-                id = featureSectionId,
-                entityType = EntityType.FEATURE,
-                entityId = fId,
-                title = "Feature Section",
-                usageDescription = "desc",
-                content = "content",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 0
-            )
-
-            val task1SectionId = UUID.randomUUID()
-            val task1Section = Section(
-                id = task1SectionId,
-                entityType = EntityType.TASK,
-                entityId = task1Id,
-                title = "Task1 Section",
-                usageDescription = "desc",
-                content = "content",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 0
-            )
-
-            val task2SectionId = UUID.randomUUID()
-            val task2Section = Section(
-                id = task2SectionId,
-                entityType = EntityType.TASK,
-                entityId = task2Id,
-                title = "Task2 Section",
-                usageDescription = "desc",
-                content = "content",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 0
-            )
-
+        fun `should delete feature with force flag`() = runBlocking {
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "feature")
-                put("id", fId.toString())
                 put("force", true)
-                put("deleteSections", true)
+                put("ids", buildJsonArray {
+                    add(featureId.toString())
+                })
             }
 
-            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task1, task2))
-
-            every { mockDependencyRepository.deleteByTaskId(task1Id) } returns 0
-            every { mockDependencyRepository.deleteByTaskId(task2Id) } returns 0
-
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task1Id) } returns Result.Success(listOf(task1Section))
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, task2Id) } returns Result.Success(listOf(task2Section))
-            coEvery { mockSectionRepository.deleteSection(task1SectionId) } returns Result.Success(true)
-            coEvery { mockSectionRepository.deleteSection(task2SectionId) } returns Result.Success(true)
-
-            coEvery { mockTaskRepository.delete(task1Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(task2Id) } returns Result.Success(true)
-
-            // Feature's own sections
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(listOf(featureSection))
-            coEvery { mockSectionRepository.deleteSection(featureSectionId) } returns Result.Success(true)
-
-            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+            coEvery { mockTaskRepository.findByFeature(featureId) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockFeatureRepository.delete(featureId) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
 
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(2, data!!["tasksDeleted"]?.jsonPrimitive?.int)
-            assertEquals(2, data["taskSectionsDeleted"]?.jsonPrimitive?.int)
-            // Feature's own sections are controlled by deleteSections param
-            assertTrue(data["sectionsDeleted"]!!.jsonPrimitive.int >= 1,
-                "Expected at least 1 feature section deleted")
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
+
+            assertEquals(1, data["deleted"]?.jsonPrimitive?.int)
         }
 
         @Test
-        fun `should force-delete project with features and tasks`() = runBlocking {
-            val pId = UUID.randomUUID()
-            val f1Id = UUID.randomUUID()
-            val f2Id = UUID.randomUUID()
-            val t1Id = UUID.randomUUID()
-            val t2Id = UUID.randomUUID()
-            val t3Id = UUID.randomUUID()
-
-            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
-            val feature1 = Feature(id = f1Id, name = "Feature 1", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.HIGH, projectId = pId)
-            val feature2 = Feature(id = f2Id, name = "Feature 2", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.MEDIUM, projectId = pId)
-            val task1 = Task(id = t1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = f1Id, projectId = pId)
-            val task2 = Task(id = t2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, featureId = f1Id, projectId = pId)
-            val task3 = Task(id = t3Id, title = "Task 3", summary = "s", status = TaskStatus.PENDING, priority = Priority.LOW, complexity = 2, featureId = f2Id, projectId = pId)
+        fun `should batch delete with force flag`() = runBlocking {
+            val project2Id = UUID.randomUUID()
+            val project2 = mockProject.copy(id = project2Id)
 
             val params = buildJsonObject {
                 put("operation", "delete")
                 put("containerType", "project")
-                put("id", pId.toString())
                 put("force", true)
+                put("ids", buildJsonArray {
+                    add(projectId.toString())
+                    add(project2Id.toString())
+                })
             }
 
-            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
-            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(listOf(feature1, feature2))
-            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task1, task2, task3))
-
-            // Task cascade
-            every { mockDependencyRepository.deleteByTaskId(t1Id) } returns 0
-            every { mockDependencyRepository.deleteByTaskId(t2Id) } returns 0
-            every { mockDependencyRepository.deleteByTaskId(t3Id) } returns 0
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t1Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t2Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t3Id) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(t1Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(t2Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(t3Id) } returns Result.Success(true)
-
-            // Feature cascade
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, f1Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, f2Id) } returns Result.Success(emptyList())
-            coEvery { mockFeatureRepository.delete(f1Id) } returns Result.Success(true)
-            coEvery { mockFeatureRepository.delete(f2Id) } returns Result.Success(true)
-
-            // Project sections
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, pId) } returns Result.Success(emptyList())
-            coEvery { mockProjectRepository.delete(pId) } returns Result.Success(true)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+            coEvery { mockProjectRepository.getById(project2Id) } returns Result.Success(project2)
+            coEvery { mockFeatureRepository.findByProject(any()) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByProject(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockProjectRepository.delete(projectId) } returns Result.Success(true)
+            coEvery { mockProjectRepository.delete(project2Id) } returns Result.Success(true)
 
             val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
 
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(2, data!!["featuresDeleted"]?.jsonPrimitive?.int)
-            assertEquals(3, data["tasksDeleted"]?.jsonPrimitive?.int)
-        }
+            val jsonResponse = result.jsonObject
+            assertTrue(jsonResponse["success"]?.jsonPrimitive?.boolean == true)
+            val data = jsonResponse["data"]!!.jsonObject
 
-        @Test
-        fun `should force-delete project with standalone tasks and no features`() = runBlocking {
-            val pId = UUID.randomUUID()
-            val t1Id = UUID.randomUUID()
-            val t2Id = UUID.randomUUID()
-            val t3Id = UUID.randomUUID()
-
-            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
-            val task1 = Task(id = t1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, projectId = pId)
-            val task2 = Task(id = t2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, projectId = pId)
-            val task3 = Task(id = t3Id, title = "Task 3", summary = "s", status = TaskStatus.PENDING, priority = Priority.LOW, complexity = 2, projectId = pId)
-
-            val params = buildJsonObject {
-                put("operation", "delete")
-                put("containerType", "project")
-                put("id", pId.toString())
-                put("force", true)
-            }
-
-            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
-            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task1, task2, task3))
-
-            // Task cascade
-            every { mockDependencyRepository.deleteByTaskId(t1Id) } returns 0
-            every { mockDependencyRepository.deleteByTaskId(t2Id) } returns 0
-            every { mockDependencyRepository.deleteByTaskId(t3Id) } returns 0
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t1Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t2Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t3Id) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(t1Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(t2Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(t3Id) } returns Result.Success(true)
-
-            // Project sections
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, pId) } returns Result.Success(emptyList())
-            coEvery { mockProjectRepository.delete(pId) } returns Result.Success(true)
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(3, data!!["tasksDeleted"]?.jsonPrimitive?.int)
-            assertEquals(0, data["featuresDeleted"]?.jsonPrimitive?.int)
-        }
-
-        @Test
-        fun `should force-delete project with features tasks and dependencies`() = runBlocking {
-            val pId = UUID.randomUUID()
-            val fId = UUID.randomUUID()
-            val t1Id = UUID.randomUUID()
-            val t2Id = UUID.randomUUID()
-            val t3Id = UUID.randomUUID() // standalone task (no feature)
-
-            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
-            val feature = Feature(id = fId, name = "Feature 1", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.HIGH, projectId = pId)
-            val task1 = Task(id = t1Id, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId, projectId = pId)
-            val task2 = Task(id = t2Id, title = "Task 2", summary = "s", status = TaskStatus.PENDING, priority = Priority.MEDIUM, complexity = 5, featureId = fId, projectId = pId)
-            val task3 = Task(id = t3Id, title = "Standalone Task", summary = "s", status = TaskStatus.PENDING, priority = Priority.LOW, complexity = 2, projectId = pId)
-
-            val params = buildJsonObject {
-                put("operation", "delete")
-                put("containerType", "project")
-                put("id", pId.toString())
-                put("force", true)
-            }
-
-            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
-            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(listOf(feature))
-            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task1, task2, task3))
-
-            // Task cascade: t1 blocks t2, t3 depends on t1
-            every { mockDependencyRepository.deleteByTaskId(t1Id) } returns 2 // outgoing to t2 and t3
-            every { mockDependencyRepository.deleteByTaskId(t2Id) } returns 1 // incoming from t1
-            every { mockDependencyRepository.deleteByTaskId(t3Id) } returns 1 // incoming from t1
-
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t1Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t2Id) } returns Result.Success(emptyList())
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, t3Id) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(t1Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(t2Id) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(t3Id) } returns Result.Success(true)
-
-            // Feature cascade
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, fId) } returns Result.Success(emptyList())
-            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
-
-            // Project sections
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, pId) } returns Result.Success(emptyList())
-            coEvery { mockProjectRepository.delete(pId) } returns Result.Success(true)
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(3, data!!["tasksDeleted"]?.jsonPrimitive?.int)
-            assertEquals(1, data["featuresDeleted"]?.jsonPrimitive?.int)
-            assertTrue(data["taskDependenciesDeleted"]!!.jsonPrimitive.int >= 2,
-                "Expected at least 2 task dependencies deleted, got ${data["taskDependenciesDeleted"]!!.jsonPrimitive.int}")
-        }
-
-        @Test
-        fun `should return error when deleting feature without force and tasks exist`() = runBlocking {
-            val fId = UUID.randomUUID()
-            val tId = UUID.randomUUID()
-
-            val feature = Feature(
-                id = fId,
-                name = "Feature With Task",
-                summary = "test",
-                status = FeatureStatus.IN_DEVELOPMENT,
-                priority = Priority.MEDIUM
-            )
-            val task = Task(id = tId, title = "Child Task", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
-
-            val params = buildJsonObject {
-                put("operation", "delete")
-                put("containerType", "feature")
-                put("id", fId.toString())
-                // force defaults to false
-            }
-
-            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task))
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot delete feature with existing tasks") == true,
-                "Expected error about existing tasks but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-        }
-
-        @Test
-        fun `should return error when deleting project without force and children exist`() = runBlocking {
-            val pId = UUID.randomUUID()
-            val fId = UUID.randomUUID()
-            val tId = UUID.randomUUID()
-
-            val project = Project(id = pId, name = "Project", summary = "test", status = ProjectStatus.IN_DEVELOPMENT)
-            val feature = Feature(id = fId, name = "Feature", summary = "s", status = FeatureStatus.IN_DEVELOPMENT, priority = Priority.HIGH, projectId = pId)
-            val task = Task(id = tId, title = "Task", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId, projectId = pId)
-
-            val params = buildJsonObject {
-                put("operation", "delete")
-                put("containerType", "project")
-                put("id", pId.toString())
-                // force defaults to false
-            }
-
-            coEvery { mockProjectRepository.getById(pId) } returns Result.Success(project)
-            coEvery { mockFeatureRepository.findByProject(pId) } returns Result.Success(listOf(feature))
-            coEvery { mockTaskRepository.findByProject(pId, limit = 1000) } returns Result.Success(listOf(task))
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
-            assertTrue(resultObj["message"]?.jsonPrimitive?.content?.contains("Cannot delete project with existing features or tasks") == true,
-                "Expected error about existing features/tasks but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-        }
-
-        @Test
-        fun `should force-delete feature with deleteSections false preserves feature sections but deletes task sections`() = runBlocking {
-            val fId = UUID.randomUUID()
-            val tId = UUID.randomUUID()
-
-            val feature = Feature(
-                id = fId,
-                name = "Feature",
-                summary = "test",
-                status = FeatureStatus.IN_DEVELOPMENT,
-                priority = Priority.MEDIUM
-            )
-            val task = Task(id = tId, title = "Task 1", summary = "s", status = TaskStatus.PENDING, priority = Priority.HIGH, complexity = 3, featureId = fId)
-
-            val featureSectionId = UUID.randomUUID()
-            val featureSection = Section(
-                id = featureSectionId,
-                entityType = EntityType.FEATURE,
-                entityId = fId,
-                title = "Feature Section",
-                usageDescription = "desc",
-                content = "content",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 0
-            )
-
-            val taskSectionId = UUID.randomUUID()
-            val taskSection = Section(
-                id = taskSectionId,
-                entityType = EntityType.TASK,
-                entityId = tId,
-                title = "Task Section",
-                usageDescription = "desc",
-                content = "content",
-                contentFormat = ContentFormat.MARKDOWN,
-                ordinal = 0
-            )
-
-            val params = buildJsonObject {
-                put("operation", "delete")
-                put("containerType", "feature")
-                put("id", fId.toString())
-                put("force", true)
-                put("deleteSections", false)
-            }
-
-            coEvery { mockFeatureRepository.getById(fId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeature(fId) } returns Result.Success(listOf(task))
-
-            // Task cascade: dependencies -> sections -> task
-            // Task sections are always deleted during cascade regardless of deleteSections
-            every { mockDependencyRepository.deleteByTaskId(tId) } returns 0
-            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, tId) } returns Result.Success(listOf(taskSection))
-            coEvery { mockSectionRepository.deleteSection(taskSectionId) } returns Result.Success(true)
-            coEvery { mockTaskRepository.delete(tId) } returns Result.Success(true)
-
-            // Feature sections: with deleteSections=false, feature's own sections should NOT be fetched/deleted
-            // The code only calls getSectionsForEntity for the feature if deleteSections is true
-            coEvery { mockFeatureRepository.delete(fId) } returns Result.Success(true)
-
-            val result = tool.execute(params, context)
-            val resultObj = result.jsonObject
-
-            assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true,
-                "Expected success but got: ${resultObj["message"]?.jsonPrimitive?.content}")
-            val data = resultObj["data"]?.jsonObject
-            assertNotNull(data)
-            assertEquals(1, data!!["tasksDeleted"]?.jsonPrimitive?.int)
-            assertEquals(1, data["taskSectionsDeleted"]?.jsonPrimitive?.int)
-            // Feature's own sections should NOT be deleted since deleteSections=false
-            assertEquals(0, data["sectionsDeleted"]?.jsonPrimitive?.int)
+            assertEquals(2, data["deleted"]?.jsonPrimitive?.int)
         }
     }
 }

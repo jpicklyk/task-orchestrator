@@ -21,7 +21,7 @@ The `get_next_status` tool is a read-only MCP tool that analyzes entity state an
 4. **Detecting terminal statuses** (completed, cancelled, archived) that block progression
 5. **Returning rich context** for AI decision-making
 
-This tool **only suggests** next status - it does NOT change status. Use `manage_container` with `setStatus` operation to apply the recommended status.
+This tool **only suggests** next status - it does NOT change status. Use `request_transition` with a named trigger to apply the recommended status.
 
 **Primary User**: Status Progression Skill (Claude Code) - Uses this tool to provide human-friendly status guidance.
 
@@ -386,7 +386,7 @@ Response: "Two tasks need completion before feature can move forward."
 
 ### Applying Recommended Status
 
-Once you get a "Ready" recommendation, apply it with `manage_container`:
+Once you get a "Ready" recommendation, apply it with `request_transition`:
 
 **Step 1: Get recommendation**
 ```json
@@ -407,10 +407,9 @@ Once you get a "Ready" recommendation, apply it with `manage_container`:
 **Step 3: Apply status**
 ```json
 {
-  "operation": "setStatus",
+  "containerId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
   "containerType": "task",
-  "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "status": "testing"
+  "trigger": "start"
 }
 ```
 
@@ -538,7 +537,7 @@ status_progression:
 // Step 2: Verify recommendation is "Ready"
 if (recommendation == "Ready") {
   // Step 3: Apply recommended status
-  manage_container(operation="setStatus", ...)
+  request_transition(containerId="...", containerType="task", trigger="start")
 }
 ```
 
@@ -571,12 +570,12 @@ flow_mappings:
 ❌ **Don't apply status without checking recommendation**
 ```javascript
 // WRONG - No validation
-manage_container(operation="setStatus", status="completed")
+request_transition(containerId="...", containerType="task", trigger="complete")
 
 // CORRECT - Check first
 rec = get_next_status(...)
 if (rec.recommendation == "Ready") {
-  manage_container(operation="setStatus", ...)
+  request_transition(containerId="...", containerType="task", trigger="complete")
 }
 ```
 
@@ -600,7 +599,7 @@ if (rec.recommendation == "Ready") {
 1. User asks: "What's next?" / "Can I complete this?"
 2. Status Progression Skill calls get_next_status
 3. Skill interprets recommendation and provides guidance
-4. Skill offers manage_container commands if Ready
+4. Skill offers request_transition commands if Ready
 
 ### Pattern 2: UI Status Indicator
 
@@ -660,7 +659,7 @@ if (rec.recommendation == "Ready" &&
 
 | Tool | Purpose | When to Use |
 |------|---------|------------|
-| **manage_container** (setStatus) | Apply status change | After get_next_status recommends "Ready" |
+| **request_transition** | Apply status change with validation | After get_next_status recommends "Ready" |
 | **query_container** (get) | Get full entity details | To understand entity context before transition |
 | **Status Progression Skill** | AI-friendly status guidance | For natural language workflow recommendations |
 

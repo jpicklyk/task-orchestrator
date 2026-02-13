@@ -276,17 +276,17 @@ Emergency transition - works from any status without following the normal flow.
 }
 ```
 
-## request_transition vs manage_container(setStatus)
+## request_transition vs manage_container(update)
 
-| Aspect | request_transition | manage_container(setStatus) |
+| Aspect | request_transition | manage_container(update) |
 |--------|-------------------|---------------------------|
-| **Input** | Named trigger (`start`, `complete`) | Raw status value (`in-progress`) |
+| **Input** | Named trigger (`start`, `complete`) | Raw status value via `containers` array |
 | **Validation** | Full workflow validation + prerequisites | Basic status validation |
 | **Flow awareness** | Resolves next status from workflow config | You specify exact target status |
 | **Cascade detection** | Reports downstream effects | No cascade detection |
-| **Best for** | Workflow-driven progression | Direct status override |
+| **Best for** | Workflow-driven progression | Direct status override (not recommended) |
 
-**Recommendation**: Use `request_transition` for normal workflow progression. Use `manage_container(setStatus)` only when you need to set a specific status that doesn't map to a trigger.
+**Recommendation**: Always use `request_transition` for status changes. The `manage_container(update)` operation can change status but skips workflow validation and cascade detection.
 
 ## Error Handling
 
@@ -320,7 +320,7 @@ Emergency transition - works from any status without following the normal flow.
 | Tool | Purpose | When to Use |
 |------|---------|------------|
 | **get_next_status** | Read-only recommendations | Check readiness before transitioning |
-| **manage_container** (setStatus) | Direct status change | When you need a specific status value |
+| **manage_container** (update) | Direct status change | Not recommended; skips workflow validation |
 | **query_container** (get) | Get entity details | To understand entity context |
 
 ## References

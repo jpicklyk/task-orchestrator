@@ -1244,12 +1244,11 @@ Task lifecycle uses both tools:
   "ordinal": 999
 }
 
-// Step 4: Mark task complete
+// Step 4: Mark task complete (via request_transition)
 {
-  "operation": "setStatus",
+  "containerId": "task-uuid",
   "containerType": "task",
-  "id": "task-uuid",
-  "status": "completed"
+  "trigger": "complete"
 }
 ```
 
@@ -1554,14 +1553,13 @@ Response (assuming 3 sections exist):
 }
 ```
 
-4. Mark task complete via manage_container
+4. Mark task complete via request_transition
 
 ```json
 {
-  "operation": "setStatus",
+  "containerId": "task-uuid",
   "containerType": "task",
-  "id": "task-uuid",
-  "status": "completed"
+  "trigger": "complete"
 }
 ```
 

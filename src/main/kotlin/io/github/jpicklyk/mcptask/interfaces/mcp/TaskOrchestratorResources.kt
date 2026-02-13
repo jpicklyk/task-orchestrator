@@ -118,7 +118,7 @@ object TaskOrchestratorResources {
 Task Orchestrator provides consolidated tools for all scenarios:
 
 ### Core Operations
-- **`manage_container`**: Create, update, delete, setStatus for projects/features/tasks
+- **`manage_container`**: Create, update, delete for projects/features/tasks (all use array parameters)
 - **`query_container`**: Get, search, export, overview for projects/features/tasks
 - **`request_transition`**: Trigger-based status changes with validation (preferred for status updates)
 - **`get_next_status`**: Read-only status progression recommendations
@@ -199,7 +199,7 @@ With guidelines internalized, AI agents can recognize patterns:
 ### Principle 3: Status-Driven Lifecycle
 **Why**: Clear status tracking enables progress visibility
 **When**: Update status as work transitions between phases
-**How**: pending → in-progress → completed (use `request_transition` or `manage_container(setStatus)`)
+**How**: pending → in-progress → completed (use `request_transition`)
 
 ### Principle 4: Context Efficiency
 **Why**: Reduce token usage for better AI agent performance
@@ -1179,7 +1179,6 @@ Task Orchestrator provides guidance through multiple channels:
 
 - **`get_next_status`**: Read-only recommendations based on workflow config and entity state
 - **`request_transition`**: Preferred tool for status changes — uses named triggers (start, complete, cancel, block, hold) with prerequisite validation
-- **`manage_container(setStatus)`**: Direct status override when trigger-based transition is not needed
 
 ## Core Workflow Pattern
 
@@ -1196,7 +1195,6 @@ Task Orchestrator provides guidance through multiple channels:
 Status progression is config-driven via `.taskorchestrator/config.yaml`:
 - **`get_next_status`**: Recommends next status based on tags and flow
 - **`request_transition`**: Applies status transitions with trigger-based validation (preferred)
-- **`manage_container(setStatus)`**: Direct status override when trigger-based transition is not needed
 - Flows are determined by entity tags (e.g., `bug` → `bug_fix_flow`)
 - Emergency transitions (blocked, cancelled) available from any state
 
@@ -1223,7 +1221,7 @@ Entities with `requiresVerification=true` cannot be completed until a Verificati
 **How It Works:**
 1. Create a Verification section with JSON acceptance criteria: `[{"criteria": "description", "pass": false}, ...]`
 2. As you verify each condition, update the criterion's `pass` to `true`
-3. The server blocks `request_transition(trigger="complete")` and `manage_container(setStatus)` until ALL criteria pass
+3. The server blocks `request_transition(trigger="complete")` until ALL criteria pass
 
 **When to Use:**
 - **Use** for implementation tasks, bug fixes, features with formal requirements
@@ -1317,7 +1315,7 @@ All features and tasks belong to this project. Always pass `projectId` when crea
 
 ### Workflow Rules
 
-1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`, never `manage_container(setStatus)`. For batch changes, use the `transitions` array parameter. `setStatus` skips validation, cascade detection, and unblocked task identification.
+1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`. For batch changes, use the `transitions` array parameter. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
 
 2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
 

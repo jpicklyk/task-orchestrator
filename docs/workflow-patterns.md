@@ -73,27 +73,27 @@ pending → in-progress → completed
 manage_container(
   operation="create",
   containerType="task",
-  title="Add user login endpoint",
-  status="pending",
-  priority="high",
-  complexity=5,
-  tags="backend,api,auth"
+  containers=[{
+    title="Add user login endpoint",
+    status="pending",
+    priority="high",
+    complexity=5,
+    tags="backend,api,auth"
+  }]
 )
 
 # Start work
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-progress"
+  trigger="start"
 )
 
 # Complete and done
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="completed"
+  trigger="complete"
 )
 ```
 
@@ -165,53 +165,64 @@ pending → in-progress → testing → deployed:staging → deployed:production
 manage_container(
   operation="create",
   containerType="task",
-  title="Implement password reset flow",
-  status="pending",
-  priority="high",
-  complexity=7,
-  tags="backend,auth,security"
+  containers=[{
+    title="Implement password reset flow",
+    status="pending",
+    priority="high",
+    complexity=7,
+    tags="backend,auth,security"
+  }]
 )
 
 # 2. Start implementation
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-progress"
+  trigger="start"
 )
 
 # 3. Implementation complete, start testing
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="testing"
+  trigger="start"
 )
 
-# 4. Tests pass, deploy to staging
+# 4. Tests pass, deploy to staging - update tags then advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,auth,security,staging"  # Add staging tag
+  containers=[{
+    id="task-uuid",
+    tags="backend,auth,security,staging"
+  }]
+)
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
 )
 
-# 5. Staging validated, deploy to production
+# 5. Staging validated, deploy to production - update tags then advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,auth,security,production"  # Change to production tag
+  containers=[{
+    id="task-uuid",
+    tags="backend,auth,security,production"
+  }]
+)
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
 )
 
 # 6. Production verified, mark complete
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="completed"
+  trigger="complete"
 )
 ```
 
@@ -251,81 +262,90 @@ validated → deployed:staging → deployed:production → completed
 manage_container(
   operation="create",
   containerType="task",
-  title="Add payment processing integration",
-  status="pending",
-  priority="high",
-  complexity=9,
-  tags="backend,payments,stripe,critical"
+  containers=[{
+    title="Add payment processing integration",
+    status="pending",
+    priority="high",
+    complexity=9,
+    tags="backend,payments,stripe,critical"
+  }]
 )
 
 # 2. Developer starts work
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-progress"
+  trigger="start"
 )
 
 # 3. Implementation done, submit for review
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-review"
+  trigger="start"
 )
 # Hook sends notification to team: "Task ready for review"
 
 # 4. Review approved, move to testing
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="testing"
+  trigger="start"
 )
 
 # 5. Tests pass, ready for QA
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="ready-for-qa"
+  trigger="start"
 )
 # Hook sends notification to QA: "Task ready for testing"
 
 # 6. QA validated
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="validated"
+  trigger="start"
 )
+# Hook logs QA signoff
 
-# 7. Deploy to staging
+# 7. Deploy to staging - update tags then advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,payments,stripe,critical,staging"
+  containers=[{
+    id="task-uuid",
+    tags="backend,payments,stripe,critical,staging"
+  }]
+)
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
 )
 # Hook triggers staging deployment script
 
-# 8. Staging verified, deploy to production (requires approval)
+# 8. Staging verified, deploy to production (requires approval) - update tags then advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,payments,stripe,critical,production"
+  containers=[{
+    id="task-uuid",
+    tags="backend,payments,stripe,critical,production"
+  }]
+)
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
 )
 # Hook requires QA signoff before deploying
 
 # 9. Production verified, mark complete
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="completed"
+  trigger="complete"
 )
 # Hook sends team notification: "Task completed in production"
 ```
@@ -445,8 +465,8 @@ STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty')
 TAGS=$(echo "$INPUT" | jq -r '.tool_input.tags // empty')
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.id // empty')
 
-# Only proceed if operation is update or setStatus
-if [[ "$OPERATION" != "update" && "$OPERATION" != "setStatus" ]]; then
+# Only proceed if operation is update (status changes now use request_transition)
+if [[ "$OPERATION" != "update" ]]; then
   exit 0
 fi
 
@@ -685,9 +705,11 @@ exit 0
 **QA Approval Workflow**:
 
 ```bash
-# 1. Task deployed to staging
-manage_container(operation="update", containerType="task", id="task-uuid",
-                status="deployed", tags="backend,api,staging")
+# 1. Task deployed to staging - update tags and advance
+manage_container(operation="update", containerType="task",
+                containers=[{id="task-uuid", tags="backend,api,staging"}])
+request_transition(containerId="task-uuid", containerType="task",
+                   trigger="start")
 
 # 2. QA tests in staging environment
 # 3. QA approves for production
@@ -700,10 +722,12 @@ Test Results: All acceptance criteria met
 Notes: Tested on Chrome, Firefox, Safari. Performance acceptable.
 EOF
 
-# 4. Attempt production deployment (now allowed)
-manage_container(operation="update", containerType="task", id="task-uuid",
-                status="deployed", tags="backend,api,production")
-# ✓ Production gate passes, deployment proceeds
+# 4. Attempt production deployment (now allowed) - update tags and advance
+manage_container(operation="update", containerType="task",
+                containers=[{id="task-uuid", tags="backend,api,production"}])
+request_transition(containerId="task-uuid", containerType="task",
+                   trigger="start")
+# Production gate passes, deployment proceeds
 ```
 
 ---
@@ -734,8 +758,8 @@ OPERATION=$(echo "$INPUT" | jq -r '.tool_input.operation // empty')
 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty')
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.id // empty')
 
-# Only proceed on setStatus or update operations
-if [[ "$OPERATION" != "setStatus" && "$OPERATION" != "update" ]]; then
+# Only proceed on update operations (status changes now use request_transition)
+if [[ "$OPERATION" != "update" ]]; then
   exit 0
 fi
 
@@ -864,14 +888,14 @@ exit 0
 
 ```bash
 # Developer marks task ready for QA
-manage_container(operation="setStatus", containerType="task",
-                id="task-uuid", status="ready-for-qa")
+request_transition(containerId="task-uuid", containerType="task",
+                   trigger="start")
 # → Hook creates QA queue item, sends Slack notification to QA team
 
 # QA team tests the task
 # QA approves and marks validated
-manage_container(operation="setStatus", containerType="task",
-                id="task-uuid", status="validated")
+request_transition(containerId="task-uuid", containerType="task",
+                   trigger="start")
 # → Hook removes from QA queue, logs signoff, notifies team
 ```
 
@@ -1043,70 +1067,83 @@ cut -d',' -f2 .claude/metrics/deployments.csv | tail -n +2 | sort | uniq -c
 manage_container(
   operation="create",
   containerType="feature",
-  name="Password Reset Flow",
-  status="planning",
-  priority="high",
   projectId="project-uuid",
-  tags="backend,auth,security"
+  containers=[{
+    name="Password Reset Flow",
+    status="planning",
+    priority="high",
+    tags="backend,auth,security"
+  }]
 )
 
 # 2. Create task
 manage_container(
   operation="create",
   containerType="task",
-  title="Implement password reset API endpoint",
-  status="pending",
-  priority="high",
-  complexity=7,
   featureId="feature-uuid",
-  tags="backend,api,auth"
+  containers=[{
+    title="Implement password reset API endpoint",
+    status="pending",
+    priority="high",
+    complexity=7,
+    tags="backend,api,auth"
+  }]
 )
 
 # 3. Start implementation
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-progress"
+  trigger="start"
 )
 # Work on implementation...
 
-# 4. Implementation complete, run tests
-manage_container(
-  operation="setStatus",
+# 4. Implementation complete, run tests - advance to testing
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="testing"
+  trigger="start"
 )
 # ./gradlew test
 
-# 5. Tests pass, deploy to staging
+# 5. Tests pass, deploy to staging - update tags and advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,api,auth,staging"
+  containers=[{
+    id="task-uuid",
+    tags="backend,api,auth,staging"
+  }]
 )
-# → Hook triggers staging deployment script
-# → Test in staging environment
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
+)
+# Hook triggers staging deployment script
+# Test in staging environment
 
-# 6. Staging validated, deploy to production
+# 6. Staging validated, deploy to production - update tags and advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,api,auth,production"
+  containers=[{
+    id="task-uuid",
+    tags="backend,api,auth,production"
+  }]
 )
-# → Hook triggers production deployment script
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
+)
+# Hook triggers production deployment script
 
 # 7. Verify in production, mark complete
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="completed"
+  trigger="complete"
 )
 ```
 
@@ -1120,69 +1157,72 @@ manage_container(
 manage_container(
   operation="create",
   containerType="task",
-  title="Integrate Stripe payment processing",
-  status="pending",
-  priority="high",
-  complexity=9,
   featureId="feature-uuid",
-  tags="backend,payments,stripe,critical"
+  containers=[{
+    title="Integrate Stripe payment processing",
+    status="pending",
+    priority="high",
+    complexity=9,
+    tags="backend,payments,stripe,critical"
+  }]
 )
 
 # 2. Developer implements
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-progress"
+  trigger="start"
 )
 # Code implementation...
 
 # 3. Submit for code review
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="in-review"
+  trigger="start"
 )
-# → Hook notifies team reviewer
+# Hook notifies team reviewer
 # Reviewer checks code, approves
 
 # 4. Code approved, run tests
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="testing"
+  trigger="start"
 )
 # ./gradlew test
 
 # 5. Tests pass, ready for QA
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="ready-for-qa"
+  trigger="start"
 )
-# → Hook creates QA queue item, notifies QA team
+# Hook creates QA queue item, notifies QA team
 
 # 6. QA validates functionality
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="validated"
+  trigger="start"
 )
-# → Hook logs QA signoff
+# Hook logs QA signoff
 
-# 7. Deploy to staging
+# 7. Deploy to staging - update tags and advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,payments,stripe,critical,staging"
+  containers=[{
+    id="task-uuid",
+    tags="backend,payments,stripe,critical,staging"
+  }]
 )
-# → Hook deploys to staging
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
+)
+# Hook deploys to staging
 # QA tests in staging
 
 # 8. QA approves for production
@@ -1190,25 +1230,30 @@ mkdir -p .claude/qa-approvals
 echo "Approved by: QA Lead" > .claude/qa-approvals/task-uuid.approved
 echo "Date: $(date -u)" >> .claude/qa-approvals/task-uuid.approved
 
-# 9. Deploy to production
+# 9. Deploy to production - update tags and advance
 manage_container(
   operation="update",
   containerType="task",
-  id="task-uuid",
-  status="deployed",
-  tags="backend,payments,stripe,critical,production"
+  containers=[{
+    id="task-uuid",
+    tags="backend,payments,stripe,critical,production"
+  }]
 )
-# → Hook checks QA approval (passes)
-# → Hook deploys to production
+request_transition(
+  containerId="task-uuid",
+  containerType="task",
+  trigger="start"
+)
+# Hook checks QA approval (passes)
+# Hook deploys to production
 
 # 10. Verify and complete
-manage_container(
-  operation="setStatus",
+request_transition(
+  containerId="task-uuid",
   containerType="task",
-  id="task-uuid",
-  status="completed"
+  trigger="complete"
 )
-# → Hook notifies team of completion
+# Hook notifies team of completion
 ```
 
 ---
@@ -1271,13 +1316,15 @@ tags="backend,api,staging,production"  # Which environment?
 
 **Update tags when promoting**:
 ```bash
-# Deploy to staging
-manage_container(operation="update", id="task-uuid",
-                status="deployed", tags="backend,api,staging")
+# Deploy to staging - update tags then advance
+manage_container(operation="update", containerType="task",
+                containers=[{id="task-uuid", tags="backend,api,staging"}])
+request_transition(containerId="task-uuid", containerType="task", trigger="start")
 
-# Promote to production (replace staging tag)
-manage_container(operation="update", id="task-uuid",
-                status="deployed", tags="backend,api,production")
+# Promote to production (replace staging tag) - update tags then advance
+manage_container(operation="update", containerType="task",
+                containers=[{id="task-uuid", tags="backend,api,production"}])
+request_transition(containerId="task-uuid", containerType="task", trigger="start")
 ```
 
 ### Hook Integration Best Practices

@@ -77,7 +77,7 @@ The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project m
 |------|-----------|------------|---------|
 | **Container Tools** |
 | `query_container` | 🔍 READ | get, search, export, overview | Read operations for projects/features/tasks |
-| `manage_container` | ✏️ WRITE | create, update, delete, setStatus, bulkUpdate | Write operations for projects/features/tasks |
+| `manage_container` | ✏️ WRITE | create, update, delete | Write operations for projects/features/tasks |
 | **Section Tools** |
 | `query_sections` | 🔍 READ | (single operation with filtering) | Read sections with selective loading |
 | `manage_sections` | ✏️ WRITE | add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete | All section write operations |
@@ -606,28 +606,30 @@ Scoped overview is optimized for "show me details" queries without the overhead 
 
 **Purpose**: Unified write operations for all container types (projects, features, tasks)
 
-**Operations**: `create`, `update`, `delete`, `setStatus`, `bulkUpdate`
+**Operations**: `create`, `update`, `delete`
+
+All operations use array-based parameters for batch support (max 100 items per call).
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `operation` | enum | **Yes** | Operation: `create`, `update`, `delete`, `setStatus`, `bulkUpdate` |
+| `operation` | enum | **Yes** | Operation: `create`, `update`, `delete` |
 | `containerType` | enum | **Yes** | Container type: `project`, `feature`, `task` |
-| `id` | UUID | Varies | Container ID (required for: `update`, `delete`, `setStatus`) |
-| `name` / `title` | string | Varies | Name (project/feature) or title (task) - required for `create` |
-| `summary` | string | No | Brief summary (max 500 chars) |
-| `description` | string | No | Detailed description |
-| `status` | enum | No | Container status |
-| `priority` | enum | No | Priority: `low`, `medium`, `high` (`feature`/`task` only) |
-| `complexity` | integer | No | Complexity 1-10 (`task` only) |
-| `projectId` | UUID | No | Parent project ID (`feature`/`task`) |
-| `featureId` | UUID | No | Parent feature ID (`task` only) |
-| `templateIds` | array | No | Template UUIDs to apply (`create` only) |
-| `tags` | string | No | Comma-separated tags |
-| `deleteSections` | boolean | No | Delete sections with container (default: true) |
-| `force` | boolean | No | Force delete with dependencies (default: false) |
-| `containers` | array | No | Container objects for bulk update (`bulkUpdate` only) |
+| `containers` | array | Varies | Array of container objects (required for `create`, `update`). Max 100 items. |
+| `ids` | array | Varies | Array of container UUIDs (required for `delete`). Max 100 items. |
+| `projectId` | UUID | No | Default parent project ID inherited by all items (`create` only) |
+| `featureId` | UUID | No | Default parent feature ID inherited by all items (`create` only, task containers) |
+| `templateIds` | array | No | Default template UUIDs inherited by all items (`create` only) |
+| `tags` | string | No | Default comma-separated tags inherited by all items (`create` only) |
+| `deleteSections` | boolean | No | Delete sections when deleting (default: true, `delete` only) |
+| `force` | boolean | No | Force delete with dependencies (default: false, `delete` only) |
+
+**Shared Defaults (create only)**: Top-level `projectId`, `featureId`, `templateIds`, and `tags` serve as defaults for all items in the `containers` array. Per-item values override defaults.
+
+**Container Object Fields**:
+- **Create**: `{ name/title (required), description, summary, status, priority, complexity, projectId, featureId, templateIds, requiresVerification, tags }`
+- **Update**: `{ id (required), name/title, description, summary, status, priority, complexity, projectId, featureId, requiresVerification, tags }`
 
 #### Status Values by Container Type
 
@@ -760,11 +762,13 @@ The `deployed` status supports **environment tags** to track deployment targets:
 **Example - Deploy Feature to Staging**:
 ```json
 {
-  "operation": "setStatus",
+  "operation": "update",
   "containerType": "feature",
-  "id": "feature-uuid",
-  "status": "deployed",
-  "tags": "authentication,env:staging"
+  "containers": [{
+    "id": "feature-uuid",
+    "status": "deployed",
+    "tags": "authentication,env:staging"
+  }]
 }
 ```
 
@@ -835,16 +839,16 @@ statusValidator.validatePrerequisites(
 **Task Deployment Flow**:
 ```javascript
 // 1. Complete task
-manage_container(operation="update", containerType="task", id="...",
-                 status="completed", summary="Implemented OAuth with JWT tokens...")
+request_transition(containerId="...", containerType="task",
+                  trigger="complete")
 
 // 2. Deploy to staging
-manage_container(operation="update", containerType="task", id="...",
-                 status="deployed", tags="backend,oauth,env:staging")
+manage_container(operation="update", containerType="task",
+                containers=[{id: "...", status: "deployed", tags: "backend,oauth,env:staging"}])
 
 // 3. Verify staging, then deploy to production
-manage_container(operation="update", containerType="task", id="...",
-                 tags="backend,oauth,env:production")
+manage_container(operation="update", containerType="task",
+                containers=[{id: "...", tags: "backend,oauth,env:production"}])
 ```
 
 **Feature Deployment Flow**:
@@ -852,59 +856,82 @@ manage_container(operation="update", containerType="task", id="...",
 // 1. Complete all tasks
 // ... (tasks reach completed status)
 
-// 2. Move feature to testing
-manage_container(operation="setStatus", containerType="feature", id="...",
-                 status="testing")
+// 2. Move feature to testing (use request_transition for workflow-based progression)
+request_transition(containerId="...", containerType="feature", trigger="start")
 
 // 3. Validate tests passed
-manage_container(operation="setStatus", containerType="feature", id="...",
-                 status="validating")
+request_transition(containerId="...", containerType="feature", trigger="start")
 
 // 4. Get review approval
-manage_container(operation="setStatus", containerType="feature", id="...",
-                 status="pending-review")
+request_transition(containerId="...", containerType="feature", trigger="start")
 
 // 5. Mark complete
-manage_container(operation="setStatus", containerType="feature", id="...",
-                 status="completed")
+request_transition(containerId="...", containerType="feature", trigger="complete")
 
 // 6. Deploy to production
-manage_container(operation="update", containerType="feature", id="...",
-                 status="deployed", tags="user-auth,env:production")
+manage_container(operation="update", containerType="feature",
+                containers=[{id: "...", status: "deployed", tags: "user-auth,env:production"}])
 ```
 
 **Canary Deployment**:
 ```javascript
 // Deploy to canary first (gradual rollout)
-manage_container(operation="update", containerType="feature", id="...",
-                 status="deployed", tags="payments,env:canary")
+manage_container(operation="update", containerType="feature",
+                containers=[{id: "...", status: "deployed", tags: "payments,env:canary"}])
 
 // Monitor canary, then promote to production
-manage_container(operation="update", containerType="feature", id="...",
-                 tags="payments,env:production")
+manage_container(operation="update", containerType="feature",
+                containers=[{id: "...", tags: "payments,env:production"}])
 ```
 
 ---
 
 #### Operation: create
 
-**Purpose**: Create new container
+**Purpose**: Create one or more containers
 
-**Required Parameters**: `operation`, `containerType`, `name`/`title`
+**Required Parameters**: `operation`, `containerType`, `containers` (array with at least 1 item)
 
-**Example - Create Task with Templates**:
+**Example - Create Single Task with Templates**:
 ```json
 {
   "operation": "create",
   "containerType": "task",
-  "title": "Implement user authentication",
-  "summary": "Add JWT-based authentication to the API",
-  "status": "pending",
-  "priority": "high",
-  "complexity": 7,
+  "containers": [{
+    "title": "Implement user authentication",
+    "summary": "Add JWT-based authentication to the API",
+    "status": "pending",
+    "priority": "high",
+    "complexity": 7,
+    "featureId": "550e8400-e29b-41d4-a716-446655440000",
+    "tags": "backend,security,api",
+    "templateIds": ["661e8511-e29b-41d4-a716-446655440001"]
+  }]
+}
+```
+
+**Example - Create Multiple Tasks with Shared Defaults**:
+```json
+{
+  "operation": "create",
+  "containerType": "task",
+  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
   "featureId": "550e8400-e29b-41d4-a716-446655440000",
-  "tags": "backend,security,api",
-  "templateIds": ["661e8511-e29b-41d4-a716-446655440001"]
+  "templateIds": ["661e8511-e29b-41d4-a716-446655440001"],
+  "tags": "backend,security",
+  "containers": [
+    {
+      "title": "Implement OAuth login",
+      "priority": "high",
+      "complexity": 7
+    },
+    {
+      "title": "Add JWT token validation",
+      "priority": "medium",
+      "complexity": 5,
+      "tags": "backend,security,api"
+    }
+  ]
 }
 ```
 
@@ -913,24 +940,14 @@ manage_container(operation="update", containerType="feature", id="...",
 {
   "operation": "create",
   "containerType": "feature",
-  "name": "User Authentication System",
-  "summary": "Comprehensive authentication with OAuth",
-  "status": "planning",
-  "priority": "high",
-  "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
-  "tags": "security,backend"
-}
-```
-
-**Example - Create Project**:
-```json
-{
-  "operation": "create",
-  "containerType": "project",
-  "name": "E-Commerce Platform",
-  "summary": "Online shopping platform with payment integration",
-  "status": "planning",
-  "tags": "web,ecommerce,fullstack"
+  "containers": [{
+    "name": "User Authentication System",
+    "summary": "Comprehensive authentication with OAuth",
+    "status": "planning",
+    "priority": "high",
+    "projectId": "a4fae8cb-7640-4527-bd89-11effbb1d039",
+    "tags": "security,backend"
+  }]
 }
 ```
 
@@ -938,16 +955,34 @@ manage_container(operation="update", containerType="feature", id="...",
 ```json
 {
   "success": true,
-  "message": "Task created successfully",
+  "message": "Created 2 task(s)",
   "data": {
-    "id": "640522b7-810e-49a2-865c-3725f5d39608",
-    "title": "Implement user authentication",
-    "status": "pending",
-    "priority": "high",
-    "complexity": 7,
-    "createdAt": "2025-10-19T10:00:00Z",
-    "templatesApplied": 1,
-    "sectionsCreated": 3
+    "items": [
+      {
+        "id": "640522b7-810e-49a2-865c-3725f5d39608",
+        "title": "Implement OAuth login",
+        "status": "pending",
+        "appliedTemplates": [
+          {
+            "templateId": "661e8511-e29b-41d4-a716-446655440001",
+            "sectionsCreated": 3
+          }
+        ]
+      },
+      {
+        "id": "740633c8-920f-50b3-976d-4826g6e40709",
+        "title": "Add JWT token validation",
+        "status": "pending",
+        "appliedTemplates": [
+          {
+            "templateId": "661e8511-e29b-41d4-a716-446655440001",
+            "sectionsCreated": 3
+          }
+        ]
+      }
+    ],
+    "created": 2,
+    "failed": 0
   }
 }
 ```
@@ -956,153 +991,43 @@ manage_container(operation="update", containerType="feature", id="...",
 
 #### Operation: update
 
-**Purpose**: Update container fields (partial updates supported)
+**Purpose**: Update one or more containers (partial updates supported)
 
-**Required Parameters**: `operation`, `containerType`, `id`
+**Required Parameters**: `operation`, `containerType`, `containers` (array with at least 1 item, each item must have `id`)
 
-**Example - Update Task Status and Priority**:
+**Example - Update Single Task Status and Priority**:
 ```json
 {
   "operation": "update",
   "containerType": "task",
-  "id": "640522b7-810e-49a2-865c-3725f5d39608",
-  "status": "in-progress",
-  "priority": "critical"
+  "containers": [{
+    "id": "640522b7-810e-49a2-865c-3725f5d39608",
+    "status": "in-progress",
+    "priority": "high"
+  }]
 }
 ```
 
-**Example - Update Feature Summary**:
+**Example - Update Multiple Tasks**:
 ```json
 {
   "operation": "update",
-  "containerType": "feature",
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "summary": "Updated comprehensive authentication with OAuth 2.0 and JWT"
-}
-```
-
-**Example - Update Tags Only**:
-```json
-{
-  "operation": "update",
-  "containerType": "task",
-  "id": "640522b7-810e-49a2-865c-3725f5d39608",
-  "tags": "backend,security,api,authentication"
-}
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "message": "Task updated successfully",
-  "data": {
-    "id": "640522b7-810e-49a2-865c-3725f5d39608",
-    "modifiedAt": "2025-10-19T12:30:00Z",
-    "fieldsUpdated": ["status", "priority"]
-  }
-}
-```
-
----
-
-#### Operation: delete
-
-**Purpose**: Remove container
-
-**Required Parameters**: `operation`, `containerType`, `id`
-
-**Example - Delete Task (with sections)**:
-```json
-{
-  "operation": "delete",
-  "containerType": "task",
-  "id": "640522b7-810e-49a2-865c-3725f5d39608",
-  "deleteSections": true
-}
-```
-
-**Example - Delete Feature (force with dependencies)**:
-```json
-{
-  "operation": "delete",
-  "containerType": "feature",
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "force": true
-}
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "message": "Task deleted successfully",
-  "data": {
-    "id": "640522b7-810e-49a2-865c-3725f5d39608",
-    "sectionsDeleted": 3,
-    "dependenciesRemoved": 2
-  }
-}
-```
-
----
-
-#### Operation: setStatus
-
-**Purpose**: Quick status-only update (optimized)
-
-**Required Parameters**: `operation`, `containerType`, `id`, `status`
-
-**Example - Set Task to Completed**:
-```json
-{
-  "operation": "setStatus",
-  "containerType": "task",
-  "id": "640522b7-810e-49a2-865c-3725f5d39608",
-  "status": "completed"
-}
-```
-
-**Example - Set Feature to In-Development**:
-```json
-{
-  "operation": "setStatus",
-  "containerType": "feature",
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "in-development"
-}
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "message": "Task status updated successfully",
-  "data": {
-    "id": "640522b7-810e-49a2-865c-3725f5d39608",
-    "status": "completed",
-    "modifiedAt": "2025-10-19T14:00:00Z"
-  }
-}
-```
-
----
-
-#### Operation: bulkUpdate
-
-**Purpose**: Update multiple containers in single transaction
-
-**Required Parameters**: `operation`, `containerType`, `containers`
-
-**Example - Bulk Status Update**:
-```json
-{
-  "operation": "bulkUpdate",
   "containerType": "task",
   "containers": [
-    {"id": "task-1-uuid", "status": "completed"},
-    {"id": "task-2-uuid", "status": "completed"},
-    {"id": "task-3-uuid", "status": "deferred", "priority": "low"}
+    {
+      "id": "640522b7-810e-49a2-865c-3725f5d39608",
+      "status": "completed",
+      "summary": "Implemented OAuth 2.0 with JWT tokens"
+    },
+    {
+      "id": "740633c8-920f-50b3-976d-4826g6e40709",
+      "status": "in-progress"
+    },
+    {
+      "id": "850744d9-031g-61c4-087e-5937h7f51810",
+      "priority": "low",
+      "tags": "backend,deferred"
+    }
   ]
 }
 ```
@@ -1111,20 +1036,76 @@ manage_container(operation="update", containerType="feature", id="...",
 ```json
 {
   "success": true,
-  "message": "Updated 3 tasks successfully",
+  "message": "3 tasks updated successfully",
   "data": {
-    "totalUpdated": 3,
-    "failed": 0,
-    "updates": [
-      {"id": "task-1-uuid", "success": true},
-      {"id": "task-2-uuid", "success": true},
-      {"id": "task-3-uuid", "success": true}
-    ]
+    "items": [
+      {
+        "id": "640522b7-810e-49a2-865c-3725f5d39608",
+        "modifiedAt": "2025-10-19T12:30:00Z"
+      },
+      {
+        "id": "740633c8-920f-50b3-976d-4826g6e40709",
+        "modifiedAt": "2025-10-19T12:30:00Z"
+      },
+      {
+        "id": "850744d9-031g-61c4-087e-5937h7f51810",
+        "modifiedAt": "2025-10-19T12:30:00Z"
+      }
+    ],
+    "updated": 3,
+    "failed": 0
   }
 }
 ```
 
-> **Status Validation**: When a container in the bulk update includes a status change, StatusValidator runs for that entity — checking prerequisites, dependency completion, and transition validity. Invalid status changes fail individually without blocking other updates in the batch.
+**Note on Status Changes**: When updating status via `manage_container`, validation and prerequisite checks run automatically. For workflow-based status changes with cascade detection, use `request_transition` instead.
+
+---
+
+#### Operation: delete
+
+**Purpose**: Delete one or more containers
+
+**Required Parameters**: `operation`, `containerType`, `ids` (array with at least 1 UUID)
+
+**Example - Delete Single Task (with sections)**:
+```json
+{
+  "operation": "delete",
+  "containerType": "task",
+  "ids": ["640522b7-810e-49a2-865c-3725f5d39608"],
+  "deleteSections": true
+}
+```
+
+**Example - Delete Multiple Features (force with dependencies)**:
+```json
+{
+  "operation": "delete",
+  "containerType": "feature",
+  "ids": [
+    "550e8400-e29b-41d4-a716-446655440000",
+    "660f9511-f30c-52e5-b827-557766551111"
+  ],
+  "force": true
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Deleted 2 feature(s)",
+  "data": {
+    "ids": [
+      "550e8400-e29b-41d4-a716-446655440000",
+      "660f9511-f30c-52e5-b827-557766551111"
+    ],
+    "deleted": 2,
+    "failed": 0
+  }
+}
+```
 
 ---
 
@@ -2139,7 +2120,7 @@ The **Status Progression Skill** (Claude Code only) uses `get_next_status` to pr
 1. Calls `get_next_status(containerId="...", containerType="task")`
 2. Interprets recommendation
 3. If Blocked → explains blockers and how to fix them
-4. If Ready → confirms and provides setStatus command
+4. If Ready → confirms and provides request_transition command
 5. If Terminal → explains status is final
 
 **Example Skill Response (Blocked)**:
@@ -2151,16 +2132,16 @@ Required: at most 500 characters
 
 Fix:
 manage_container(operation="update", containerType="task",
-  id="...", summary="[up to 500 char description]")
+  containers=[{id: "...", summary: "[up to 500 char description]"}])
 
 Then complete:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="completed")
+request_transition(containerId="...", containerType="task",
+  trigger="complete")
 ```
 
 #### Usage Notes
 
-1. **Read-Only**: This tool ONLY recommends status. Use `manage_container(operation="setStatus", ...)` to apply changes.
+1. **Read-Only**: This tool ONLY recommends status. Use `request_transition` to apply workflow-based changes, or `manage_container(operation="update", containers=[{id, status}])` for direct status changes.
 
 2. **Flow Determination**: Entity tags are matched against workflow configuration (config.yaml) to determine active flow:
    - Tags `["bug"]` → `bug_fix_flow`
@@ -2181,7 +2162,8 @@ manage_container(operation="setStatus", containerType="task",
 
 #### Related Tools
 
-- `manage_container` - Apply status changes with `setStatus` operation
+- `request_transition` - Apply workflow-based status changes with validation and cascade detection
+- `manage_container` - Direct status updates via update operation
 - `query_container` - Get entity details
 - **Status Progression Skill** (Claude Code) - Natural language interface to get_next_status
 
@@ -2644,50 +2626,53 @@ v2.0 introduces **clear permission separation** between read and write operation
 
 ---
 
-#### 3. Prefer Bulk Operations
+#### 3. Use Batch Operations for Multiple Items
 
 **Instead of**:
 ```
-3 × manage_sections(operation="delete", id="...")
+3 × manage_container(operation="update", ...)
 = ~3,600 characters
 ```
 
 **Use**:
 ```json
 {
-  "operation": "bulkDelete",
-  "ids": ["id1", "id2", "id3"]
+  "operation": "update",
+  "containerType": "task",
+  "containers": [
+    {"id": "id1", "status": "completed"},
+    {"id": "id2", "status": "completed"},
+    {"id": "id3", "priority": "low"}
+  ]
 }
-= ~400 characters
+= ~450 characters
 ```
 
-**Savings**: 89% token reduction
+**Savings**: 87% token reduction
 
 ---
 
-#### 4. Use setStatus for Status-Only Changes
+#### 4. Use request_transition for Status Changes
 
-**Instead of**:
+**For workflow-based status changes with cascade detection**:
+```json
+{
+  "containerId": "...",
+  "containerType": "task",
+  "trigger": "complete"
+}
+```
+
+**Benefits**: Validation, cascade detection, unblocked task identification
+
+**For direct status changes** (when skipping workflow):
 ```json
 {
   "operation": "update",
   "containerType": "task",
-  "id": "...",
-  "status": "completed"
+  "containers": [{"id": "...", "status": "completed"}]
 }
 ```
-
-**Use**:
-```json
-{
-  "operation": "setStatus",
-  "containerType": "task",
-  "id": "...",
-  "status": "completed"
-}
-```
-
-**Benefits**: Simpler, faster, clear intent
 
 ---
 
@@ -2723,8 +2708,8 @@ User: "Show me pending backend tasks"
                            status="pending", tags="backend")
 
 User: "Mark task X as done"
-→ AI uses: manage_container(operation="setStatus", containerType="task",
-                            id="X", status="completed")
+→ AI uses: request_transition(containerId="X", containerType="task",
+                              trigger="complete")
 ```
 
 ---
@@ -2794,8 +2779,8 @@ AI Workflow:
 | Pattern | Token Savings | When to Use |
 |---------|---------------|-------------|
 | Two-step section loading | 85-99% | Browse structure before loading content |
-| Bulk operations | 70-95% | Updating 3+ items simultaneously |
-| `setStatus` vs `update` | 40-60% | Status-only changes |
+| Batch operations | 70-95% | Creating/updating/deleting 2+ items simultaneously |
+| `request_transition` vs direct update | Validation + cascades | Workflow-based status changes |
 | Template discovery caching | Auto | Repeated template access |
 | Progressive container loading | 50-80% | Load details only when needed |
 
@@ -2807,17 +2792,18 @@ AI Workflow:
 
 **Quick reference**:
 
-| v1.x Tool | v2.0 Tool | v2.0 Operation |
-|-----------|-----------|----------------|
-| `create_task` | `manage_container` | `create` (containerType=task) |
-| `get_task` | `query_container` | `get` (containerType=task) |
-| `search_tasks` | `query_container` | `search` (containerType=task) |
-| `update_task` | `manage_container` | `update` (containerType=task) |
-| `delete_task` | `manage_container` | `delete` (containerType=task) |
-| `get_sections` | `query_sections` | (no operation parameter) |
-| `add_section` | `manage_sections` | `add` |
-| `list_templates` | `query_templates` | `list` |
-| `create_dependency` | `manage_dependencies` | `create` |
+| v1.x Tool | v2.0 Tool | v2.0 Operation | Notes |
+|-----------|-----------|----------------|-------|
+| `create_task` | `manage_container` | `create` (containerType=task, containers=[...]) | Now uses array |
+| `get_task` | `query_container` | `get` (containerType=task) | No change |
+| `search_tasks` | `query_container` | `search` (containerType=task) | No change |
+| `update_task` | `manage_container` | `update` (containerType=task, containers=[...]) | Now uses array |
+| `delete_task` | `manage_container` | `delete` (containerType=task, ids=[...]) | Now uses array |
+| `set_task_status` | `request_transition` | Use triggers instead | Prefer request_transition |
+| `get_sections` | `query_sections` | (no operation parameter) | No change |
+| `add_section` | `manage_sections` | `add` | No change |
+| `list_templates` | `query_templates` | `list` | No change |
+| `create_dependency` | `manage_dependencies` | `create` | No change |
 
 ---
 

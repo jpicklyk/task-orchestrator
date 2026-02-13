@@ -17,7 +17,7 @@ If no project exists yet, create one before any other work:
 ## Core Workflow
 
 1. **Discover templates** with `query_templates(targetEntityType="TASK")` before creating tasks
-2. **Create tasks** with `manage_container(operation="create", containerType="task")` — pass `templateIds` to auto-create documentation sections, `featureId` to group under a feature, and `tags` for workflow selection and filtering
+2. **Create tasks** with `manage_container(operation="create", containerType="task", containers=[...])` — pass `templateIds` to auto-create documentation sections, `featureId` to group under a feature, and `tags` for workflow selection and filtering. Use the `containers` array for batch creation (even for single items).
 3. **Progress status** with `request_transition(trigger="start")`. See `status-progression` skill for flows and triggers.
 4. **Complete** with `request_transition(trigger="complete")` — check sections are filled and dependencies resolved first.
 
@@ -92,7 +92,7 @@ Every delegation prompt must include:
 
 ## Partial Updates
 
-**Never fetch an entity just to update it.** Use `manage_container(operation="update")` with only the changed fields. Token savings: 90-95% vs sending the full entity.
+**Never fetch an entity just to update it.** Use `manage_container(operation="update", containers=[{id, ...changedFields}])` with only the changed fields in the containers array. Token savings: 90-95% vs sending the full entity.
 
 ## Section Management
 
