@@ -1896,6 +1896,40 @@ class RequestTransitionToolTest {
         }
 
         @Test
+        fun `userSummary handles single transition with string summary field without crashing`() {
+            // Regression test: when a single-entity transition includes a "summary" string
+            // (the caller's note), userSummary must not crash trying to parse it as a JsonObject.
+            // The batch response also has a "summary" field but as a JsonObject {total, succeeded, failed}.
+            val mockResult = buildJsonObject {
+                put("success", true)
+                put("message", "Transitioned task from 'pending' to 'completed'")
+                put("data", buildJsonObject {
+                    put("containerId", taskAId.toString())
+                    put("containerType", "task")
+                    put("previousStatus", "pending")
+                    put("newStatus", "completed")
+                    put("trigger", "complete")
+                    put("applied", true)
+                    put("summary", "Completed as part of feature work")  // String, NOT JsonObject
+                })
+            }
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+                put("summary", "Completed as part of feature work")
+            }
+
+            // This should NOT throw JsonLiteral is not a JsonObject
+            val summary = tool.userSummary(params, mockResult, false)
+            assertTrue(
+                summary.contains("pending") && summary.contains("completed"),
+                "userSummary should show status transition, got: $summary"
+            )
+        }
+
+        @Test
         fun `auto-cascade disabled returns legacy format`() = runBlocking {
             // Create a temp config with auto_cascade.enabled=false
             // The StatusValidator also needs config for v2 mode, so include status_progression

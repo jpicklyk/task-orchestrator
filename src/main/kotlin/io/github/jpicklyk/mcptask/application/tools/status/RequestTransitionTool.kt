@@ -120,14 +120,13 @@ The tool resolves the correct target status, validates prerequisites, and applie
 
 Parameters:
 | Field | Type | Required | Description |
-| containerId | UUID | No* | Entity to transition (legacy single mode) |
-| containerType | enum | No* | project, feature, task (legacy single mode) |
-| trigger | string | No* | Named trigger (legacy single mode) |
-| summary | string | No | Note about why the transition is happening |
-| transitions | array | No** | Array of transition objects for batch processing. Each: {containerId, containerType, trigger, summary?}. Mutually exclusive with individual params. |
+| transitions | array | **Yes** | Array of transition objects. Each: {containerId, containerType, trigger, summary?}. Even for a single transition, wrap it in an array. |
 
-*Required when transitions array is not provided (legacy single-entity mode).
-**Required when individual params are not provided (batch mode).
+Transition object fields:
+- containerId (required): UUID of the entity to transition
+- containerType (required): "task", "feature", or "project"
+- trigger (required): Named trigger (see below)
+- summary (optional): Note about why the transition is happening
 
 Built-in triggers:
 - "start" - Progress to next status in workflow flow
@@ -137,10 +136,10 @@ Built-in triggers:
 - "hold" - Move to on-hold (emergency transition)
 
 Returns:
-- Single mode: new status, previous status, previousRole, newRole, cascade events detected, flow context
-- Batch mode: results array with per-item outcomes, summary with counts and aggregated unblockedTasks
+- results array with per-item outcomes (containerId, previousStatus, newStatus, applied, previousRole, newRole, flow context)
+- summary with counts: {total, succeeded, failed}
 - unblockedTasks array (on task completion/cancellation): downstream tasks that are now fully unblocked, with taskId and title
-- Flow context in all responses: activeFlow, flowSequence, flowPosition for workflow awareness
+- Flow context per result: activeFlow, flowSequence, flowPosition for workflow awareness
 - If blocked: blocking reasons and prerequisites not met
 - If invalid: error with explanation
 
@@ -154,36 +153,10 @@ Related: manage_container, get_next_status"""
     override val parameterSchema: ToolSchema = ToolSchema(
         properties = JsonObject(
             mapOf(
-                "containerId" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("UUID of the entity to transition"),
-                        "format" to JsonPrimitive("uuid")
-                    )
-                ),
-                "containerType" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Type of container: task, feature, or project"),
-                        "enum" to JsonArray(listOf("task", "feature", "project").map { JsonPrimitive(it) })
-                    )
-                ),
-                "trigger" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Named trigger: start, complete, cancel, block, hold")
-                    )
-                ),
-                "summary" to JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Optional note about the transition reason")
-                    )
-                ),
                 "transitions" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("array"),
-                        "description" to JsonPrimitive("Array of transition objects for batch processing. Each: {containerId, containerType, trigger, summary?}. Mutually exclusive with individual params."),
+                        "description" to JsonPrimitive("Array of transition objects. Even for a single transition, wrap it in an array. Each object: {containerId (UUID), containerType (task|feature|project), trigger (start|complete|cancel|block|hold), summary? (optional note)}."),
                         "items" to JsonObject(
                             mapOf(
                                 "type" to JsonPrimitive("object"),
@@ -202,7 +175,7 @@ Related: manage_container, get_next_status"""
                 )
             )
         ),
-        required = emptyList()
+        required = listOf("transitions")
     )
 
     override val outputSchema: ToolSchema = ToolSchema(
@@ -1131,8 +1104,9 @@ Related: manage_container, get_next_status"""
         if (isError) return super.userSummary(params, result, true)
         val data = (result as? JsonObject)?.get("data")?.jsonObject ?: return super.userSummary(params, result, false)
 
-        // Batch response
-        val summary = data["summary"]?.jsonObject
+        // Batch response — data["summary"] is a JsonObject with {total, succeeded, failed}
+        // In single-entity mode, data["summary"] may be a JsonPrimitive (caller's note), so safe-cast
+        val summary = data["summary"] as? JsonObject
         if (summary != null) {
             val total = summary["total"]?.jsonPrimitive?.int ?: 0
             val succeeded = summary["succeeded"]?.jsonPrimitive?.int ?: 0
