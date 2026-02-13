@@ -348,3 +348,29 @@ completion_cleanup:
   # Tasks with any of these tags survive cleanup. Checked case-insensitively against task tags.
   # Common patterns: bug reports, critical fixes, hotfixes that have diagnostic value.
   retain_tags: [bug, bugfix, fix, hotfix, critical]
+
+# ============================================================================
+# AUTO-CASCADE CONFIGURATION
+# ============================================================================
+# When a status transition triggers cascade events (e.g., completing a task
+# triggers feature advancement), automatically apply the cascaded transitions
+# instead of returning them as suggestions.
+#
+# Cascade chain example:
+#   Task completed -> all_tasks_complete -> Feature advances to "completed"
+#   Feature completed -> all_features_complete -> Project advances to "completed"
+#
+# IMPLEMENTATION: RequestTransitionTool applies cascades recursively after each
+# transition, up to max_depth. Cascaded transitions respect StatusValidator
+# checks and verification gates.
+
+auto_cascade:
+  # Master switch. When false, cascade events are still detected and returned
+  # in the response but NOT automatically applied (legacy behavior).
+  enabled: true
+
+  # Maximum cascade depth. Prevents runaway recursion.
+  # Depth 1: task -> feature
+  # Depth 2: task -> feature -> project (typical max for hierarchy)
+  # Depth 3: safety margin
+  max_depth: 3

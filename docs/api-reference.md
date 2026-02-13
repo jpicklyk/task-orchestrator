@@ -2369,13 +2369,19 @@ manage_container(operation="setStatus", containerType="task",
     ],
     "totalSuccessful": 3,
     "totalFailed": 0,
+    "cascadesApplied": 1,
     "cascadeEvents": [
       {
-        "entityType": "feature",
-        "entityId": "feature-uuid",
+        "event": "all_tasks_complete",
+        "targetType": "feature",
+        "targetId": "feature-uuid",
+        "targetName": "User Authentication",
         "previousStatus": "in-development",
         "newStatus": "testing",
-        "reason": "All child tasks completed"
+        "applied": true,
+        "automatic": true,
+        "reason": "All 3 tasks completed/cancelled",
+        "childCascades": []
       }
     ],
     "aggregateUnblockedTasks": [
@@ -2442,19 +2448,30 @@ const progress = (flowPosition / (flowSequence.length - 1)) * 100;
 }
 ```
 
-#### Cascade Detection
+#### Cascade Detection and Auto-Cascade
 
-When a task or feature completes, `request_transition` checks if parent entities should automatically advance.
+When a task or feature completes, `request_transition` detects cascade events and **automatically applies them by default**. Cascades are recursive up to a configurable depth (default: 3), meaning a task completion can cascade to a feature advancement, which can further cascade to a project advancement -- all in a single call.
 
-**Important:** Cascades only fire when the parent entity is in the expected lifecycle state. The `all_tasks_complete` handler requires the feature to be in `in-development` (work role). If the feature is still in `planning`, the cascade silently does not fire. Always act on `first_task_started` cascades to advance the feature before expecting task completion cascades.
+**Auto-Cascade Configuration** (in `.taskorchestrator/config.yaml` or bundled `default-config.yaml`):
+
+```yaml
+auto_cascade:
+  enabled: true   # Set to false to return cascades as suggestions only (legacy behavior)
+  max_depth: 3    # Maximum recursion depth (task -> feature -> project)
+```
+
+**Important:** Cascades only fire when the parent entity is in the expected lifecycle state. The `all_tasks_complete` handler requires the feature to be in `in-development` (work role). If the feature is still in `planning`, the cascade silently does not fire. In practice, the `first_task_started` cascade auto-advances features from `planning` to `in-development`, so this ordering happens naturally when auto-cascade is enabled.
 
 **Feature Cascade Example**:
 ```
 First task starts → first_task_started cascade → Feature advances to "in-development"
 All tasks complete → all_tasks_complete cascade → Feature advances to "testing"
+All features complete → all_features_complete cascade → Project advances to "completed"
 ```
 
-**Response with cascade**:
+**Error isolation**: Failed cascades (e.g., verification gate blocks feature completion) do not affect the original transition. The cascade event is returned with `applied: false` and an `error` field.
+
+**Response with auto-applied cascade**:
 ```json
 {
   "success": true,
@@ -2462,16 +2479,31 @@ All tasks complete → all_tasks_complete cascade → Feature advances to "testi
     "newStatus": "completed",
     "cascadeEvents": [
       {
-        "entityType": "feature",
-        "entityId": "feature-uuid",
+        "event": "all_tasks_complete",
+        "targetType": "feature",
+        "targetId": "feature-uuid",
+        "targetName": "User Authentication",
         "previousStatus": "in-development",
         "newStatus": "testing",
-        "reason": "All child tasks completed"
+        "applied": true,
+        "automatic": true,
+        "reason": "All 5 tasks completed/cancelled",
+        "childCascades": []
       }
     ]
   }
 }
 ```
+
+**Cascade event fields**:
+- `event` - Event name (`all_tasks_complete`, `first_task_started`, `all_features_complete`)
+- `targetType` / `targetId` / `targetName` - The parent entity that was advanced
+- `previousStatus` / `newStatus` - The status change applied to the parent
+- `applied` - Whether the cascade was successfully applied
+- `automatic` - Always `true` when auto-cascade is enabled
+- `reason` - Human-readable explanation
+- `error` - Present only when `applied: false`
+- `childCascades` - Nested cascade events (recursive chain)
 
 #### Unblocked Tasks
 
@@ -2501,7 +2533,7 @@ When a task completes or is cancelled, `request_transition` identifies downstrea
 
 3. **Batch for efficiency**: Use batch mode when completing multiple tasks to reduce API calls and get aggregated cascade/unblocked task data.
 
-4. **Act on cascades**: Check `cascadeEvents` in responses and decide if further parent progression is needed.
+4. **Act on cascades**: Check `cascadeEvents` in responses. With auto-cascade enabled (default), cascades with `applied: true` have already been applied. Cascades with `applied: false` may need manual investigation.
 
 5. **Act on unblocked tasks**: Check `unblockedTasks` to find newly available work.
 

@@ -171,7 +171,7 @@ The server exposes 13 MCP tools organized into categories:
 
 ### Status Progression
 - **`get_next_status`** - Read-only status progression recommendations based on workflow configuration. Returns role annotations (queue, work, review, blocked, terminal) for semantic context.
-- **`request_transition`** - Trigger-based status transitions with validation. Use named triggers (start, complete, cancel, block, hold) instead of raw status values. Supports batch transitions via `transitions` array parameter. Responses include flow context (activeFlow, flowSequence, flowPosition).
+- **`request_transition`** - Trigger-based status transitions with validation. Use named triggers (start, complete, cancel, block, hold) instead of raw status values. Supports batch transitions via `transitions` array parameter. Responses include flow context (activeFlow, flowSequence, flowPosition). Cascade events detected after transitions are automatically applied by default (task completion -> feature advancement -> project advancement). Configure via `auto_cascade` section in `.taskorchestrator/config.yaml`. Responses include `cascadeEvents` with `applied: true/false` and nested `childCascades`.
 
 ### Status Management Workflow
 

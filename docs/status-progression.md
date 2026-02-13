@@ -89,11 +89,15 @@ request_transition(containerId="task-uuid", containerType="task", trigger="compl
 {
   "newStatus": "completed",
   "cascadeEvents": [{
-    "entityType": "feature",
-    "entityId": "feature-uuid",
+    "event": "all_tasks_complete",
+    "targetType": "feature",
+    "targetId": "feature-uuid",
+    "targetName": "User Authentication",
     "previousStatus": "in-development",
     "newStatus": "testing",
-    "reason": "All child tasks completed"
+    "applied": true,
+    "automatic": true,
+    "reason": "All 5 tasks completed/cancelled"
   }],
   "unblockedTasks": [{"taskId": "...", "title": "..."}],
   "activeFlow": "default_flow",
@@ -130,7 +134,47 @@ Cascade events only fire when the parent entity is in the correct lifecycle stat
 2. **Complete all tasks** → `all_tasks_complete` cascade fires → advance feature to `testing`
 3. **Complete feature** → `all_features_complete` cascade fires → advance project to `completed`
 
-If step 1 is skipped (e.g., tasks are completed directly without being started first), the feature stays in `planning` and no `all_tasks_complete` handler matches — the cascade never fires. Always act on `cascadeEvents` in transition responses to keep parent entities in the correct lifecycle state.
+If step 1 is skipped (e.g., tasks are completed directly without being started first), the feature stays in `planning` and no `all_tasks_complete` handler matches — the cascade never fires. In practice, this is less likely to be an issue since `first_task_started` is now auto-applied (see below), but understanding the lifecycle sequence remains important for debugging.
+
+### Auto-Cascade
+
+Cascade events detected after transitions are **automatically applied by default**. When a task completes and all tasks in a feature are done, the feature advances automatically. When all features in a project complete, the project advances automatically. This chain is recursive up to a configurable depth.
+
+**Configuration** (in `.taskorchestrator/config.yaml` or bundled `default-config.yaml`):
+
+```yaml
+auto_cascade:
+  # Master switch. When false, cascade events are still detected and returned
+  # in the response but NOT automatically applied (legacy behavior).
+  enabled: true
+
+  # Maximum cascade depth. Prevents runaway recursion.
+  # Depth 1: task -> feature
+  # Depth 2: task -> feature -> project (typical max for hierarchy)
+  # Depth 3: safety margin
+  max_depth: 3
+```
+
+**Recursive chain example**:
+```
+Task completed
+  -> all_tasks_complete fires -> Feature advances to "testing"
+    -> (if all features complete) -> all_features_complete fires -> Project advances to "completed"
+```
+
+**Error isolation**: If a cascaded transition fails (e.g., a verification gate blocks feature completion), the original task transition still succeeds. The cascade event is returned with `applied: false` and an `error` field explaining why.
+
+**Response format**: Each cascade event in the `cascadeEvents` array includes:
+- `event` - The cascade event name (e.g., `all_tasks_complete`, `first_task_started`)
+- `targetType` / `targetId` / `targetName` - The parent entity that was advanced
+- `previousStatus` / `newStatus` - The status change applied
+- `applied` - Whether the cascade was successfully applied (`true`/`false`)
+- `automatic` - Always `true` when auto-cascade is enabled
+- `reason` - Human-readable explanation
+- `error` - Present only when `applied: false`, explains why the cascade failed
+- `childCascades` - Nested cascade events triggered by this cascade (recursive)
+
+**Opting out**: Set `auto_cascade.enabled: false` in your config to return cascade events as suggestions only, restoring legacy behavior where agents manually act on them.
 
 ## Status Flow Diagrams
 
@@ -809,7 +853,8 @@ request_transition(
 - `results` - Array of individual transition results
 - `totalSuccessful` - Count of successful transitions
 - `totalFailed` - Count of failed transitions
-- `cascadeEvents` - Aggregated parent entity advances
+- `cascadesApplied` - Count of auto-applied cascade transitions across all results
+- `cascadeEvents` - Aggregated parent entity advances (with `applied`, `automatic`, `childCascades` fields)
 - `aggregateUnblockedTasks` - All newly unblocked tasks (deduplicated)
 
 **Example response**:
@@ -852,13 +897,19 @@ request_transition(
     ],
     "totalSuccessful": 5,
     "totalFailed": 0,
+    "cascadesApplied": 1,
     "cascadeEvents": [
       {
-        "entityType": "feature",
-        "entityId": "feature-uuid",
+        "event": "all_tasks_complete",
+        "targetType": "feature",
+        "targetId": "feature-uuid",
+        "targetName": "User Authentication",
         "previousStatus": "in-development",
         "newStatus": "testing",
-        "reason": "All child tasks completed"
+        "applied": true,
+        "automatic": true,
+        "reason": "All 5 tasks completed/cancelled",
+        "childCascades": []
       }
     ],
     "aggregateUnblockedTasks": [
@@ -962,7 +1013,7 @@ Batch transitions validate each transition independently. If some succeed and so
 
 3. **Handle partial failures**: Check `totalFailed` and iterate through `results` to find failures
 
-4. **Act on cascades**: When `cascadeEvents` is non-empty, parent entities advanced automatically
+4. **Act on cascades**: When `cascadeEvents` is non-empty, parent entities are advanced automatically (check `applied: true`). Failed cascades (`applied: false`) may need manual intervention
 
 5. **Act on unblocked tasks**: Use `aggregateUnblockedTasks` to find newly available work
 

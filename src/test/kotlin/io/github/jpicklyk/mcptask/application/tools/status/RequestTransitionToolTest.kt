@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools.status
 
+import io.github.jpicklyk.mcptask.application.service.progression.FlowPath
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
@@ -10,6 +11,7 @@ import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.coVerify
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
@@ -1050,6 +1052,1022 @@ class RequestTransitionToolTest {
             val flowSequence = additionalData["flowSequence"]!!.jsonArray
             assertEquals(5, flowSequence.size)
             assertEquals(4, additionalData["flowPosition"]!!.jsonPrimitive.int)
+        }
+    }
+
+    // ==========================================
+    // Auto-Cascade Tests
+    // ==========================================
+
+    @Nested
+    inner class AutoCascadeTests {
+
+        private val taskAId = UUID.randomUUID()
+        private val taskBId = UUID.randomUUID()
+
+        private fun createTask(
+            id: UUID,
+            title: String,
+            status: TaskStatus = TaskStatus.IN_PROGRESS,
+            summary: String = "A".repeat(350),
+            fId: UUID? = featureId,
+            pId: UUID? = projectId
+        ): Task = Task(
+            id = id,
+            title = title,
+            description = "Description",
+            summary = summary,
+            status = status,
+            priority = Priority.HIGH,
+            complexity = 5,
+            tags = listOf("backend"),
+            featureId = fId,
+            projectId = pId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        private fun createFeature(
+            id: UUID = featureId,
+            name: String = "Test Feature",
+            status: FeatureStatus = FeatureStatus.IN_DEVELOPMENT,
+            pId: UUID? = projectId
+        ): Feature = Feature(
+            id = id,
+            name = name,
+            description = "Test description",
+            summary = "Test summary",
+            status = status,
+            priority = Priority.HIGH,
+            projectId = pId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        private fun createProject(
+            id: UUID = projectId,
+            name: String = "Test Project",
+            status: ProjectStatus = ProjectStatus.IN_DEVELOPMENT
+        ): Project = Project(
+            id = id,
+            name = name,
+            description = "Test description",
+            summary = "Test summary",
+            status = status,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        /**
+         * Sets up common mock behaviors used by most cascade tests.
+         *
+         * This covers:
+         * - DependencyRepository: findByTaskId, findByToTaskId, findByFromTaskId, deleteByTaskId
+         * - StatusProgressionService: getFlowPath, getRoleForStatus
+         * - FeatureRepository: getTaskCount (used by StatusValidator prereqs)
+         * - TaskRepository: findByFeature (used by StatusValidator for completed prereqs)
+         * - TaskRepository: findByFeatureId (used by WorkflowServiceImpl for countTasksByStatus)
+         * - FeatureRepository: findByProject (used by StatusValidator for project completion prereqs)
+         * - SectionRepository: getSectionsForEntity (cleanup)
+         */
+        private fun setupCommonMocks() {
+            // Dependency mocks
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.deleteByTaskId(any()) } returns 0
+
+            // StatusProgressionService mocks
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            // StatusValidator prerequisite mocks (feature -> completed requires these)
+            coEvery { mockFeatureRepository.getTaskCount(any()) } returns Result.Success(1)
+            coEvery { mockTaskRepository.findByFeature(any(), any(), any(), any()) } returns Result.Success(emptyList())
+
+            // WorkflowServiceImpl uses findByFeatureId (synchronous) for countTasksByStatus
+            every { mockTaskRepository.findByFeatureId(any()) } returns emptyList()
+
+            // StatusValidator prerequisite mocks (project -> completed)
+            coEvery { mockFeatureRepository.findByProject(any(), any()) } returns Result.Success(emptyList())
+
+            // Cleanup mocks
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(any()) } returns Result.Success(true)
+        }
+
+        @Test
+        fun `auto-applies cascade when task completes and all tasks done`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+            val completedFeature = feature.update(status = FeatureStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            // Task lookups (use returns for "any call returns this")
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(completedTask)
+            // First call needs to return the pre-transition version
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // StatusValidator prerequisite check (summary)
+                Result.Success(task),           // applyStatusChange
+                Result.Success(task),           // verification gate check
+                Result.Success(completedTask),  // detectCascadesRaw -> WorkflowServiceImpl
+                Result.Success(completedTask),  // applyCascades -> detectCascadesRaw
+                Result.Success(completedTask),  // additional
+                Result.Success(completedTask)   // additional
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            // Feature lookups for cascade detection and application
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),         // detectCascadesRaw (WorkflowServiceImpl)
+                Result.Success(feature),         // applyCascades -> fetchEntityDetails
+                Result.Success(feature),         // applyCascades -> applyStatusChange
+                Result.Success(completedFeature), // detectCascadesRaw for feature cascades (recursive)
+                Result.Success(completedFeature)  // additional
+            )
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(completedFeature)
+
+            // All tasks done in feature
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            // StatusValidator for feature -> completed needs findByFeature to show all tasks done
+            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
+                listOf(completedTask)
+            )
+
+            // Feature cascades: check project for all_features_complete
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(createProject())
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 1  // Not all features done yet, so project won't cascade
+            )
+
+            // Cleanup: feature reaching terminal status triggers CompletionCleanupService
+            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask)
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("completed", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify cascade events
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents, "cascadeEvents should be present")
+            assertTrue(cascadeEvents!!.isNotEmpty(), "Should have at least one cascade event")
+
+            val firstCascade = cascadeEvents[0].jsonObject
+            assertEquals("all_tasks_complete", firstCascade["event"]!!.jsonPrimitive.content)
+            assertEquals("feature", firstCascade["targetType"]!!.jsonPrimitive.content)
+            assertEquals(featureId.toString(), firstCascade["targetId"]!!.jsonPrimitive.content)
+            assertTrue(firstCascade["applied"]!!.jsonPrimitive.boolean, "Cascade should be applied (auto-cascade enabled)")
+            assertTrue(firstCascade["automatic"]!!.jsonPrimitive.boolean, "Cascade should be marked automatic")
+
+            // Verify feature was actually updated
+            coVerify { mockFeatureRepository.update(any()) }
+        }
+
+        @Test
+        fun `recursively cascades task to feature to project`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+            val completedFeature = feature.update(status = FeatureStatus.COMPLETED)
+            val project = createProject(status = ProjectStatus.IN_DEVELOPMENT)
+            val completedProject = project.update(status = ProjectStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            // Task lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // StatusValidator
+                Result.Success(task),           // applyStatusChange
+                Result.Success(task),           // verification gate
+                Result.Success(completedTask),  // detectCascadesRaw task lookup
+                Result.Success(completedTask),  // additional
+                Result.Success(completedTask),  // additional
+                Result.Success(completedTask)   // additional
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            // Feature lookups: cascade detection + application + recursive cascade detection
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),         // detectCascadesRaw -> detectTaskCascades
+                Result.Success(feature),         // applyCascades -> fetchEntityDetails
+                Result.Success(feature),         // applyCascades -> applyStatusChange
+                Result.Success(completedFeature), // detectCascadesRaw for feature -> detectFeatureCascades
+                Result.Success(completedFeature), // additional
+                Result.Success(completedFeature)  // additional
+            )
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(completedFeature)
+
+            // All tasks done
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            // StatusValidator for feature -> completed
+            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
+                listOf(completedTask)
+            )
+
+            // Project lookups: cascade detection from feature + application
+            coEvery { mockProjectRepository.getById(projectId) } returnsMany listOf(
+                Result.Success(project),          // detectFeatureCascades
+                Result.Success(project),          // applyCascades -> fetchEntityDetails for project
+                Result.Success(project),          // applyCascades -> applyStatusChange for project
+                Result.Success(completedProject), // recursive check (no more cascades)
+                Result.Success(completedProject)  // additional
+            )
+            coEvery { mockProjectRepository.update(any()) } returns Result.Success(completedProject)
+
+            // All features done in project
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 1, completed = 1
+            )
+
+            // StatusValidator for project -> completed needs findByProject
+            coEvery { mockFeatureRepository.findByProject(eq(projectId), any()) } returns Result.Success(
+                listOf(completedFeature)
+            )
+
+            // Cleanup for feature
+            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask)
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Check cascade chain: feature should cascade, and have childCascades for project
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents, "cascadeEvents should be present")
+            assertTrue(cascadeEvents!!.isNotEmpty(), "Should have cascade events")
+
+            val featureCascade = cascadeEvents[0].jsonObject
+            assertEquals("all_tasks_complete", featureCascade["event"]!!.jsonPrimitive.content)
+            assertEquals("feature", featureCascade["targetType"]!!.jsonPrimitive.content)
+            assertTrue(featureCascade["applied"]!!.jsonPrimitive.boolean)
+
+            // Check for child cascades (project advancement)
+            val childCascades = featureCascade["childCascades"]?.jsonArray
+            assertNotNull(childCascades, "Should have child cascades for project")
+            assertTrue(childCascades!!.isNotEmpty(), "Project should cascade from feature")
+
+            val projectCascade = childCascades[0].jsonObject
+            assertEquals("all_features_complete", projectCascade["event"]!!.jsonPrimitive.content)
+            assertEquals("project", projectCascade["targetType"]!!.jsonPrimitive.content)
+            assertTrue(projectCascade["applied"]!!.jsonPrimitive.boolean)
+        }
+
+        @Test
+        fun `skips cascade when target already at suggested status`() = runBlocking {
+            // Feature already completed - cascade should be silently skipped
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(completedTask),
+                Result.Success(completedTask),
+                Result.Success(completedTask)
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            // Feature already at "completed" - the suggested status
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+
+            // All tasks done
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // The cascade event for feature should be silently skipped (not in cascadeEvents)
+            // because feature is already at the suggested status
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertTrue(
+                cascadeEvents == null || cascadeEvents.isEmpty(),
+                "Cascade events should be empty when target already at suggested status"
+            )
+        }
+
+        @Test
+        fun `handles cascade validation failure gracefully`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            setupCommonMocks()
+
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(completedTask),
+                Result.Success(completedTask),
+                Result.Success(completedTask)
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            // Feature lookups for cascade detection and validation
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),  // detectCascadesRaw
+                Result.Success(feature),  // applyCascades -> fetchEntityDetails
+                Result.Success(feature)   // additional
+            )
+
+            // All tasks done (cascade will fire)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            // Make cascade validation fail: StatusValidator for feature -> completed
+            // needs findByFeature to show incomplete tasks
+            val incompleteTask = createTask(UUID.randomUUID(), "Incomplete Task", TaskStatus.IN_PROGRESS)
+            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
+                listOf(incompleteTask)
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Original task transition should succeed")
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean, "Original task transition should be applied")
+
+            // The cascade should have been attempted but failed
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents, "cascadeEvents should be present with failed cascade")
+            assertTrue(cascadeEvents!!.isNotEmpty(), "Should have cascade events")
+
+            val failedCascade = cascadeEvents[0].jsonObject
+            assertFalse(failedCascade["applied"]!!.jsonPrimitive.boolean, "Cascade should not be applied due to validation failure")
+            assertNotNull(failedCascade["error"], "Should have error message explaining validation failure")
+            val errorMsg = failedCascade["error"]!!.jsonPrimitive.content
+            assertTrue(
+                errorMsg.contains("blocked", ignoreCase = true) ||
+                    errorMsg.contains("Transition blocked") ||
+                    errorMsg.contains("Cannot transition") ||
+                    errorMsg.contains("skip") ||
+                    errorMsg.contains("not completed"),
+                "Error should indicate transition was blocked, got: $errorMsg"
+            )
+        }
+
+        @Test
+        fun `handles cascade apply failure gracefully`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            setupCommonMocks()
+
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(completedTask),
+                Result.Success(completedTask),
+                Result.Success(completedTask)
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            // Feature lookups for cascade detection and application
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),  // detectCascadesRaw
+                Result.Success(feature),  // applyCascades -> fetchEntityDetails
+                Result.Success(feature),  // applyCascades -> applyStatusChange
+                Result.Success(feature)   // additional
+            )
+
+            // All tasks done
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            // StatusValidator for feature -> completed
+            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
+                listOf(completedTask)
+            )
+
+            // Feature update fails
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Error(
+                RepositoryError.DatabaseError("Database connection lost")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Original task transition should succeed")
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean, "Original task transition should be applied")
+
+            // The cascade should have failed during apply
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents, "cascadeEvents should be present")
+            assertTrue(cascadeEvents!!.isNotEmpty(), "Should have cascade events")
+
+            val failedCascade = cascadeEvents[0].jsonObject
+            assertFalse(failedCascade["applied"]!!.jsonPrimitive.boolean, "Cascade should not be applied due to update failure")
+            assertNotNull(failedCascade["error"], "Should have error message")
+            val errorMsg = failedCascade["error"]!!.jsonPrimitive.content
+            assertTrue(
+                errorMsg.contains("Failed to update") || errorMsg.contains("Database") || errorMsg.contains("error"),
+                "Error should indicate update failure, got: $errorMsg"
+            )
+        }
+
+        @Test
+        fun `runs completion cleanup on cascaded feature terminal`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val anotherTask = createTask(taskBId, "Task B", TaskStatus.COMPLETED)
+            // Use "prototype" tag so rapid_prototype_flow is used, which maps
+            // all_tasks_complete: in-development -> completed (terminal, triggers cleanup)
+            val feature = Feature(
+                id = featureId,
+                name = "Test Feature",
+                description = "Test description",
+                summary = "Test summary",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.HIGH,
+                projectId = projectId,
+                tags = listOf("prototype"),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+            val completedFeature = feature.update(status = FeatureStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            // Task getById call sequence:
+            // 1. fetchEntityDetails
+            // 2. verification gate check (requiresVerification)
+            // 3. applyStatusChange (reads current task to copy+update)
+            // 4. detectCascadesRaw -> detectTaskCascades (needs completed task)
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // verification gate
+                Result.Success(task),           // applyStatusChange
+                Result.Success(completedTask),  // detectCascadesRaw -> detectTaskCascades
+                Result.Success(completedTask),  // additional
+                Result.Success(completedTask)   // additional
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),         // detectCascadesRaw -> detectTaskCascades
+                Result.Success(feature),         // applyCascades -> fetchEntityDetails
+                Result.Success(feature),         // applyCascades -> applyStatusChange
+                Result.Success(completedFeature), // recursive cascade detection (check for project)
+                Result.Success(completedFeature)  // additional
+            )
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(completedFeature)
+
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, pending = 0, inProgress = 0, completed = 2, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            // StatusValidator for feature -> completed
+            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
+                listOf(completedTask, anotherTask)
+            )
+
+            // Project: not all features done, so no project cascade
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(createProject())
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 3, completed = 1  // Not all done
+            )
+
+            // Cleanup mocks: feature reaching terminal triggers CompletionCleanupService
+            // CompletionCleanupService.cleanupFeatureTasks calls findByFeatureId
+            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask, anotherTask)
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents)
+            assertTrue(cascadeEvents!!.isNotEmpty())
+
+            val featureCascade = cascadeEvents[0].jsonObject
+            assertTrue(featureCascade["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify cleanup was performed
+            val cleanup = featureCascade["cleanup"]?.jsonObject
+            assertNotNull(cleanup, "Cleanup should be present for cascaded feature reaching terminal status")
+            assertTrue(cleanup!!["performed"]!!.jsonPrimitive.boolean, "Cleanup should have been performed")
+        }
+
+        @Test
+        fun `batch transitions auto-cascade with aggregation`() = runBlocking {
+            val taskA = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTaskA = taskA.copy(status = TaskStatus.COMPLETED)
+            val taskB = createTask(taskBId, "Task B", TaskStatus.IN_PROGRESS)
+            val completedTaskB = taskB.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+            val completedFeature = feature.update(status = FeatureStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            // Task A lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(taskA),           // fetchEntityDetails
+                Result.Success(taskA),           // StatusValidator
+                Result.Success(taskA),           // applyStatusChange
+                Result.Success(taskA),           // verification gate
+                Result.Success(completedTaskA),  // detectCascadesRaw
+                Result.Success(completedTaskA),  // additional
+                Result.Success(completedTaskA)   // additional
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTaskA)
+
+            // Task B lookups
+            coEvery { mockTaskRepository.getById(taskBId) } returnsMany listOf(
+                Result.Success(taskB),           // fetchEntityDetails
+                Result.Success(taskB),           // StatusValidator
+                Result.Success(taskB),           // applyStatusChange
+                Result.Success(taskB),           // verification gate
+                Result.Success(completedTaskB),  // detectCascadesRaw
+                Result.Success(completedTaskB),  // additional
+                Result.Success(completedTaskB)   // additional
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskBId }) } returns Result.Success(completedTaskB)
+
+            // Feature: first task completes -> cascade fires and feature advances
+            // Second task completes -> cascade detects feature already at completed, skips
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                // First cascade: task A triggers all_tasks_complete
+                Result.Success(feature),         // detectCascadesRaw for task A
+                Result.Success(feature),         // applyCascades -> fetchEntityDetails
+                Result.Success(feature),         // applyCascades -> applyStatusChange
+                Result.Success(completedFeature), // recursive cascade detection
+                Result.Success(completedFeature), // additional
+                // Second cascade: task B detects all_tasks_complete but feature already completed
+                Result.Success(completedFeature), // detectCascadesRaw for task B
+                Result.Success(completedFeature), // applyCascades -> fetchEntityDetails (already at status, skip)
+                Result.Success(completedFeature)  // additional
+            )
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(completedFeature)
+
+            // All tasks done from the start (both completing)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, pending = 0, inProgress = 0, completed = 2, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            // StatusValidator for feature -> completed
+            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
+                listOf(completedTaskA, completedTaskB)
+            )
+
+            // Project: not all features done
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(createProject())
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 1
+            )
+
+            // Cleanup mocks
+            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTaskA, completedTaskB)
+
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", taskAId.toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                    add(buildJsonObject {
+                        put("containerId", taskBId.toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                })
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            val summary = data["summary"]!!.jsonObject
+            assertEquals(2, summary["total"]!!.jsonPrimitive.int)
+            assertEquals(2, summary["succeeded"]!!.jsonPrimitive.int)
+            assertEquals(0, summary["failed"]!!.jsonPrimitive.int)
+
+            // Only one cascade should actually be applied (first task triggers it,
+            // second task's cascade finds feature already at target status and skips)
+            val cascadesApplied = summary["cascadesApplied"]?.jsonPrimitive?.int ?: 0
+            assertEquals(1, cascadesApplied, "Only one cascade should be counted (second is skipped)")
+        }
+
+        @Test
+        fun `first_task_started cascades feature from planning to in-development`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.PENDING)
+            val inProgressTask = task.copy(status = TaskStatus.IN_PROGRESS)
+            val feature = createFeature(status = FeatureStatus.PLANNING)
+            val inDevFeature = feature.update(status = FeatureStatus.IN_DEVELOPMENT)
+
+            setupCommonMocks()
+
+            // Mock start trigger resolution
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow workflow"
+            )
+
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Task lookups
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),            // fetchEntityDetails
+                Result.Success(task),            // applyStatusChange
+                Result.Success(inProgressTask),  // detectCascadesRaw -> task lookup
+                Result.Success(inProgressTask),  // additional
+                Result.Success(inProgressTask),  // additional
+                Result.Success(inProgressTask)   // additional
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(inProgressTask)
+
+            // Feature lookups: cascade detection and application
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),        // detectCascadesRaw -> detectTaskCascades
+                Result.Success(feature),        // applyCascades -> fetchEntityDetails
+                Result.Success(feature),        // applyCascades -> applyStatusChange
+                Result.Success(inDevFeature),   // recursive cascade detection
+                Result.Success(inDevFeature)    // additional
+            )
+            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(inDevFeature)
+
+            // StatusValidator for feature -> in-development needs getTaskCount
+            coEvery { mockFeatureRepository.getTaskCount(featureId) } returns Result.Success(3)
+
+            // One task in-progress (the first one)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 3, pending = 2, inProgress = 1, completed = 0, cancelled = 0, testing = 0, blocked = 0
+            )
+            // For countTasksByStatus in WorkflowServiceImpl: findByFeatureId returns tasks
+            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
+                inProgressTask,
+                createTask(UUID.randomUUID(), "Task B", TaskStatus.PENDING),
+                createTask(UUID.randomUUID(), "Task C", TaskStatus.PENDING)
+            )
+
+            // Project lookup for recursive cascade detection from feature
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(createProject())
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 0
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify cascade event
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertNotNull(cascadeEvents, "cascadeEvents should be present")
+            assertTrue(cascadeEvents!!.isNotEmpty(), "Should have cascade event for first_task_started")
+
+            val firstCascade = cascadeEvents[0].jsonObject
+            assertEquals("first_task_started", firstCascade["event"]!!.jsonPrimitive.content)
+            assertEquals("feature", firstCascade["targetType"]!!.jsonPrimitive.content)
+            assertTrue(firstCascade["applied"]!!.jsonPrimitive.boolean)
+        }
+
+        @Test
+        fun `userSummary includes cascade count for single transition`() {
+            // Build a mock result structure mimicking a successful single transition with cascades
+            val mockResult = buildJsonObject {
+                put("success", true)
+                put("message", "Transitioned task")
+                put("data", buildJsonObject {
+                    put("containerId", taskAId.toString())
+                    put("containerType", "task")
+                    put("previousStatus", "in-progress")
+                    put("newStatus", "completed")
+                    put("trigger", "complete")
+                    put("applied", true)
+                    put("cascadeEvents", buildJsonArray {
+                        add(buildJsonObject {
+                            put("event", "all_tasks_complete")
+                            put("targetType", "feature")
+                            put("targetId", featureId.toString())
+                            put("applied", true)
+                            put("automatic", true)
+                        })
+                    })
+                })
+            }
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val summary = tool.userSummary(params, mockResult, false)
+            assertTrue(
+                summary.contains("cascade") && summary.contains("applied"),
+                "userSummary should mention cascades applied, got: $summary"
+            )
+            assertTrue(
+                summary.contains("1"),
+                "userSummary should mention count of cascades, got: $summary"
+            )
+        }
+
+        @Test
+        fun `userSummary includes cascade count for batch`() {
+            val mockResult = buildJsonObject {
+                put("success", true)
+                put("message", "2 of 2 transitions applied")
+                put("data", buildJsonObject {
+                    put("results", buildJsonArray {
+                        add(buildJsonObject { put("applied", true) })
+                        add(buildJsonObject { put("applied", true) })
+                    })
+                    put("summary", buildJsonObject {
+                        put("total", 2)
+                        put("succeeded", 2)
+                        put("failed", 0)
+                        put("cascadesApplied", 3)
+                    })
+                })
+            }
+
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("containerId", taskAId.toString())
+                        put("containerType", "task")
+                        put("trigger", "complete")
+                    })
+                })
+            }
+
+            val summary = tool.userSummary(params, mockResult, false)
+            assertTrue(
+                summary.contains("cascade"),
+                "userSummary should mention cascades, got: $summary"
+            )
+            assertTrue(
+                summary.contains("3"),
+                "userSummary should mention the cascade count, got: $summary"
+            )
+        }
+
+        @Test
+        fun `auto-cascade disabled returns legacy format`() = runBlocking {
+            // Create a temp config with auto_cascade.enabled=false
+            // The StatusValidator also needs config for v2 mode, so include status_progression
+            val tempDir = java.nio.file.Files.createTempDirectory("cascade-test")
+            val configDir = tempDir.resolve(".taskorchestrator")
+            java.nio.file.Files.createDirectories(configDir)
+            val configFile = configDir.resolve("config.yaml")
+            java.nio.file.Files.writeString(configFile, """
+auto_cascade:
+  enabled: false
+  max_depth: 3
+status_progression:
+  tasks:
+    default_flow: [backlog, pending, in-progress, testing, completed]
+    terminal_statuses: [completed, cancelled, deferred]
+    emergency_transitions: [blocked, on-hold, cancelled, deferred]
+  features:
+    default_flow: [draft, planning, in-development, testing, validating, completed]
+    terminal_statuses: [completed, archived]
+    emergency_transitions: [blocked, on-hold, archived]
+status_validation:
+  enforce_sequential: false
+  allow_backward: true
+  allow_emergency: true
+  validate_prerequisites: false
+""".trimIndent())
+
+            val originalDir = System.getProperty("user.dir")
+            try {
+                System.setProperty("user.dir", tempDir.toString())
+
+                val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+                val completedTask = task.copy(status = TaskStatus.COMPLETED)
+                val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+                setupCommonMocks()
+
+                // Task getById call sequence:
+                // 1. fetchEntityDetails
+                // 2. verification gate check (trigger == "complete")
+                // 3. applyStatusChange
+                // 4. detectCascadesRaw -> detectTaskCascades (needs completed task)
+                coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                    Result.Success(task),           // fetchEntityDetails
+                    Result.Success(task),           // verification gate
+                    Result.Success(task),           // applyStatusChange
+                    Result.Success(completedTask),  // detectCascadesRaw -> detectTaskCascades
+                    Result.Success(completedTask)   // additional
+                )
+                coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+                coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+
+                every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                    total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+                )
+
+                // For WorkflowServiceImpl's countTasksByStatus
+                every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask)
+
+                val params = buildJsonObject {
+                    put("containerId", taskAId.toString())
+                    put("containerType", "task")
+                    put("trigger", "complete")
+                }
+
+                val result = tool.execute(params, context) as JsonObject
+                assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+                val data = result["data"]!!.jsonObject
+                assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+                // With auto_cascade.enabled=false, cascadeEvents should use legacy format
+                val cascadeEvents = data["cascadeEvents"]?.jsonArray
+                assertNotNull(cascadeEvents, "Legacy cascade events should still be present")
+                assertTrue(cascadeEvents!!.isNotEmpty(), "Should have legacy cascade events")
+
+                val legacyEvent = cascadeEvents[0].jsonObject
+                assertFalse(legacyEvent["applied"]!!.jsonPrimitive.boolean, "Legacy cascade should have applied=false")
+                assertFalse(legacyEvent["automatic"]!!.jsonPrimitive.boolean, "Legacy cascade should have automatic=false")
+                assertNotNull(legacyEvent["suggestedStatus"], "Legacy cascade should have suggestedStatus field")
+            } finally {
+                System.setProperty("user.dir", originalDir)
+                // Clean up temp files
+                java.nio.file.Files.walk(tempDir)
+                    .sorted(Comparator.reverseOrder())
+                    .forEach { java.nio.file.Files.deleteIfExists(it) }
+            }
+        }
+
+        @Test
+        fun `no cascade events when task has no feature`() = runBlocking {
+            // Task without featureId - no cascade possible
+            val standaloneTask = createTask(taskAId, "Standalone Task", TaskStatus.IN_PROGRESS, fId = null, pId = null)
+            val completedTask = standaloneTask.copy(status = TaskStatus.COMPLETED)
+
+            setupCommonMocks()
+
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(standaloneTask),
+                Result.Success(standaloneTask),
+                Result.Success(standaloneTask),
+                Result.Success(standaloneTask),
+                Result.Success(completedTask),
+                Result.Success(completedTask)
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // No cascade events for standalone tasks
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertTrue(
+                cascadeEvents == null || cascadeEvents.isEmpty(),
+                "Standalone tasks should not produce cascade events"
+            )
+        }
+
+        @Test
+        fun `cascade not triggered when not all tasks are complete`() = runBlocking {
+            val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED)
+            val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            setupCommonMocks()
+
+            coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(task),
+                Result.Success(completedTask),
+                Result.Success(completedTask),
+                Result.Success(completedTask)
+            )
+            coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+
+            // Not all tasks done (still 1 pending)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 3, pending = 1, inProgress = 1, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskAId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // No cascade events since not all tasks are done
+            val cascadeEvents = data["cascadeEvents"]?.jsonArray
+            assertTrue(
+                cascadeEvents == null || cascadeEvents.isEmpty(),
+                "Should not have cascade events when tasks are still incomplete"
+            )
         }
     }
 }
