@@ -27,13 +27,15 @@ Generate a Tier 1 dashboard for the current project.
 
 **{featureCount} features** · {taskCounts.total} tasks ({breakdown by status})
 
-### Features
+### Active Features
 
 | Feature | Status | Progress | Priority |
 |---------|--------|----------|----------|
-(for each feature: symbol + name, status, task counts if available, priority)
+(only non-terminal features: planning, in-development, blocked, on-hold, etc.)
 
-Status symbols: ✓ completed, ◉ in-progress/in-development, ⊘ blocked, ○ pending/planning, — cancelled
+Status symbols: ◉ in-progress/in-development, ⊘ blocked/on-hold, ○ pending/planning
+
+**Completed:** {count} features (list names inline, comma-separated)
 
 ### Action Items
 
@@ -51,4 +53,5 @@ Status symbols: ✓ completed, ◉ in-progress/in-development, ⊘ blocked, ○ 
 - This is a **read-only** skill — it queries and formats, never modifies state
 - Only 2 MCP calls — do NOT delegate to a subagent (the overhead far exceeds the payload)
 - Keep the dashboard concise — no section content, no task-level details
+- Completed features go in a summary line, NOT in the table — the table is for actionable work only
 - For deeper feature inspection, use `query_container(operation="overview", containerType="feature", id=...)`
