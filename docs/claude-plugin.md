@@ -11,7 +11,6 @@ The MCP Task Orchestrator ships a Claude Code plugin that adds skills, hooks, an
 
 | Component | Description |
 |-----------|-------------|
-| **SessionStart hook** | Automatically prompts `query_container(operation="overview")` at the start of each session |
 | **task-orchestration skill** | Task creation, updates, completion patterns, and section management |
 | **feature-orchestration skill** | Feature lifecycle, task breakdown, overview queries, and bulk operations |
 | **status-progression skill** | Workflow triggers, transitions, emergency statuses, and cascade events |
@@ -69,11 +68,13 @@ claude-plugins/task-orchestrator/
 │   ├── project-summary/
 │   │   └── SKILL.md         # Project dashboard and status overview
 ├── hooks/
-│   └── hooks.json           # SessionStart hook configuration
+│   └── session-hooks.json   # Workflow guardrail hooks (planning, status, subagent)
 ├── output-styles/
 │   └── orchestrator.md      # Team orchestrator output style
 └── scripts/
-    └── session-start.sh     # Hook script (overview prompt)
+    ├── pre-planning.sh      # EnterPlanMode context injection
+    ├── post-planning.sh     # ExitPlanMode materialization guidance
+    └── subagent-workflow-context.sh  # SubagentStart workflow context
 ```
 
 ## Skills Overview

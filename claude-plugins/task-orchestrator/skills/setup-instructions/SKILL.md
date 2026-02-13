@@ -33,14 +33,14 @@ The following block is the output. Replace `{name}` with the project name and `{
 ---
 
 ```markdown
-<!-- mcp-task-orchestrator-setup: v1 -->
+<!-- mcp-task-orchestrator-setup: v2 -->
 ## MCP Task Orchestrator — Project: {name} (`{uuid}`)
 
 All features and tasks belong to this project. Always pass `projectId` when creating features or standalone tasks so they remain queryable.
 
 ### Workflow Rules
 
-1. **Status changes** — Use `request_transition(trigger=start|complete|cancel|block|hold)`. For batch changes, use the `transitions` array parameter. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
+1. **Status changes** — Use `request_transition(transitions=[{containerId, containerType, trigger: "start"|"complete"|"cancel"|"block"|"hold"}])`. Always wrap in a `transitions` array, even for single transitions. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
 
 2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
 
@@ -99,7 +99,7 @@ For detailed guidance beyond these rules, read these MCP resources:
 ## Notes
 
 - The block is **self-contained** — it works for any MCP client, not just Claude Code
-- The `<!-- mcp-task-orchestrator-setup: v1 -->` comment is a version marker — the MCP server's `instructions` field tells agents to check for it and update when a newer version ships
+- The `<!-- mcp-task-orchestrator-setup: v2 -->` comment is a version marker — the MCP server's `instructions` field tells agents to check for it and update when a newer version ships
 - If the user also installs the Task Orchestrator plugin, the plugin's skills and hooks provide additional automation (template enforcement, planning workflow, subagent context injection) on top of this base block
 - The block should be placed near the top of CLAUDE.md so it's always in context
 - For projects with multiple MCP servers, this block can coexist with other integration instructions

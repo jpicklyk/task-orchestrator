@@ -51,7 +51,7 @@ object TaskOrchestratorResources {
      * Agents whose CLAUDE.md contains an older marker will be prompted by `server.instructions`
      * to re-read the setup resource and update their instructions block.
      */
-    const val SETUP_INSTRUCTIONS_VERSION = "v1"
+    const val SETUP_INSTRUCTIONS_VERSION = "v2"
 
     /**
      * Configures all Task Orchestrator guideline resources with the MCP server.

@@ -1861,20 +1861,19 @@ When `neighborsOnly=false`, the response includes a `graph` object with full dep
 | `targets` | array | No | Target task IDs for `fan-out` pattern (create) |
 | `sources` | array | No | Source task IDs for `fan-in` pattern (create) |
 | `target` | UUID | No | Target task ID for `fan-in` pattern (create) |
-| `fromTaskId` | UUID | No | Source task ID (legacy single create; delete by relationship) |
-| `toTaskId` | UUID | No | Target task ID (legacy single create; delete by relationship) |
+| `fromTaskId` | UUID | No | Source task ID (delete by relationship) |
+| `toTaskId` | UUID | No | Target task ID (delete by relationship) |
 | `type` | enum | No | `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` (default: `BLOCKS`) |
 | `id` | UUID | No | Dependency ID (for `delete` by ID) |
 | `deleteAll` | boolean | No | Delete all matching dependencies (default: false) |
 
 #### Create Modes (mutually exclusive)
 
-1. **dependencies array** — Explicit list of dependency objects for full control
-2. **pattern shortcut** — Generate dependencies from a named pattern:
+1. **`dependencies` array** — Explicit list of dependency objects for full control
+2. **`pattern` shortcut** — Generate dependencies from a named pattern:
    - `linear` + `taskIds=[A,B,C,D]` → A→B, B→C, C→D
    - `fan-out` + `source=A` + `targets=[B,C,D]` → A→B, A→C, A→D
    - `fan-in` + `sources=[B,C,D]` + `target=E` → B→E, C→E, D→E
-3. **legacy single** — Single `fromTaskId` + `toTaskId` (backward compatible)
 
 Batch creation is atomic — if any dependency fails validation (cycle, duplicate, missing task), none are created.
 
@@ -1882,27 +1881,55 @@ Batch creation is atomic — if any dependency fails validation (cycle, duplicat
 
 #### Operation: create
 
-**Purpose**: Create dependency relationship
+**Purpose**: Create dependency relationships
 
-**Required Parameters**: `operation`, `fromTaskId`, `toTaskId`
+**Required Parameters**: `operation` + one of (`dependencies` array, `pattern` shortcut)
 
-**Example - Create BLOCKS Dependency**:
+**Example - Create with dependencies array**:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "task-1-uuid",
-  "toTaskId": "task-2-uuid",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "task-1-uuid",
+      "toTaskId": "task-2-uuid",
+      "type": "BLOCKS"
+    },
+    {
+      "fromTaskId": "task-1-uuid",
+      "toTaskId": "task-3-uuid",
+      "type": "RELATES_TO"
+    }
+  ]
 }
 ```
 
-**Example - Create RELATES_TO**:
+**Example - Create with linear pattern**:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "task-1-uuid",
-  "toTaskId": "task-3-uuid",
-  "type": "RELATES_TO"
+  "pattern": "linear",
+  "taskIds": ["task-1-uuid", "task-2-uuid", "task-3-uuid", "task-4-uuid"]
+}
+```
+
+**Example - Create with fan-out pattern**:
+```json
+{
+  "operation": "create",
+  "pattern": "fan-out",
+  "source": "task-1-uuid",
+  "targets": ["task-2-uuid", "task-3-uuid", "task-4-uuid"]
+}
+```
+
+**Example - Create with fan-in pattern**:
+```json
+{
+  "operation": "create",
+  "pattern": "fan-in",
+  "sources": ["task-2-uuid", "task-3-uuid", "task-4-uuid"],
+  "target": "task-5-uuid"
 }
 ```
 
@@ -1910,13 +1937,25 @@ Batch creation is atomic — if any dependency fails validation (cycle, duplicat
 ```json
 {
   "success": true,
-  "message": "Dependency created successfully",
+  "message": "2 dependencies created successfully",
   "data": {
-    "id": "dependency-uuid",
-    "fromTaskId": "task-1-uuid",
-    "toTaskId": "task-2-uuid",
-    "type": "BLOCKS",
-    "createdAt": "2025-10-19T10:00:00Z"
+    "created": 2,
+    "dependencies": [
+      {
+        "id": "dependency-uuid-1",
+        "fromTaskId": "task-1-uuid",
+        "toTaskId": "task-2-uuid",
+        "type": "BLOCKS",
+        "createdAt": "2025-10-19T10:00:00Z"
+      },
+      {
+        "id": "dependency-uuid-2",
+        "fromTaskId": "task-1-uuid",
+        "toTaskId": "task-3-uuid",
+        "type": "RELATES_TO",
+        "createdAt": "2025-10-19T10:00:00Z"
+      }
+    ]
   }
 }
 ```
@@ -2185,11 +2224,7 @@ request_transition(containerId="...", containerType="task",
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `containerId` | UUID | Varies | UUID of entity to transition (required for single mode, omit for batch) |
-| `containerType` | enum | Varies | Type: `task`, `feature`, or `project` (required for single mode, omit for batch) |
-| `trigger` | string | Varies | Named trigger: `start`, `complete`, `cancel`, `block`, `hold` (required for single mode, omit for batch) |
-| `transitions` | array | Varies | Array of transition objects for batch mode (required for batch, omit for single) |
-| `summary` | string | No | Optional note about why the transition is happening |
+| `transitions` | array | **Yes** | Array of transition objects. Even for a single transition, wrap it in an array. Each: `{containerId (UUID), containerType (task\|feature\|project), trigger (start\|complete\|cancel\|block\|hold), summary? (optional note)}` |
 
 **Trigger Types**:
 - `start` - Progress to next status in workflow flow
@@ -2198,7 +2233,8 @@ request_transition(containerId="...", containerType="task",
 - `block` - Move to blocked (emergency transition)
 - `hold` - Move to on-hold (emergency transition)
 
-**Response Fields**:
+**Response Fields** (per-result in `results` array):
+- `containerId` - UUID of the transitioned entity
 - `newStatus` - Status after transition
 - `previousStatus` - Status before transition
 - `previousRole` - Semantic role before transition (queue, work, review, blocked, terminal)
@@ -2209,14 +2245,25 @@ request_transition(containerId="...", containerType="task",
 - `flowSequence` - Complete status sequence for the active flow
 - `flowPosition` - Current position in the flow sequence (0-indexed)
 
-#### Single Transition Mode
+**Response Fields** (top-level `summary` object):
+- `total` - Total transitions attempted
+- `succeeded` - Number of successful transitions
+- `failed` - Number of failed transitions
+- `allUnblockedTasks` - Aggregated array of all unblocked tasks across results (when present)
+- `cascadesApplied` - Number of cascade events applied (when present)
+
+#### Single Transition
 
 **Example - Start Work on Task**:
 ```json
 {
-  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
-  "containerType": "task",
-  "trigger": "start"
+  "transitions": [
+    {
+      "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+      "containerType": "task",
+      "trigger": "start"
+    }
+  ]
 }
 ```
 
@@ -2224,17 +2271,28 @@ request_transition(containerId="...", containerType="task",
 ```json
 {
   "success": true,
-  "message": "Transition successful",
+  "message": "1 of 1 transitions applied",
   "data": {
-    "newStatus": "in-progress",
-    "previousStatus": "pending",
-    "previousRole": "queue",
-    "newRole": "work",
-    "activeFlow": "default_flow",
-    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-    "flowPosition": 2,
-    "cascadeEvents": [],
-    "unblockedTasks": []
+    "results": [
+      {
+        "applied": true,
+        "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+        "newStatus": "in-progress",
+        "previousStatus": "pending",
+        "previousRole": "queue",
+        "newRole": "work",
+        "activeFlow": "default_flow",
+        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowPosition": 2,
+        "cascadeEvents": [],
+        "unblockedTasks": []
+      }
+    ],
+    "summary": {
+      "total": 1,
+      "succeeded": 1,
+      "failed": 0
+    }
   }
 }
 ```
@@ -2242,10 +2300,14 @@ request_transition(containerId="...", containerType="task",
 **Example - Complete Task**:
 ```json
 {
-  "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
-  "containerType": "task",
-  "trigger": "complete",
-  "summary": "Implemented OAuth 2.0 with JWT tokens"
+  "transitions": [
+    {
+      "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+      "containerType": "task",
+      "trigger": "complete",
+      "summary": "Implemented OAuth 2.0 with JWT tokens"
+    }
+  ]
 }
 ```
 
@@ -2253,29 +2315,46 @@ request_transition(containerId="...", containerType="task",
 ```json
 {
   "success": true,
-  "message": "Transition successful",
+  "message": "1 of 1 transitions applied. 1 task(s) unblocked",
   "data": {
-    "newStatus": "completed",
-    "previousStatus": "testing",
-    "previousRole": "work",
-    "newRole": "terminal",
-    "activeFlow": "default_flow",
-    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-    "flowPosition": 4,
-    "cascadeEvents": [],
-    "unblockedTasks": [
+    "results": [
       {
-        "taskId": "task-uuid-2",
-        "title": "Deploy authentication service"
+        "applied": true,
+        "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
+        "newStatus": "completed",
+        "previousStatus": "testing",
+        "previousRole": "work",
+        "newRole": "terminal",
+        "activeFlow": "default_flow",
+        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowPosition": 4,
+        "cascadeEvents": [],
+        "unblockedTasks": [
+          {
+            "taskId": "task-uuid-2",
+            "title": "Deploy authentication service"
+          }
+        ]
       }
-    ]
+    ],
+    "summary": {
+      "total": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "allUnblockedTasks": [
+        {
+          "taskId": "task-uuid-2",
+          "title": "Deploy authentication service"
+        }
+      ]
+    }
   }
 }
 ```
 
-#### Batch Transition Mode
+#### Batch Transitions
 
-**Purpose**: Complete multiple tasks in one call for efficiency and atomic validation.
+**Purpose**: Transition multiple entities in one call for efficiency.
 
 **Example - Complete Multiple Tasks**:
 ```json
@@ -2304,11 +2383,11 @@ request_transition(containerId="...", containerType="task",
 ```json
 {
   "success": true,
-  "message": "Completed 3 transitions",
+  "message": "3 of 3 transitions applied. 1 task(s) unblocked. 1 cascade(s) applied",
   "data": {
     "results": [
       {
-        "success": true,
+        "applied": true,
         "containerId": "task-1-uuid",
         "newStatus": "completed",
         "previousStatus": "testing",
@@ -2317,10 +2396,11 @@ request_transition(containerId="...", containerType="task",
         "activeFlow": "default_flow",
         "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
         "flowPosition": 4,
+        "cascadeEvents": [],
         "unblockedTasks": []
       },
       {
-        "success": true,
+        "applied": true,
         "containerId": "task-2-uuid",
         "newStatus": "completed",
         "previousStatus": "in-progress",
@@ -2329,6 +2409,7 @@ request_transition(containerId="...", containerType="task",
         "activeFlow": "default_flow",
         "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
         "flowPosition": 4,
+        "cascadeEvents": [],
         "unblockedTasks": [
           {
             "taskId": "task-5-uuid",
@@ -2337,7 +2418,7 @@ request_transition(containerId="...", containerType="task",
         ]
       },
       {
-        "success": true,
+        "applied": true,
         "containerId": "task-3-uuid",
         "newStatus": "completed",
         "previousStatus": "testing",
@@ -2346,32 +2427,35 @@ request_transition(containerId="...", containerType="task",
         "activeFlow": "bug_fix_flow",
         "flowSequence": ["pending", "in-progress", "testing", "completed"],
         "flowPosition": 3,
+        "cascadeEvents": [
+          {
+            "event": "all_tasks_complete",
+            "targetType": "feature",
+            "targetId": "feature-uuid",
+            "targetName": "User Authentication",
+            "previousStatus": "in-development",
+            "newStatus": "testing",
+            "applied": true,
+            "automatic": true,
+            "reason": "All 3 tasks completed/cancelled",
+            "childCascades": []
+          }
+        ],
         "unblockedTasks": []
       }
     ],
-    "totalSuccessful": 3,
-    "totalFailed": 0,
-    "cascadesApplied": 1,
-    "cascadeEvents": [
-      {
-        "event": "all_tasks_complete",
-        "targetType": "feature",
-        "targetId": "feature-uuid",
-        "targetName": "User Authentication",
-        "previousStatus": "in-development",
-        "newStatus": "testing",
-        "applied": true,
-        "automatic": true,
-        "reason": "All 3 tasks completed/cancelled",
-        "childCascades": []
-      }
-    ],
-    "aggregateUnblockedTasks": [
-      {
-        "taskId": "task-5-uuid",
-        "title": "Integration testing"
-      }
-    ]
+    "summary": {
+      "total": 3,
+      "succeeded": 3,
+      "failed": 0,
+      "allUnblockedTasks": [
+        {
+          "taskId": "task-5-uuid",
+          "title": "Integration testing"
+        }
+      ],
+      "cascadesApplied": 1
+    }
   }
 }
 ```

@@ -42,15 +42,32 @@ The tool prevents creating multiple identical dependencies between the same task
 |-----------|------|----------|-------------|
 | `operation` | enum | **Yes** | Operation: `create`, `delete` |
 
-### Operation-Specific Parameters
+### Create Parameters
 
-| Parameter | Type | Operations | Description |
-|-----------|------|-----------|-------------|
-| `fromTaskId` | UUID | create, delete (optional) | Source task ID (required for create) |
-| `toTaskId` | UUID | create, delete (optional) | Target task ID (required for create) |
-| `type` | enum | create, delete (optional) | Dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS for create) |
-| `id` | UUID | delete (optional) | Specific dependency ID for deletion |
-| `deleteAll` | boolean | delete (optional) | Delete all dependencies for a task (default: false) |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `dependencies` | array | No* | Array of `{fromTaskId, toTaskId, type?}` objects for batch creation |
+| `pattern` | enum | No* | Shortcut pattern: `linear`, `fan-out`, `fan-in` |
+| `taskIds` | array | No | Ordered task IDs for `linear` pattern (creates chain: A->B->C->D) |
+| `source` | UUID | No | Source task ID for `fan-out` pattern |
+| `targets` | array | No | Target task IDs for `fan-out` pattern |
+| `sources` | array | No | Source task IDs for `fan-in` pattern |
+| `target` | UUID | No | Target task ID for `fan-in` pattern |
+| `type` | enum | No | Default dependency type for all created edges (default: BLOCKS) |
+
+*One of `dependencies` or `pattern` is required for create.
+
+### Delete Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | UUID | No* | Specific dependency ID for deletion |
+| `fromTaskId` | UUID | No* | Source task ID for delete by relationship |
+| `toTaskId` | UUID | No* | Target task ID for delete by relationship |
+| `type` | enum | No | Filter by dependency type when deleting by relationship |
+| `deleteAll` | boolean | No | Delete all dependencies for a task (default: false) |
+
+*For delete: provide `id`, OR `fromTaskId`/`toTaskId`, OR one task ID with `deleteAll=true`.
 
 ### Dependency Types
 
@@ -64,32 +81,36 @@ The tool prevents creating multiple identical dependencies between the same task
 
 ## Quick Start
 
-### Basic Create Pattern
+### Create with Dependencies Array
 
 ```json
 {
   "operation": "create",
-  "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+      "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
-**Response**:
+### Create with Linear Pattern
 
 ```json
 {
-  "success": true,
-  "message": "Dependency created successfully",
-  "data": {
-    "id": "c3d4e5f6-a7b8-6c7d-0e1f-2a3b4c5d6e7f",
-    "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-    "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
-    "type": "BLOCKS",
-    "createdAt": "2025-10-24T19:30:00Z"
-  }
+  "operation": "create",
+  "pattern": "linear",
+  "taskIds": [
+    "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+    "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
+    "c3d4e5f6-a7b8-6c7d-8e9f-0a1b2c3d4e5f"
+  ]
 }
 ```
+
+Creates chain: Task A -> Task B -> Task C
 
 ### Basic Delete Pattern - By ID
 
@@ -157,104 +178,150 @@ The tool prevents creating multiple identical dependencies between the same task
 
 ## Operation 1: create
 
-**Purpose**: Create a new dependency relationship between two tasks with comprehensive validation
+**Purpose**: Create dependency relationships between tasks with comprehensive validation. Supports batch creation via a `dependencies` array or common topology shortcuts via `pattern`.
 
-### Required Parameters
+### Create Modes (mutually exclusive)
+
+1. **`dependencies` array** -- Explicit list of `{fromTaskId, toTaskId, type?}` objects
+2. **`pattern` shortcuts** -- Generate edges from a named pattern: `linear`, `fan-out`, `fan-in`
+
+### Mode 1: Dependencies Array
 
 - `operation`: "create"
-- `fromTaskId`: UUID of source task
-- `toTaskId`: UUID of target task
+- `dependencies`: Array of objects, each with `fromTaskId`, `toTaskId`, and optional `type` (default: BLOCKS)
 
-### Optional Parameters
+### Mode 2: Pattern Shortcuts
 
-- `type`: Dependency type (default: "BLOCKS")
+- `operation`: "create"
+- `pattern`: One of `linear`, `fan-out`, `fan-in`
+- Pattern-specific parameters (see below)
+
+| Pattern | Parameters | Generated Edges |
+|---------|-----------|----------------|
+| `linear` | `taskIds=[A,B,C,D]` | A->B, B->C, C->D |
+| `fan-out` | `source=A`, `targets=[B,C,D]` | A->B, A->C, A->D |
+| `fan-in` | `sources=[B,C,D]`, `target=E` | B->E, C->E, D->E |
+
+### Optional Parameters (both modes)
+
+- `type`: Default dependency type for all created edges (default: "BLOCKS")
   - Accepts: "BLOCKS", "IS_BLOCKED_BY", "RELATES_TO"
   - Case-insensitive ("blocks", "BLOCKS", "Blocks" all accepted)
+  - Per-item `type` in the `dependencies` array overrides this default
 
 ### Validation Rules
 
-The create operation performs extensive validation:
+The create operation performs extensive validation on the entire batch:
 
-1. **UUID Format**: Both `fromTaskId` and `toTaskId` must be valid UUIDs
-2. **Task Existence**: Both tasks must exist in the database
-3. **Self-Dependency Prevention**: `fromTaskId` and `toTaskId` must be different
-4. **Circular Dependency Detection**: Creating the dependency must not create a cycle
-5. **Duplicate Prevention**: No identical dependency can already exist with same type
+1. **UUID Format**: All `fromTaskId` and `toTaskId` values must be valid UUIDs
+2. **Task Existence**: All referenced tasks must exist in the database
+3. **Self-Dependency Prevention**: `fromTaskId` and `toTaskId` must be different within each edge
+4. **Circular Dependency Detection**: The entire batch is checked as a graph; no cycles allowed
+5. **Duplicate Prevention**: No identical dependency can already exist with same type (checked within batch and against existing)
 6. **Dependency Type Validation**: Type must be one of: BLOCKS, IS_BLOCKED_BY, RELATES_TO
+7. **Atomic**: If any dependency in the batch fails validation, none are created
 
-### Example - Create BLOCKS Dependency
+### Example - Batch Create with Dependencies Array
 
-**Scenario**: Database schema migration must complete before backend API implementation can start.
-
-```json
-{
-  "operation": "create",
-  "fromTaskId": "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
-  "toTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
-  "type": "BLOCKS"
-}
-```
-
-**Response**:
-
-```json
-{
-  "success": true,
-  "message": "Dependency created successfully",
-  "data": {
-    "id": "d4e5f6a7-b8c9-5c6d-8e9f-0a1b2c3d4e5f",
-    "fromTaskId": "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
-    "toTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
-    "type": "BLOCKS",
-    "createdAt": "2025-10-24T10:00:00Z"
-  }
-}
-```
-
-**Token Cost**: ~150-200 tokens
-
-### Example - Create RELATES_TO Dependency
-
-**Scenario**: Frontend authentication component relates to backend authentication service (informational link).
+**Scenario**: Database schema migration must complete before backend API, which must complete before frontend integration.
 
 ```json
 {
   "operation": "create",
-  "fromTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
-  "toTaskId": "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d",
-  "type": "RELATES_TO"
+  "dependencies": [
+    {
+      "fromTaskId": "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
+      "toTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
+      "type": "BLOCKS"
+    },
+    {
+      "fromTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
+      "toTaskId": "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
-**Response**:
+**Token Cost**: ~200-300 tokens
 
-```json
-{
-  "success": true,
-  "message": "Dependency created successfully",
-  "data": {
-    "id": "e5f6a7b8-c9d0-6d7e-9f0a-1b2c3d4e5f6a",
-    "fromTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
-    "toTaskId": "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d",
-    "type": "RELATES_TO",
-    "createdAt": "2025-10-24T10:15:00Z"
-  }
-}
-```
+### Example - Create with Linear Pattern
 
-**Token Cost**: ~150-200 tokens
-
-### Example - Create with Default Type
+**Scenario**: Same sequential chain as above, using the `linear` shortcut.
 
 ```json
 {
   "operation": "create",
-  "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e"
+  "pattern": "linear",
+  "taskIds": [
+    "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
+    "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
+    "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d"
+  ]
 }
 ```
 
-**Note**: If type is omitted, defaults to "BLOCKS"
+Generates: `db-migration -> backend-api -> frontend-integration`
+
+### Example - Create with Fan-Out Pattern
+
+**Scenario**: Core feature blocks multiple variant implementations.
+
+```json
+{
+  "operation": "create",
+  "pattern": "fan-out",
+  "source": "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
+  "targets": [
+    "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
+    "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d"
+  ]
+}
+```
+
+Generates: `core -> variant-1`, `core -> variant-2`
+
+### Example - Create with Fan-In Pattern
+
+**Scenario**: Multiple prerequisite tasks must complete before an integration task.
+
+```json
+{
+  "operation": "create",
+  "pattern": "fan-in",
+  "sources": [
+    "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
+    "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c"
+  ],
+  "target": "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d"
+}
+```
+
+Generates: `prereq-1 -> integration`, `prereq-2 -> integration`
+
+### Example - Mixed Types in Dependencies Array
+
+**Scenario**: One blocking dependency and one informational link.
+
+```json
+{
+  "operation": "create",
+  "dependencies": [
+    {
+      "fromTaskId": "e8f9a0b1-c2d3-7e8f-1a2b-3c4d5e6f7a8b",
+      "toTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
+      "type": "BLOCKS"
+    },
+    {
+      "fromTaskId": "f9a0b1c2-d3e4-8f9a-2b3c-4d5e6f7a8b9c",
+      "toTaskId": "a0b1c2d3-e4f5-9a0b-3c4d-5e6f7a8b9c0d",
+      "type": "RELATES_TO"
+    }
+  ]
+}
+```
+
+**Note**: If `type` is omitted in a dependency object, defaults to "BLOCKS"
 
 ### When to Use Create
 
@@ -263,16 +330,20 @@ The create operation performs extensive validation:
 - Establishing task dependencies within features
 - Creating blocking relationships for sequential work
 - Linking related tasks that should be coordinated
-- Setting up prerequisite chains (Task A → Task B → Task C)
+- Setting up prerequisite chains (use `linear` pattern for A -> B -> C -> D)
+- One task blocks multiple others (use `fan-out` pattern)
+- Multiple tasks must complete before one can start (use `fan-in` pattern)
 
 ### Create Best Practices
 
-1. **Check for cycles first** - Use query_dependencies to verify no existing backward links
-2. **Plan dependency chains** - Think through 2-3 steps ahead to avoid circular dependencies
-3. **Use appropriate types** - BLOCKS for sequential, RELATES_TO for informational
-4. **Verify both tasks exist** - Tool validates but query first for better error messages
-5. **Document in task descriptions** - Explain why dependencies exist in task summaries
-6. **Limit dependency depth** - Keep chains shallow (3-4 levels max) for clarity
+1. **Use `dependencies` array or `pattern` shortcuts** - Never create dependencies one at a time in a loop
+2. **Check for cycles first** - Use query_dependencies to verify no existing backward links
+3. **Plan dependency chains** - Think through 2-3 steps ahead to avoid circular dependencies
+4. **Use appropriate types** - BLOCKS for sequential, RELATES_TO for informational
+5. **Verify tasks exist** - Tool validates but query first for better error messages
+6. **Document in task descriptions** - Explain why dependencies exist in task summaries
+7. **Limit dependency depth** - Keep chains shallow (3-4 levels max) for clarity
+8. **Prefer `linear` pattern** for sequential chains instead of manually listing edges
 
 ---
 
@@ -481,9 +552,13 @@ Task C BLOCKS Task A  ← This would create a cycle
 ```json
 {
   "operation": "create",
-  "fromTaskId": "task-c-uuid",
-  "toTaskId": "task-a-uuid",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "task-c-uuid",
+      "toTaskId": "task-a-uuid",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
@@ -513,9 +588,13 @@ Task C BLOCKS Task A  ← This would create a cycle
 ```json
 {
   "operation": "create",
-  "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+      "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
@@ -537,9 +616,13 @@ If this dependency already exists, you get:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
-  "type": "RELATES_TO"
+  "dependencies": [
+    {
+      "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+      "toTaskId": "b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e",
+      "type": "RELATES_TO"
+    }
+  ]
 }
 ```
 
@@ -547,61 +630,62 @@ This succeeds because it's a different type.
 
 ### Dependency Chain Patterns
 
-**Pattern 1: Sequential Workflow (Database → Backend → Frontend)**
+**Pattern 1: Sequential Workflow (Database -> Backend -> Frontend) -- `linear` shortcut**
 
 ```json
-[
-  {
-    "operation": "create",
-    "fromTaskId": "db-migration-uuid",
-    "toTaskId": "backend-api-uuid",
-    "type": "BLOCKS"
-  },
-  {
-    "operation": "create",
-    "fromTaskId": "backend-api-uuid",
-    "toTaskId": "frontend-integration-uuid",
-    "type": "BLOCKS"
-  }
-]
+{
+  "operation": "create",
+  "pattern": "linear",
+  "taskIds": ["db-migration-uuid", "backend-api-uuid", "frontend-integration-uuid"]
+}
 ```
 
-**Pattern 2: Parallel Dependencies (Multiple tasks blocked by one prerequisite)**
+Generates: `db-migration -> backend-api -> frontend-integration`
+
+**Pattern 2: Parallel Dependencies (One prerequisite blocks many) -- `fan-out` shortcut**
 
 ```json
-[
-  {
-    "operation": "create",
-    "fromTaskId": "core-feature-uuid",
-    "toTaskId": "feature-variant-1-uuid",
-    "type": "BLOCKS"
-  },
-  {
-    "operation": "create",
-    "fromTaskId": "core-feature-uuid",
-    "toTaskId": "feature-variant-2-uuid",
-    "type": "BLOCKS"
-  }
-]
+{
+  "operation": "create",
+  "pattern": "fan-out",
+  "source": "core-feature-uuid",
+  "targets": ["feature-variant-1-uuid", "feature-variant-2-uuid"]
+}
 ```
 
-**Pattern 3: Mixed Relationships**
+Generates: `core-feature -> variant-1`, `core-feature -> variant-2`
+
+**Pattern 3: Convergence (Many tasks block one) -- `fan-in` shortcut**
 
 ```json
-[
-  {
-    "operation": "create",
-    "fromTaskId": "design-uuid",
-    "toTaskId": "implementation-uuid",
-    "type": "BLOCKS"
-  },
-  {
-    "operation": "create",
-    "fromTaskId": "implementation-uuid",
-    "toTaskId": "testing-uuid",
-    "type": "RELATES_TO"
-  }
-]
+{
+  "operation": "create",
+  "pattern": "fan-in",
+  "sources": ["prereq-1-uuid", "prereq-2-uuid"],
+  "target": "integration-uuid"
+}
+```
+
+Generates: `prereq-1 -> integration`, `prereq-2 -> integration`
+
+**Pattern 4: Mixed Relationships -- `dependencies` array**
+
+```json
+{
+  "operation": "create",
+  "dependencies": [
+    {
+      "fromTaskId": "design-uuid",
+      "toTaskId": "implementation-uuid",
+      "type": "BLOCKS"
+    },
+    {
+      "fromTaskId": "implementation-uuid",
+      "toTaskId": "testing-uuid",
+      "type": "RELATES_TO"
+    }
+  ]
+}
 ```
 
 ### Dependency Cleanup Workflow
@@ -653,7 +737,7 @@ When a task is being deleted or significantly changed:
 | Error Code | Condition | Solution |
 |-----------|-----------|----------|
 | VALIDATION_ERROR | Invalid operation | Use: `create` or `delete` |
-| VALIDATION_ERROR | Missing required parameter | For create: provide `fromTaskId`, `toTaskId`. For delete: provide `id`, OR `fromTaskId`/`toTaskId`, OR one task ID with `deleteAll=true` |
+| VALIDATION_ERROR | Missing required parameter | For create: provide `dependencies` array OR `pattern` with its parameters. For delete: provide `id`, OR `fromTaskId`/`toTaskId`, OR one task ID with `deleteAll=true` |
 | VALIDATION_ERROR | Invalid UUID format | Use valid UUID format: `550e8400-e29b-41d4-a716-446655440000` |
 | VALIDATION_ERROR | fromTaskId and toTaskId are identical | Use different task IDs |
 | VALIDATION_ERROR | Invalid dependency type | Use: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO` |
@@ -688,8 +772,12 @@ When a task is being deleted or significantly changed:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "toTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+  "dependencies": [
+    {
+      "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+      "toTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+    }
+  ]
 }
 ```
 
@@ -711,8 +799,12 @@ Response:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "toTaskId": "non-existent-uuid"
+  "dependencies": [
+    {
+      "fromTaskId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+      "toTaskId": "non-existent-uuid"
+    }
+  ]
 }
 ```
 
@@ -756,64 +848,23 @@ Response:
 
 ### Pattern 1: Create Dependency Chain for Feature
 
-**Workflow**: Break down a feature into sequential tasks, create dependencies automatically.
+**Workflow**: Break down a feature into sequential tasks, create dependencies using the `linear` pattern.
 
 ```json
-// Step 1: Create feature with tasks
-{
-  "operation": "create",
-  "containerType": "feature",
-  "name": "User Authentication System",
-  "projectId": "project-uuid",
-  "tags": "backend,authentication"
-}
-// Response: feature-uuid
-
-// Step 2: Create sequential tasks
-[
-  {
-    "operation": "create",
-    "containerType": "task",
-    "title": "Design authentication schema",
-    "featureId": "feature-uuid",
-    "complexity": 5
-  },
-  {
-    "operation": "create",
-    "containerType": "task",
-    "title": "Implement user service",
-    "featureId": "feature-uuid",
-    "complexity": 7
-  },
-  {
-    "operation": "create",
-    "containerType": "task",
-    "title": "Implement login endpoint",
-    "featureId": "feature-uuid",
-    "complexity": 6
-  }
-]
+// Step 1: Create feature with tasks using manage_container
 // Response: task-1-uuid, task-2-uuid, task-3-uuid
 
-// Step 3: Create blocking dependencies
+// Step 2: Create blocking dependency chain using linear pattern
 {
   "operation": "create",
-  "fromTaskId": "task-1-uuid",
-  "toTaskId": "task-2-uuid",
-  "type": "BLOCKS"
+  "pattern": "linear",
+  "taskIds": ["task-1-uuid", "task-2-uuid", "task-3-uuid"]
 }
-// task-1 blocks task-2
-
-{
-  "operation": "create",
-  "fromTaskId": "task-2-uuid",
-  "toTaskId": "task-3-uuid",
-  "type": "BLOCKS"
-}
-// task-2 blocks task-3
+// Creates: task-1 -> task-2 -> task-3
 ```
 
 **Benefits**:
+- Single call creates the entire chain
 - Clear workflow visualization
 - Prevents out-of-order work
 - Easy to adjust dependencies later
@@ -854,23 +905,23 @@ Response:
 
 ### Pattern 3: Conditional Dependency Management
 
-**Workflow**: Create different dependency types based on relationship strength.
+**Workflow**: Create different dependency types based on relationship strength using a single `dependencies` array.
 
 ```json
-// Core prerequisite - use BLOCKS
 {
   "operation": "create",
-  "fromTaskId": "core-auth-uuid",
-  "toTaskId": "oauth-impl-uuid",
-  "type": "BLOCKS"
-}
-
-// Related but not blocking - use RELATES_TO
-{
-  "operation": "create",
-  "fromTaskId": "password-reset-uuid",
-  "toTaskId": "oauth-impl-uuid",
-  "type": "RELATES_TO"
+  "dependencies": [
+    {
+      "fromTaskId": "core-auth-uuid",
+      "toTaskId": "oauth-impl-uuid",
+      "type": "BLOCKS"
+    },
+    {
+      "fromTaskId": "password-reset-uuid",
+      "toTaskId": "oauth-impl-uuid",
+      "type": "RELATES_TO"
+    }
+  ]
 }
 ```
 
@@ -916,9 +967,13 @@ Use with query_dependencies to build task workflow visualization:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "db-task-uuid",
-  "toTaskId": "api-task-uuid",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "db-task-uuid",
+      "toTaskId": "api-task-uuid",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
@@ -937,9 +992,13 @@ Use with query_dependencies to build task workflow visualization:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "api-endpoint-task-uuid",
-  "toTaskId": "frontend-integration-task-uuid",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "api-endpoint-task-uuid",
+      "toTaskId": "frontend-integration-task-uuid",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
@@ -955,9 +1014,13 @@ Use with query_dependencies to build task workflow visualization:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "implementation-uuid",
-  "toTaskId": "testing-uuid",
-  "type": "RELATES_TO"
+  "dependencies": [
+    {
+      "fromTaskId": "implementation-uuid",
+      "toTaskId": "testing-uuid",
+      "type": "RELATES_TO"
+    }
+  ]
 }
 ```
 
@@ -992,9 +1055,13 @@ Use with query_dependencies to build task workflow visualization:
 ```json
 {
   "operation": "create",
-  "fromTaskId": "old-task-uuid",
-  "toTaskId": "new-task-uuid",
-  "type": "BLOCKS"
+  "dependencies": [
+    {
+      "fromTaskId": "old-task-uuid",
+      "toTaskId": "new-task-uuid",
+      "type": "BLOCKS"
+    }
+  ]
 }
 ```
 
@@ -1138,12 +1205,13 @@ Dependencies determine task ordering:
 
 | Operation | Typical Tokens | Best For |
 |-----------|----------------|----------|
-| create | 150-200 | Single new dependency |
+| create (dependencies array) | 200-400 | Batch creation of multiple edges |
+| create (pattern shortcut) | 100-200 | Common topologies (linear, fan-out, fan-in) |
 | delete (by ID) | 100-150 | Specific dependency removal |
 | delete (by relationship) | 150-200 | Removing link between tasks |
 | delete (deleteAll) | 150-200 | Cleaning up all task dependencies |
 
-**Recommendation**: Batch dependency operations (create 3+ at once) for more efficiency than individual calls.
+**Recommendation**: Always use `dependencies` array or `pattern` shortcuts. Never create dependencies one at a time in a loop.
 
 ---
 

@@ -71,7 +71,7 @@ The Task Orchestrator exposes 12 MCP tools organized into categories:
 
 ### Dependency Management
 - **`query_dependencies`** - Query task dependencies. Use `neighborsOnly=false` for full graph traversal.
-- **`manage_dependencies`** - Create and delete dependencies with batch support, pattern shortcuts (`linear`, `fan-out`, `fan-in`), and legacy single-pair creation.
+- **`manage_dependencies`** - Create and delete dependencies with batch support and pattern shortcuts (`linear`, `fan-out`, `fan-in`). Use `dependencies` array for explicit edges. Use `fromTaskId`/`toTaskId` for delete-by-relationship.
 
 ### Workflow Optimization
 - **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
