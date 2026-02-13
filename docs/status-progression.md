@@ -58,37 +58,67 @@ Natural language response with commands
 
 ## Event-Driven Architecture (v2.0)
 
-Task Orchestrator v2.0 uses an **event-driven status progression pattern** where Skills detect workflow events and delegate to the Status Progression system for intelligent status recommendations.
+Task Orchestrator v2.0 uses **trigger-based status transitions** with automatic cascade detection. Instead of manually setting status values, you use named triggers (start, complete, cancel, block, hold) that validate prerequisites and automatically detect when parent entities should advance.
 
 ### Core Principle
 
-**Skills detect workflow events, not status names.** The Status Progression system determines appropriate status transitions based on your configuration.
+**Use request_transition with triggers, not raw status values.** The tool handles validation, cascade detection, and flow context automatically.
+
+### Trigger-Based Workflow
+
+**Primary mechanism**: `request_transition` tool with named triggers:
+- `start` - Progress to next status in workflow flow
+- `complete` - Move to completed (validates prerequisites)
+- `cancel` - Move to cancelled (emergency transition)
+- `block` - Move to blocked (emergency transition)
+- `hold` - Move to on-hold (emergency transition)
+
+**How It Works:**
+1. **Call request_transition** with containerId, containerType, and trigger
+2. **Tool validates prerequisites** (summary populated, dependencies resolved, etc.)
+3. **Status transition applied** if validation passes
+4. **Cascade detection runs automatically** via `WorkflowServiceImpl.detectCascadeEvents()`
+5. **Response includes** cascadeEvents, unblockedTasks, and flow context
+
+**Example**:
+```javascript
+// Complete a task - automatically checks if feature should advance
+request_transition(containerId="task-uuid", containerType="task", trigger="complete")
+
+// Response includes cascade events if applicable:
+{
+  "newStatus": "completed",
+  "cascadeEvents": [{
+    "entityType": "feature",
+    "entityId": "feature-uuid",
+    "previousStatus": "in-development",
+    "newStatus": "testing",
+    "reason": "All child tasks completed"
+  }],
+  "unblockedTasks": [{"taskId": "...", "title": "..."}],
+  "activeFlow": "default_flow",
+  "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+  "flowPosition": 4
+}
+```
 
 ### Universal Workflow Events
 
-**Feature Events** that trigger status checks:
+These events are detected automatically by cascade detection - you don't need to manually check for them:
+
+**Feature Events**:
 - `first_task_started` - First task begins execution → May progress feature to in-development
 - `all_tasks_complete` - All tasks finished → May progress to testing/completed
 - `tests_passed` / `tests_failed` - Quality validation results
 - `review_approved` / `changes_requested` - Human review outcomes
 - `blocker_detected` / `feature_cancelled` - Exception handling
 
-**Task Events** that trigger status checks:
+**Task Events**:
 - `work_started` - Implementation begins → May move to in-progress
 - `implementation_complete` - Code + tests written → May move to testing/review
 - `tests_passed` / `tests_failed` - Automated test results
 - `review_approved` / `changes_requested` - Code review outcomes
 - `blocker_detected` / `task_cancelled` - Exception handling
-
-**How It Works:**
-1. **Event occurs** (task completes, tests run, etc.)
-2. **Skills detect event** using query tools
-3. **Skills delegate** to Status Progression Skill
-4. **get_next_status tool analyzes** state and config
-5. **Recommendation returned** based on your configured flows
-6. **Status change applied** if prerequisites met
-
-This architecture ensures status progression adapts to your custom workflows without hardcoding status names in Skills.
 
 ### Cascade Lifecycle Prerequisites
 
@@ -206,11 +236,12 @@ Task Orchestrator supports **custom hooks** that execute automatically on status
 
 **Execution order:**
 ```
-1. User calls manage_container(operation="setStatus", ...)
+1. User calls request_transition(trigger="...", ...)
 2. StatusValidator validates status and transition
 3. If valid, status change applied
-4. Hooks execute AFTER successful status change
-5. Hook output returned to user
+4. Cascade detection runs automatically
+5. Hooks execute AFTER successful status change
+6. Response includes cascadeEvents, unblockedTasks, and flow context
 ```
 
 **Key insight**: Hooks execute **after** validation passes. Status Progression Skill helps users **pass validation** so hooks can execute.
@@ -251,8 +282,7 @@ manage_container(operation="update", containerType="task",
   id="...", summary="[up to 500 char description of what was accomplished]")
 
 Then complete:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="completed")
+request_transition(containerId="...", containerType="task", trigger="complete")
 ```
 
 ### Example 2: Deployment Notification Hook
@@ -281,8 +311,7 @@ hooks:
 ✅ Ready to deploy!
 
 Step 1: Mark as deployed
-manage_container(operation="setStatus", containerType="feature",
-  id="...", status="deployed")
+request_transition(containerId="...", containerType="feature", trigger="complete")
 
 Step 2: Add environment tag (triggers Slack notification with environment)
 manage_container(operation="update", containerType="feature",
@@ -433,8 +462,7 @@ Prerequisite check:
 - Task summary: Required (at most 500 chars) - Current: 420 chars ✅
 
 Safe to proceed:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="completed")
+request_transition(containerId="...", containerType="task", trigger="complete")
 ```
 
 ### Scenario 2: Small Team Pattern (With Review Gates)
@@ -474,16 +502,13 @@ in-review → changes-requested → in-progress → in-review → testing → co
 Your config allows backward transitions (allow_backward: true), enabling this rework loop.
 
 Implementing changes:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="changes-requested")
+request_transition(containerId="...", containerType="task", trigger="start")
 
 After fixes:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="in-progress")
+request_transition(containerId="...", containerType="task", trigger="start")
 
 Re-submit for review:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="in-review")
+request_transition(containerId="...", containerType="task", trigger="start")
 ```
 
 ### Scenario 3: Enterprise Pattern (Strict Process)
@@ -521,9 +546,8 @@ Your options (compliance-safe):
 3. Cancel this task, create fixed version
 
 Recommended for audit compliance:
-# Mark as blocked with reason
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="blocked")
+# Mark as blocked
+request_transition(containerId="...", containerType="task", trigger="block")
 
 # Create fix task
 manage_container(operation="create", containerType="task",
@@ -565,12 +589,10 @@ Fix options:
 2. Cancel unnecessary tasks
 
 To complete:
-manage_container(operation="setStatus", containerType="task",
-  id="task-id", status="completed")
+request_transition(containerId="task-id", containerType="task", trigger="complete")
 
 To cancel:
-manage_container(operation="setStatus", containerType="task",
-  id="task-id", status="cancelled")
+request_transition(containerId="task-id", containerType="task", trigger="cancel")
 ```
 
 ### Task Prerequisites
@@ -612,8 +634,7 @@ manage_container(operation="update", containerType="task",
 What it means: Feature "User Dashboard" still incomplete
 Fix: Complete the feature
 Tool call:
-manage_container(operation="setStatus", containerType="feature",
-  id="feature-id", status="completed")
+request_transition(containerId="feature-id", containerType="feature", trigger="complete")
 ```
 
 ## Error Troubleshooting
@@ -629,11 +650,9 @@ manage_container(operation="setStatus", containerType="feature",
 **Fixes:**
 1. **Follow flow sequentially:**
 ```javascript
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="in-progress")
+request_transition(containerId="...", containerType="task", trigger="start")
 // Then later:
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="testing")
+request_transition(containerId="...", containerType="task", trigger="start")
 ```
 
 2. **Change config** (if sequential not needed):
@@ -652,8 +671,7 @@ status_validation:
 **Fixes:**
 1. **Use emergency transition:**
 ```javascript
-manage_container(operation="setStatus", containerType="task",
-  id="...", status="blocked")
+request_transition(containerId="...", containerType="task", trigger="block")
 // Then create new task for fixes
 ```
 
@@ -683,10 +701,10 @@ status_validation:
 **Fix:** Use correct status name
 ```javascript
 // Wrong:
-manage_container(operation="setStatus", status="in_testing")
+request_transition(trigger="in_testing")
 
 // Correct:
-manage_container(operation="setStatus", status="testing")
+request_transition(trigger="start")
 ```
 
 **Valid statuses:** See [Status Flow Diagrams](#status-flow-diagrams)
@@ -948,22 +966,271 @@ Batch transitions validate each transition independently. If some succeed and so
 
 5. **Act on unblocked tasks**: Use `aggregateUnblockedTasks` to find newly available work
 
+## Role Annotations
+
+Task Orchestrator v2.0 assigns semantic **role annotations** to statuses, providing agents with context about what each status means in the workflow lifecycle.
+
+### Status Roles
+
+The 5 role categories:
+
+- **queue** - Work waiting to be started (pending, backlog, draft, planning)
+- **work** - Active implementation (in-progress, in-development, investigating, changes-requested)
+- **review** - Validation and quality gates (in-review, testing, validating, pending-review, ready-for-qa)
+- **blocked** - Impediments preventing progress (blocked, on-hold)
+- **terminal** - Final states (completed, cancelled, deferred, archived, deployed)
+
+### Role Configuration
+
+Role mappings are defined in `src/main/resources/configuration/default-config.yaml` under the `status_roles` section:
+
+```yaml
+status_progression:
+  tasks:
+    status_roles:
+      backlog: queue
+      pending: queue
+      in-progress: work
+      in-review: review
+      changes-requested: work
+      testing: review
+      ready-for-qa: review
+      investigating: work
+      blocked: blocked
+      on-hold: blocked
+      completed: terminal
+      cancelled: terminal
+      deferred: terminal
+```
+
+### Role Annotations in Tool Responses
+
+Both `get_next_status` and `request_transition` include role annotations in their responses:
+
+**get_next_status response**:
+```json
+{
+  "recommendation": "Ready",
+  "currentStatus": "in-progress",
+  "currentRole": "work",
+  "recommendedStatus": "testing",
+  "recommendedRole": "review"
+}
+```
+
+**request_transition response**:
+```json
+{
+  "previousStatus": "in-progress",
+  "newStatus": "testing",
+  "previousRole": "work",
+  "newRole": "review",
+  "activeFlow": "default_flow"
+}
+```
+
+### Why Roles Matter
+
+Role annotations enable agents to understand workflow semantics:
+- **Queue vs Work**: Distinguish between waiting (queue) and active execution (work)
+- **Review Gates**: Identify validation checkpoints (review role)
+- **Blockers**: Recognize impediments requiring intervention (blocked role)
+- **Terminal States**: Know when entities are complete and immutable (terminal role)
+
+This semantic context helps AI agents make better decisions about task prioritization, workflow navigation, and automation logic.
+
+## Verification Gates
+
+Features and tasks can optionally require **verification gates** before completion. When `requiresVerification` is set to `true`, the "complete" trigger validates that all verification criteria are met before allowing completion.
+
+### Setting Verification Required
+
+Set the flag when creating or updating entities:
+
+```javascript
+// Create task with verification gate
+manage_container(
+  operation="create",
+  containerType="task",
+  title="Implement authentication",
+  requiresVerification=true
+)
+
+// Enable verification on existing feature
+manage_container(
+  operation="update",
+  containerType="feature",
+  id="feature-uuid",
+  requiresVerification=true
+)
+```
+
+### How Verification Gates Work
+
+When `request_transition(trigger="complete")` is called:
+
+1. **Validation runs**: Standard prerequisite checks (summary, dependencies, etc.)
+2. **Verification gate check**: If `requiresVerification=true`, `VerificationGateService.checkVerificationSection()` validates criteria
+3. **Blocked if verification fails**: Completion is prevented with detailed error message
+4. **Proceeds if verification passes**: Status change applied normally
+
+**Implementation reference**: `RequestTransitionTool.kt` lines 462-484
+
+### Verification Failure Response
+
+When verification gate blocks completion:
+
+```json
+{
+  "applied": false,
+  "error": "Completion blocked: Verification section incomplete",
+  "containerId": "task-uuid",
+  "containerType": "task",
+  "gate": "verification",
+  "failingCriteria": [
+    "All test cases must pass",
+    "Documentation must be updated"
+  ]
+}
+```
+
+### Use Cases for Verification Gates
+
+- **Quality gates**: Ensure tests pass, documentation updated, security review complete
+- **Compliance requirements**: Validate regulatory checks before marking complete
+- **Stakeholder sign-off**: Require explicit approval before completion
+- **Multi-step validation**: Enforce multiple criteria before allowing task closure
+
+## Completion Cleanup
+
+When a feature reaches a **terminal status** (completed, archived), Task Orchestrator automatically cleans up transient work artifacts to maintain a lean database.
+
+### What Gets Cleaned Up
+
+When a feature completes:
+- **Child tasks** - Tasks are transient work items deleted after feature completion
+- **Task sections** - Section content associated with deleted tasks
+- **Task dependencies** - Dependency relationships involving deleted tasks
+
+### What Is Preserved
+
+- **The feature itself** - Features are durable records preserved for context
+- **Feature sections** - Feature section content is retained
+- **Bug-tagged tasks** - Tasks with bug-related tags (configurable) are retained for diagnostics
+- **Projects** - Projects are never automatically deleted
+
+### Configuration
+
+Completion cleanup is configured in `src/main/resources/configuration/default-config.yaml`:
+
+```yaml
+completion_cleanup:
+  # Master switch - set to false to keep all tasks indefinitely
+  enabled: true
+
+  # Tasks with these tags survive cleanup (case-insensitive matching)
+  retain_tags: [bug, bugfix, fix, hotfix, critical]
+```
+
+### Example Cleanup Behavior
+
+**Scenario**: Feature with 10 tasks (8 regular, 2 bug fixes) reaches "completed" status
+
+**Result**:
+- 8 regular tasks deleted (with their sections and dependencies)
+- 2 bug fix tasks retained (matched `retain_tags: [bug, bugfix]`)
+- Feature and its sections preserved
+- Project structure unchanged
+
+### Disabling Cleanup
+
+To preserve all tasks permanently:
+
+```yaml
+completion_cleanup:
+  enabled: false
+```
+
+### Terminal Statuses Triggering Cleanup
+
+Cleanup runs when feature reaches any terminal status defined in `status_progression.features.terminal_statuses`:
+- `completed`
+- `archived`
+
+Tasks reaching terminal statuses do NOT trigger cleanup (only features trigger cleanup).
+
+## request_transition vs manage_container
+
+Understanding when to use `request_transition` versus `manage_container(setStatus)` is critical for correct workflow behavior.
+
+| Aspect | request_transition | manage_container(setStatus) |
+|--------|-------------------|---------------------------|
+| **Validation** | Full prerequisite + dependency checks | No validation |
+| **Cascades** | Automatic detection via `WorkflowServiceImpl.detectCascadeEvents()` | None |
+| **Unblocked tasks** | Reports newly unblocked downstream tasks | None |
+| **Flow context** | Returns activeFlow, flowSequence, flowPosition | None |
+| **Role annotations** | Returns previousRole, newRole | None |
+| **Batch support** | `transitions` array with aggregate cascade detection | `bulkUpdate` (but hooks block status changes) |
+| **Trigger-based** | Named triggers (start, complete, cancel, block, hold) | Raw status values |
+| **Verification gates** | Enforces `requiresVerification` flag | Skips verification |
+| **Completion cleanup** | Triggers cleanup on terminal status | Triggers cleanup on terminal status |
+
+### When to Use request_transition
+
+**Always use request_transition for status changes.** It provides:
+- Validation to prevent invalid transitions
+- Cascade detection to advance parent entities
+- Unblocked task identification for workflow optimization
+- Flow context for progress tracking
+- Role annotations for semantic understanding
+
+### When to Use manage_container
+
+**Never use manage_container(setStatus) for status changes.** The only valid use case for `manage_container` with status is:
+- **Initial entity creation**: Setting status during `operation="create"` (not recommended, entities default to appropriate starting status)
+
+For all status changes after creation, use `request_transition`.
+
+### Example Comparison
+
+**Wrong approach** (skips validation and cascades):
+```javascript
+// Dangerous - no validation, no cascades
+manage_container(operation="setStatus", containerType="task", id="...", status="completed")
+```
+
+**Correct approach** (full workflow support):
+```javascript
+// Correct - validation, cascades, unblocked tasks, flow context
+request_transition(containerId="...", containerType="task", trigger="complete")
+
+// Response provides actionable workflow intelligence:
+{
+  "newStatus": "completed",
+  "cascadeEvents": [{...}],           // Parent feature advanced
+  "unblockedTasks": [{...}],          // Downstream work now available
+  "activeFlow": "default_flow",       // Workflow context
+  "previousRole": "work",             // Was active implementation
+  "newRole": "terminal"               // Now complete
+}
+```
+
 ## Best Practices
 
 ### 1. Use request_transition for Status Changes
 
 **Don't:**
 ```javascript
-// Use manage_container for status changes (skips validation)
+// NEVER use manage_container for status changes (skips validation and cascades)
 manage_container(operation="setStatus", status="completed")
 ```
 
 **Do:**
 ```javascript
-// Use request_transition for validation, cascade detection, and flow context
+// ALWAYS use request_transition for validation, cascade detection, and flow context
 request_transition(containerId="uuid", containerType="task", trigger="complete")
 
-// Response includes flow context and readiness validation
+// Response includes flow context, cascadeEvents, and unblockedTasks
 // No need for get_next_status beforehand (optional for preview only)
 ```
 
@@ -990,14 +1257,14 @@ flow_mappings:
 **Don't:**
 ```javascript
 // Deploy without environment tracking
-manage_container(operation="setStatus", status="deployed")
+request_transition(trigger="complete")
 ```
 
 **Do:**
 ```javascript
-// Track deployment environment
-manage_container(operation="setStatus", status="deployed")
-manage_container(operation="update", tags="feature-tag,env:staging")
+// Track deployment environment with tags
+manage_container(operation="update", containerId="...", containerType="feature", tags="feature-tag,env:staging")
+request_transition(containerId="...", containerType="feature", trigger="complete")
 ```
 
 ### 4. Configure Validation for Your Team
@@ -1035,7 +1302,7 @@ See [Hook Integration Examples](#hook-integration-examples)
 
 ## Additional Resources
 
-- **Config reference:** See `src/main/resources/orchestration/default-config.yaml`
+- **Config reference:** See `src/main/resources/configuration/default-config.yaml`
 - **API documentation:** `docs/api-reference.md`
-- **Status Progression Skill:** `.claude/skills/status-progression/SKILL.md`
+- **Status Progression Skill:** `claude-plugins/task-orchestrator/skills/status-progression/SKILL.md`
 - **Hook system:** `docs/hooks.md` (if exists)

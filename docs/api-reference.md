@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference (v2.0)
 
-The MCP Task Orchestrator v2.0 provides **12 MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
+The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
 
 > **Migration from v1.x**: See [v2.0 Migration Guide](migration/v2.0-migration-guide.md) for complete migration instructions.
 
@@ -42,7 +42,7 @@ The MCP Task Orchestrator v2.0 provides **12 MCP tools** for AI-driven project m
 
 ### Massive Consolidation
 
-**v1.x: 56 tools** → **v2.0: 12 tools** (79% reduction)
+**v1.x: 56 tools** → **v2.0: 13 tools** (77% reduction)
 
 | Category | v1.x Tools | v2.0 Tools | Reduction |
 |----------|------------|------------|-----------|
@@ -1124,6 +1124,8 @@ manage_container(operation="update", containerType="feature", id="...",
 }
 ```
 
+> **Status Validation**: When a container in the bulk update includes a status change, StatusValidator runs for that entity — checking prerequisites, dependency completion, and transition validity. Invalid status changes fail individually without blocking other updates in the batch.
+
 ---
 
 ## Section Tools
@@ -1807,6 +1809,54 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
   }
 }
 ```
+
+#### Example - Graph Traversal with Analysis
+
+When `neighborsOnly=false`, the response includes a `graph` object with full dependency chain analysis:
+
+```json
+{
+  "taskId": "task-b-uuid",
+  "neighborsOnly": false
+}
+```
+
+**Response with Graph Analysis**:
+```json
+{
+  "success": true,
+  "message": "Dependencies retrieved successfully",
+  "data": {
+    "dependencies": [...],
+    "counts": {...},
+    "graph": {
+      "chain": ["task-a-uuid", "task-b-uuid", "task-c-uuid"],
+      "depth": 2,
+      "criticalPath": ["task-a-uuid", "task-b-uuid", "task-c-uuid"],
+      "bottlenecks": [
+        {
+          "taskId": "task-b-uuid",
+          "fanOut": 3,
+          "title": "Core implementation"
+        }
+      ],
+      "parallelizable": [
+        {
+          "depth": 2,
+          "tasks": ["task-c-uuid", "task-d-uuid"]
+        }
+      ]
+    }
+  }
+}
+```
+
+**Graph Fields**:
+- `chain`: Topologically sorted task IDs showing execution order
+- `depth`: Maximum chain depth (longest path length)
+- `criticalPath`: Longest dependency path through the graph
+- `bottlenecks`: Tasks with high fan-out (blocking many downstream tasks)
+- `parallelizable`: Groups of tasks at the same depth that can run concurrently
 
 ---
 
@@ -2752,4 +2802,4 @@ AI Workflow:
 
 **Last Updated**: 2025-11-03
 **Version**: 2.0.0
-**Tool Count**: 12 tools (79% reduction from v1.x)
+**Tool Count**: 13 tools (77% reduction from v1.x)
