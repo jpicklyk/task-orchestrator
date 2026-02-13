@@ -163,7 +163,7 @@ The server exposes 13 MCP tools organized into categories:
 
 ### Dependency Management
 - **`query_dependencies`** - Query task dependencies. Use `neighborsOnly=false` for full graph traversal with chain depth, critical path, bottlenecks, and parallelizable groups.
-- **`manage_dependencies`** - Create and delete dependencies with batch support. Accepts a `dependencies` array for explicit edges or `pattern` shortcuts (`linear`, `fan-out`, `fan-in`) for common topologies. Also supports legacy single `fromTaskId`/`toTaskId` creation.
+- **`manage_dependencies`** - Create and delete dependencies with batch support. Accepts a `dependencies` array for explicit edges or `pattern` shortcuts (`linear`, `fan-out`, `fan-in`) for common topologies. Use `fromTaskId`/`toTaskId` for delete-by-relationship.
 
 ### Workflow Optimization
 - **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting

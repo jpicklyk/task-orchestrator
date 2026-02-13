@@ -56,25 +56,22 @@ class ManageDependenciesTool(
 Operations: create, delete
 
 Create Modes (mutually exclusive):
-1. **dependencies array** — Explicit list of dependency objects
+1. **dependencies array** — Explicit list of dependency objects. Each: {fromTaskId, toTaskId, type?}
 2. **pattern shortcut** — Generate dependencies from a named pattern
-3. **legacy single** — Single fromTaskId + toTaskId (backward compatible)
 
-Parameters:
+Create Parameters:
 | Field | Type | Required | Description |
-| operation | enum | Yes | create, delete |
-| dependencies | array | No | Array of {fromTaskId, toTaskId, type?} objects (create) |
-| pattern | enum | No | Shortcut pattern: "linear", "fan-out", "fan-in" (create) |
-| taskIds | array | No | Ordered task IDs for linear pattern (create) |
-| source | UUID | No | Source task ID for fan-out pattern (create) |
-| targets | array | No | Target task IDs for fan-out pattern (create) |
-| sources | array | No | Source task IDs for fan-in pattern (create) |
-| target | UUID | No | Target task ID for fan-in pattern (create) |
-| fromTaskId | UUID | No | Source task ID (legacy create; delete by relationship) |
-| toTaskId | UUID | No | Target task ID (legacy create; delete by relationship) |
-| type | enum | No | Dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS) |
-| id | UUID | No | Dependency ID (delete by ID) |
-| deleteAll | boolean | No | Delete all dependencies for task (delete only, default: false) |
+| operation | enum | Yes | "create" |
+| dependencies | array | No* | Array of {fromTaskId: UUID, toTaskId: UUID, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO} objects |
+| pattern | enum | No* | Shortcut pattern: "linear", "fan-out", "fan-in" |
+| taskIds | array | No | Ordered task IDs for linear pattern. Creates chain: A→B→C→D |
+| source | UUID | No | Source task ID for fan-out pattern |
+| targets | array | No | Target task IDs for fan-out pattern |
+| sources | array | No | Source task IDs for fan-in pattern |
+| target | UUID | No | Target task ID for fan-in pattern |
+| type | enum | No | Default dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS) |
+
+*Provide either dependencies array OR pattern — not both.
 
 Pattern Shortcuts:
 - **linear** + taskIds=[A,B,C,D] → A→B, B→C, C→D (chain)
@@ -91,6 +88,15 @@ Dependency Types:
 - BLOCKS: Source blocks target (target cannot start until source complete)
 - IS_BLOCKED_BY: Source is blocked by target (inverse of BLOCKS)
 - RELATES_TO: General relationship (no blocking)
+
+Delete Parameters:
+| Field | Type | Required | Description |
+| operation | enum | Yes | "delete" |
+| id | UUID | No | Dependency ID (delete by ID) |
+| fromTaskId | UUID | No | Source task ID (delete by relationship, or with deleteAll) |
+| toTaskId | UUID | No | Target task ID (delete by relationship, or with deleteAll) |
+| type | enum | No | Filter by type when deleting by relationship |
+| deleteAll | boolean | No | Delete all dependencies for the specified task (default: false) |
 
 Delete Methods:
 - By dependency ID: Provide 'id' parameter
@@ -189,14 +195,14 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
                 "fromTaskId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Source task ID (legacy create; optional for: delete by relationship)"),
+                        "description" to JsonPrimitive("Source task ID (delete by relationship, or with deleteAll)"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
                 "toTaskId" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("Target task ID (legacy create; optional for: delete by relationship)"),
+                        "description" to JsonPrimitive("Target task ID (delete by relationship, or with deleteAll)"),
                         "format" to JsonPrimitive("uuid")
                     )
                 ),
@@ -249,13 +255,13 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
 
         if (modes.isEmpty()) {
             throw ToolValidationException(
-                "Must specify one of: 'dependencies' array, 'pattern' shortcut, or 'fromTaskId'+'toTaskId' for create operation"
+                "Must specify one of: 'dependencies' array or 'pattern' shortcut for create operation"
             )
         }
 
         if (modes.size > 1) {
             throw ToolValidationException(
-                "Cannot mix create modes. Use exactly one of: 'dependencies' array, 'pattern' shortcut, or 'fromTaskId'+'toTaskId'. Found: ${modes.joinToString(", ")}"
+                "Cannot mix create modes. Use exactly one of: 'dependencies' array or 'pattern' shortcut. Found: ${modes.joinToString(", ")}"
             )
         }
 
