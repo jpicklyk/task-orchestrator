@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializer
 import io.github.jpicklyk.mcptask.application.service.TemplateInitializerImpl
+import io.github.jpicklyk.mcptask.application.service.cascade.CascadeService
+import io.github.jpicklyk.mcptask.application.service.cascade.CascadeServiceImpl
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionServiceImpl
 import io.github.jpicklyk.mcptask.application.tools.ManageContainerTool
@@ -56,6 +58,7 @@ class McpServer(
     private lateinit var templateInitializer: TemplateInitializer
     private lateinit var statusValidator: StatusValidator
     private lateinit var statusProgressionService: StatusProgressionService
+    private lateinit var cascadeService: CascadeService
     
     /**
      * Configures and runs the MCP server.
@@ -74,8 +77,19 @@ class McpServer(
         statusValidator = StatusValidator()
         statusProgressionService = StatusProgressionServiceImpl(statusValidator)
 
-        // Initialize tool execution context with status progression service
-        toolExecutionContext = ToolExecutionContext(repositoryProvider, statusProgressionService)
+        // Initialize cascade service
+        cascadeService = CascadeServiceImpl(
+            statusProgressionService = statusProgressionService,
+            statusValidator = statusValidator,
+            taskRepository = repositoryProvider.taskRepository(),
+            featureRepository = repositoryProvider.featureRepository(),
+            projectRepository = repositoryProvider.projectRepository(),
+            dependencyRepository = repositoryProvider.dependencyRepository(),
+            sectionRepository = repositoryProvider.sectionRepository()
+        )
+
+        // Initialize tool execution context with status progression service and cascade service
+        toolExecutionContext = ToolExecutionContext(repositoryProvider, statusProgressionService, cascadeService)
 
         // Initialize template initializer
         templateInitializer = TemplateInitializerImpl(repositoryProvider.templateRepository())

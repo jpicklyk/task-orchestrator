@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools.status
 
+import io.github.jpicklyk.mcptask.application.service.cascade.CascadeService
 import io.github.jpicklyk.mcptask.application.service.progression.FlowPath
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation
@@ -26,6 +27,7 @@ class RequestTransitionToolTest {
     private lateinit var tool: RequestTransitionTool
     private lateinit var context: ToolExecutionContext
     private lateinit var mockStatusProgressionService: StatusProgressionService
+    private lateinit var mockCascadeService: CascadeService
     private lateinit var mockTaskRepository: TaskRepository
     private lateinit var mockFeatureRepository: FeatureRepository
     private lateinit var mockProjectRepository: ProjectRepository
@@ -59,6 +61,13 @@ class RequestTransitionToolTest {
         every { mockRepositoryProvider.dependencyRepository() } returns mockDependencyRepository
         every { mockRepositoryProvider.templateRepository() } returns mockTemplateRepository
 
+        // Mock CascadeService - tests that need cascade behavior will override these defaults
+        mockCascadeService = mockk()
+        every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = false, maxDepth = 3)
+        coEvery { mockCascadeService.applyCascades(any(), any(), any(), any()) } returns emptyList()
+        coEvery { mockCascadeService.detectCascadeEvents(any(), any()) } returns emptyList()
+        coEvery { mockCascadeService.findNewlyUnblockedTasks(any()) } returns emptyList()
+
         pendingTask = Task(
             id = taskId,
             title = "Test Task",
@@ -79,7 +88,11 @@ class RequestTransitionToolTest {
         // Default mock for role lookups (returns null unless overridden)
         every { mockStatusProgressionService.getRoleForStatus(any(), any(), any()) } returns null
 
-        context = ToolExecutionContext(mockRepositoryProvider)
+        context = ToolExecutionContext(
+            repositoryProvider = mockRepositoryProvider,
+            statusProgressionService = null,
+            cascadeService = mockCascadeService
+        )
         tool = RequestTransitionTool(mockStatusProgressionService)
     }
 
@@ -560,18 +573,16 @@ class RequestTransitionToolTest {
             val completedTaskA = taskA.copy(status = TaskStatus.COMPLETED)
             val taskB = createTask(taskBId, "Task B", TaskStatus.PENDING)
 
-            // getById(taskAId) is called multiple times:
+            // getById(taskAId) is called:
             // 1. fetchEntityDetails() - needs IN_PROGRESS
             // 2. StatusValidator.validateTaskPrerequisites for "completed" - needs task for summary check
             // 3. applyStatusChange() - needs IN_PROGRESS to copy
             // 4. verification gate check (trigger=complete) - needs task
-            // 5. findNewlyUnblockedTasks() blocker check - needs COMPLETED
             coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
                 Result.Success(taskA),       // fetchEntityDetails
                 Result.Success(taskA),       // StatusValidator prerequisite check (summary length)
                 Result.Success(taskA),       // applyStatusChange
-                Result.Success(taskA),       // verification gate check
-                Result.Success(completedTaskA) // findNewlyUnblockedTasks blocker check
+                Result.Success(taskA)        // verification gate check
             )
 
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(completedTaskA)
@@ -580,17 +591,11 @@ class RequestTransitionToolTest {
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
 
-            // findNewlyUnblockedTasks: outgoing BLOCKS deps from Task A
-            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
-                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
-            )
-
-            // findNewlyUnblockedTasks: downstream task B lookup
-            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
-
-            // findNewlyUnblockedTasks: all incoming blockers for Task B
-            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(
-                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            // Mock CascadeService methods
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = false)
+            coEvery { mockCascadeService.detectCascadeEvents(any(), any()) } returns emptyList()
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.UnblockedTask(taskId = taskBId, title = "Task B")
             )
 
             val params = buildJsonObject {
@@ -680,28 +685,20 @@ class RequestTransitionToolTest {
             // getById(taskAId) calls:
             // 1. fetchEntityDetails - IN_PROGRESS
             // 2. applyStatusChange - IN_PROGRESS
-            // 3. findNewlyUnblockedTasks blocker check - CANCELLED
             coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
                 Result.Success(taskA),
-                Result.Success(taskA),
-                Result.Success(cancelledTaskA)
+                Result.Success(taskA)
             )
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(cancelledTaskA)
 
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
 
-            // outgoing BLOCKS deps from Task A
-            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(
-                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
-            )
-
-            // downstream Task B lookup
-            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
-
-            // All incoming blockers for Task B: only Task A
-            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(
-                Dependency(fromTaskId = taskAId, toTaskId = taskBId, type = DependencyType.BLOCKS)
+            // Mock CascadeService methods
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = false)
+            coEvery { mockCascadeService.detectCascadeEvents(any(), any()) } returns emptyList()
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.UnblockedTask(taskId = taskBId, title = "Task B")
             )
 
             val params = buildJsonObject {
@@ -1167,53 +1164,37 @@ class RequestTransitionToolTest {
             val task = createTask(taskAId, "Task A", TaskStatus.IN_PROGRESS)
             val completedTask = task.copy(status = TaskStatus.COMPLETED)
             val feature = createFeature(status = FeatureStatus.IN_DEVELOPMENT)
-            val completedFeature = feature.update(status = FeatureStatus.COMPLETED)
 
             setupCommonMocks()
 
-            // Task lookups (use returns for "any call returns this")
-            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(completedTask)
-            // First call needs to return the pre-transition version
+            // Task lookups
             coEvery { mockTaskRepository.getById(taskAId) } returnsMany listOf(
                 Result.Success(task),           // fetchEntityDetails
                 Result.Success(task),           // StatusValidator prerequisite check (summary)
                 Result.Success(task),           // applyStatusChange
-                Result.Success(task),           // verification gate check
-                Result.Success(completedTask),  // detectCascadesRaw -> WorkflowServiceImpl
-                Result.Success(completedTask),  // applyCascades -> detectCascadesRaw
-                Result.Success(completedTask),  // additional
-                Result.Success(completedTask)   // additional
+                Result.Success(task)            // verification gate check
             )
             coEvery { mockTaskRepository.update(match { it.id == taskAId }) } returns Result.Success(completedTask)
 
-            // Feature lookups for cascade detection and application
-            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
-                Result.Success(feature),         // detectCascadesRaw (WorkflowServiceImpl)
-                Result.Success(feature),         // applyCascades -> fetchEntityDetails
-                Result.Success(feature),         // applyCascades -> applyStatusChange
-                Result.Success(completedFeature), // detectCascadesRaw for feature cascades (recursive)
-                Result.Success(completedFeature)  // additional
-            )
-            coEvery { mockFeatureRepository.update(any()) } returns Result.Success(completedFeature)
+            // StatusValidator for task -> completed
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
 
-            // All tasks done in feature
-            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 1, pending = 0, inProgress = 0, completed = 1, cancelled = 0, testing = 0, blocked = 0
+            // Mock CascadeService to return applied cascade
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "in-development",
+                    newStatus = "completed",
+                    applied = true,
+                    reason = "All tasks in feature are completed"
+                )
             )
-
-            // StatusValidator for feature -> completed needs findByFeature to show all tasks done
-            coEvery { mockTaskRepository.findByFeature(eq(featureId), any(), any(), any()) } returns Result.Success(
-                listOf(completedTask)
-            )
-
-            // Feature cascades: check project for all_features_complete
-            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(createProject())
-            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
-                total = 2, completed = 1  // Not all features done yet, so project won't cascade
-            )
-
-            // Cleanup: feature reaching terminal status triggers CompletionCleanupService
-            every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask)
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
@@ -1239,9 +1220,6 @@ class RequestTransitionToolTest {
             assertEquals(featureId.toString(), firstCascade["targetId"]!!.jsonPrimitive.content)
             assertTrue(firstCascade["applied"]!!.jsonPrimitive.boolean, "Cascade should be applied (auto-cascade enabled)")
             assertTrue(firstCascade["automatic"]!!.jsonPrimitive.boolean, "Cascade should be marked automatic")
-
-            // Verify feature was actually updated
-            coVerify { mockFeatureRepository.update(any()) }
         }
 
         @Test
@@ -1311,6 +1289,34 @@ class RequestTransitionToolTest {
 
             // Cleanup for feature
             every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask)
+
+            // Mock CascadeService for recursive cascades with childCascades
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "in-development",
+                    newStatus = "completed",
+                    applied = true,
+                    reason = "All tasks completed",
+                    childCascades = listOf(
+                        io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                            event = "all_features_complete",
+                            targetType = "project",
+                            targetId = projectId,
+                            targetName = "Test Project",
+                            previousStatus = "in-development",
+                            newStatus = "completed",
+                            applied = true,
+                            reason = "All features completed"
+                        )
+                    )
+                )
+            )
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
@@ -1432,6 +1438,23 @@ class RequestTransitionToolTest {
                 listOf(incompleteTask)
             )
 
+            // Mock CascadeService to return a failed cascade (validation failure)
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "in-development",
+                    newStatus = "completed",
+                    applied = false,
+                    reason = "Validation failed",
+                    error = "Transition blocked: Not all tasks in feature are completed"
+                )
+            )
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
+
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
                 put("containerType", "task")
@@ -1504,6 +1527,23 @@ class RequestTransitionToolTest {
             coEvery { mockFeatureRepository.update(any()) } returns Result.Error(
                 RepositoryError.DatabaseError("Database connection lost")
             )
+
+            // Mock CascadeService to return a failed cascade (update error)
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "in-development",
+                    newStatus = "completed",
+                    applied = false,
+                    reason = "Update failed",
+                    error = "Database connection lost"
+                )
+            )
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
@@ -1598,6 +1638,31 @@ class RequestTransitionToolTest {
             // CompletionCleanupService.cleanupFeatureTasks calls findByFeatureId
             every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask, anotherTask)
 
+            // Mock CascadeService with cleanup result
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "in-development",
+                    newStatus = "completed",
+                    applied = true,
+                    reason = "All tasks completed",
+                    cleanup = io.github.jpicklyk.mcptask.domain.model.workflow.CascadeCleanupResult(
+                        performed = true,
+                        tasksDeleted = 0,
+                        tasksRetained = 2,
+                        retainedTaskIds = listOf(taskAId, taskBId),
+                        sectionsDeleted = 0,
+                        dependenciesDeleted = 0,
+                        reason = "Feature completed with completed tasks retained"
+                    )
+                )
+            )
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
+
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
                 put("containerType", "task")
@@ -1690,6 +1755,36 @@ class RequestTransitionToolTest {
 
             // Cleanup mocks
             every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTaskA, completedTaskB)
+
+            // Mock CascadeService for batch transitions - first cascade applied, second skipped
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            // Task A: cascade applied
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "in-development",
+                    newStatus = "completed",
+                    applied = true,
+                    reason = "All tasks completed"
+                )
+            )
+            // Task B: cascade skipped (feature already at target status)
+            coEvery { mockCascadeService.applyCascades(taskBId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "all_tasks_complete",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "completed",
+                    newStatus = "completed",
+                    applied = false,
+                    reason = "Target already at suggested status"
+                )
+            )
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(any()) } returns emptyList()
 
             val params = buildJsonObject {
                 put("transitions", buildJsonArray {
@@ -1788,6 +1883,22 @@ class RequestTransitionToolTest {
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
                 total = 2, completed = 0
             )
+
+            // Mock CascadeService for first_task_started cascade
+            every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = true, maxDepth = 3)
+            coEvery { mockCascadeService.applyCascades(taskAId, "task", 0, 3) } returns listOf(
+                io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade(
+                    event = "first_task_started",
+                    targetType = "feature",
+                    targetId = featureId,
+                    targetName = "Test Feature",
+                    previousStatus = "planning",
+                    newStatus = "in-development",
+                    applied = true,
+                    reason = "First task started"
+                )
+            )
+            coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
@@ -1989,6 +2100,23 @@ status_validation:
 
                 // For WorkflowServiceImpl's countTasksByStatus
                 every { mockTaskRepository.findByFeatureId(featureId) } returns listOf(completedTask)
+
+                // Mock CascadeService for legacy format (auto-cascade disabled)
+                every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = false, maxDepth = 3)
+                coEvery { mockCascadeService.detectCascadeEvents(taskAId, io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType.TASK) } returns listOf(
+                    io.github.jpicklyk.mcptask.domain.model.workflow.CascadeEvent(
+                        event = "all_tasks_complete",
+                        targetType = io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType.FEATURE,
+                        targetId = featureId,
+                        targetName = "Test Feature",
+                        currentStatus = "in-development",
+                        suggestedStatus = "completed",
+                        flow = "default_flow",
+                        automatic = false,
+                        reason = "All tasks completed"
+                    )
+                )
+                coEvery { mockCascadeService.findNewlyUnblockedTasks(taskAId) } returns emptyList()
 
                 val params = buildJsonObject {
                     put("containerId", taskAId.toString())

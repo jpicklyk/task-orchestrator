@@ -35,7 +35,10 @@ class StatusValidator {
     private val configCacheTimeout = 60_000L // 60 seconds
 
     private fun getConfigPath(): Path {
-        return Paths.get(System.getProperty("user.dir"), ".taskorchestrator", "config.yaml")
+        val projectRoot = Paths.get(
+            System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
+        )
+        return projectRoot.resolve(".taskorchestrator/config.yaml")
     }
 
     /**
@@ -556,10 +559,10 @@ class StatusValidator {
 
     private fun loadConfig(): Map<String, Any?>? {
         val now = System.currentTimeMillis()
-        val currentUserDir = System.getProperty("user.dir")
+        val currentConfigDir = System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
 
-        // Invalidate cache if user.dir changed (important for testing)
-        if (cachedUserDir != null && cachedUserDir != currentUserDir) {
+        // Invalidate cache if config directory changed (important for testing)
+        if (cachedUserDir != null && cachedUserDir != currentConfigDir) {
             cachedConfig = null
             lastConfigCheck = 0L
         }
@@ -576,7 +579,7 @@ class StatusValidator {
             logger.debug("Config file not found at $configPath, using v1.0 enum-based validation")
             lastConfigCheck = now
             cachedConfig = null
-            cachedUserDir = currentUserDir
+            cachedUserDir = currentConfigDir
             return null
         }
 
@@ -589,14 +592,14 @@ class StatusValidator {
                 logger.info("Loaded v2.0 config from $configPath")
                 cachedConfig = config
                 lastConfigCheck = now
-                cachedUserDir = currentUserDir
+                cachedUserDir = currentConfigDir
                 config
             }
         } catch (e: Exception) {
             logger.error("Failed to load config from $configPath, falling back to v1.0 enum validation", e)
             lastConfigCheck = now
             cachedConfig = null
-            cachedUserDir = currentUserDir
+            cachedUserDir = currentConfigDir
             null
         }
     }

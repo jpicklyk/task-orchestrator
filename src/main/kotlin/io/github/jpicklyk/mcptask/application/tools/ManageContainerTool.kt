@@ -5,9 +5,6 @@ import io.github.jpicklyk.mcptask.application.service.SimpleLockingService
 import io.github.jpicklyk.mcptask.application.service.SimpleSessionManager
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.VerificationGateService
-import io.github.jpicklyk.mcptask.application.service.WorkflowConfigLoaderImpl
-import io.github.jpicklyk.mcptask.application.service.WorkflowService
-import io.github.jpicklyk.mcptask.application.service.WorkflowServiceImpl
 import io.github.jpicklyk.mcptask.application.tools.base.SimpleLockAwareToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
@@ -447,20 +444,6 @@ Docs: task-orchestrator://docs/tools/manage-container
                 }
             }
         }
-    }
-
-    /**
-     * Helper method to create WorkflowService from execution context.
-     * WorkflowService requires repositories which are only available at execution time.
-     */
-    private fun createWorkflowService(context: ToolExecutionContext): WorkflowService {
-        return WorkflowServiceImpl(
-            workflowConfigLoader = WorkflowConfigLoaderImpl(),
-            taskRepository = context.taskRepository(),
-            featureRepository = context.featureRepository(),
-            projectRepository = context.projectRepository(),
-            statusValidator = statusValidator
-        )
     }
 
     /**
@@ -1301,15 +1284,42 @@ Docs: task-orchestrator://docs/tools/manage-container
 
         for ((entityId, _, newStatus) in statusChangedEntities) {
             try {
-                // Detect cascades (parent advancement suggestions)
-                val cascadeEvents = detectBulkCascades(entityId, containerType, context)
-                allCascadeEvents.addAll(cascadeEvents)
+                val cascadeService = context.cascadeService()
+                if (cascadeService != null) {
+                    // Detect cascades (parent advancement suggestions)
+                    try {
+                        val ct = ContainerType.valueOf(containerType.uppercase())
+                        val events = cascadeService.detectCascadeEvents(entityId, ct)
+                        val cascadeEvents = events.map { ev ->
+                            buildJsonObject {
+                                put("event", ev.event)
+                                put("targetType", ev.targetType.name.lowercase())
+                                put("targetId", ev.targetId.toString())
+                                put("suggestedStatus", ev.suggestedStatus)
+                                put("reason", ev.reason)
+                                put("applied", false)  // ManageContainerTool never applies cascades
+                            }
+                        }
+                        allCascadeEvents.addAll(cascadeEvents)
+                    } catch (e: Exception) {
+                        logger.warn("Failed to detect cascade events for entity $entityId: ${e.message}")
+                    }
 
-                // For tasks reaching terminal status, find newly unblocked downstream tasks
-                val normalizedNewStatus = newStatus.lowercase().replace('_', '-')
-                if (containerType == "task" && normalizedNewStatus in listOf("completed", "cancelled")) {
-                    val unblockedTasks = findBulkUnblockedTasks(entityId, context)
-                    allUnblockedTasks.addAll(unblockedTasks)
+                    // For tasks reaching terminal status, find newly unblocked downstream tasks
+                    val normalizedNewStatus = newStatus.lowercase().replace('_', '-')
+                    if (containerType == "task" && normalizedNewStatus in listOf("completed", "cancelled")) {
+                        try {
+                            val unblockedTasks = cascadeService.findNewlyUnblockedTasks(entityId).map { task ->
+                                buildJsonObject {
+                                    put("taskId", task.taskId.toString())
+                                    put("title", task.title)
+                                }
+                            }
+                            allUnblockedTasks.addAll(unblockedTasks)
+                        } catch (e: Exception) {
+                            logger.warn("Failed to find unblocked tasks for entity $entityId: ${e.message}")
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 logger.warn("Failed to detect cascades/unblocked tasks for entity $entityId: ${e.message}")
@@ -1352,88 +1362,6 @@ Docs: task-orchestrator://docs/tools/manage-container
     }
 
 
-
-    /**
-     * Detects cascade events after a bulk status change, mirroring the pattern in RequestTransitionTool.
-     */
-    private suspend fun detectBulkCascades(
-        containerId: UUID,
-        containerType: String,
-        context: ToolExecutionContext
-    ): List<JsonObject> {
-        return try {
-            val workflowService: WorkflowService = WorkflowServiceImpl(
-                workflowConfigLoader = WorkflowConfigLoaderImpl(),
-                taskRepository = context.taskRepository(),
-                featureRepository = context.featureRepository(),
-                projectRepository = context.projectRepository(),
-                statusValidator = statusValidator
-            )
-            val ct = ContainerType.valueOf(containerType.uppercase())
-            val events = workflowService.detectCascadeEvents(containerId, ct)
-            events.map { ev ->
-                buildJsonObject {
-                    put("event", ev.event)
-                    put("targetType", ev.targetType.name.lowercase())
-                    put("targetId", ev.targetId.toString())
-                    put("suggestedStatus", ev.suggestedStatus)
-                    put("reason", ev.reason)
-                }
-            }
-        } catch (e: Exception) {
-            logger.warn("Failed to detect cascade events for $containerId: ${e.message}")
-            emptyList()
-        }
-    }
-
-    /**
-     * Finds downstream tasks that are now fully unblocked after a task completed/cancelled in bulk.
-     * A downstream task is "newly unblocked" when ALL of its incoming BLOCKS dependencies
-     * point to tasks that are COMPLETED or CANCELLED, and the downstream task itself is still active.
-     */
-    private suspend fun findBulkUnblockedTasks(
-        completedTaskId: UUID,
-        context: ToolExecutionContext
-    ): List<JsonObject> {
-        return try {
-            val outgoingDeps = context.dependencyRepository().findByFromTaskId(completedTaskId)
-            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
-
-            if (blocksDeps.isEmpty()) return emptyList()
-
-            val unblockedTasks = mutableListOf<JsonObject>()
-
-            for (dep in blocksDeps) {
-                val downstreamTaskId = dep.toTaskId
-                val downstreamTask = context.taskRepository().getById(downstreamTaskId).getOrNull() ?: continue
-                val downstreamStatus = downstreamTask.status.name.lowercase().replace('_', '-')
-                if (downstreamStatus in listOf("completed", "cancelled")) continue
-
-                val incomingDeps = context.dependencyRepository().findByToTaskId(downstreamTaskId)
-                val incomingBlockers = incomingDeps.filter { it.type == DependencyType.BLOCKS }
-
-                val allBlockersResolved = incomingBlockers.all { blocker ->
-                    val blockerTask = context.taskRepository().getById(blocker.fromTaskId).getOrNull()
-                    if (blockerTask != null) {
-                        val blockerStatus = blockerTask.status.name.lowercase().replace('_', '-')
-                        blockerStatus in listOf("completed", "cancelled")
-                    } else true
-                }
-
-                if (allBlockersResolved) {
-                    unblockedTasks.add(buildJsonObject {
-                        put("taskId", downstreamTaskId.toString())
-                        put("title", downstreamTask.title)
-                    })
-                }
-            }
-
-            unblockedTasks
-        } catch (e: Exception) {
-            logger.warn("Failed to find newly unblocked tasks for $completedTaskId: ${e.message}")
-            emptyList()
-        }
-    }
 
     /**
      * Result wrapper for bulk update methods that includes the previous status

@@ -1,19 +1,15 @@
 package io.github.jpicklyk.mcptask.application.tools.status
 
-import io.github.jpicklyk.mcptask.application.service.CompletionCleanupService
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.VerificationGateService
-import io.github.jpicklyk.mcptask.application.service.WorkflowConfigLoaderImpl
-import io.github.jpicklyk.mcptask.application.service.WorkflowServiceImpl
+import io.github.jpicklyk.mcptask.application.service.cascade.CascadeService
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
 import io.github.jpicklyk.mcptask.domain.model.*
-import io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig
-import io.github.jpicklyk.mcptask.domain.model.workflow.CascadeEvent
-import io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType
+import io.github.jpicklyk.mcptask.domain.model.workflow.AppliedCascade
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -21,59 +17,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-/**
- * Result of applying a single cascade event.
- */
-private data class AppliedCascade(
-    val event: String,
-    val targetType: String,
-    val targetId: UUID,
-    val targetName: String,
-    val previousStatus: String,
-    val newStatus: String,
-    val applied: Boolean,
-    val reason: String,
-    val error: String? = null,
-    val cleanup: io.github.jpicklyk.mcptask.application.service.CleanupResult? = null,
-    val unblockedTasks: List<Map<String, String>> = emptyList(),
-    val childCascades: List<AppliedCascade> = emptyList()
-) {
-    fun toJson(): JsonObject = buildJsonObject {
-        put("event", event)
-        put("targetType", targetType)
-        put("targetId", targetId.toString())
-        put("targetName", targetName)
-        put("previousStatus", previousStatus)
-        put("newStatus", newStatus)
-        put("applied", applied)
-        put("automatic", true)
-        put("reason", reason)
-        if (error != null) put("error", error)
-        if (cleanup != null && cleanup.performed) {
-            put("cleanup", buildJsonObject {
-                put("performed", true)
-                put("tasksDeleted", cleanup.tasksDeleted)
-                put("tasksRetained", cleanup.tasksRetained)
-                if (cleanup.retainedTaskIds.isNotEmpty()) {
-                    put("retainedTaskIds", JsonArray(cleanup.retainedTaskIds.map { JsonPrimitive(it.toString()) }))
-                }
-                put("sectionsDeleted", cleanup.sectionsDeleted)
-                put("dependenciesDeleted", cleanup.dependenciesDeleted)
-            })
-        }
-        if (unblockedTasks.isNotEmpty()) {
-            put("unblockedTasks", JsonArray(unblockedTasks.map { task ->
-                buildJsonObject {
-                    put("taskId", task["taskId"] ?: "")
-                    put("title", task["title"] ?: "")
-                }
-            }))
-        }
-        if (childCascades.isNotEmpty()) {
-            put("childCascades", JsonArray(childCascades.map { it.toJson() }))
-        }
-    }
-}
 
 /**
  * MCP tool for trigger-based status transitions with validation.
@@ -322,7 +265,6 @@ Related: manage_container, get_next_status"""
         val advisory = result["advisory"]?.jsonPrimitive?.content
         val cascadeEvents = result["cascadeEvents"]?.jsonArray
         val unblockedTasks = result["unblockedTasks"]?.jsonArray
-        val cleanup = result["cleanup"]?.jsonObject
 
         return buildString {
             if (currentStatus != null && result["applied"]?.jsonPrimitive?.boolean == false) {
@@ -336,11 +278,6 @@ Related: manage_container, get_next_status"""
                 }
                 if (unblockedTasks != null && unblockedTasks.isNotEmpty()) {
                     append(". ${unblockedTasks.size} task(s) now unblocked")
-                }
-                if (cleanup != null && cleanup["performed"]?.jsonPrimitive?.boolean == true) {
-                    val tasksDeleted = cleanup["tasksDeleted"]?.jsonPrimitive?.int ?: 0
-                    val tasksRetained = cleanup["tasksRetained"]?.jsonPrimitive?.int ?: 0
-                    append(". Cleanup: $tasksDeleted task(s) deleted, $tasksRetained retained.")
                 }
             } else {
                 append("Transition result")
@@ -541,29 +478,48 @@ Related: manage_container, get_next_status"""
                     val previousRole = statusProgressionService.getRoleForStatus(currentStatus, containerType, tags)
                     val newRole = statusProgressionService.getRoleForStatus(targetStatus, containerType, tags)
 
+                    // Get cascade service
+                    val cascadeService = context.cascadeService()
+
                     // Detect and optionally auto-apply cascade events
-                    val autoCascadeConfig = loadAutoCascadeConfig()
+                    val autoCascadeConfig = cascadeService?.loadAutoCascadeConfig()
+                        ?: io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig()
                     val appliedCascades: List<AppliedCascade>
                     val legacyCascades: List<Map<String, JsonPrimitive>>
 
-                    if (autoCascadeConfig.enabled) {
-                        appliedCascades = applyCascades(containerId, containerType, context, 0, autoCascadeConfig.maxDepth)
+                    if (autoCascadeConfig.enabled && cascadeService != null) {
+                        appliedCascades = cascadeService.applyCascades(
+                            containerId = containerId,
+                            containerType = containerType,
+                            depth = 0,
+                            maxDepth = autoCascadeConfig.maxDepth
+                        )
                         legacyCascades = emptyList()
+                    } else if (cascadeService != null) {
+                        appliedCascades = emptyList()
+                        legacyCascades = cascadeService.detectCascadeEvents(
+                            containerId = containerId,
+                            containerType = io.github.jpicklyk.mcptask.domain.model.workflow.ContainerType.valueOf(containerType.uppercase())
+                        ).map { ev ->
+                            mapOf(
+                                "event" to JsonPrimitive(ev.event),
+                                "targetType" to JsonPrimitive(ev.targetType.name.lowercase()),
+                                "targetId" to JsonPrimitive(ev.targetId.toString()),
+                                "suggestedStatus" to JsonPrimitive(ev.suggestedStatus),
+                                "reason" to JsonPrimitive(ev.reason)
+                            )
+                        }
                     } else {
                         appliedCascades = emptyList()
-                        legacyCascades = detectCascades(containerId, containerType, context)
+                        legacyCascades = emptyList()
                     }
 
                     // Find newly unblocked downstream tasks
                     val unblockedTasks = if (containerType == "task" &&
-                        (normalizeStatus(targetStatus) in listOf("completed", "cancelled"))) {
-                        findNewlyUnblockedTasks(containerId, context)
+                        (normalizeStatus(targetStatus) in listOf("completed", "cancelled")) &&
+                        cascadeService != null) {
+                        cascadeService.findNewlyUnblockedTasks(containerId)
                     } else emptyList()
-
-                    // Run completion cleanup for feature transitions
-                    val cleanupResult = if (containerType == "feature") {
-                        runCompletionCleanup(containerId, targetStatus, context)
-                    } else null
 
                     val advisory = if (validationResult is StatusValidator.ValidationResult.ValidWithAdvisory) {
                         validationResult.advisory
@@ -602,26 +558,11 @@ Related: manage_container, get_next_status"""
                             put("unblockedTasks", JsonArray(
                                 unblockedTasks.map { task ->
                                     buildJsonObject {
-                                        put("taskId", task["taskId"]!!)
-                                        put("title", task["title"]!!)
+                                        put("taskId", task.taskId.toString())
+                                        put("title", task.title)
                                     }
                                 }
                             ))
-                        }
-                        if (cleanupResult != null && cleanupResult.performed) {
-                            put("cleanup", buildJsonObject {
-                                put("performed", true)
-                                put("tasksDeleted", cleanupResult.tasksDeleted)
-                                put("tasksRetained", cleanupResult.tasksRetained)
-                                if (cleanupResult.retainedTaskIds.isNotEmpty()) {
-                                    put("retainedTaskIds", JsonArray(
-                                        cleanupResult.retainedTaskIds.map { JsonPrimitive(it.toString()) }
-                                    ))
-                                }
-                                put("sectionsDeleted", cleanupResult.sectionsDeleted)
-                                put("dependenciesDeleted", cleanupResult.dependenciesDeleted)
-                                put("reason", cleanupResult.reason)
-                            })
                         }
                         // Add flow context
                         try {
@@ -729,108 +670,7 @@ Related: manage_container, get_next_status"""
         }
     }
 
-    /**
-     * Detects raw cascade events after a status change.
-     * Returns domain-level CascadeEvent objects for use by the auto-cascade loop.
-     */
-    private suspend fun detectCascadesRaw(
-        containerId: UUID,
-        containerType: String,
-        context: ToolExecutionContext
-    ): List<CascadeEvent> {
-        return try {
-            val workflowService = WorkflowServiceImpl(
-                workflowConfigLoader = WorkflowConfigLoaderImpl(),
-                taskRepository = context.taskRepository(),
-                featureRepository = context.featureRepository(),
-                projectRepository = context.projectRepository(),
-                statusValidator = statusValidator
-            )
-            val ct = ContainerType.valueOf(containerType.uppercase())
-            workflowService.detectCascadeEvents(containerId, ct)
-        } catch (e: Exception) {
-            logger.warn("Failed to detect cascade events: ${e.message}")
-            emptyList()
-        }
-    }
 
-    /**
-     * Detects cascade events after a status change.
-     * Returns JSON-primitive maps for legacy (non-auto-cascade) serialization.
-     */
-    private suspend fun detectCascades(
-        containerId: UUID,
-        containerType: String,
-        context: ToolExecutionContext
-    ): List<Map<String, JsonPrimitive>> {
-        return detectCascadesRaw(containerId, containerType, context).map { ev ->
-            mapOf(
-                "event" to JsonPrimitive(ev.event),
-                "targetType" to JsonPrimitive(ev.targetType.name.lowercase()),
-                "targetId" to JsonPrimitive(ev.targetId.toString()),
-                "suggestedStatus" to JsonPrimitive(ev.suggestedStatus),
-                "reason" to JsonPrimitive(ev.reason)
-            )
-        }
-    }
-
-    /**
-     * Finds downstream tasks that are now fully unblocked after the given task was completed or cancelled.
-     * A downstream task is "newly unblocked" when ALL of its incoming BLOCKS dependencies
-     * point to tasks that are COMPLETED or CANCELLED, and the downstream task itself is still active.
-     */
-    private suspend fun findNewlyUnblockedTasks(
-        completedTaskId: UUID,
-        context: ToolExecutionContext
-    ): List<Map<String, String>> {
-        return try {
-            // Get outgoing dependencies from the completed/cancelled task
-            val outgoingDeps = context.dependencyRepository().findByFromTaskId(completedTaskId)
-            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
-
-            if (blocksDeps.isEmpty()) return emptyList()
-
-            val unblockedTasks = mutableListOf<Map<String, String>>()
-
-            for (dep in blocksDeps) {
-                val downstreamTaskId = dep.toTaskId
-
-                // Check if the downstream task itself is still active (not completed/cancelled)
-                val downstreamTask = context.taskRepository().getById(downstreamTaskId).getOrNull()
-                    ?: continue
-                val downstreamStatus = normalizeStatus(downstreamTask.status.name)
-                if (downstreamStatus in listOf("completed", "cancelled")) continue
-
-                // Get ALL incoming blockers for the downstream task
-                val incomingDeps = context.dependencyRepository().findByToTaskId(downstreamTaskId)
-                val incomingBlockers = incomingDeps.filter { it.type == DependencyType.BLOCKS }
-
-                // Check if ALL blockers are now completed or cancelled
-                val allBlockersResolved = incomingBlockers.all { blocker ->
-                    val blockerTask = context.taskRepository().getById(blocker.fromTaskId).getOrNull()
-                    if (blockerTask != null) {
-                        val blockerStatus = normalizeStatus(blockerTask.status.name)
-                        blockerStatus in listOf("completed", "cancelled")
-                    } else {
-                        // If blocker task doesn't exist, treat as resolved
-                        true
-                    }
-                }
-
-                if (allBlockersResolved) {
-                    unblockedTasks.add(mapOf(
-                        "taskId" to downstreamTaskId.toString(),
-                        "title" to downstreamTask.title
-                    ))
-                }
-            }
-
-            unblockedTasks
-        } catch (e: Exception) {
-            logger.warn("Failed to find newly unblocked tasks: ${e.message}")
-            emptyList()
-        }
-    }
 
     private suspend fun fetchEntityDetails(
         containerId: UUID,
@@ -885,220 +725,6 @@ Related: manage_container, get_next_status"""
         }
     }
 
-    /**
-     * Runs completion cleanup for a feature transition.
-     * The cleanup service internally checks if the status is terminal and if cleanup is enabled.
-     */
-    private suspend fun runCompletionCleanup(
-        featureId: UUID,
-        targetStatus: String,
-        context: ToolExecutionContext
-    ): io.github.jpicklyk.mcptask.application.service.CleanupResult? {
-        return try {
-            val cleanupService = CompletionCleanupService(
-                taskRepository = context.taskRepository(),
-                sectionRepository = context.sectionRepository(),
-                dependencyRepository = context.dependencyRepository()
-            )
-            cleanupService.cleanupFeatureTasks(featureId, targetStatus)
-        } catch (e: Exception) {
-            logger.warn("Failed to run completion cleanup for feature $featureId: ${e.message}")
-            null
-        }
-    }
-
-    /**
-     * Loads auto-cascade configuration from the project config file.
-     * Falls back to bundled defaults, then to AutoCascadeConfig() defaults.
-     */
-    private fun loadAutoCascadeConfig(): AutoCascadeConfig {
-        return try {
-            val configPath = java.nio.file.Paths.get(
-                System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
-            ).resolve(".taskorchestrator/config.yaml")
-
-            val inputStream = if (java.nio.file.Files.exists(configPath)) {
-                java.nio.file.Files.newInputStream(configPath)
-            } else {
-                // Fall back to bundled default config
-                this::class.java.classLoader.getResourceAsStream("configuration/default-config.yaml")
-                    ?: return AutoCascadeConfig()
-            }
-
-            inputStream.use { stream ->
-                @Suppress("UNCHECKED_CAST")
-                val config = org.yaml.snakeyaml.Yaml().load<Map<String, Any?>>(stream) ?: return AutoCascadeConfig()
-                val section = config["auto_cascade"] as? Map<String, Any?> ?: return AutoCascadeConfig()
-                val enabled = section["enabled"] as? Boolean ?: true
-                val maxDepth = (section["max_depth"] as? Number)?.toInt() ?: 3
-                AutoCascadeConfig(enabled = enabled, maxDepth = maxDepth)
-            }
-        } catch (e: Exception) {
-            logger.warn("Failed to load auto_cascade config: ${e.message}")
-            AutoCascadeConfig()
-        }
-    }
-
-    /**
-     * Recursively applies detected cascade events after a status transition.
-     *
-     * For each detected cascade event:
-     * 1. Re-fetches the target entity to get its current status
-     * 2. Skips if already at the suggested status
-     * 3. Validates the transition via StatusValidator
-     * 4. Applies the status change
-     * 5. Runs completion cleanup if a feature reaches terminal status
-     * 6. Recurses to detect further cascades from the newly-transitioned entity
-     *
-     * @param containerId The entity that just transitioned
-     * @param containerType The type of that entity
-     * @param context Tool execution context
-     * @param depth Current cascade depth (0 = first level)
-     * @param maxDepth Maximum allowed depth
-     * @return List of applied cascade results (may be empty)
-     */
-    private suspend fun applyCascades(
-        containerId: UUID,
-        containerType: String,
-        context: ToolExecutionContext,
-        depth: Int,
-        maxDepth: Int
-    ): List<AppliedCascade> {
-        if (depth >= maxDepth) {
-            logger.warn("Auto-cascade depth limit ($maxDepth) reached for $containerType $containerId")
-            return emptyList()
-        }
-
-        val events = detectCascadesRaw(containerId, containerType, context)
-        if (events.isEmpty()) return emptyList()
-
-        val results = mutableListOf<AppliedCascade>()
-
-        for (event in events) {
-            try {
-                // Re-fetch current state (may have changed from earlier cascades)
-                val entityDetails = fetchEntityDetails(event.targetId, event.targetType.name.lowercase(), context)
-                if (entityDetails == null) {
-                    results.add(AppliedCascade(
-                        event = event.event,
-                        targetType = event.targetType.name.lowercase(),
-                        targetId = event.targetId,
-                        targetName = event.targetName,
-                        previousStatus = event.currentStatus,
-                        newStatus = event.suggestedStatus,
-                        applied = false,
-                        reason = event.reason,
-                        error = "Target entity not found"
-                    ))
-                    continue
-                }
-
-                val (currentStatus, tags) = entityDetails
-
-                // Skip if already at suggested status (another cascade may have handled this)
-                if (currentStatus == normalizeStatus(event.suggestedStatus)) {
-                    continue
-                }
-
-                // Validate the cascade transition
-                val prerequisiteContext = StatusValidator.PrerequisiteContext(
-                    taskRepository = context.taskRepository(),
-                    featureRepository = context.featureRepository(),
-                    projectRepository = context.projectRepository(),
-                    dependencyRepository = context.dependencyRepository()
-                )
-                val validationResult = statusValidator.validateTransition(
-                    currentStatus = currentStatus,
-                    newStatus = event.suggestedStatus,
-                    containerType = event.targetType.name.lowercase(),
-                    containerId = event.targetId,
-                    context = prerequisiteContext,
-                    tags = tags
-                )
-
-                if (validationResult is StatusValidator.ValidationResult.Invalid) {
-                    results.add(AppliedCascade(
-                        event = event.event,
-                        targetType = event.targetType.name.lowercase(),
-                        targetId = event.targetId,
-                        targetName = event.targetName,
-                        previousStatus = currentStatus,
-                        newStatus = event.suggestedStatus,
-                        applied = false,
-                        reason = event.reason,
-                        error = "Transition blocked: ${validationResult.reason}"
-                    ))
-                    continue
-                }
-
-                // Apply the cascade transition
-                val applyError = applyStatusChange(event.targetId, event.targetType.name.lowercase(), event.suggestedStatus, context)
-                if (applyError != null) {
-                    results.add(AppliedCascade(
-                        event = event.event,
-                        targetType = event.targetType.name.lowercase(),
-                        targetId = event.targetId,
-                        targetName = event.targetName,
-                        previousStatus = currentStatus,
-                        newStatus = event.suggestedStatus,
-                        applied = false,
-                        reason = event.reason,
-                        error = applyError
-                    ))
-                    continue
-                }
-
-                // Find newly unblocked tasks if this was a task-type cascade target
-                val unblockedTasks = if (event.targetType.name.lowercase() == "task" &&
-                    normalizeStatus(event.suggestedStatus) in listOf("completed", "cancelled")) {
-                    findNewlyUnblockedTasks(event.targetId, context)
-                } else emptyList()
-
-                // Run completion cleanup if feature reached terminal status
-                val cleanup = if (event.targetType == ContainerType.FEATURE) {
-                    runCompletionCleanup(event.targetId, event.suggestedStatus, context)
-                } else null
-
-                // Recurse to detect further cascades
-                val childCascades = applyCascades(
-                    event.targetId,
-                    event.targetType.name.lowercase(),
-                    context,
-                    depth + 1,
-                    maxDepth
-                )
-
-                results.add(AppliedCascade(
-                    event = event.event,
-                    targetType = event.targetType.name.lowercase(),
-                    targetId = event.targetId,
-                    targetName = event.targetName,
-                    previousStatus = currentStatus,
-                    newStatus = event.suggestedStatus,
-                    applied = true,
-                    reason = event.reason,
-                    cleanup = cleanup,
-                    unblockedTasks = unblockedTasks,
-                    childCascades = childCascades
-                ))
-            } catch (e: Exception) {
-                logger.error("Error applying cascade for ${event.event} on ${event.targetType} ${event.targetId}: ${e.message}")
-                results.add(AppliedCascade(
-                    event = event.event,
-                    targetType = event.targetType.name.lowercase(),
-                    targetId = event.targetId,
-                    targetName = event.targetName,
-                    previousStatus = event.currentStatus,
-                    newStatus = event.suggestedStatus,
-                    applied = false,
-                    reason = event.reason,
-                    error = "Internal error: ${e.message}"
-                ))
-            }
-        }
-
-        return results
-    }
 
     override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
         if (isError) return super.userSummary(params, result, true)
@@ -1139,5 +765,46 @@ Related: manage_container, get_next_status"""
                 append(" + $cascades cascade${if (cascades == 1) "" else "s"} applied")
             }
         }
+    }
+}
+
+/**
+ * Extension function to convert AppliedCascade to JSON representation.
+ * Separated from domain model to keep domain layer serialization-agnostic.
+ */
+private fun AppliedCascade.toJson(): JsonObject = buildJsonObject {
+    put("event", event)
+    put("targetType", targetType)
+    put("targetId", targetId.toString())
+    put("targetName", targetName)
+    put("previousStatus", previousStatus)
+    put("newStatus", newStatus)
+    put("applied", applied)
+    put("automatic", true)
+    put("reason", reason)
+    if (error != null) put("error", error)
+    if (cleanup != null && cleanup.performed) {
+        put("cleanup", buildJsonObject {
+            put("performed", true)
+            put("tasksDeleted", cleanup.tasksDeleted)
+            put("tasksRetained", cleanup.tasksRetained)
+            if (cleanup.retainedTaskIds.isNotEmpty()) {
+                put("retainedTaskIds", JsonArray(cleanup.retainedTaskIds.map { JsonPrimitive(it.toString()) }))
+            }
+            put("sectionsDeleted", cleanup.sectionsDeleted)
+            put("dependenciesDeleted", cleanup.dependenciesDeleted)
+            put("reason", cleanup.reason)
+        })
+    }
+    if (unblockedTasks.isNotEmpty()) {
+        put("unblockedTasks", JsonArray(unblockedTasks.map { task ->
+            buildJsonObject {
+                put("taskId", task.taskId.toString())
+                put("title", task.title)
+            }
+        }))
+    }
+    if (childCascades.isNotEmpty()) {
+        put("childCascades", JsonArray(childCascades.map { it.toJson() }))
     }
 }
