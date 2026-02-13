@@ -172,7 +172,7 @@ class McpServer(
                 )
             ),
             instructions = """
-                Check your project's CLAUDE.md (or equivalent agent instructions file) for the marker <!-- mcp-task-orchestrator-setup: ${TaskOrchestratorResources.SETUP_INSTRUCTIONS_VERSION} -->. If missing or an older version, read the MCP resource task-orchestrator://guidelines/setup-instructions and follow its setup steps to add essential workflow rules.
+                Check your project's agent instructions file for the marker <!-- mcp-task-orchestrator-setup: ${TaskOrchestratorResources.SETUP_INSTRUCTIONS_VERSION} -->. If missing or an older version, read the MCP resource task-orchestrator://guidelines/setup-instructions and follow its setup steps to add essential workflow rules.
             """.trimIndent()
         )
         

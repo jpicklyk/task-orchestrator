@@ -14,7 +14,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
  * ## Two-Layer Setup Instructions Architecture
  *
  * Non-plugin agents (those using only `.mcp.json`, not the Claude Code plugin) need
- * workflow guidance injected into their project's CLAUDE.md (or equivalent instructions file).
+ * workflow guidance injected into their project's agent instructions file (e.g., CLAUDE.md for Claude Code).
  * This is delivered through a two-layer system:
  *
  * **Layer 1 — `server.instructions` (every session, ~80 tokens):**
@@ -26,11 +26,11 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
  *
  * **Layer 2 — MCP Resource (on demand, ~600 tokens):**
  * [addSetupInstructionsResource] registers `task-orchestrator://guidelines/setup-instructions`,
- * which contains the full CLAUDE.md template with all workflow rules, status flow tables,
+ * which contains the full agent instructions template (e.g., CLAUDE.md) with all workflow rules, status flow tables,
  * cleanup warnings, and resource links. Agents read this only when they need to install or
  * update the instructions block.
  *
- * **Version lifecycle:** When the CLAUDE.md template changes, bump [SETUP_INSTRUCTIONS_VERSION].
+ * **Version lifecycle:** When the agent instructions template changes, bump [SETUP_INSTRUCTIONS_VERSION].
  * Agents with an older marker will detect the mismatch via Layer 1 and re-read Layer 2
  * to get the updated template.
  *
@@ -39,16 +39,16 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 object TaskOrchestratorResources {
 
     /**
-     * Version marker embedded in the CLAUDE.md template output.
+     * Version marker embedded in the agent instructions template output.
      *
      * This version string appears in three places and must stay in sync:
      * 1. **`server.instructions`** in [McpServer.configureServer] — tells agents which version to look for
-     * 2. **MCP Resource content** in [addSetupInstructionsResource] — the template agents copy into CLAUDE.md
+     * 2. **MCP Resource content** in [addSetupInstructionsResource] — the template agents copy into their instructions file (e.g., CLAUDE.md)
      * 3. **Plugin skill** at `claude-plugins/task-orchestrator/skills/setup-instructions/SKILL.md` —
      *    the Claude Code plugin's `/setup-instructions` skill template output
      *
-     * When the CLAUDE.md template changes materially, bump this to `"v2"`, `"v3"`, etc.
-     * Agents whose CLAUDE.md contains an older marker will be prompted by `server.instructions`
+     * When the agent instructions template changes materially, bump this to `"v2"`, `"v3"`, etc.
+     * Agents whose instructions file contains an older marker will be prompted by `server.instructions`
      * to re-read the setup resource and update their instructions block.
      */
     const val SETUP_INSTRUCTIONS_VERSION = "v2"
@@ -1266,12 +1266,12 @@ If completion is blocked, the response includes which specific criteria failed.
      *
      * Registers `task-orchestrator://guidelines/setup-instructions` as an on-demand MCP
      * resource. Agents are directed here by Layer 1 (`server.instructions` in
-     * [McpServer.configureServer]) when their project's CLAUDE.md is missing the
+     * [McpServer.configureServer]) when their project's agent instructions file (e.g., CLAUDE.md) is missing the
      * `<!-- mcp-task-orchestrator-setup: vN -->` marker or has an older version.
      *
      * The resource contains:
      * - Installation steps (create project, copy block, verify marker)
-     * - Complete CLAUDE.md template with `{PROJECT_NAME}` / `{PROJECT_UUID}` placeholders
+     * - Complete agent instructions template (e.g., CLAUDE.md) with `{PROJECT_NAME}` / `{PROJECT_UUID}` placeholders
      * - 6 workflow rules, tag-driven status flow tables, completion cleanup warning
      * - Dependency batch creation guidance, session start pattern, deep-reference links
      *
@@ -1284,8 +1284,8 @@ If completion is blocked, the response includes which specific criteria failed.
     private fun addSetupInstructionsResource(server: Server) {
         server.addResource(
             uri = "task-orchestrator://guidelines/setup-instructions",
-            name = "Setup Instructions — CLAUDE.md Template",
-            description = "Complete CLAUDE.md instruction block template for configuring any AI agent to use MCP Task Orchestrator effectively. Read this resource when the server.instructions marker is missing from your project configuration.",
+            name = "Setup Instructions — Agent Configuration Template",
+            description = "Agent instructions block template for configuring any AI agent to use MCP Task Orchestrator effectively. Read this resource when the server.instructions marker is missing from your project configuration.",
             mimeType = "text/markdown"
         ) { _ ->
             ReadResourceResult(
@@ -1298,7 +1298,7 @@ If completion is blocked, the response includes which specific criteria failed.
 
 ## What This Is
 
-This resource contains a ready-to-use instruction block for your project's CLAUDE.md (or equivalent agent instructions file). Adding this block teaches your AI agent the essential workflow rules for MCP Task Orchestrator.
+This resource contains a ready-to-use instruction block for your project's agent instructions file. Adding this block teaches your AI agent the essential workflow rules for MCP Task Orchestrator.
 
 ## How to Install
 
@@ -1308,13 +1308,13 @@ This resource contains a ready-to-use instruction block for your project's CLAUD
    ```
    Note the returned project UUID.
 
-2. **Copy the block below** into your CLAUDE.md, replacing `{PROJECT_NAME}` with your project name and `{PROJECT_UUID}` with the UUID from step 1.
+2. **Copy the block below** into your project's agent instructions file (e.g., CLAUDE.md for Claude Code, .cursorrules for Cursor), replacing `{PROJECT_NAME}` with your project name and `{PROJECT_UUID}` with the UUID from step 1.
 
 3. **Verify** by checking that the marker comment `<!-- mcp-task-orchestrator-setup: $SETUP_INSTRUCTIONS_VERSION -->` is present at the top of the block.
 
 ---
 
-## CLAUDE.md Block (copy below this line)
+## Instruction Block (copy below this line)
 
 ```markdown
 <!-- mcp-task-orchestrator-setup: $SETUP_INSTRUCTIONS_VERSION -->

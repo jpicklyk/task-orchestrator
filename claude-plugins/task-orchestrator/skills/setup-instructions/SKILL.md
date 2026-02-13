@@ -1,32 +1,32 @@
 ---
 name: setup-instructions
-description: Generate a CLAUDE.md instruction block for any project using MCP Task Orchestrator. Use when setting up Task Orchestrator in a new project, or when a user asks how to configure their AI agent for MCP workflow integration.
+description: Generate an agent instructions block for any project using MCP Task Orchestrator. Use when setting up Task Orchestrator in a new project, or when a user asks how to configure their AI agent for MCP workflow integration.
 user-invocable: true
 ---
 
 # Setup Instructions
 
-One-liner: Generate and install a CLAUDE.md instruction block that teaches AI agents how to use MCP Task Orchestrator effectively.
+One-liner: Generate and install an agent instructions block that teaches AI agents how to use MCP Task Orchestrator effectively.
 
 ## Prerequisites
 
 - MCP Task Orchestrator server must be configured in `.mcp.json` or Claude Code MCP settings
-- A project CLAUDE.md file must exist (or will be created)
+- A project agent instructions file must exist (e.g., CLAUDE.md for Claude Code, .cursorrules for Cursor, .windsurfrules for Windsurf)
 
 ## Steps
 
-1. **Check for existing project** — Read the project's CLAUDE.md and look for a `## Project:` or `## MCP Task Orchestrator` header with a UUID. If found, offer to update the existing block rather than creating a duplicate.
+1. **Check for existing project** — Read the project's agent instructions file (e.g., CLAUDE.md) and look for a `## Project:` or `## MCP Task Orchestrator` header with a UUID. If found, offer to update the existing block rather than creating a duplicate.
 
-2. **Resolve or create the MCP project** — If no project UUID exists in CLAUDE.md:
+2. **Resolve or create the MCP project** — If no project UUID exists in the agent instructions file:
    - Ask the user for a project name using AskUserQuestion
    - Create the project: `manage_container(operation="create", containerType="project", containers=[{name: "...", summary: "..."}])`
    - Capture the returned UUID
 
-3. **Generate the CLAUDE.md block** — Output the block below with `{name}` and `{uuid}` replaced with actual values. Present it to the user as a markdown code fence they can paste into their CLAUDE.md.
+3. **Generate the instructions block** — Output the block below with `{name}` and `{uuid}` replaced with actual values. Present it to the user as a markdown code fence they can copy into their project's agent instructions file (e.g., CLAUDE.md for Claude Code).
 
-4. **Offer to write** — Ask if the user wants you to append the block to their CLAUDE.md directly, or if they prefer to paste it manually.
+4. **Offer to write** — Ask if the user wants you to append the block to their agent instructions file directly, or if they prefer to paste it manually.
 
-## CLAUDE.md Block Template
+## Instructions Block Template
 
 The following block is the output. Replace `{name}` with the project name and `{uuid}` with the project UUID.
 
@@ -101,5 +101,5 @@ For detailed guidance beyond these rules, read these MCP resources:
 - The block is **self-contained** — it works for any MCP client, not just Claude Code
 - The `<!-- mcp-task-orchestrator-setup: v2 -->` comment is a version marker — the MCP server's `instructions` field tells agents to check for it and update when a newer version ships
 - If the user also installs the Task Orchestrator plugin, the plugin's skills and hooks provide additional automation (template enforcement, planning workflow, subagent context injection) on top of this base block
-- The block should be placed near the top of CLAUDE.md so it's always in context
+- The block should be placed near the top of your agent instructions file so it's always in context
 - For projects with multiple MCP servers, this block can coexist with other integration instructions

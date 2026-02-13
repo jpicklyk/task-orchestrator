@@ -87,7 +87,7 @@ manage_dependencies(operation="delete", fromTaskId="A", deleteAll=true)
 These two documents are the **external-facing API contracts**. Any change to tool descriptions, schemas, or examples in this directory tree MUST be reflected in both:
 
 1. **Setup Instructions** — `interfaces/mcp/TaskOrchestratorResources.kt` → `addSetupInstructionsResource()`
-   - Contains the CLAUDE.md template that non-plugin agents install into their projects
+   - Contains the agent instructions template that non-plugin agents install into their projects
    - Versioned via `SETUP_INSTRUCTIONS_VERSION` — bump when the template changes materially
    - Parallel copy in plugin skill: `claude-plugins/task-orchestrator/skills/setup-instructions/SKILL.md`
    - This is the **first thing new users see** — it must match the actual tool API exactly

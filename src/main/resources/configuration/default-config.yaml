@@ -374,3 +374,19 @@ auto_cascade:
   # Depth 2: task -> feature -> project (typical max for hierarchy)
   # Depth 3: safety margin
   max_depth: 3
+
+# ============================================================================
+# SETUP CHECK CONFIGURATION
+# ============================================================================
+# Controls the Claude Code plugin SessionStart hook that verifies setup
+# instructions are installed in the project's agent instructions file.
+#
+# When enabled (default), the hook checks for a version marker comment
+# (<!-- mcp-task-orchestrator-setup: vN -->) in common instruction files
+# (CLAUDE.md, .cursorrules, .windsurfrules). If missing or outdated,
+# it injects guidance to read the MCP resource and install the block.
+#
+# Set to false for projects that manage their own workflow configuration
+# (e.g., the Task Orchestrator project itself).
+
+setup_check_enabled: true
