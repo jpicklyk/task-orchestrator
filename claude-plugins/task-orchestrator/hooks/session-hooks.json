@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre-planning.sh",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/pre-planning.mjs",
             "timeout": 5
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post-planning.sh",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/post-planning.mjs",
             "timeout": 5
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-setup-check.sh",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/session-setup-check.mjs",
             "timeout": 5
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/subagent-workflow-context.sh",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/subagent-workflow-context.mjs",
             "timeout": 3
           }
         ]
