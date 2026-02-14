@@ -36,7 +36,7 @@ interface ProjectRepository : FilterableRepository<Project, ProjectStatus, Nothi
 
     /**
      * Gets detailed feature counts for a project.
-     * Used by WorkflowService for cascade event detection.
+     * Used by CascadeService for cascade event detection.
      * @param projectId The project ID
      * @return FeatureCounts with total and completed counts
      */

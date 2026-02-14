@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.domain.model
 
 /**
  * Aggregated task counts by status for a feature.
- * Used by WorkflowService for cascade event detection.
+ * Used by CascadeService for cascade event detection.
  */
 data class TaskCounts(
     val total: Int,
@@ -16,7 +16,7 @@ data class TaskCounts(
 
 /**
  * Aggregated feature counts for a project.
- * Used by WorkflowService for cascade event detection.
+ * Used by CascadeService for cascade event detection.
  */
 data class FeatureCounts(
     val total: Int,

@@ -30,7 +30,7 @@ interface FeatureRepository : ProjectScopedRepository<Feature, FeatureStatus, Pr
 
     /**
      * Gets detailed task counts by status for a feature.
-     * Used by WorkflowService for cascade event detection.
+     * Used by CascadeService for cascade event detection.
      * @param featureId The feature ID
      * @return TaskCounts with breakdown by status
      */
