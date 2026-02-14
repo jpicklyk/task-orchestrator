@@ -552,9 +552,9 @@ class StatusProgressionServiceImplTest {
                 currentStatus = "pending"
             )
 
-            // Assert - should use default_flow from bundled default-config.yaml
+            // Assert - should use default_flow from bundled default-config.yaml (4-element flow after config change)
             assertEquals("default_flow", result.activeFlow)
-            assertEquals(listOf("backlog", "pending", "in-progress", "testing", "completed"), result.flowSequence)
+            assertEquals(listOf("backlog", "pending", "in-progress", "completed"), result.flowSequence)
             assertEquals(1, result.currentPosition) // "pending" is at index 1
             assertEquals(listOf("completed", "cancelled", "deferred"), result.terminalStatuses)
             assertEquals(listOf("blocked", "on-hold", "cancelled", "deferred"), result.emergencyTransitions)

@@ -125,8 +125,9 @@ status_progression:
     #                    Use when: Reviewer requests modifications before approval.
     #                    Next steps: Implement changes (back to IN_PROGRESS), then re-submit for IN_REVIEW.
     #
-    # TESTING: Implementation complete, running automated test suite or manual QA.
-    #          Use when: Code/work ready for quality assurance validation.
+    # TESTING: Running automated test suite or manual QA as a separate phase.
+    #          Use when: Task is tagged qa-required or manual-test, requiring explicit QA.
+    #          Not in default flow — used by with_testing_flow and hotfix_flow.
     #          Next steps: Tests pass → COMPLETED, tests fail → IN_PROGRESS for fixes.
     #
     # BLOCKED: Task blocked by incomplete dependencies or external issues (API down, missing specs).
@@ -149,14 +150,15 @@ status_progression:
     #           Use when: Task delayed but not cancelled (low priority, resource constraints).
     #           Terminal status: No further progression (but can be "undeferred" by creating new task).
 
-    # Default flow for standard software development
-    default_flow: [backlog, pending, in-progress, testing, completed]
+    # Default flow — optimized for AI-driven development (no separate QA phase)
+    default_flow: [backlog, pending, in-progress, completed]
 
     # Alternative flows for different task types
-    bug_fix_flow: [pending, in-progress, testing, completed]  # Skip backlog
+    bug_fix_flow: [pending, in-progress, completed]  # Skip backlog
     documentation_flow: [pending, in-progress, in-review, completed]  # No testing
     hotfix_flow: [in-progress, testing, completed]  # Emergency, skip backlog+pending
     with_review_flow: [backlog, pending, in-progress, in-review, changes-requested, testing, completed]  # Full review cycle
+    with_testing_flow: [backlog, pending, in-progress, testing, completed]  # Separate QA phase
 
     # Tag-to-flow mappings (priority order matters - first match wins)
     flow_mappings:
@@ -166,6 +168,8 @@ status_progression:
         flow: documentation_flow
       - tags: [hotfix, emergency, urgent]
         flow: hotfix_flow
+      - tags: [qa-required, manual-test]
+        flow: with_testing_flow
     # If no tags match, default_flow is used
 
     # Statuses that can be entered from any state
