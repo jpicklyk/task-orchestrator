@@ -788,5 +788,165 @@ class QueryDependenciesToolTest {
         assertEquals("Test Task", bottleneck["title"]?.jsonPrimitive?.content)
     }
 
+    // ========== UNBLOCK-AT FIELD TESTS ==========
+
+    @Test
+    fun `dependency with explicit unblockAt includes unblockAt and effectiveUnblockRole in response`() = runBlocking {
+        val dep = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.BLOCKS,
+            unblockAt = "work"
+        )
+        mockDependencyRepository.addDependency(dep)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "incoming")
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val dependencies = data["dependencies"]!!.jsonArray
+        assertEquals(1, dependencies.size)
+
+        val depObj = dependencies[0].jsonObject
+        assertEquals("work", depObj["unblockAt"]?.jsonPrimitive?.content)
+        assertEquals("work", depObj["effectiveUnblockRole"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `dependency with null unblockAt omits unblockAt field but has effectiveUnblockRole terminal`() = runBlocking {
+        val dep = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.BLOCKS
+            // unblockAt defaults to null
+        )
+        mockDependencyRepository.addDependency(dep)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "incoming")
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val dependencies = data["dependencies"]!!.jsonArray
+        assertEquals(1, dependencies.size)
+
+        val depObj = dependencies[0].jsonObject
+        assertFalse(depObj.containsKey("unblockAt"))
+        assertEquals("terminal", depObj["effectiveUnblockRole"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `RELATES_TO dependency omits effectiveUnblockRole field`() = runBlocking {
+        val dep = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.RELATES_TO
+        )
+        mockDependencyRepository.addDependency(dep)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "incoming")
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val dependencies = data["dependencies"]!!.jsonArray
+        assertEquals(1, dependencies.size)
+
+        val depObj = dependencies[0].jsonObject
+        assertFalse(depObj.containsKey("unblockAt"))
+        assertFalse(depObj.containsKey("effectiveUnblockRole"))
+    }
+
+    @Test
+    fun `graph traversal response includes unblockAt fields in neighbor dependencies`() = runBlocking {
+        // Chain: testTask -> relatedTask1 with unblockAt="work"
+        val dep = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask1Id,
+            type = DependencyType.BLOCKS,
+            unblockAt = "review"
+        )
+        mockDependencyRepository.addDependency(dep)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "outgoing")
+            put("neighborsOnly", false)
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+
+        // Check neighbor dependencies still have unblockAt fields
+        val dependencies = data["dependencies"]!!.jsonArray
+        assertEquals(1, dependencies.size)
+
+        val depObj = dependencies[0].jsonObject
+        assertEquals("review", depObj["unblockAt"]?.jsonPrimitive?.content)
+        assertEquals("review", depObj["effectiveUnblockRole"]?.jsonPrimitive?.content)
+
+        // Graph data should also be present
+        assertTrue(data.containsKey("graph"))
+    }
+
+    @Test
+    fun `direction all separates unblockAt fields in incoming and outgoing`() = runBlocking {
+        val incomingDep = Dependency(
+            fromTaskId = relatedTask1Id,
+            toTaskId = testTaskId,
+            type = DependencyType.BLOCKS,
+            unblockAt = "work"
+        )
+        val outgoingDep = Dependency(
+            fromTaskId = testTaskId,
+            toTaskId = relatedTask2Id,
+            type = DependencyType.IS_BLOCKED_BY
+            // unblockAt defaults to null -> effectiveUnblockRole = "terminal"
+        )
+
+        mockDependencyRepository.addDependency(incomingDep)
+        mockDependencyRepository.addDependency(outgoingDep)
+
+        val params = buildJsonObject {
+            put("taskId", testTaskId.toString())
+            put("direction", "all")
+        }
+
+        val result = tool.execute(params, mockContext) as JsonObject
+
+        assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+        val data = result["data"]!!.jsonObject
+        val dependencies = data["dependencies"]!!.jsonObject
+
+        // Incoming dep has unblockAt="work"
+        val incoming = dependencies["incoming"]!!.jsonArray
+        assertEquals(1, incoming.size)
+        val inDepObj = incoming[0].jsonObject
+        assertEquals("work", inDepObj["unblockAt"]?.jsonPrimitive?.content)
+        assertEquals("work", inDepObj["effectiveUnblockRole"]?.jsonPrimitive?.content)
+
+        // Outgoing dep has no unblockAt, effectiveUnblockRole="terminal"
+        val outgoing = dependencies["outgoing"]!!.jsonArray
+        assertEquals(1, outgoing.size)
+        val outDepObj = outgoing[0].jsonObject
+        assertFalse(outDepObj.containsKey("unblockAt"))
+        assertEquals("terminal", outDepObj["effectiveUnblockRole"]?.jsonPrimitive?.content)
+    }
+
     // Note: shouldUseLocking() is protected and cannot be tested directly
 }

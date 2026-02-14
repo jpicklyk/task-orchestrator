@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.domain.model.FeatureStatus
 import io.github.jpicklyk.mcptask.domain.model.ProjectStatus
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.validation.ValidationException
+import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
+import io.github.jpicklyk.mcptask.domain.model.StatusRole
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.io.FileInputStream
@@ -21,8 +23,13 @@ import java.nio.file.Paths
  * - Sequential enforcement (can't skip statuses in flow)
  * - Emergency transitions (any status → blocked/archived/cancelled)
  * - Terminal status blocking (no transitions from completed/archived/etc)
+ *
+ * @param statusProgressionService Optional service for role-based status checks.
+ *   When null, role-based features gracefully degrade to hardcoded fallbacks.
  */
-class StatusValidator {
+class StatusValidator(
+    private val statusProgressionService: StatusProgressionService? = null
+) {
     private val logger = LoggerFactory.getLogger(StatusValidator::class.java)
 
     // Cached config to avoid repeated file reads
@@ -231,8 +238,9 @@ class StatusValidator {
     }
 
     /**
-     * Helper to validate all tasks are completed (or cancelled) for a feature.
-     * Both "completed" and "cancelled" are terminal states that count as resolved.
+     * Helper to validate all tasks are in a terminal role for a feature.
+     * Uses role-aware isTerminalStatus() which delegates to StatusProgressionService
+     * when available, or falls back to hardcoded terminal statuses.
      */
     private suspend fun validateAllTasksCompleted(
         featureId: java.util.UUID,
@@ -253,11 +261,9 @@ class StatusValidator {
             )
         }
 
-        // Terminal task statuses: completed and cancelled both count as resolved
-        val terminalTaskStatuses = setOf("completed", "cancelled")
         val incompleteTasks = tasks.filter { task ->
             val statusStr = task.status.name.lowercase().replace('_', '-')
-            statusStr !in terminalTaskStatuses
+            !isTerminalStatus(statusStr, "task", task.tags)
         }
 
         if (incompleteTasks.isNotEmpty()) {
@@ -296,20 +302,18 @@ class StatusValidator {
                     return ValidationResult.Valid
                 }
 
-                // Check if any blocking tasks are incomplete
-                // Both "completed" and "cancelled" are terminal states that resolve a blocker
-                val terminalTaskStatuses = setOf("completed", "cancelled")
-                val blockingTaskIds = blockingDeps.map { it.fromTaskId }
+                // Check if any blocking tasks are incomplete using role-aware thresholds
                 val incompleteBlockers = mutableListOf<String>()
 
-                for (blockerId in blockingTaskIds) {
-                    val blockerResult = context.taskRepository.getById(blockerId)
+                for (dep in blockingDeps) {
+                    val blockerResult = context.taskRepository.getById(dep.fromTaskId)
                     if (blockerResult.isSuccess()) {
                         val blocker = blockerResult.getOrNull()
                         if (blocker != null) {
+                            val threshold = dep.effectiveUnblockRole() ?: "terminal"
                             val statusStr = blocker.status.name.lowercase().replace('_', '-')
-                            if (statusStr !in terminalTaskStatuses) {
-                                incompleteBlockers.add("\"${blocker.title}\" (${blocker.status.name})")
+                            if (!isStatusAtOrBeyondRole(statusStr, threshold, "task", blocker.tags)) {
+                                incompleteBlockers.add("\"${blocker.title}\" (${blocker.status.name}, needs $threshold role)")
                             }
                         }
                     }
@@ -379,11 +383,9 @@ class StatusValidator {
                     )
                 }
 
-                // Terminal feature statuses: completed and archived both count as resolved
-                val terminalFeatureStatuses = setOf("completed", "archived")
                 val incompleteFeatures = features.filter { feature ->
                     val statusStr = feature.status.name.lowercase().replace('_', '-')
-                    statusStr !in terminalFeatureStatuses
+                    !isTerminalStatus(statusStr, "feature", feature.tags)
                 }
 
                 if (incompleteFeatures.isNotEmpty()) {
@@ -414,6 +416,50 @@ class StatusValidator {
         val projectRepository: io.github.jpicklyk.mcptask.domain.repository.ProjectRepository,
         val dependencyRepository: io.github.jpicklyk.mcptask.domain.repository.DependencyRepository
     )
+
+    // ========== ROLE-BASED HELPER METHODS ==========
+
+    /**
+     * Check if a status is in a terminal role (or matches the legacy terminal statuses
+     * when StatusProgressionService is unavailable).
+     */
+    internal fun isTerminalStatus(status: String, containerType: String = "task", tags: List<String> = emptyList()): Boolean {
+        // Try role-based check first
+        if (statusProgressionService != null) {
+            val role = statusProgressionService.getRoleForStatus(status, containerType, tags)
+            return role?.equals("terminal", ignoreCase = true) == true
+        }
+        // Fallback to hardcoded terminal statuses per container type for backward compatibility
+        val normalizedStatus = status.lowercase().replace('_', '-')
+        val terminalStatuses = when (containerType) {
+            "feature" -> setOf("completed", "archived")
+            "project" -> setOf("completed", "archived", "cancelled")
+            else -> setOf("completed", "cancelled") // tasks
+        }
+        return normalizedStatus in terminalStatuses
+    }
+
+    /**
+     * Check if a status meets or exceeds a role threshold.
+     * Falls back to terminal-only check when StatusProgressionService is unavailable.
+     */
+    internal fun isStatusAtOrBeyondRole(
+        status: String,
+        thresholdRole: String,
+        containerType: String = "task",
+        tags: List<String> = emptyList()
+    ): Boolean {
+        if (statusProgressionService != null) {
+            val currentRole = statusProgressionService.getRoleForStatus(status, containerType, tags)
+            return StatusRole.isRoleAtOrBeyond(currentRole, thresholdRole)
+        }
+        // Fallback: only "terminal" threshold supported without service
+        if (thresholdRole.equals("terminal", ignoreCase = true)) {
+            return isTerminalStatus(status, containerType, tags)
+        }
+        // Without service, non-terminal thresholds can't be evaluated — be conservative
+        return false
+    }
 
     // ========== V2.0 CONFIG-BASED VALIDATION ==========
 

@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.domain.model.StatusRole
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -45,7 +47,10 @@ class GetBlockedTasksTool : BaseToolDefinition() {
 
         Returns for Each Blocked Task:
         - Basic info: Task ID, title, status, priority, complexity
-        - blockedBy array: List of blocking tasks with their statuses
+        - blockedBy array: List of blocking tasks with their statuses, roles, and thresholds
+          - Each blocker includes: taskId, title, status, priority
+          - unblockAt: role threshold the blocker must reach to unblock (from dependency)
+          - blockerRole: blocker's current role (queue/work/review/terminal/blocked)
         - blockerCount: Number of incomplete blockers
 
         Use Cases:
@@ -122,7 +127,32 @@ class GetBlockedTasksTool : BaseToolDefinition() {
                             }
                             putJsonObject("blockedBy") {
                                 put("type", "array")
-                                put("description", "Tasks blocking this task")
+                                put("description", "Tasks blocking this task with role-aware thresholds")
+                                putJsonObject("items") {
+                                    put("type", "object")
+                                    putJsonObject("properties") {
+                                        putJsonObject("taskId") {
+                                            put("type", "string")
+                                        }
+                                        putJsonObject("title") {
+                                            put("type", "string")
+                                        }
+                                        putJsonObject("status") {
+                                            put("type", "string")
+                                        }
+                                        putJsonObject("priority") {
+                                            put("type", "string")
+                                        }
+                                        putJsonObject("unblockAt") {
+                                            put("type", "string")
+                                            put("description", "Role threshold blocker must reach to unblock")
+                                        }
+                                        putJsonObject("blockerRole") {
+                                            put("type", "string")
+                                            put("description", "Blocker's current role (null if StatusProgressionService unavailable)")
+                                        }
+                                    }
+                                }
                             }
                             putJsonObject("blockerCount") {
                                 put("type", "integer")
@@ -252,6 +282,7 @@ class GetBlockedTasksTool : BaseToolDefinition() {
 
     /**
      * Finds which tasks are blocked by incomplete dependencies.
+     * Uses role-aware checking when StatusProgressionService is available.
      */
     private suspend fun findBlockedTasks(
         tasks: List<Task>,
@@ -259,6 +290,7 @@ class GetBlockedTasksTool : BaseToolDefinition() {
         context: ToolExecutionContext
     ): List<JsonObject> {
         val blockedTasks = mutableListOf<JsonObject>()
+        val statusProgressionService = context.statusProgressionService()
 
         for (task in tasks) {
             // Get incoming dependencies (tasks that block this one)
@@ -273,18 +305,42 @@ class GetBlockedTasksTool : BaseToolDefinition() {
             val incompleteBlockers = mutableListOf<JsonObject>()
 
             for (dep in incomingDeps) {
+                // Only BLOCKS and IS_BLOCKED_BY create actual blocking
+                if (dep.type == DependencyType.RELATES_TO) continue
+
+                val blockerTaskId = dep.getBlockerTaskId()
                 // Get the blocking task
-                when (val blockerResult = context.taskRepository().getById(dep.fromTaskId)) {
+                when (val blockerResult = context.taskRepository().getById(blockerTaskId)) {
                     is Result.Success -> {
                         val blocker = blockerResult.data
-                        // Check if blocker is not complete
-                        if (blocker.status != TaskStatus.COMPLETED && blocker.status != TaskStatus.CANCELLED) {
+                        val threshold = dep.effectiveUnblockRole() ?: "terminal"
+
+                        val isIncomplete = if (statusProgressionService != null) {
+                            val blockerRole = statusProgressionService.getRoleForStatus(
+                                blocker.status.name.lowercase().replace('_', '-'), "task", blocker.tags
+                            )
+                            !StatusRole.isRoleAtOrBeyond(blockerRole, threshold)
+                        } else {
+                            // Fallback: only terminal statuses unblock
+                            blocker.status != TaskStatus.COMPLETED && blocker.status != TaskStatus.CANCELLED
+                        }
+
+                        if (isIncomplete) {
+                            // Get blocker's current role
+                            val blockerRole = if (statusProgressionService != null) {
+                                statusProgressionService.getRoleForStatus(
+                                    blocker.status.name.lowercase().replace('_', '-'), "task", blocker.tags
+                                )
+                            } else null
+
                             incompleteBlockers.add(
                                 buildJsonObject {
                                     put("taskId", blocker.id.toString())
                                     put("title", blocker.title)
                                     put("status", blocker.status.name.lowercase().replace('_', '-'))
                                     put("priority", blocker.priority.name.lowercase())
+                                    put("unblockAt", threshold)
+                                    put("blockerRole", blockerRole?.let { JsonPrimitive(it) } ?: JsonNull)
                                     if (includeDetails) {
                                         put("complexity", blocker.complexity)
                                         put("featureId", blocker.featureId?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
@@ -294,7 +350,7 @@ class GetBlockedTasksTool : BaseToolDefinition() {
                         }
                     }
                     is Result.Error -> {
-                        logger.warn("Failed to get blocker task ${dep.fromTaskId}: ${blockerResult.error.message}")
+                        logger.warn("Failed to get blocker task ${blockerTaskId}: ${blockerResult.error.message}")
                     }
                 }
             }

@@ -1028,6 +1028,14 @@ The 5 role categories:
 - **blocked** - Impediments preventing progress (blocked, on-hold)
 - **terminal** - Final states (completed, cancelled, deferred, archived, deployed)
 
+### Role-Tagged Template Sections
+
+Template sections can be tagged with `role:{rolename}` to associate content with specific workflow phases. This enables AI agents to query phase-appropriate guidance during transitions and optimize token consumption by filtering sections based on current workflow context.
+
+For example, sections tagged with `role:work` contain implementation guidance relevant during active development, while `role:review` sections contain validation checklists for the review phase.
+
+See [Role Tag Convention](role-tag-convention.md) for the complete specification, including tag format, querying patterns, and template authoring guidelines.
+
 ### Role Configuration
 
 Role mappings are defined in `src/main/resources/configuration/default-config.yaml` under the `status_roles` section:

@@ -49,7 +49,7 @@ object ContextBackgroundTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("business", "value", "objectives", "context")
+                tags = listOf("business", "value", "objectives", "context", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -75,7 +75,7 @@ object ContextBackgroundTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("users", "needs", "pain-points", "context")
+                tags = listOf("users", "needs", "pain-points", "context", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -104,7 +104,7 @@ object ContextBackgroundTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("dependencies", "coordination", "technical-context", "context")
+                tags = listOf("dependencies", "coordination", "technical-context", "context", "role:queue")
             )
         )
 

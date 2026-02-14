@@ -436,6 +436,8 @@ The system uses two complementary layers to provide comprehensive guidance:
 
 **How It Works**: Templates create sections with explicit tags. Use `query_sections` with tag filtering to read only what's needed for your current role.
 
+Role tags (`role:queue`, `role:work`, `role:review`, `role:terminal`) provide standardized workflow phase annotations. See [Role Tag Convention](role-tag-convention.md) for the complete specification.
+
 **Section Tag Taxonomy**:
 
 | Tag Category | Tags | When to Read | Who Reads |

@@ -1271,4 +1271,314 @@ class ManageDependenciesToolTest {
         val summary = tool.userSummary(params, resultData, false)
         assertEquals("Deleted 1 dependency", summary)
     }
+
+    // ========== UNBLOCK_AT VALIDATION TESTS ==========
+
+    @Test
+    fun `validate create with valid top-level unblockAt should not throw exception`() {
+        for (value in listOf("queue", "work", "review", "terminal")) {
+            val params = JsonObject(
+                mapOf(
+                    "operation" to JsonPrimitive("create"),
+                    "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                    "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                    "unblockAt" to JsonPrimitive(value)
+                )
+            )
+            assertDoesNotThrow { tool.validateParams(params) }
+        }
+    }
+
+    @Test
+    fun `validate create with invalid top-level unblockAt should throw exception`() {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                "unblockAt" to JsonPrimitive("invalid_role")
+            )
+        )
+
+        val exception = assertThrows<ToolValidationException> {
+            tool.validateParams(params)
+        }
+        assertTrue(exception.message!!.contains("Invalid unblockAt value"))
+    }
+
+    @Test
+    fun `validate create with blocked as unblockAt should throw exception`() {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                "unblockAt" to JsonPrimitive("blocked")
+            )
+        )
+
+        val exception = assertThrows<ToolValidationException> {
+            tool.validateParams(params)
+        }
+        assertTrue(exception.message!!.contains("Invalid unblockAt value"))
+    }
+
+    @Test
+    fun `validate create with invalid per-dependency unblockAt should throw exception`() {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "dependencies" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                                "unblockAt" to JsonPrimitive("bad_value")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val exception = assertThrows<ToolValidationException> {
+            tool.validateParams(params)
+        }
+        assertTrue(exception.message!!.contains("unblockAt is invalid"))
+    }
+
+    @Test
+    fun `validate create with valid per-dependency unblockAt should not throw exception`() {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "dependencies" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                                "unblockAt" to JsonPrimitive("work")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertDoesNotThrow { tool.validateParams(params) }
+    }
+
+    // ========== UNBLOCK_AT EXECUTION TESTS ==========
+
+    @Test
+    fun `execute create with explicit unblockAt work should include it in response`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                "unblockAt" to JsonPrimitive("work")
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+
+        val deps = resultObj["data"]?.jsonObject?.get("dependencies")?.jsonArray
+        assertNotNull(deps)
+        assertEquals(1, deps!!.size)
+        assertEquals("work", deps[0].jsonObject["unblockAt"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `execute create without unblockAt should not include it in response`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                "toTaskId" to JsonPrimitive(validToTaskId.toString())
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+
+        val deps = resultObj["data"]?.jsonObject?.get("dependencies")?.jsonArray
+        assertNotNull(deps)
+        assertEquals(1, deps!!.size)
+        // unblockAt should not be present in the response when null
+        assertFalse(deps[0].jsonObject.containsKey("unblockAt"))
+    }
+
+    @Test
+    fun `execute create with linear pattern and top-level unblockAt should apply to all deps`() = runBlocking {
+        val taskA = validFromTaskId
+        val taskB = validToTaskId
+        val taskC = UUID.randomUUID()
+
+        coEvery { mockTaskRepository.getById(taskC) } returns Result.Success(
+            Task(id = taskC, title = "Task C", summary = "C", status = TaskStatus.PENDING)
+        )
+
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "pattern" to JsonPrimitive("linear"),
+                "taskIds" to JsonArray(
+                    listOf(
+                        JsonPrimitive(taskA.toString()),
+                        JsonPrimitive(taskB.toString()),
+                        JsonPrimitive(taskC.toString())
+                    )
+                ),
+                "unblockAt" to JsonPrimitive("review")
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+
+        val deps = resultObj["data"]?.jsonObject?.get("dependencies")?.jsonArray!!
+        assertEquals(2, deps.size)
+        // All should have unblockAt = "review"
+        deps.forEach { dep ->
+            assertEquals("review", dep.jsonObject["unblockAt"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun `execute create with fan-out pattern and top-level unblockAt should apply to all deps`() = runBlocking {
+        val sourceId = validFromTaskId
+        val targetB = validToTaskId
+        val targetC = UUID.randomUUID()
+
+        coEvery { mockTaskRepository.getById(targetC) } returns Result.Success(
+            Task(id = targetC, title = "Target C", summary = "C", status = TaskStatus.PENDING)
+        )
+
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "pattern" to JsonPrimitive("fan-out"),
+                "source" to JsonPrimitive(sourceId.toString()),
+                "targets" to JsonArray(
+                    listOf(
+                        JsonPrimitive(targetB.toString()),
+                        JsonPrimitive(targetC.toString())
+                    )
+                ),
+                "unblockAt" to JsonPrimitive("queue")
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+
+        val deps = resultObj["data"]?.jsonObject?.get("dependencies")?.jsonArray!!
+        assertEquals(2, deps.size)
+        deps.forEach { dep ->
+            assertEquals("queue", dep.jsonObject["unblockAt"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun `execute create with per-dependency unblockAt overriding top-level`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "unblockAt" to JsonPrimitive("terminal"),
+                "dependencies" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                                "unblockAt" to JsonPrimitive("work")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+
+        val deps = resultObj["data"]?.jsonObject?.get("dependencies")?.jsonArray
+        assertNotNull(deps)
+        assertEquals(1, deps!!.size)
+        // Per-dependency "work" should override top-level "terminal"
+        assertEquals("work", deps[0].jsonObject["unblockAt"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `execute create with RELATES_TO and unblockAt should return validation error`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "dependencies" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                                "toTaskId" to JsonPrimitive(validToTaskId.toString()),
+                                "type" to JsonPrimitive("RELATES_TO"),
+                                "unblockAt" to JsonPrimitive("work")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        // Should fail because Dependency.validate() rejects unblockAt on RELATES_TO
+        assertFalse(resultObj["success"]?.jsonPrimitive?.boolean == true)
+        assertTrue(resultObj["message"]?.jsonPrimitive?.content!!.contains("Validation failed"))
+    }
+
+    @Test
+    fun `execute create with dependencies array inherits top-level unblockAt when not specified per-dep`() = runBlocking {
+        val params = JsonObject(
+            mapOf(
+                "operation" to JsonPrimitive("create"),
+                "unblockAt" to JsonPrimitive("review"),
+                "dependencies" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "fromTaskId" to JsonPrimitive(validFromTaskId.toString()),
+                                "toTaskId" to JsonPrimitive(validToTaskId.toString())
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = tool.execute(params, mockContext)
+
+        val resultObj = result.jsonObject
+        assertTrue(resultObj["success"]?.jsonPrimitive?.boolean == true)
+
+        val deps = resultObj["data"]?.jsonObject?.get("dependencies")?.jsonArray
+        assertNotNull(deps)
+        assertEquals(1, deps!!.size)
+        // Should inherit top-level unblockAt="review"
+        assertEquals("review", deps[0].jsonObject["unblockAt"]?.jsonPrimitive?.content)
+    }
 }

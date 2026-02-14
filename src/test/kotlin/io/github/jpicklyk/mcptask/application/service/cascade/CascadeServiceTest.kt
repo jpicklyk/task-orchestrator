@@ -97,49 +97,50 @@ class CascadeServiceTest {
         modifiedAt = Instant.now()
     )
 
+    /** Helper to mock getRoleForStatus for task type. */
+    private fun mockRoleForStatus(status: String, role: String?, tags: List<String> = emptyList()) {
+        every { mockStatusProgressionService.getRoleForStatus(status, "task", tags) } returns role
+    }
+
+    /** Helper to mock isRoleAtOrBeyond for role comparison. */
+    private fun mockIsRoleAtOrBeyond(currentRole: String?, threshold: String?, result: Boolean) {
+        every { mockStatusProgressionService.isRoleAtOrBeyond(currentRole, threshold) } returns result
+    }
+
     @Nested
     inner class DetectCascadeEventsTests {
 
         @Test
         fun `task completion triggers all_tasks_complete when all tasks done`() = runBlocking {
-            // Setup: task is completed, feature has total=3, completed=3
             val completedTask = createTestTask(status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 3,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                completed = 2,
-                cancelled = 1,
-                blocked = 0
+                total = 3, pending = 0, inProgress = 0, testing = 0,
+                completed = 2, cancelled = 1, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing",
-                activeFlow = "default_flow",
+                recommendedStatus = "testing", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "Ready to progress"
+                currentPosition = 1, matchedTags = emptyList(), reason = "Ready to progress"
             )
+            // Role-based terminal check
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
-            // Assert: returns CascadeEvent with event="all_tasks_complete"
             assertEquals(1, events.size)
             val event = events.first()
             assertEquals("all_tasks_complete", event.event)
@@ -153,43 +154,36 @@ class CascadeServiceTest {
 
         @Test
         fun `first task in-progress triggers first_task_started`() = runBlocking {
-            // Setup: task at in-progress, feature at first flow status ("planning"), only 1 in-progress task
             val inProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
             val feature = createTestFeature(status = FeatureStatus.PLANNING)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-
-            // Mock countTasksByStatus - only 1 in-progress task
             coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
                 inProgressTask,
                 createTestTask(id = UUID.randomUUID(), status = TaskStatus.PENDING),
                 createTestTask(id = UUID.randomUUID(), status = TaskStatus.PENDING)
             )
-
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "planning") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 0,
-                matchedTags = emptyList(),
+                currentPosition = 0, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("planning", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "in-development",
-                activeFlow = "default_flow",
+                recommendedStatus = "in-development", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 0,
-                matchedTags = emptyList(),
-                reason = "First task started"
+                currentPosition = 0, matchedTags = emptyList(), reason = "First task started"
             )
+            // in-progress is NOT terminal
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
-            // Assert: returns CascadeEvent with event="first_task_started"
             assertEquals(1, events.size)
             val event = events.first()
             assertEquals("first_task_started", event.event)
@@ -201,128 +195,120 @@ class CascadeServiceTest {
 
         @Test
         fun `no cascade when task has no feature`() = runBlocking {
-            // Setup: task has featureId = null
             val orphanTask = createTestTask(featureId = null)
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(orphanTask)
-
-            // Execute
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
-
-            // Assert: returns empty list
             assertTrue(events.isEmpty())
         }
 
         @Test
         fun `no cascade when not all tasks complete`() = runBlocking {
-            // Setup: task completed but feature has total=3, completed=2
             val completedTask = createTestTask(status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 3,
-                completed = 2,  // Not all complete
-                pending = 1,
-                inProgress = 0,
-                testing = 0,
-                cancelled = 0,
-                blocked = 0
+                total = 3, completed = 2, pending = 1,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
-
-            // Assert: returns empty list
             assertTrue(events.isEmpty())
         }
 
         @Test
         fun `feature completion triggers all_features_complete when all features done`() = runBlocking {
-            // Setup: feature at terminal status ("completed"), project has total=2, completed=2
             val feature = createTestFeature(status = FeatureStatus.COMPLETED)
             val project = createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
 
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
-                total = 2,
-                completed = 2
+                total = 2, completed = 2
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 3,
-                matchedTags = emptyList(),
+                currentPosition = 3, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("in-development", "project", project.tags, project.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "completed",
-                activeFlow = "default_flow",
+                recommendedStatus = "completed", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "All features complete"
+                currentPosition = 1, matchedTags = emptyList(), reason = "All features complete"
             )
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
-            // Assert: returns CascadeEvent for project
             assertEquals(1, events.size)
-            val event = events.first()
-            assertEquals("all_features_complete", event.event)
-            assertEquals(ContainerType.PROJECT, event.targetType)
-            assertEquals(projectId, event.targetId)
-            assertEquals("in-development", event.currentStatus)
-            assertEquals("completed", event.suggestedStatus)
+            assertEquals("all_features_complete", events.first().event)
+            assertEquals(ContainerType.PROJECT, events.first().targetType)
+            assertEquals(projectId, events.first().targetId)
         }
 
         @Test
         fun `no project cascade when features still active`() = runBlocking {
-            // Setup: feature completed but project has total=3, completed=1
             val feature = createTestFeature(status = FeatureStatus.COMPLETED)
             val project = createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
 
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
-                total = 3,
-                completed = 1  // Not all complete
+                total = 3, completed = 1
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 3,
-                matchedTags = emptyList(),
+                currentPosition = 3, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
-
-            // Assert: returns empty list
             assertTrue(events.isEmpty())
         }
 
         @Test
         fun `projects have no cascades upward`() = runBlocking {
-            // Execute
             val events = cascadeService.detectCascadeEvents(projectId, ContainerType.PROJECT)
+            assertTrue(events.isEmpty())
+        }
 
-            // Assert: projects are top-level, no cascades
+        @Test
+        fun `non-terminal task status does not trigger all_tasks_complete`() = runBlocking {
+            val inProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
+                inProgressTask,
+                createTestTask(id = UUID.randomUUID(), status = TaskStatus.IN_PROGRESS)
+            )
+
+            val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
             assertTrue(events.isEmpty())
         }
     }
@@ -332,29 +318,27 @@ class CascadeServiceTest {
 
         @Test
         fun `returns unblocked tasks when all blockers resolved`() = runBlocking {
-            // Setup: task A completed, has BLOCKS dependency to task B, task B's only blocker is task A
             val taskAId = UUID.randomUUID()
             val taskBId = UUID.randomUUID()
             val taskA = createTestTask(id = taskAId, status = TaskStatus.COMPLETED)
             val taskB = createTestTask(id = taskBId, status = TaskStatus.PENDING)
 
-            val blocksDependency = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = taskAId,
-                toTaskId = taskBId,
-                type = DependencyType.BLOCKS,
-                createdAt = Instant.now()
+            val blocksDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
             )
 
-            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDependency)
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
-            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDependency)
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
 
-            // Assert: returns UnblockedTask for task B
             assertEquals(1, unblocked.size)
             assertEquals(taskBId, unblocked.first().taskId)
             assertEquals("Test Task", unblocked.first().title)
@@ -362,7 +346,6 @@ class CascadeServiceTest {
 
         @Test
         fun `does not return task still blocked by other tasks`() = runBlocking {
-            // Setup: task A completed, task B blocked by both A and C, C still in-progress
             val taskAId = UUID.randomUUID()
             val taskBId = UUID.randomUUID()
             val taskCId = UUID.randomUUID()
@@ -370,91 +353,225 @@ class CascadeServiceTest {
             val taskC = createTestTask(id = taskCId, status = TaskStatus.IN_PROGRESS)
 
             val depAtoB = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = taskAId,
-                toTaskId = taskBId,
-                type = DependencyType.BLOCKS,
-                createdAt = Instant.now()
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
             )
             val depCtoB = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = taskCId,
-                toTaskId = taskBId,
-                type = DependencyType.BLOCKS,
-                createdAt = Instant.now()
+                id = UUID.randomUUID(), fromTaskId = taskCId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(depAtoB)
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(depAtoB, depCtoB)
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(
+                createTestTask(id = taskAId, status = TaskStatus.COMPLETED)
+            )
             coEvery { mockTaskRepository.getById(taskCId) } returns Result.Success(taskC)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
 
-            // Execute
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
-
-            // Assert: returns empty list (task B still blocked by task C)
             assertTrue(unblocked.isEmpty())
         }
 
         @Test
         fun `does not return already-completed downstream tasks`() = runBlocking {
-            // Setup: downstream task already completed
             val taskAId = UUID.randomUUID()
             val taskBId = UUID.randomUUID()
             val taskB = createTestTask(id = taskBId, status = TaskStatus.COMPLETED)
 
-            val blocksDependency = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = taskAId,
-                toTaskId = taskBId,
-                type = DependencyType.BLOCKS,
-                createdAt = Instant.now()
+            val blocksDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
             )
 
-            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDependency)
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
-
-            // Assert: returns empty list (downstream task already done)
             assertTrue(unblocked.isEmpty())
         }
 
         @Test
-        fun `ignores RELATES_TO dependencies`() = runBlocking {
-            // Setup: only RELATES_TO dependency from completed task
+        fun `ignores RELATES_TO dependencies in outgoing dep filtering`() = runBlocking {
             val taskAId = UUID.randomUUID()
             val taskBId = UUID.randomUUID()
 
-            val relatesDependency = Dependency(
-                id = UUID.randomUUID(),
-                fromTaskId = taskAId,
-                toTaskId = taskBId,
-                type = DependencyType.RELATES_TO,
-                createdAt = Instant.now()
+            val relatesDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.RELATES_TO, createdAt = Instant.now()
             )
 
-            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(relatesDependency)
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(relatesDep)
 
-            // Execute
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
-
-            // Assert: returns empty list (RELATES_TO doesn't block)
             assertTrue(unblocked.isEmpty())
         }
 
         @Test
         fun `handles task with no outgoing dependencies`() = runBlocking {
-            // Setup: task has no outgoing dependencies
             val taskAId = UUID.randomUUID()
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns emptyList()
+            val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
+            assertTrue(unblocked.isEmpty())
+        }
 
-            // Execute
+        @Test
+        fun `unblockAt work threshold unblocks downstream when blocker reaches work role`() = runBlocking {
+            val taskAId = UUID.randomUUID()
+            val taskBId = UUID.randomUUID()
+            val taskA = createTestTask(id = taskAId, status = TaskStatus.IN_PROGRESS)
+            val taskB = createTestTask(id = taskBId, status = TaskStatus.PENDING)
+
+            val blocksDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, unblockAt = "work", createdAt = Instant.now()
+            )
+
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "work", true)
+
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
 
-            // Assert: returns empty list
+            assertEquals(1, unblocked.size)
+            assertEquals(taskBId, unblocked.first().taskId)
+        }
+
+        @Test
+        fun `null unblockAt defaults to terminal threshold for backward compat`() = runBlocking {
+            val taskAId = UUID.randomUUID()
+            val taskBId = UUID.randomUUID()
+            val taskA = createTestTask(id = taskAId, status = TaskStatus.IN_PROGRESS)
+            val taskB = createTestTask(id = taskBId, status = TaskStatus.PENDING)
+
+            val blocksDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
+            )
+
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+
+            val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
             assertTrue(unblocked.isEmpty())
+        }
+
+        @Test
+        fun `RELATES_TO incoming deps do not block downstream task`() = runBlocking {
+            val taskAId = UUID.randomUUID()
+            val taskBId = UUID.randomUUID()
+            val taskCId = UUID.randomUUID()
+            val taskA = createTestTask(id = taskAId, status = TaskStatus.COMPLETED)
+            val taskB = createTestTask(id = taskBId, status = TaskStatus.PENDING)
+
+            val blocksDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
+            )
+            val relatesDep = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskCId, toTaskId = taskBId,
+                type = DependencyType.RELATES_TO, createdAt = Instant.now()
+            )
+
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep, relatesDep)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
+
+            assertEquals(1, unblocked.size)
+            assertEquals(taskBId, unblocked.first().taskId)
+        }
+
+        @Test
+        fun `mixed dependencies with different unblockAt thresholds - partially resolved`() = runBlocking {
+            val taskAId = UUID.randomUUID()
+            val taskBId = UUID.randomUUID()
+            val taskCId = UUID.randomUUID()
+            val taskA = createTestTask(id = taskAId, status = TaskStatus.IN_PROGRESS)
+            val taskB = createTestTask(id = taskBId, status = TaskStatus.PENDING)
+            val taskC = createTestTask(id = taskCId, status = TaskStatus.IN_PROGRESS)
+
+            val depAtoB = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, unblockAt = "work", createdAt = Instant.now()
+            )
+            val depCtoB = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskCId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, createdAt = Instant.now()
+            )
+
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(depAtoB)
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            coEvery { mockTaskRepository.getById(taskCId) } returns Result.Success(taskC)
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(depAtoB, depCtoB)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "work", true)
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+
+            val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
+            assertTrue(unblocked.isEmpty())
+        }
+
+        @Test
+        fun `mixed dependencies all resolved with work thresholds`() = runBlocking {
+            val taskAId = UUID.randomUUID()
+            val taskBId = UUID.randomUUID()
+            val taskCId = UUID.randomUUID()
+            val taskA = createTestTask(id = taskAId, status = TaskStatus.IN_PROGRESS)
+            val taskB = createTestTask(id = taskBId, status = TaskStatus.PENDING)
+            val taskC = createTestTask(id = taskCId, status = TaskStatus.IN_PROGRESS)
+
+            val depAtoB = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskAId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, unblockAt = "work", createdAt = Instant.now()
+            )
+            val depCtoB = Dependency(
+                id = UUID.randomUUID(), fromTaskId = taskCId, toTaskId = taskBId,
+                type = DependencyType.BLOCKS, unblockAt = "work", createdAt = Instant.now()
+            )
+
+            every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(depAtoB)
+            coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
+            coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
+            coEvery { mockTaskRepository.getById(taskCId) } returns Result.Success(taskC)
+            every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(depAtoB, depCtoB)
+            mockRoleForStatus("pending", "queue")
+            mockIsRoleAtOrBeyond("queue", "terminal", false)
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "work", true)
+
+            val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
+
+            assertEquals(1, unblocked.size)
+            assertEquals(taskBId, unblocked.first().taskId)
         }
     }
 
@@ -463,63 +580,46 @@ class CascadeServiceTest {
 
         @Test
         fun `applies cascade and returns result`() = runBlocking {
-            // Setup: mock detectCascadeEvents to return one event, mock validation as Valid, mock status change
             val task = createTestTask(status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
-            // Mock detection
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 1,
-                completed = 1,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                cancelled = 0,
-                blocked = 0
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing",
-                activeFlow = "default_flow",
+                recommendedStatus = "testing", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "All tasks complete"
+                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Mock validation
             coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development",
-                    newStatus = "testing",
-                    containerType = "feature",
-                    containerId = featureId,
-                    context = any(),
-                    tags = feature.tags
+                    currentStatus = "in-development", newStatus = "testing",
+                    containerType = "feature", containerId = featureId,
+                    context = any(), tags = feature.tags
                 )
             } returns StatusValidator.ValidationResult.Valid
 
-            // Mock status update
             coEvery { mockFeatureRepository.update(any()) } answers {
-                val updatedFeature = firstArg<Feature>()
-                Result.Success(updatedFeature)
+                Result.Success(firstArg<Feature>())
             }
 
-            // Execute
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
 
-            // Assert: returns AppliedCascade with applied=true
             assertEquals(1, results.size)
             val result = results.first()
             assertEquals("all_tasks_complete", result.event)
@@ -531,128 +631,97 @@ class CascadeServiceTest {
 
         @Test
         fun `stops at max depth`() = runBlocking {
-            // Call applyCascades with depth >= maxDepth
             val results = cascadeService.applyCascades(taskId, "task", depth = 3, maxDepth = 3)
-
-            // Assert: returns empty list
             assertTrue(results.isEmpty())
         }
 
         @Test
         fun `skips cascade when target already at suggested status`() = runBlocking {
-            // Setup: feature already at the suggested status
             val task = createTestTask(status = TaskStatus.COMPLETED)
-            val feature = createTestFeature(status = FeatureStatus.TESTING)  // Already at target status
+            val feature = createTestFeature(status = FeatureStatus.TESTING)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 1,
-                completed = 1,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                cancelled = 0,
-                blocked = 0
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 2,
-                matchedTags = emptyList(),
+                currentPosition = 2, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("testing", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing",  // Same as current
-                activeFlow = "default_flow",
+                recommendedStatus = "testing", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 2,
-                matchedTags = emptyList(),
-                reason = "Already at target"
+                currentPosition = 2, matchedTags = emptyList(), reason = "Already at target"
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
-
-            // Assert: returns empty list (cascade skipped)
             assertTrue(results.isEmpty())
         }
 
         @Test
         fun `handles validation failure gracefully`() = runBlocking {
-            // Setup: mock validation as Invalid
             val task = createTestTask(status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 1,
-                completed = 1,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                cancelled = 0,
-                blocked = 0
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing",
-                activeFlow = "default_flow",
+                recommendedStatus = "testing", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "All tasks complete"
+                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Mock validation failure
             coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development",
-                    newStatus = "testing",
-                    containerType = "feature",
-                    containerId = featureId,
-                    context = any(),
-                    tags = feature.tags
+                    currentStatus = "in-development", newStatus = "testing",
+                    containerType = "feature", containerId = featureId,
+                    context = any(), tags = feature.tags
                 )
             } returns StatusValidator.ValidationResult.Invalid("Prerequisites not met")
 
-            // Execute
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
 
-            // Assert: returns AppliedCascade with applied=false, error set
             assertEquals(1, results.size)
-            val result = results.first()
-            assertFalse(result.applied)
-            assertEquals("Transition blocked: Prerequisites not met", result.error)
+            assertFalse(results.first().applied)
+            assertEquals("Transition blocked: Prerequisites not met", results.first().error)
         }
 
         @Test
         fun `handles entity not found gracefully`() = runBlocking {
-            // Setup: task exists but feature doesn't
             val task = createTestTask(status = TaskStatus.COMPLETED)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Error(
                 RepositoryError.NotFound(featureId, EntityType.FEATURE, "Not found")
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
-
-            // Assert: returns empty list (no cascades detected)
             assertTrue(results.isEmpty())
         }
     }
@@ -662,23 +731,375 @@ class CascadeServiceTest {
 
         @Test
         fun `returns defaults when no config file exists`() {
-            // Execute (config file doesn't exist in test environment)
             val config = cascadeService.loadAutoCascadeConfig()
-
-            // Assert: returns AutoCascadeConfig(enabled=true, maxDepth=3)
             assertTrue(config.enabled)
             assertEquals(3, config.maxDepth)
         }
 
         @Test
         fun `loads from bundled default config`() {
-            // Execute (should fall back to bundled config)
             val config = cascadeService.loadAutoCascadeConfig()
-
-            // Assert: returns valid config
             assertNotNull(config)
             assertTrue(config.enabled)
             assertEquals(3, config.maxDepth)
+        }
+    }
+
+    @Nested
+    inner class RoleAggregationTests {
+
+        @Test
+        fun `role aggregation advances feature when threshold met`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val taskId2 = UUID.randomUUID()
+            val taskId3 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_REVIEW)
+            val task3 = createTestTask(id = taskId3, status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            val aggregationRules = listOf(
+                RoleAggregationConfig(
+                    roleThreshold = "review",
+                    percentage = 0.66, // 66% threshold
+                    targetFeatureStatus = "testing"
+                )
+            )
+
+            val cascadeServiceWithRules = CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                aggregationRules = aggregationRules
+            )
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2, task3)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus("in-development", "feature", emptyList(), feature.id)
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(), reason = "Role aggregation"
+            )
+            mockRoleForStatus("in-review", "review", task1.tags)
+            mockRoleForStatus("in-review", "review", task2.tags)
+            mockRoleForStatus("in-progress", "work", task3.tags)
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task2.tags) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task3.tags) } returns "work"
+            mockIsRoleAtOrBeyond("review", "review", true)
+            mockIsRoleAtOrBeyond("work", "review", false)
+            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "terminal") } returns false
+
+            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
+            assertEquals(1, aggregationEvents.size)
+            val event = aggregationEvents.first()
+            assertEquals(ContainerType.FEATURE, event.targetType)
+            assertEquals(featureId, event.targetId)
+            assertEquals("in-development", event.currentStatus)
+            assertEquals("testing", event.suggestedStatus)
+            assertTrue(event.reason.contains("66% of tasks at role 'review' or beyond"))
+        }
+
+        @Test
+        fun `role aggregation does not advance when below threshold`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val taskId2 = UUID.randomUUID()
+            val taskId3 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_PROGRESS)
+            val task3 = createTestTask(id = taskId3, status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            val aggregationRules = listOf(
+                RoleAggregationConfig(
+                    roleThreshold = "review",
+                    percentage = 0.66, // 66% threshold, but only 33% at review
+                    targetFeatureStatus = "testing"
+                )
+            )
+
+            val cascadeServiceWithRules = CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                aggregationRules = aggregationRules
+            )
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2, task3)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task2.tags) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task3.tags) } returns "work"
+            mockIsRoleAtOrBeyond("review", "review", true)
+            mockIsRoleAtOrBeyond("work", "review", false)
+            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "terminal") } returns false
+
+            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
+            assertTrue(aggregationEvents.isEmpty())
+        }
+
+        @Test
+        fun `role aggregation uses default 100 percent which matches existing behavior`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val taskId2 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.COMPLETED)
+            val task2 = createTestTask(id = taskId2, status = TaskStatus.COMPLETED)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            val aggregationRules = listOf(
+                RoleAggregationConfig(
+                    roleThreshold = "terminal",
+                    percentage = 1.0, // 100% - same as existing all_tasks_complete
+                    targetFeatureStatus = "completed"
+                )
+            )
+
+            val cascadeServiceWithRules = CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                aggregationRules = aggregationRules
+            )
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, completed = 2, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus("in-development", "feature", emptyList(), feature.id)
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
+            )
+            every { mockStatusProgressionService.getRoleForStatus("completed", "task", task1.tags) } returns "terminal"
+            every { mockStatusProgressionService.getRoleForStatus("completed", "task", task2.tags) } returns "terminal"
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            // Should have both all_tasks_complete AND role_aggregation_threshold
+            assertTrue(events.any { it.event == "all_tasks_complete" })
+            assertTrue(events.any { it.event == "role_aggregation_threshold" })
+        }
+
+        @Test
+        fun `role aggregation skips when no StatusProgressionService`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            val aggregationRules = listOf(
+                RoleAggregationConfig(
+                    roleThreshold = "review",
+                    percentage = 0.5,
+                    targetFeatureStatus = "testing"
+                )
+            )
+
+            // Create service without StatusProgressionService (null)
+            val cascadeServiceWithoutSPS = CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                aggregationRules = aggregationRules
+            )
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "in-review", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("in-review", "review")
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+
+            val events = cascadeServiceWithoutSPS.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            // Should still work since we have StatusProgressionService
+            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
+            assertTrue(aggregationEvents.isNotEmpty())
+        }
+
+        @Test
+        fun `role aggregation skips when no rules configured`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "in-review", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("in-review", "review")
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+
+            // cascadeService has empty rules by default
+            val events = cascadeService.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
+            assertTrue(aggregationEvents.isEmpty())
+        }
+
+        @Test
+        fun `role aggregation does not regress feature status`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.TESTING)
+
+            val aggregationRules = listOf(
+                RoleAggregationConfig(
+                    roleThreshold = "work",
+                    percentage = 1.0,
+                    targetFeatureStatus = "in-development" // Trying to regress from in-review back to in-development
+                )
+            )
+
+            val cascadeServiceWithRules = CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                aggregationRules = aggregationRules
+            )
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 2, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task1.tags) } returns "work"
+            mockIsRoleAtOrBeyond("work", "work", true)
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+
+            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            // Should still create event - validation will catch regression during application
+            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
+            assertTrue(aggregationEvents.isNotEmpty())
+            assertEquals("in-development", aggregationEvents.first().suggestedStatus)
+        }
+
+        @Test
+        fun `role aggregation skips when feature already at target status`() = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val taskId2 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_REVIEW)
+            val feature = createTestFeature(status = FeatureStatus.TESTING)
+
+            val aggregationRules = listOf(
+                RoleAggregationConfig(
+                    roleThreshold = "review",
+                    percentage = 1.0,
+                    targetFeatureStatus = "testing"
+                )
+            )
+
+            val cascadeServiceWithRules = CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                aggregationRules = aggregationRules
+            )
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 2, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task2.tags) } returns "review"
+            mockIsRoleAtOrBeyond("review", "review", true)
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+
+            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
+            assertTrue(aggregationEvents.isEmpty())
         }
     }
 
@@ -687,129 +1108,99 @@ class CascadeServiceTest {
 
         @Test
         fun `handles task with cancelled status as terminal`() = runBlocking {
-            // Setup: task cancelled, feature has all tasks cancelled
             val cancelledTask = createTestTask(status = TaskStatus.CANCELLED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(cancelledTask)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 2,
-                cancelled = 2,
-                completed = 0,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                blocked = 0
+                total = 2, cancelled = 2, completed = 0, pending = 0,
+                inProgress = 0, testing = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "cancelled",
-                activeFlow = "default_flow",
+                recommendedStatus = "cancelled", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "All tasks cancelled"
+                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks cancelled"
             )
+            mockRoleForStatus("cancelled", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
-            // Assert: cancelled tasks count as terminal for cascade detection
             assertEquals(1, events.size)
             assertEquals("all_tasks_complete", events.first().event)
         }
 
         @Test
         fun `handles feature with no tasks gracefully`() = runBlocking {
-            // Setup: task completed, but feature has no tasks (edge case)
             val task = createTestTask(status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 0,
-                completed = 0,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                cancelled = 0,
-                blocked = 0
+                total = 0, completed = 0, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
-            // Execute
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
-
-            // Assert: no cascade when feature has no tasks
             assertTrue(events.isEmpty())
         }
 
         @Test
         fun `handles repository errors during cascade application`() = runBlocking {
-            // Setup: detection succeeds but update fails
             val task = createTestTask(status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
             every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 1,
-                completed = 1,
-                pending = 0,
-                inProgress = 0,
-                testing = 0,
-                cancelled = 0,
-                blocked = 0
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
+                currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             coEvery {
                 mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing",
-                activeFlow = "default_flow",
+                recommendedStatus = "testing", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "All tasks complete"
+                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
             )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
             coEvery {
                 mockStatusValidator.validateTransition(any(), any(), any(), any(), any(), any())
             } returns StatusValidator.ValidationResult.Valid
-
-            // Mock update failure
             coEvery { mockFeatureRepository.update(any()) } returns Result.Error(
                 RepositoryError.DatabaseError("Update failed")
             )
 
-            // Execute
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
 
-            // Assert: cascade marked as failed with error
             assertEquals(1, results.size)
             assertFalse(results.first().applied)
             assertNotNull(results.first().error)

@@ -478,6 +478,26 @@ Related: manage_container, get_next_status"""
                     val previousRole = statusProgressionService.getRoleForStatus(currentStatus, containerType, tags)
                     val newRole = statusProgressionService.getRoleForStatus(targetStatus, containerType, tags)
 
+                    // Record role transition if roles changed (best-effort, don't fail the transition)
+                    if (previousRole != null && newRole != null && previousRole != newRole) {
+                        try {
+                            val roleTransition = RoleTransition(
+                                entityId = containerId,
+                                entityType = containerType,
+                                fromRole = previousRole,
+                                toRole = newRole,
+                                fromStatus = currentStatus,
+                                toStatus = targetStatus,
+                                trigger = trigger,
+                                summary = summary
+                            )
+                            context.roleTransitionRepository().create(roleTransition)
+                        } catch (e: Exception) {
+                            logger.warn("Failed to record role transition for $containerType $containerId: ${e.message}")
+                            // Non-fatal — continue with transition success
+                        }
+                    }
+
                     // Get cascade service
                     val cascadeService = context.cascadeService()
 

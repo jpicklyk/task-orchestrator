@@ -16,15 +16,25 @@ Status changes are config-driven with validation, prerequisites, and cascade det
 
 ## Named Triggers
 
-| Trigger | Resolves to | Notes |
-|---------|-------------|-------|
-| `start` | Next in flow | Advances one step based on entity's active flow |
-| `complete` | `completed` | Terminal status |
-| `cancel` | `cancelled` | Emergency: from any status |
-| `block` | `blocked` | Emergency: from any status |
-| `hold` | `on-hold` | Emergency: from any status |
+| Trigger | Resolves to | Typical Role Change | Notes |
+|---------|-------------|-------------------|-------|
+| `start` | Next in flow | queue→work OR work→review | Advances one step based on entity's active flow |
+| `complete` | `completed` | review→terminal (or work→terminal) | Terminal status |
+| `cancel` | `cancelled` | any→terminal | Emergency: from any status |
+| `block` | `blocked` | any→blocked | Emergency: from any status |
+| `hold` | `on-hold` | any→blocked | Emergency: from any status |
 
 Emergency triggers bypass normal flow. Always include `summary` for emergency transitions.
+
+### Trigger-to-Role Mapping
+
+Triggers resolve to statuses with specific roles. Common patterns:
+- **start (queue→work):** `pending → in-progress` (backlog items entering active work)
+- **start (work→review):** `in-progress → testing` (dev complete, entering validation)
+- **complete (review→terminal):** `testing → completed` (validation passed)
+- **complete (work→terminal):** `in-progress → completed` (short flows without review phase)
+- **block/hold (any→blocked):** Lateral move to impediment tracking
+- **cancel (any→terminal):** Emergency exit from any status
 
 ## Status Flows
 
@@ -59,12 +69,40 @@ Emergency triggers bypass normal flow. Always include `summary` for emergency tr
 | `blocked` | Impediment | blocked, on-hold |
 | `terminal` | Done | completed, cancelled, deferred |
 
+### Role-Based Behavior
+
+**Ordering:** `queue` → `work` → `review` → `terminal` (with `blocked` as a lateral state).
+
+Status transitions include `previousRole` and `newRole` fields to indicate phase changes. Use these to select appropriate behavior:
+- **queue → work:** Task pickup, start timer, notify assignee
+- **work → review:** Trigger code review, run tests, request QA
+- **review → terminal:** Archive artifacts, close tickets, update metrics
+- **Any → blocked:** Escalate blocker, notify team, track impediments
+
+**Role Filter:** Use the `role` parameter in `query_container` to filter by semantic phase:
+```
+query_container(operation="search", containerType="task", role="work")
+```
+
+Useful for queries like "show me what's actively being worked on" without listing specific status names.
+
 ## Validation Rules
 
 - Sequential flow enforced (can't skip steps)
 - Backward transitions allowed (e.g., testing -> in-progress for rework)
 - Dependencies must be resolved before completing
 - Emergency transitions bypass normal flow
+
+### Dependency Unblocking
+
+Dependencies can specify when they unblock with the `unblockAt` field:
+- **`null` (default):** Unblocks when blocker reaches terminal status (backward compatible)
+- **`"work"`:** Unblocks when blocker enters work role (e.g., `in-progress`)
+- **`"review"`:** Unblocks when blocker enters review role (e.g., `testing`)
+
+Example: Task B depends on Task A with `unblockAt: "work"` — Task B can start as soon as Task A enters `in-progress`, without waiting for Task A to complete.
+
+Use `manage_dependencies` to set `unblockAt` when creating dependencies.
 
 ## Transition Mechanics
 
@@ -99,9 +137,20 @@ Use `manage_container(operation="update", containers=[{id, status}])` for status
 
 Transition responses include important follow-up data. Always check for:
 
+- **`previousRole` / `newRole`** — Role before and after transition. Compare to detect phase changes (e.g., work→review triggers code review).
 - **`cascadeEvents`** — suggestions to advance parent entity status (e.g., all tasks completed → advance feature). Act on these by calling `request_transition` on the parent.
 - **`unblockedTasks`** — downstream tasks whose blocking dependencies are now resolved. Use `get_next_task` to pick them up.
 - **Flow context** — `activeFlow`, `flowSequence`, `flowPosition` indicate the entity's current workflow position.
+
+### Role Change Detection
+
+Use `previousRole` and `newRole` to trigger custom behavior:
+- **work → review:** Run tests, request code review, deploy to staging
+- **review → terminal:** Archive artifacts, close tickets, update metrics
+- **queue → work:** Start timer, notify assignee, move Kanban card
+- **any → blocked:** Escalate blocker, notify team lead
+
+See [Hook Integration Guide](../../../docs/hook-integration-guide.md) for PostToolUse hook examples.
 
 ## Completion Cleanup
 

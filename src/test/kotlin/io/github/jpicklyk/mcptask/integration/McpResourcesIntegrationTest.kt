@@ -1,12 +1,17 @@
 package io.github.jpicklyk.mcptask.integration
 
+import io.github.jpicklyk.mcptask.domain.repository.*
+import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.interfaces.mcp.TaskOrchestratorResources
+import io.mockk.every
+import io.mockk.mockk
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 
@@ -24,13 +29,23 @@ import org.junit.jupiter.api.Test
  */
 class McpResourcesIntegrationTest {
 
+    private lateinit var mockRepositoryProvider: RepositoryProvider
+    private lateinit var mockRoleTransitionRepository: RoleTransitionRepository
+
+    @BeforeEach
+    fun setup() {
+        mockRepositoryProvider = mockk()
+        mockRoleTransitionRepository = mockk()
+        every { mockRepositoryProvider.roleTransitionRepository() } returns mockRoleTransitionRepository
+    }
+
     @Test
     @DisplayName("TaskOrchestratorResources configuration should complete without errors")
     fun `verify resource configuration completes successfully`() {
         val server = createTestServer()
 
         assertDoesNotThrow {
-            TaskOrchestratorResources.configure(server)
+            TaskOrchestratorResources.configure(server, mockRepositoryProvider)
         }
     }
 
@@ -38,7 +53,7 @@ class McpResourcesIntegrationTest {
     @DisplayName("Server with resources should have resource capability enabled")
     fun `verify server has resource capability`() {
         val server = createTestServer()
-        TaskOrchestratorResources.configure(server)
+        TaskOrchestratorResources.configure(server, mockRepositoryProvider)
 
         assertNotNull(server, "Server should be created")
     }
@@ -49,11 +64,11 @@ class McpResourcesIntegrationTest {
         val server = createTestServer()
 
         assertDoesNotThrow {
-            TaskOrchestratorResources.configure(server)
+            TaskOrchestratorResources.configure(server, mockRepositoryProvider)
         }
 
         assertDoesNotThrow {
-            TaskOrchestratorResources.configure(server)
+            TaskOrchestratorResources.configure(server, mockRepositoryProvider)
         }
     }
 
@@ -76,7 +91,7 @@ class McpResourcesIntegrationTest {
         )
 
         assertDoesNotThrow {
-            TaskOrchestratorResources.configure(server)
+            TaskOrchestratorResources.configure(server, mockRepositoryProvider)
         }
     }
 
@@ -85,7 +100,7 @@ class McpResourcesIntegrationTest {
     fun `verify configured server is in valid state`() {
         val server = createTestServer()
 
-        TaskOrchestratorResources.configure(server)
+        TaskOrchestratorResources.configure(server, mockRepositoryProvider)
 
         assertNotNull(server, "Server should exist after configuration")
     }

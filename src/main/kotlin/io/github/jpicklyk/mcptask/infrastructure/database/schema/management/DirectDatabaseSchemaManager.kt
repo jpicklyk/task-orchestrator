@@ -25,7 +25,8 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
         DependenciesTable,
         WorkSessionsTable,
         TaskLocksTable,
-        EntityAssignmentsTable
+        EntityAssignmentsTable,
+        RoleTransitionsTable
     )
 
     override fun updateSchema(): Boolean {
@@ -106,7 +107,7 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
                 return false
             }
 
-            // Fourth batch - locking system tables  
+            // Fourth batch - locking system tables
             val lockingTablesSuccess = transaction(database) {
                 logger.info("Creating locking system tables...")
                 try {
@@ -123,6 +124,24 @@ class DirectDatabaseSchemaManager(private val database: Database) : DatabaseSche
 
             if (!lockingTablesSuccess) {
                 logger.error("Failed to create locking tables")
+                return false
+            }
+
+            // Fifth batch - audit tables
+            val auditTablesSuccess = transaction(database) {
+                logger.info("Creating audit tables...")
+                try {
+                    SchemaUtils.create(RoleTransitionsTable)
+                    logger.info("Audit tables created successfully")
+                    true
+                } catch (e: Exception) {
+                    logger.error("Error creating audit tables: ${e.message}", e)
+                    false
+                }
+            }
+
+            if (!auditTablesSuccess) {
+                logger.error("Failed to create audit tables")
                 return false
             }
 

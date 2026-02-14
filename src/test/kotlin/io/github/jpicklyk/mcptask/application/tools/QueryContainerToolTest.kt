@@ -3963,4 +3963,244 @@ class QueryContainerToolTest {
             assertNull(data["taskMeta"])
         }
     }
+
+    @Nested
+    inner class RoleFilterTests {
+        private lateinit var mockStatusProgressionService: io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
+        private lateinit var contextWithService: ToolExecutionContext
+
+        @BeforeEach
+        fun setupRoleTests() {
+            mockStatusProgressionService = mockk()
+
+            // Create a context that includes the status progression service
+            contextWithService = ToolExecutionContext(
+                mockRepositoryProvider,
+                statusProgressionService = mockStatusProgressionService
+            )
+        }
+
+        @Test
+        fun `search with role=work returns tasks in work statuses`() = runBlocking {
+            val workTask = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+            val queueTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.findAll(any()) } returns Result.Success(listOf(workTask, queueTask))
+            every {
+                mockStatusProgressionService.getStatusesForRole("work", "task", any())
+            } returns setOf("in-progress")
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "task")
+                put("role", "work")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            assertEquals(1, items!!.size)
+            assertEquals("in-progress", items[0].jsonObject["status"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `search with role=terminal returns completed and cancelled tasks`() = runBlocking {
+            val completedTask = mockTask.copy(status = TaskStatus.COMPLETED)
+            val cancelledTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.CANCELLED)
+            val pendingTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.findAll(any()) } returns Result.Success(listOf(completedTask, cancelledTask, pendingTask))
+            every {
+                mockStatusProgressionService.getStatusesForRole("terminal", "task", any())
+            } returns setOf("completed", "cancelled")
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "task")
+                put("role", "terminal")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            assertEquals(2, items!!.size)
+            assertTrue(items.any { it.jsonObject["status"]?.jsonPrimitive?.content == "completed" })
+            assertTrue(items.any { it.jsonObject["status"]?.jsonPrimitive?.content == "cancelled" })
+        }
+
+        @Test
+        fun `overview with role filter excludes non-matching tasks`() = runBlocking {
+            val workTask = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+            val queueTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.findAll(any()) } returns Result.Success(listOf(workTask, queueTask))
+            every {
+                mockStatusProgressionService.getStatusesForRole("work", "task", any())
+            } returns setOf("in-progress")
+
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "task")
+                put("role", "work")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            assertEquals(1, items!!.size)
+            assertEquals("in-progress", items[0].jsonObject["status"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `role filter combined with status filter intersects`() = runBlocking {
+            val inProgressTask = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+            val completedTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.COMPLETED)
+            val pendingTask = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.findByFilters(any(), any(), any(), any(), any(), any()) } returns
+                Result.Success(listOf(inProgressTask, completedTask))
+            every {
+                mockStatusProgressionService.getStatusesForRole("work", "task", any())
+            } returns setOf("in-progress")
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "task")
+                put("status", "in-progress,completed")
+                put("role", "work")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            // Should only return in-progress task (intersection of status filter and role filter)
+            assertEquals(1, items!!.size)
+            assertEquals("in-progress", items[0].jsonObject["status"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `role filter with null StatusProgressionService degrades gracefully`() = runBlocking {
+            val task1 = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+            val task2 = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.findAll(any()) } returns Result.Success(listOf(task1, task2))
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "task")
+                put("role", "work")
+            }
+
+            // Use context without status progression service
+            val result = runBlocking { tool.execute(params, context) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            // Should return all tasks (graceful degradation)
+            assertEquals(2, items!!.size)
+        }
+
+        @Test
+        fun `role filter with invalid role returns empty results`() = runBlocking {
+            val task1 = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+            val task2 = mockTask.copy(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.findAll(any()) } returns Result.Success(listOf(task1, task2))
+            every {
+                mockStatusProgressionService.getStatusesForRole("invalid", "task", any())
+            } returns emptySet()
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "task")
+                put("role", "invalid")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            // Should return no tasks (empty role statuses)
+            assertEquals(0, items!!.size)
+        }
+
+        @Test
+        fun `search with role includes roleFilter metadata in response`() = runBlocking {
+            val workTask = mockTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            coEvery { mockTaskRepository.findAll(any()) } returns Result.Success(listOf(workTask))
+            every {
+                mockStatusProgressionService.getStatusesForRole("work", "task", any())
+            } returns setOf("in-progress")
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "task")
+                put("role", "work")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val roleFilter = data!!["roleFilter"]?.jsonObject
+
+            assertNotNull(roleFilter)
+            assertEquals("work", roleFilter!!["role"]?.jsonPrimitive?.content)
+            val resolvedStatuses = roleFilter["resolvedStatuses"]?.jsonArray
+            assertNotNull(resolvedStatuses)
+            assertEquals(1, resolvedStatuses!!.size)
+            assertEquals("in-progress", resolvedStatuses[0].jsonPrimitive.content)
+        }
+
+        @Test
+        fun `role filter works with features`() = runBlocking {
+            val workFeature = mockFeature.copy(status = FeatureStatus.IN_DEVELOPMENT)
+            val queueFeature = mockFeature.copy(id = UUID.randomUUID(), status = FeatureStatus.PLANNING)
+
+            coEvery { mockFeatureRepository.findAll(any()) } returns Result.Success(listOf(workFeature, queueFeature))
+            every {
+                mockStatusProgressionService.getStatusesForRole("work", "feature", any())
+            } returns setOf("in-development")
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "feature")
+                put("role", "work")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            assertEquals(1, items!!.size)
+            assertEquals("in-development", items[0].jsonObject["status"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `role filter works with projects`() = runBlocking {
+            val workProject = mockProject.copy(status = ProjectStatus.IN_DEVELOPMENT)
+            val queueProject = mockProject.copy(id = UUID.randomUUID(), status = ProjectStatus.PLANNING)
+
+            coEvery { mockProjectRepository.findAll(any()) } returns Result.Success(listOf(workProject, queueProject))
+            every {
+                mockStatusProgressionService.getStatusesForRole("work", "project", any())
+            } returns setOf("in-development")
+
+            val params = buildJsonObject {
+                put("operation", "search")
+                put("containerType", "project")
+                put("role", "work")
+            }
+
+            val result = runBlocking { tool.execute(params, contextWithService) }
+            val data = (result as JsonObject)["data"]?.jsonObject
+            val items = data!!["items"]?.jsonArray
+
+            assertEquals(1, items!!.size)
+            assertEquals("in-development", items[0].jsonObject["status"]?.jsonPrimitive?.content)
+        }
+    }
 }

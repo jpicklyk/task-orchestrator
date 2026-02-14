@@ -129,6 +129,7 @@ PROJECT (top-level)
 | `status` | string | No | Filter by status |
 | `priority` | enum | No | Filter by priority (`feature`/`task` only) |
 | `tags` | string | No | Comma-separated tags filter |
+| `role` | string | No | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` (uses workflow configuration, can be combined with `status` filter via AND logic) |
 | `projectId` | UUID | No | Filter by project (`feature`/`task`) |
 | `featureId` | UUID | No | Filter by feature (`task` only) |
 | `limit` | integer | No | Max results (default: 20) |
@@ -416,7 +417,14 @@ Returns a specific entity with hierarchical child data and task counts. Section 
 
 ##### Overview Filtering
 
-The overview operation supports `status`, `priority`, and `tags` filters to reduce response payload. These are the same filter parameters and syntax used by the `search` operation.
+The overview operation supports `status`, `priority`, `tags`, and `role` filters to reduce response payload. These are the same filter parameters and syntax used by the `search` operation.
+
+**Role-Based Filtering**: The `role` parameter filters entities based on their semantic workflow role (`queue`, `work`, `review`, `blocked`, `terminal`). The role is determined by mapping the entity's status through the workflow configuration. The `role` filter can be combined with the `status` filter (AND logic) for precise queries.
+
+When `role` filtering is used, the response includes a `roleFilter` metadata object with:
+- `role`: The requested role
+- `resolvedStatuses`: Array of statuses that map to this role
+- `workflowUsed`: Workflow name used for resolution
 
 **Behavior:**
 - **Global overview**: Filters the `items[]` array directly
@@ -457,6 +465,32 @@ When no filters are applied, meta fields are omitted (zero overhead for existing
     "taskMeta": { "returned": 3, "total": 10 },
     "features": [ ... ],
     "featureMeta": { "returned": 14, "total": 35 }
+  }
+}
+```
+
+**Example - Role-Based Filtering** (find all work-in-progress tasks):
+```json
+{
+  "operation": "search",
+  "containerType": "task",
+  "role": "work"
+}
+```
+
+**Response with roleFilter metadata**:
+```json
+{
+  "success": true,
+  "message": "Found 15 tasks",
+  "data": {
+    "containers": [ ... ],
+    "totalCount": 15,
+    "roleFilter": {
+      "role": "work",
+      "resolvedStatuses": ["in-progress", "in-review"],
+      "workflowUsed": "default_flow"
+    }
   }
 }
 ```
@@ -1826,6 +1860,8 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
         "fromTaskId": "blocker-uuid",
         "toTaskId": "640522b7-810e-49a2-865c-3725f5d39608",
         "type": "BLOCKS",
+        "unblockAt": "work",
+        "effectiveUnblockRole": "work",
         "createdAt": "2025-10-19T10:00:00Z",
         "fromTask": {
           "id": "blocker-uuid",
@@ -1847,6 +1883,10 @@ Dependencies model relationships between tasks (BLOCKS, IS_BLOCKED_BY, RELATES_T
   }
 }
 ```
+
+**Response Fields** (in each dependency object):
+- `unblockAt`: Role threshold specified when the dependency was created (may be null if using default `terminal`)
+- `effectiveUnblockRole`: Resolved role threshold used for blocking checks (only present for `BLOCKS` and `IS_BLOCKED_BY` types)
 
 #### Example - Graph Traversal with Analysis
 
@@ -1921,16 +1961,29 @@ When `neighborsOnly=false`, the response includes a `graph` object with full dep
 | `fromTaskId` | UUID | No | Source task ID (delete by relationship) |
 | `toTaskId` | UUID | No | Target task ID (delete by relationship) |
 | `type` | enum | No | `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` (default: `BLOCKS`) |
+| `unblockAt` | string | No | Default role threshold for unblocking: `queue`, `work`, `review`, `terminal` (null/omitted = `terminal`). Applies to `BLOCKS` and `IS_BLOCKED_BY` types only. Individual dependency `unblockAt` overrides this. |
 | `id` | UUID | No | Dependency ID (for `delete` by ID) |
 | `deleteAll` | boolean | No | Delete all matching dependencies (default: false) |
 
 #### Create Modes (mutually exclusive)
 
-1. **`dependencies` array** — Explicit list of dependency objects for full control
+1. **`dependencies` array** — Explicit list of dependency objects for full control. Each object can include:
+   - `fromTaskId` (required): Source task UUID
+   - `toTaskId` (required): Target task UUID
+   - `type` (optional): `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` (default: `BLOCKS`)
+   - `unblockAt` (optional): Role threshold for this specific dependency (overrides top-level `unblockAt`)
+
 2. **`pattern` shortcut** — Generate dependencies from a named pattern:
    - `linear` + `taskIds=[A,B,C,D]` → A→B, B→C, C→D
    - `fan-out` + `source=A` + `targets=[B,C,D]` → A→B, A→C, A→D
    - `fan-in` + `sources=[B,C,D]` + `target=E` → B→E, C→E, D→E
+   - Pattern shortcuts inherit the top-level `unblockAt` value
+
+**Unblock Thresholds**: By default, blocking dependencies unblock when the blocker reaches `terminal` status. Use `unblockAt` to specify earlier unblocking:
+- `queue`: Unblocks when blocker enters any status with queue role
+- `work`: Unblocks when blocker enters any status with work role (e.g., `in-progress`)
+- `review`: Unblocks when blocker enters any status with review role (e.g., `in-review`)
+- `terminal`: Unblocks only when blocker reaches terminal status (e.g., `completed`, `cancelled`)
 
 Batch creation is atomic — if any dependency fails validation (cycle, duplicate, missing task), none are created.
 
@@ -1987,6 +2040,31 @@ Batch creation is atomic — if any dependency fails validation (cycle, duplicat
   "pattern": "fan-in",
   "sources": ["task-2-uuid", "task-3-uuid", "task-4-uuid"],
   "target": "task-5-uuid"
+}
+```
+
+**Example - Create with unblockAt threshold** (task-2 can start when task-1 begins work):
+```json
+{
+  "operation": "create",
+  "dependencies": [
+    {
+      "fromTaskId": "task-1-uuid",
+      "toTaskId": "task-2-uuid",
+      "type": "BLOCKS",
+      "unblockAt": "work"
+    }
+  ]
+}
+```
+
+**Example - Create with pattern and default unblockAt** (all dependencies unblock at work role):
+```json
+{
+  "operation": "create",
+  "pattern": "linear",
+  "taskIds": ["task-1-uuid", "task-2-uuid", "task-3-uuid"],
+  "unblockAt": "work"
 }
 ```
 
@@ -2670,6 +2748,148 @@ When a task completes or is cancelled, `request_transition` identifies downstrea
 
 - **[Status Progression Guide](status-progression.md)** - Comprehensive workflow examples
 - **[Workflow Configuration](../src/main/resources/configuration/default-config.yaml)** - Flow definitions
+
+---
+
+### get_next_task
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Intelligent task recommendation with dependency checking and priority sorting
+
+**Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | integer | No | Number of recommendations (default: 1, max: 20) |
+| `projectId` | UUID | No | Filter to specific project |
+| `featureId` | UUID | No | Filter to specific feature |
+| `includeDetails` | boolean | No | Include full task details (default: false) |
+
+**Selection Logic**:
+1. Retrieves all pending tasks (not yet started)
+2. Filters out blocked tasks (with incomplete dependencies)
+3. Sorts by priority (HIGH → MEDIUM → LOW)
+4. Within same priority, sorts by complexity (lower first for quick wins)
+5. Returns top recommendations
+
+**Example - Get Next Task**:
+```json
+{
+  "limit": 3,
+  "includeDetails": true
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Found 3 recommended tasks",
+  "data": {
+    "recommendations": [
+      {
+        "taskId": "task-uuid-1",
+        "title": "Add input validation",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 3,
+        "summary": "Add validation for user input fields",
+        "tags": ["backend", "validation"],
+        "featureId": "feature-uuid"
+      },
+      {
+        "taskId": "task-uuid-2",
+        "title": "Update API documentation",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 5,
+        "summary": "Document new authentication endpoints"
+      }
+    ],
+    "totalRecommended": 3
+  }
+}
+```
+
+**Use Cases**:
+- Daily planning ("What should I work on today?")
+- Context switching ("I just finished X, what's next?")
+- Quick wins ("Show me easy, high-priority tasks")
+
+---
+
+### get_blocked_tasks
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Identify tasks blocked by incomplete dependencies with role-aware thresholds
+
+**Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `projectId` | UUID | No | Filter to specific project |
+| `featureId` | UUID | No | Filter to specific feature |
+| `includeTaskDetails` | boolean | No | Include full task metadata (default: false) |
+
+**Task is Blocked When**:
+1. Status is `pending` or `in-progress` (active work)
+2. Has incoming dependencies (other tasks block it)
+3. At least one blocking task has NOT reached its unblock threshold role
+
+**Example - Get Blocked Tasks**:
+```json
+{
+  "projectId": "project-uuid",
+  "includeTaskDetails": true
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Found 2 blocked tasks",
+  "data": {
+    "blockedTasks": [
+      {
+        "taskId": "task-uuid-1",
+        "title": "Deploy authentication service",
+        "status": "pending",
+        "priority": "high",
+        "complexity": 5,
+        "summary": "Deploy to production environment",
+        "tags": ["deployment", "backend"],
+        "blockedBy": [
+          {
+            "taskId": "blocker-uuid-1",
+            "title": "Implement authentication",
+            "status": "in-progress",
+            "priority": "high",
+            "unblockAt": "terminal",
+            "blockerRole": "work"
+          }
+        ],
+        "blockerCount": 1
+      }
+    ],
+    "totalBlocked": 2
+  }
+}
+```
+
+**Response Fields** (in each blocked task):
+- `blockedBy`: Array of blocker objects with:
+  - `unblockAt`: Role threshold the blocker must reach to unblock (from dependency)
+  - `blockerRole`: Blocker's current role (`queue`, `work`, `review`, `blocked`, `terminal`, or null if StatusProgressionService unavailable)
+- `blockerCount`: Number of incomplete blockers
+
+**Use Cases**:
+- Daily standup ("What tasks are blocked today?")
+- Sprint planning (identify tasks that can't start yet)
+- Bottleneck analysis (find what's blocking multiple tasks)
+- Team coordination (know which tasks need other teams' work)
 
 ---
 

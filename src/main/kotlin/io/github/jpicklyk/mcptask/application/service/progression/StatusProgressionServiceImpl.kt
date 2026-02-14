@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.application.service.progression
 
 import io.github.jpicklyk.mcptask.application.service.StatusValidator
 import io.github.jpicklyk.mcptask.application.service.StatusValidator.PrerequisiteContext
+import io.github.jpicklyk.mcptask.domain.model.StatusRole
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.nio.file.Files
@@ -249,6 +250,26 @@ class StatusProgressionServiceImpl(
         if (statusProgression.isEmpty()) return null
         val statusRoles = getStatusRoles(statusProgression)
         return statusRoles[normalizedStatus]
+    }
+
+    override fun isRoleAtOrBeyond(currentRole: String?, threshold: String?): Boolean {
+        return StatusRole.isRoleAtOrBeyond(currentRole, threshold)
+    }
+
+    override fun getStatusesForRole(
+        role: String,
+        containerType: String,
+        tags: List<String>
+    ): Set<String> {
+        val normalizedRole = role.lowercase()
+        val config = loadConfig() ?: return emptySet()
+        val statusProgression = getStatusProgressionConfig(containerType, config)
+        if (statusProgression.isEmpty()) return emptySet()
+        val statusRoles = getStatusRoles(statusProgression)
+        return statusRoles.entries
+            .filter { it.value.lowercase() == normalizedRole }
+            .map { it.key }
+            .toSet()
     }
 
     override suspend fun checkReadiness(

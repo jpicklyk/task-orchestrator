@@ -31,9 +31,10 @@ class QueryContainerTool(
     private data class OverviewFilters(
         val rawStatus: String?,
         val rawPriority: String?,
-        val tags: List<String>?
+        val tags: List<String>?,
+        val role: String?
     ) {
-        val isActive: Boolean get() = rawStatus != null || rawPriority != null || tags != null
+        val isActive: Boolean get() = rawStatus != null || rawPriority != null || tags != null || role != null
     }
 
     override val toolAnnotations: ToolAnnotations = ToolAnnotations(
@@ -228,6 +229,12 @@ Docs: task-orchestrator://docs/tools/query-container
                         "description" to JsonPrimitive("Summary max length (overview, 0-200)"),
                         "default" to JsonPrimitive(100)
                     )
+                ),
+                "role" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Filter by role (queue, work, review, blocked, terminal) - uses workflow configuration")
+                    )
                 )
             )
         ),
@@ -315,8 +322,9 @@ Docs: task-orchestrator://docs/tools/query-container
         val priorityStr = optionalString(params, "priority")
         val tagsStr = optionalString(params, "tags")
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+        val role = optionalString(params, "role")
 
-        return OverviewFilters(statusStr, priorityStr, tags)
+        return OverviewFilters(statusStr, priorityStr, tags, role)
     }
 
     private fun matchesOverviewFilters(
@@ -324,7 +332,8 @@ Docs: task-orchestrator://docs/tools/query-container
         priority: Priority?,
         tags: List<String>,
         filters: OverviewFilters,
-        containerType: String
+        containerType: String,
+        context: ToolExecutionContext? = null
     ): Boolean {
         // Parse status filter for the child's actual type, not the parent's type
         filters.rawStatus?.let { rawStatus ->
@@ -348,6 +357,20 @@ Docs: task-orchestrator://docs/tools/query-container
         // Check tags filter (ANY match — at least one tag must match)
         filters.tags?.let { filterTags ->
             if (tags.none { it in filterTags }) return false
+        }
+
+        // Check role filter
+        filters.role?.let { role ->
+            if (context?.statusProgressionService() != null) {
+                val roleStatuses = context.statusProgressionService()!!.getStatusesForRole(role, containerType, tags)
+                val statusName = when (status) {
+                    is TaskStatus -> status.name.lowercase().replace("_", "-")
+                    is FeatureStatus -> status.name.lowercase().replace("_", "-")
+                    is ProjectStatus -> status.name.lowercase().replace("_", "-")
+                    else -> status.toString().lowercase().replace("_", "-")
+                }
+                if (!roleStatuses.contains(statusName)) return false
+            }
         }
 
         return true
@@ -506,6 +529,7 @@ Docs: task-orchestrator://docs/tools/query-container
     private suspend fun searchProjects(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val query = optionalString(params, "query")
         val statusStr = optionalString(params, "status")
+        val role = optionalString(params, "role")
 
         // Parse multi-value status filter (projects don't have priority)
         @Suppress("UNCHECKED_CAST")
@@ -530,7 +554,17 @@ Docs: task-orchestrator://docs/tools/query-container
 
         return when (result) {
             is Result.Success -> {
-                val projects = result.data
+                var projects = result.data
+
+                // Apply role filter if specified (post-query filtering)
+                var roleStatuses: Set<String>? = null
+                if (role != null && context.statusProgressionService() != null) {
+                    roleStatuses = context.statusProgressionService()!!.getStatusesForRole(role, "project", tags ?: emptyList())
+                    projects = projects.filter { project ->
+                        roleStatuses.contains(project.status.name.lowercase().replace("_", "-"))
+                    }
+                }
+
                 successResponse(
                     buildJsonObject {
                         put("items", buildJsonArray {
@@ -539,6 +573,18 @@ Docs: task-orchestrator://docs/tools/query-container
                             }
                         })
                         put("count", projects.size)
+
+                        // Add roleFilter metadata if role was specified
+                        if (role != null && roleStatuses != null) {
+                            put("roleFilter", buildJsonObject {
+                                put("role", role)
+                                put("resolvedStatuses", buildJsonArray {
+                                    roleStatuses.forEach { status ->
+                                        add(JsonPrimitive(status))
+                                    }
+                                })
+                            })
+                        }
                     },
                     "${projects.size} project(s) found"
                 )
@@ -555,6 +601,7 @@ Docs: task-orchestrator://docs/tools/query-container
         val query = optionalString(params, "query")
         val statusStr = optionalString(params, "status")
         val priorityStr = optionalString(params, "priority")
+        val role = optionalString(params, "role")
 
         // Parse multi-value filters
         @Suppress("UNCHECKED_CAST")
@@ -583,7 +630,17 @@ Docs: task-orchestrator://docs/tools/query-container
 
         return when (result) {
             is Result.Success -> {
-                val features = result.data
+                var features = result.data
+
+                // Apply role filter if specified (post-query filtering)
+                var roleStatuses: Set<String>? = null
+                if (role != null && context.statusProgressionService() != null) {
+                    roleStatuses = context.statusProgressionService()!!.getStatusesForRole(role, "feature", tags ?: emptyList())
+                    features = features.filter { feature ->
+                        roleStatuses.contains(feature.status.name.lowercase().replace("_", "-"))
+                    }
+                }
+
                 successResponse(
                     buildJsonObject {
                         put("items", buildJsonArray {
@@ -592,6 +649,18 @@ Docs: task-orchestrator://docs/tools/query-container
                             }
                         })
                         put("count", features.size)
+
+                        // Add roleFilter metadata if role was specified
+                        if (role != null && roleStatuses != null) {
+                            put("roleFilter", buildJsonObject {
+                                put("role", role)
+                                put("resolvedStatuses", buildJsonArray {
+                                    roleStatuses.forEach { status ->
+                                        add(JsonPrimitive(status))
+                                    }
+                                })
+                            })
+                        }
                     },
                     "${features.size} feature(s) found"
                 )
@@ -608,6 +677,7 @@ Docs: task-orchestrator://docs/tools/query-container
         val query = optionalString(params, "query")
         val statusStr = optionalString(params, "status")
         val priorityStr = optionalString(params, "priority")
+        val role = optionalString(params, "role")
 
         // Parse multi-value filters
         @Suppress("UNCHECKED_CAST")
@@ -649,7 +719,17 @@ Docs: task-orchestrator://docs/tools/query-container
 
         return when (result) {
             is Result.Success -> {
-                val tasks = result.data
+                var tasks = result.data
+
+                // Apply role filter if specified (post-query filtering)
+                var roleStatuses: Set<String>? = null
+                if (role != null && context.statusProgressionService() != null) {
+                    roleStatuses = context.statusProgressionService()!!.getStatusesForRole(role, "task", tags ?: emptyList())
+                    tasks = tasks.filter { task ->
+                        roleStatuses.contains(task.status.name.lowercase().replace("_", "-"))
+                    }
+                }
+
                 successResponse(
                     buildJsonObject {
                         put("items", buildJsonArray {
@@ -658,6 +738,18 @@ Docs: task-orchestrator://docs/tools/query-container
                             }
                         })
                         put("count", tasks.size)
+
+                        // Add roleFilter metadata if role was specified
+                        if (role != null && roleStatuses != null) {
+                            put("roleFilter", buildJsonObject {
+                                put("role", role)
+                                put("resolvedStatuses", buildJsonArray {
+                                    roleStatuses.forEach { status ->
+                                        add(JsonPrimitive(status))
+                                    }
+                                })
+                            })
+                        }
                     },
                     "${tasks.size} task(s) found"
                 )
@@ -810,7 +902,7 @@ Docs: task-orchestrator://docs/tools/query-container
                 val allProjects = projectsResult.data
                 val projects = if (filters.isActive) {
                     allProjects.filter { project ->
-                        matchesOverviewFilters(project.status, null, project.tags, filters, "project")
+                        matchesOverviewFilters(project.status, null, project.tags, filters, "project", context)
                     }
                 } else allProjects
 
@@ -848,7 +940,7 @@ Docs: task-orchestrator://docs/tools/query-container
                 val allFeatures = featuresResult.data
                 val features = if (filters.isActive) {
                     allFeatures.filter { feature ->
-                        matchesOverviewFilters(feature.status, feature.priority, feature.tags, filters, "feature")
+                        matchesOverviewFilters(feature.status, feature.priority, feature.tags, filters, "feature", context)
                     }
                 } else allFeatures
 
@@ -886,7 +978,7 @@ Docs: task-orchestrator://docs/tools/query-container
                 val allTasks = tasksResult.data
                 val tasks = if (filters.isActive) {
                     allTasks.filter { task ->
-                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task")
+                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task", context)
                     }
                 } else allTasks
 
@@ -951,7 +1043,7 @@ Docs: task-orchestrator://docs/tools/query-container
 
                 val features = if (filters.isActive) {
                     allFeatures.filter { feature ->
-                        matchesOverviewFilters(feature.status, feature.priority, feature.tags, filters, "feature")
+                        matchesOverviewFilters(feature.status, feature.priority, feature.tags, filters, "feature", context)
                     }
                 } else allFeatures
 
@@ -963,7 +1055,7 @@ Docs: task-orchestrator://docs/tools/query-container
                 val allStandaloneTasks = taskCountsResult.tasks.filter { it.featureId == null }.take(100)
                 val standaloneTasks = if (filters.isActive) {
                     allStandaloneTasks.filter { task ->
-                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task")
+                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task", context)
                     }
                 } else allStandaloneTasks
 
@@ -1059,7 +1151,7 @@ Docs: task-orchestrator://docs/tools/query-container
 
                 val tasks = if (filters.isActive) {
                     allTasks.filter { task ->
-                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task")
+                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task", context)
                     }
                 } else allTasks
 

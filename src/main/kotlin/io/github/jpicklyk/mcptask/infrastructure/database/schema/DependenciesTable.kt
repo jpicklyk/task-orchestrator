@@ -11,6 +11,7 @@ object DependenciesTable : UUIDTable("dependencies") {
     val fromTaskId = uuid("from_task_id")
     val toTaskId = uuid("to_task_id")
     val type = enumerationByName("type", 20, DependencyType::class)
+    val unblockAt = varchar("unblock_at", 20).nullable()
     val createdAt = timestamp("created_at")
 
     init {

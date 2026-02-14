@@ -48,4 +48,11 @@ interface RepositoryProvider {
      * @return The DependencyRepository implementation
      */
     fun dependencyRepository(): DependencyRepository
+
+    /**
+     * Provides access to the RoleTransitionRepository.
+     *
+     * @return The RoleTransitionRepository implementation
+     */
+    fun roleTransitionRepository(): RoleTransitionRepository
 }

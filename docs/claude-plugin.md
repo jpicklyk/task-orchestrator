@@ -177,6 +177,17 @@ To get the latest version:
 
 The plugin enhances Claude's use of the MCP tools but does not configure the MCP server itself. See the [Quick Start Guide](quick-start.md) for MCP server setup.
 
+## Custom Hooks
+
+Plugin authors can write custom hooks to extend Task Orchestrator behavior. For example, detect status role changes and trigger external actions (code review requests, notifications, metrics tracking).
+
+See the **[Hook Integration Guide](hook-integration-guide)** for:
+- PostToolUse hook patterns for `request_transition`
+- Response schema with `previousRole` and `newRole` fields
+- Detecting role transitions (work→review, review→terminal)
+- Handling unblocked tasks and cascade events
+- Example scripts for common integrations
+
 ## Marketplace
 
 The plugin marketplace is defined at `.claude-plugin/marketplace.json` in the repository root. It follows the standard Claude Code marketplace format and can be added by pointing to the GitHub repository.

@@ -46,7 +46,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("scope", "boundaries", "prerequisites")
+                tags = listOf("scope", "boundaries", "prerequisites", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -58,7 +58,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("code-changes", "files", "methods")
+                tags = listOf("code-changes", "files", "methods", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -82,7 +82,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("technical", "specification", "code")
+                tags = listOf("technical", "specification", "code", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -102,7 +102,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("testing", "test-plan", "quality")
+                tags = listOf("testing", "test-plan", "quality", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -112,7 +112,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.JSON,
                 ordinal = 4,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:queue")
             )
         )
 

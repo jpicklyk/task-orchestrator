@@ -46,7 +46,7 @@ object DesignDecisionTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("context", "constraints", "decision")
+                tags = listOf("context", "constraints", "decision", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -65,7 +65,7 @@ object DesignDecisionTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("options", "analysis", "tradeoffs")
+                tags = listOf("options", "analysis", "tradeoffs", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -79,7 +79,7 @@ object DesignDecisionTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("recommendation", "rationale", "decision")
+                tags = listOf("recommendation", "rationale", "decision", "role:terminal")
             )
         )
 

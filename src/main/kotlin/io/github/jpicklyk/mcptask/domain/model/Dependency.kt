@@ -12,6 +12,7 @@ data class Dependency(
     val fromTaskId: UUID,
     val toTaskId: UUID,
     val type: DependencyType = DependencyType.BLOCKS,
+    val unblockAt: String? = null,
     val createdAt: Instant = Instant.now()
 ) {
     init {
@@ -26,6 +27,55 @@ data class Dependency(
         if (fromTaskId == toTaskId) {
             throw ValidationException("A task cannot depend on itself")
         }
+
+        // Validate unblockAt if provided
+        if (unblockAt != null) {
+            if (unblockAt !in StatusRole.VALID_ROLE_NAMES) {
+                throw ValidationException(
+                    "Invalid unblockAt role: '$unblockAt'. Valid values: ${StatusRole.VALID_ROLE_NAMES}"
+                )
+            }
+            // unblockAt only makes sense for BLOCKS and IS_BLOCKED_BY
+            if (type == DependencyType.RELATES_TO) {
+                throw ValidationException(
+                    "unblockAt cannot be set on RELATES_TO dependencies (no blocking semantics)"
+                )
+            }
+        }
+    }
+
+    /**
+     * Returns the effective unblock role for this dependency.
+     * null defaults to "terminal" for backward compatibility.
+     * RELATES_TO always returns null (no blocking semantics).
+     */
+    fun effectiveUnblockRole(): String? {
+        if (type == DependencyType.RELATES_TO) return null
+        return unblockAt ?: "terminal"
+    }
+
+    /**
+     * Returns the ID of the task that acts as the blocker, regardless of dependency direction.
+     * - BLOCKS: fromTaskId is the blocker (fromTask blocks toTask)
+     * - IS_BLOCKED_BY: toTaskId is the blocker (fromTask is blocked by toTask)
+     * - RELATES_TO: fromTaskId by convention (no blocking semantics)
+     */
+    fun getBlockerTaskId(): UUID = when (type) {
+        DependencyType.BLOCKS -> fromTaskId
+        DependencyType.IS_BLOCKED_BY -> toTaskId
+        DependencyType.RELATES_TO -> fromTaskId
+    }
+
+    /**
+     * Returns the ID of the task that is blocked, regardless of dependency direction.
+     * - BLOCKS: toTaskId is blocked (fromTask blocks toTask)
+     * - IS_BLOCKED_BY: fromTaskId is blocked (fromTask is blocked by toTask)
+     * - RELATES_TO: toTaskId by convention (no blocking semantics)
+     */
+    fun getBlockedTaskId(): UUID = when (type) {
+        DependencyType.BLOCKS -> toTaskId
+        DependencyType.IS_BLOCKED_BY -> fromTaskId
+        DependencyType.RELATES_TO -> toTaskId
     }
 }
 

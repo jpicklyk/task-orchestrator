@@ -77,7 +77,8 @@ class McpServer(
         statusValidator = StatusValidator()
         statusProgressionService = StatusProgressionServiceImpl(statusValidator)
 
-        // Initialize cascade service
+        // Initialize cascade service with role aggregation rules from config
+        val aggregationRules = CascadeServiceImpl.loadAggregationRules()
         cascadeService = CascadeServiceImpl(
             statusProgressionService = statusProgressionService,
             statusValidator = statusValidator,
@@ -85,7 +86,8 @@ class McpServer(
             featureRepository = repositoryProvider.featureRepository(),
             projectRepository = repositoryProvider.projectRepository(),
             dependencyRepository = repositoryProvider.dependencyRepository(),
-            sectionRepository = repositoryProvider.sectionRepository()
+            sectionRepository = repositoryProvider.sectionRepository(),
+            aggregationRules = aggregationRules
         )
 
         // Initialize tool execution context with status progression service and cascade service
@@ -197,7 +199,7 @@ class McpServer(
         registerTools(server)
 
         // Configure AI guidance
-        server.configureAiGuidance()
+        server.configureAiGuidance(repositoryProvider)
 
         // Configure markdown resources
         server.configureMarkdownResources(repositoryProvider)

@@ -51,18 +51,23 @@ class ManageDependenciesTool(
 
     override fun shouldUseLocking(): Boolean = true
 
+    companion object {
+        /** Valid unblockAt role values for dependencies (excludes "blocked" which doesn't make sense as an unblock threshold). */
+        val VALID_UNBLOCK_AT_VALUES = setOf("queue", "work", "review", "terminal")
+    }
+
     override val description: String = """Unified write operations for task dependencies with batch support.
 
 Operations: create, delete
 
 Create Modes (mutually exclusive):
-1. **dependencies array** — Explicit list of dependency objects. Each: {fromTaskId, toTaskId, type?}
+1. **dependencies array** — Explicit list of dependency objects. Each: {fromTaskId, toTaskId, type?, unblockAt?}
 2. **pattern shortcut** — Generate dependencies from a named pattern
 
 Create Parameters:
 | Field | Type | Required | Description |
 | operation | enum | Yes | "create" |
-| dependencies | array | No* | Array of {fromTaskId: UUID, toTaskId: UUID, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO} objects |
+| dependencies | array | No* | Array of {fromTaskId: UUID, toTaskId: UUID, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal} objects |
 | pattern | enum | No* | Shortcut pattern: "linear", "fan-out", "fan-in" |
 | taskIds | array | No | Ordered task IDs for linear pattern. Creates chain: A→B→C→D |
 | source | UUID | No | Source task ID for fan-out pattern |
@@ -70,6 +75,7 @@ Create Parameters:
 | sources | array | No | Source task IDs for fan-in pattern |
 | target | UUID | No | Target task ID for fan-in pattern |
 | type | enum | No | Default dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS) |
+| unblockAt | enum | No | Default unblock role threshold for all dependencies. Individual dependency unblockAt overrides this. Null = terminal (default). Values: queue, work, review, terminal |
 
 *Provide either dependencies array OR pattern — not both.
 
@@ -88,6 +94,13 @@ Dependency Types:
 - BLOCKS: Source blocks target (target cannot start until source complete)
 - IS_BLOCKED_BY: Source is blocked by target (inverse of BLOCKS)
 - RELATES_TO: General relationship (no blocking)
+
+Unblock Role Threshold (unblockAt):
+- Controls when downstream task becomes unblocked based on blocker's workflow role
+- Default is null (= terminal, matching current behavior — blocker must be completed/cancelled)
+- Available values: queue, work, review, terminal
+- Cannot be set on RELATES_TO dependencies (no blocking semantics)
+- Example: unblockAt="work" means downstream unblocks when blocker reaches in-progress
 
 Delete Parameters:
 | Field | Type | Required | Description |
@@ -121,7 +134,7 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
                 "dependencies" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("array"),
-                        "description" to JsonPrimitive("Array of dependency definitions for batch create. Each object: {fromTaskId: UUID, toTaskId: UUID, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO}"),
+                        "description" to JsonPrimitive("Array of dependency definitions for batch create. Each object: {fromTaskId: UUID, toTaskId: UUID, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal}"),
                         "items" to JsonObject(
                             mapOf(
                                 "type" to JsonPrimitive("object"),
@@ -134,6 +147,13 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
                                                 "type" to JsonPrimitive("string"),
                                                 "enum" to JsonArray(listOf("BLOCKS", "IS_BLOCKED_BY", "RELATES_TO").map { JsonPrimitive(it) }),
                                                 "default" to JsonPrimitive("BLOCKS")
+                                            )
+                                        ),
+                                        "unblockAt" to JsonObject(
+                                            mapOf(
+                                                "type" to JsonPrimitive("string"),
+                                                "enum" to JsonArray(listOf("queue", "work", "review", "terminal").map { JsonPrimitive(it) }),
+                                                "description" to JsonPrimitive("Role threshold for unblocking. Null/omitted = terminal (default).")
                                             )
                                         )
                                     )
@@ -214,6 +234,13 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
                         "default" to JsonPrimitive("BLOCKS")
                     )
                 ),
+                "unblockAt" to JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("string"),
+                        "description" to JsonPrimitive("Default unblock role threshold for all dependencies. Individual dependency unblockAt overrides this. Null = terminal."),
+                        "enum" to JsonArray(listOf("queue", "work", "review", "terminal").map { JsonPrimitive(it) })
+                    )
+                ),
                 "deleteAll" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("boolean"),
@@ -265,6 +292,14 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
             )
         }
 
+        // Validate top-level unblockAt if provided
+        val topLevelUnblockAt = optionalString(params, "unblockAt")
+        if (topLevelUnblockAt != null && topLevelUnblockAt !in VALID_UNBLOCK_AT_VALUES) {
+            throw ToolValidationException(
+                "Invalid unblockAt value: '$topLevelUnblockAt'. Must be one of: ${VALID_UNBLOCK_AT_VALUES.joinToString(", ")}"
+            )
+        }
+
         when {
             dependenciesArray != null -> validateDependenciesArray(dependenciesArray)
             pattern != null -> validatePattern(params, pattern)
@@ -309,6 +344,14 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
                 } catch (_: ValidationException) {
                     throw ToolValidationException("dependencies[$index].type is invalid: $typeStr. Must be one of: BLOCKS, IS_BLOCKED_BY, RELATES_TO")
                 }
+            }
+
+            // Validate per-dependency unblockAt if provided
+            val unblockAtStr = obj["unblockAt"]?.jsonPrimitive?.content
+            if (unblockAtStr != null && unblockAtStr !in VALID_UNBLOCK_AT_VALUES) {
+                throw ToolValidationException(
+                    "dependencies[$index].unblockAt is invalid: '$unblockAtStr'. Must be one of: ${VALID_UNBLOCK_AT_VALUES.joinToString(", ")}"
+                )
             }
         }
     }
@@ -549,7 +592,7 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
             val defaultType = optionalString(params, "type")?.let { DependencyType.fromString(it) } ?: DependencyType.BLOCKS
 
             // Validate all referenced tasks exist
-            val allTaskIds = dependencyDefs.flatMap { listOf(it.first, it.second) }.toSet()
+            val allTaskIds = dependencyDefs.flatMap { listOf(it.fromTaskId, it.toTaskId) }.toSet()
             for (taskId in allTaskIds) {
                 val taskResult = context.taskRepository().getById(taskId)
                 if (taskResult is Result.Error) {
@@ -570,11 +613,12 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
             }
 
             // Build Dependency objects
-            val dependencies = dependencyDefs.map { (fromId, toId, typeOverride) ->
+            val dependencies = dependencyDefs.map { def ->
                 Dependency(
-                    fromTaskId = fromId,
-                    toTaskId = toId,
-                    type = typeOverride ?: defaultType
+                    fromTaskId = def.fromTaskId,
+                    toTaskId = def.toTaskId,
+                    type = def.typeOverride ?: defaultType,
+                    unblockAt = def.unblockAt
                 )
             }
 
@@ -588,6 +632,7 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
                     put("fromTaskId", dep.fromTaskId.toString())
                     put("toTaskId", dep.toTaskId.toString())
                     put("type", dep.type.name)
+                    dep.unblockAt?.let { put("unblockAt", it) }
                     put("createdAt", dep.createdAt.toString())
                 }
             }
@@ -623,62 +668,74 @@ Docs: task-orchestrator://docs/tools/manage-dependencies
     }
 
     /**
-     * Resolves dependency definitions from the three possible create modes.
-     * Returns a list of triples: (fromTaskId, toTaskId, typeOverride?)
+     * Intermediate representation of a dependency definition before construction.
      */
-    private fun resolveDependencyDefinitions(params: JsonElement): List<Triple<UUID, UUID, DependencyType?>> {
+    private data class DependencyDef(
+        val fromTaskId: UUID,
+        val toTaskId: UUID,
+        val typeOverride: DependencyType?,
+        val unblockAt: String?
+    )
+
+    /**
+     * Resolves dependency definitions from the three possible create modes.
+     */
+    private fun resolveDependencyDefinitions(params: JsonElement): List<DependencyDef> {
         val dependenciesArray = optionalJsonArray(params, "dependencies")
         val pattern = optionalString(params, "pattern")
+        val topLevelUnblockAt = optionalString(params, "unblockAt")
 
         return when {
-            dependenciesArray != null -> resolveFromArray(dependenciesArray)
-            pattern != null -> resolveFromPattern(params, pattern)
-            else -> resolveFromLegacy(params)
+            dependenciesArray != null -> resolveFromArray(dependenciesArray, topLevelUnblockAt)
+            pattern != null -> resolveFromPattern(params, pattern, topLevelUnblockAt)
+            else -> resolveFromLegacy(params, topLevelUnblockAt)
         }
     }
 
-    private fun resolveFromArray(array: JsonArray): List<Triple<UUID, UUID, DependencyType?>> {
+    private fun resolveFromArray(array: JsonArray, topLevelUnblockAt: String?): List<DependencyDef> {
         return array.map { element ->
             val obj = element.jsonObject
             val fromId = UUID.fromString(obj["fromTaskId"]!!.jsonPrimitive.content)
             val toId = UUID.fromString(obj["toTaskId"]!!.jsonPrimitive.content)
             val typeStr = obj["type"]?.jsonPrimitive?.content
             val type = typeStr?.let { DependencyType.fromString(it) }
-            Triple(fromId, toId, type)
+            // Per-dependency unblockAt overrides top-level
+            val unblockAt = obj["unblockAt"]?.jsonPrimitive?.content ?: topLevelUnblockAt
+            DependencyDef(fromId, toId, type, unblockAt)
         }
     }
 
-    private fun resolveFromPattern(params: JsonElement, pattern: String): List<Triple<UUID, UUID, DependencyType?>> {
+    private fun resolveFromPattern(params: JsonElement, pattern: String, topLevelUnblockAt: String?): List<DependencyDef> {
         return when (pattern) {
             "linear" -> {
                 val taskIds = optionalJsonArray(params, "taskIds")!!.map {
                     UUID.fromString(it.jsonPrimitive.content)
                 }
                 // Chain: A→B, B→C, C→D
-                taskIds.zipWithNext().map { (from, to) -> Triple(from, to, null) }
+                taskIds.zipWithNext().map { (from, to) -> DependencyDef(from, to, null, topLevelUnblockAt) }
             }
             "fan-out" -> {
                 val sourceId = UUID.fromString(requireString(params, "source"))
                 val targetIds = optionalJsonArray(params, "targets")!!.map {
                     UUID.fromString(it.jsonPrimitive.content)
                 }
-                targetIds.map { targetId -> Triple(sourceId, targetId, null) }
+                targetIds.map { targetId -> DependencyDef(sourceId, targetId, null, topLevelUnblockAt) }
             }
             "fan-in" -> {
                 val targetId = UUID.fromString(requireString(params, "target"))
                 val sourceIds = optionalJsonArray(params, "sources")!!.map {
                     UUID.fromString(it.jsonPrimitive.content)
                 }
-                sourceIds.map { sourceId -> Triple(sourceId, targetId, null) }
+                sourceIds.map { sourceId -> DependencyDef(sourceId, targetId, null, topLevelUnblockAt) }
             }
             else -> throw ToolValidationException("Invalid pattern: $pattern")
         }
     }
 
-    private fun resolveFromLegacy(params: JsonElement): List<Triple<UUID, UUID, DependencyType?>> {
+    private fun resolveFromLegacy(params: JsonElement, topLevelUnblockAt: String?): List<DependencyDef> {
         val fromId = UUID.fromString(requireString(params, "fromTaskId"))
         val toId = UUID.fromString(requireString(params, "toTaskId"))
-        return listOf(Triple(fromId, toId, null))
+        return listOf(DependencyDef(fromId, toId, null, topLevelUnblockAt))
     }
 
     // ========== DELETE OPERATION ==========

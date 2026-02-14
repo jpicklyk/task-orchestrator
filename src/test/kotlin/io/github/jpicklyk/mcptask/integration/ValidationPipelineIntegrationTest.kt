@@ -95,6 +95,7 @@ class ValidationPipelineIntegrationTest {
             override fun templateRepository() = throw UnsupportedOperationException("Not used in this test")
             override fun sectionRepository() = sectionRepository
             override fun dependencyRepository() = dependencyRepository
+            override fun roleTransitionRepository() = throw UnsupportedOperationException("Not used in this test")
         }
 
         executionContext = ToolExecutionContext(repositoryProvider)

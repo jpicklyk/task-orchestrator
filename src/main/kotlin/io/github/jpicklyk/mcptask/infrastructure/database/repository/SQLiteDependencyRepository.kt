@@ -45,6 +45,7 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             it[fromTaskId] = dependency.fromTaskId
             it[toTaskId] = dependency.toTaskId
             it[type] = dependency.type
+            it[unblockAt] = dependency.unblockAt
             it[createdAt] = dependency.createdAt
         }
         dependency
@@ -100,6 +101,7 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
                 it[fromTaskId] = dep.fromTaskId
                 it[toTaskId] = dep.toTaskId
                 it[type] = dep.type
+                it[unblockAt] = dep.unblockAt
                 it[createdAt] = dep.createdAt
             }
         }
@@ -229,6 +231,7 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             fromTaskId = this[DependenciesTable.fromTaskId],
             toTaskId = this[DependenciesTable.toTaskId],
             type = this[DependenciesTable.type],
+            unblockAt = this[DependenciesTable.unblockAt],
             createdAt = this[DependenciesTable.createdAt]
         )
     }

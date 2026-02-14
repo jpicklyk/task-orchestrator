@@ -1087,6 +1087,310 @@ class StatusProgressionServiceImplTest {
     }
 
     @Nested
+    inner class GetStatusesForRole {
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to work role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("in-progress", "changes-requested", "investigating"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to terminal role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+
+            // Assert - should include completed, cancelled, deferred, and closed
+            assertTrue(statuses.contains("completed"))
+            assertTrue(statuses.contains("cancelled"))
+            assertTrue(statuses.contains("deferred"))
+            assertTrue(statuses.contains("closed"))
+            assertEquals(4, statuses.size)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to queue role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "queue",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("backlog", "pending"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to review role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "review",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("testing", "ready-for-qa"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to blocked role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "blocked",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("blocked"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns empty set for unknown role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "nonexistent",
+                containerType = "task"
+            )
+
+            // Assert
+            assertTrue(statuses.isEmpty())
+        }
+
+        @Test
+        fun `getStatusesForRole returns empty set when no config`() {
+            // Arrange - malformed config
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+
+            // Assert
+            assertTrue(statuses.isEmpty())
+        }
+
+        @Test
+        fun `getStatusesForRole is case insensitive for role name`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statusesLowercase = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+            val statusesUppercase = service.getStatusesForRole(
+                role = "WORK",
+                containerType = "task"
+            )
+            val statusesMixedCase = service.getStatusesForRole(
+                role = "WoRk",
+                containerType = "task"
+            )
+
+            // Assert - all should return same results
+            assertEquals(statusesLowercase, statusesUppercase)
+            assertEquals(statusesLowercase, statusesMixedCase)
+            assertEquals(setOf("in-progress", "changes-requested", "investigating"), statusesLowercase)
+        }
+
+        @Test
+        fun `getStatusesForRole works with feature container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val queueStatuses = service.getStatusesForRole(
+                role = "queue",
+                containerType = "feature"
+            )
+            val workStatuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "feature"
+            )
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals(setOf("planning"), queueStatuses)
+            assertEquals(setOf("in-development"), workStatuses)
+            assertEquals(setOf("completed", "cancelled"), terminalStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole works with project container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val queueStatuses = service.getStatusesForRole(
+                role = "queue",
+                containerType = "project"
+            )
+            val workStatuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "project"
+            )
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "project"
+            )
+
+            // Assert
+            assertEquals(setOf("planning"), queueStatuses)
+            assertEquals(setOf("active"), workStatuses)
+            assertEquals(setOf("deployed", "completed", "archived"), terminalStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns empty set for invalid container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "invalid"
+            )
+
+            // Assert
+            assertTrue(statuses.isEmpty())
+        }
+
+        @Test
+        fun `getStatusesForRole uses bundled default config when user config not present`() {
+            // Arrange - no config file, falls back to bundled default-config.yaml
+
+            // Act
+            val workStatuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+
+            // Assert - should use status_roles from bundled default-config.yaml
+            assertEquals(setOf("in-progress", "changes-requested", "investigating"), workStatuses)
+            assertEquals(setOf("completed", "cancelled", "deferred"), terminalStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole handles multiple statuses per role correctly`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val reviewStatuses = service.getStatusesForRole(
+                role = "review",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals(setOf("testing", "pending-review"), reviewStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole infers roles when status_roles not defined`() {
+            // Arrange - config without explicit status_roles section
+            val configWithoutRoles = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                      - cancelled
+                    emergency_transitions:
+                      - blocked
+            """.trimIndent()
+            createConfigFile(configWithoutRoles)
+
+            // Act
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+            val blockedStatuses = service.getStatusesForRole(
+                role = "blocked",
+                containerType = "task"
+            )
+
+            // Assert - should infer terminal and blocked roles from config structure
+            assertEquals(setOf("completed", "cancelled"), terminalStatuses)
+            assertEquals(setOf("blocked"), blockedStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns unique statuses only once`() {
+            // Arrange - create config where same status might appear in multiple places
+            val configYaml = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                      - cancelled
+                    emergency_transitions:
+                      - blocked
+                    status_roles:
+                      completed: terminal
+                      cancelled: terminal
+                      blocked: blocked
+            """.trimIndent()
+            createConfigFile(configYaml)
+
+            // Act
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+
+            // Assert - should return each status only once
+            assertEquals(setOf("completed", "cancelled"), terminalStatuses)
+        }
+    }
+
+    @Nested
     inner class ConfigFallback {
 
         @Test

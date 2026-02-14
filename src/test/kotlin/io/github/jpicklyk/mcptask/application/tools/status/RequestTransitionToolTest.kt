@@ -34,6 +34,7 @@ class RequestTransitionToolTest {
     private lateinit var mockSectionRepository: SectionRepository
     private lateinit var mockDependencyRepository: DependencyRepository
     private lateinit var mockTemplateRepository: TemplateRepository
+    private lateinit var mockRoleTransitionRepository: RoleTransitionRepository
     private lateinit var mockRepositoryProvider: RepositoryProvider
 
     private val taskId = UUID.randomUUID()
@@ -52,6 +53,7 @@ class RequestTransitionToolTest {
         mockSectionRepository = mockk()
         mockDependencyRepository = mockk()
         mockTemplateRepository = mockk()
+        mockRoleTransitionRepository = mockk(relaxed = true)
         mockRepositoryProvider = mockk()
 
         every { mockRepositoryProvider.taskRepository() } returns mockTaskRepository
@@ -60,6 +62,7 @@ class RequestTransitionToolTest {
         every { mockRepositoryProvider.sectionRepository() } returns mockSectionRepository
         every { mockRepositoryProvider.dependencyRepository() } returns mockDependencyRepository
         every { mockRepositoryProvider.templateRepository() } returns mockTemplateRepository
+        every { mockRepositoryProvider.roleTransitionRepository() } returns mockRoleTransitionRepository
 
         // Mock CascadeService - tests that need cascade behavior will override these defaults
         mockCascadeService = mockk()
@@ -2741,6 +2744,237 @@ status_validation:
                 appliedField == null || !appliedField.jsonPrimitive.boolean,
                 "Cascade events should not be marked as applied when auto_cascade is disabled"
             )
+        }
+    }
+
+    @Nested
+    inner class RoleTransitionRecordingTests {
+        @BeforeEach
+        fun setupRoleTests() {
+            // Success response for role transition recording (uses shared mockRoleTransitionRepository)
+            coEvery { mockRoleTransitionRepository.create(any()) } returns Result.Success(
+                RoleTransition(
+                    id = UUID.randomUUID(),
+                    entityId = taskId,
+                    entityType = "task",
+                    fromRole = "queue",
+                    toRole = "work",
+                    fromStatus = "pending",
+                    toStatus = "in-progress",
+                    transitionedAt = Instant.now(),
+                    trigger = "start",
+                    summary = null
+                )
+            )
+        }
+
+        @Test
+        fun `records role transition when role changes`() = runBlocking {
+            // Setup: Task moving from pending (queue) to in-progress (work)
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            // Mock status progression service to return role changes
+            coEvery { mockStatusProgressionService.getNextStatus(any(), any(), any()) } returns
+                NextStatusRecommendation.Ready(
+                    recommendedStatus = "in-progress",
+                    activeFlow = "default_flow",
+                    flowSequence = listOf("pending", "in-progress", "completed"),
+                    currentPosition = 0,
+                    matchedTags = emptyList(),
+                    reason = "Next status in flow"
+                )
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = emptyList()
+            )
+
+            val params = buildJsonObject {
+                put("transitions", JsonArray(listOf(
+                    buildJsonObject {
+                        put("containerId", taskId.toString())
+                        put("containerType", "task")
+                        put("trigger", "start")
+                    }
+                )))
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            // Verify role transition was recorded
+            coVerify {
+                mockRoleTransitionRepository.create(match {
+                    it.entityId == taskId &&
+                    it.entityType == "task" &&
+                    it.fromRole == "queue" &&
+                    it.toRole == "work" &&
+                    it.fromStatus == "pending" &&
+                    it.toStatus == "in-progress" &&
+                    it.trigger == "start"
+                })
+            }
+        }
+
+        @Test
+        fun `does not record role transition when role stays same`() = runBlocking {
+            // Setup: Task in-progress but moving to same role (e.g., testing also in "work" role)
+            val testingTask = inProgressTask.copy(status = TaskStatus.TESTING)
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(testingTask)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            // Mock status progression service - both statuses in "work" role
+            coEvery { mockStatusProgressionService.getNextStatus(any(), any(), any()) } returns
+                NextStatusRecommendation.Ready(
+                    recommendedStatus = "testing",
+                    activeFlow = "with_testing_flow",
+                    flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                    currentPosition = 1,
+                    matchedTags = emptyList(),
+                    reason = "Next status in flow"
+                )
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("testing", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "with_testing_flow",
+                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = emptyList()
+            )
+
+            val params = buildJsonObject {
+                put("transitions", JsonArray(listOf(
+                    buildJsonObject {
+                        put("containerId", taskId.toString())
+                        put("containerType", "task")
+                        put("trigger", "start")
+                    }
+                )))
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            // Verify no role transition was recorded (same role)
+            coVerify(exactly = 0) {
+                mockRoleTransitionRepository.create(any())
+            }
+        }
+
+        @Test
+        fun `does not fail transition if role transition recording fails`() = runBlocking {
+            // Setup: Task moving from pending to in-progress
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            // Mock status progression service
+            coEvery { mockStatusProgressionService.getNextStatus(any(), any(), any()) } returns
+                NextStatusRecommendation.Ready(
+                    recommendedStatus = "in-progress",
+                    activeFlow = "default_flow",
+                    flowSequence = listOf("pending", "in-progress", "completed"),
+                    currentPosition = 0,
+                    matchedTags = emptyList(),
+                    reason = "Next status in flow"
+                )
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = emptyList()
+            )
+
+            // Role transition recording fails
+            coEvery { mockRoleTransitionRepository.create(any()) } returns Result.Error(
+                RepositoryError.DatabaseError("Database connection lost")
+            )
+
+            val params = buildJsonObject {
+                put("transitions", JsonArray(listOf(
+                    buildJsonObject {
+                        put("containerId", taskId.toString())
+                        put("containerType", "task")
+                        put("trigger", "start")
+                    }
+                )))
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+
+            // Transition should still succeed
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"]!!.jsonObject
+            val results = data["results"]!!.jsonArray
+            val firstResult = results[0].jsonObject
+            assertTrue(firstResult["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("pending", firstResult["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-progress", firstResult["newStatus"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `does not record role transition when either role is null`() = runBlocking {
+            // Setup: Task moving to new status but role resolution fails
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            // Mock status progression service - one role returns null
+            coEvery { mockStatusProgressionService.getNextStatus(any(), any(), any()) } returns
+                NextStatusRecommendation.Ready(
+                    recommendedStatus = "in-progress",
+                    activeFlow = "default_flow",
+                    flowSequence = listOf("pending", "in-progress", "completed"),
+                    currentPosition = 0,
+                    matchedTags = emptyList(),
+                    reason = "Next status in flow"
+                )
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns null // Role not found
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = emptyList()
+            )
+
+            val params = buildJsonObject {
+                put("transitions", JsonArray(listOf(
+                    buildJsonObject {
+                        put("containerId", taskId.toString())
+                        put("containerType", "task")
+                        put("trigger", "start")
+                    }
+                )))
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            // Verify no role transition was recorded (null role)
+            coVerify(exactly = 0) {
+                mockRoleTransitionRepository.create(any())
+            }
         }
     }
 }

@@ -41,7 +41,7 @@ object TechnicalApproachTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("technical-details", "planning", "decisions")
+                tags = listOf("technical-details", "planning", "decisions", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -56,7 +56,7 @@ object TechnicalApproachTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = false,
-                tags = listOf("integration", "dependencies", "validation")
+                tags = listOf("integration", "dependencies", "validation", "role:work")
             )
         )
 

@@ -46,7 +46,7 @@ object CodebaseExplorationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("scope", "investigation", "boundaries")
+                tags = listOf("scope", "investigation", "boundaries", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -58,7 +58,7 @@ object CodebaseExplorationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("questions", "research", "discovery")
+                tags = listOf("questions", "research", "discovery", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -74,7 +74,7 @@ object CodebaseExplorationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("findings", "answers", "references")
+                tags = listOf("findings", "answers", "references", "role:work")
             )
         )
 

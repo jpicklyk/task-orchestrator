@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.tools.task
 
+import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.domain.model.*
@@ -97,13 +98,15 @@ class GetBlockedTasksToolTest {
     private fun createDependency(
         fromTaskId: UUID,
         toTaskId: UUID,
-        type: DependencyType = DependencyType.BLOCKS
+        type: DependencyType = DependencyType.BLOCKS,
+        unblockAt: String? = null
     ): Dependency {
         return Dependency(
             id = UUID.randomUUID(),
             fromTaskId = fromTaskId,
             toTaskId = toTaskId,
             type = type,
+            unblockAt = unblockAt,
             createdAt = Instant.now()
         )
     }
@@ -863,6 +866,411 @@ class GetBlockedTasksToolTest {
             val message = result["message"]?.jsonPrimitive?.content
             assertNotNull(message)
             assertTrue(message!!.contains("2 blocked task"))
+        }
+    }
+
+    @Nested
+    inner class RoleBasedBlockingTests {
+
+        private lateinit var mockStatusProgressionService: StatusProgressionService
+        private lateinit var roleAwareContext: ToolExecutionContext
+
+        @BeforeEach
+        fun setupRoleAware() {
+            mockStatusProgressionService = mockk()
+            roleAwareContext = ToolExecutionContext(
+                mockRepositoryProvider,
+                statusProgressionService = mockStatusProgressionService
+            )
+        }
+
+        @Test
+        fun `should NOT block when unblockAt=work and blocker is at in-progress (role=work)`() = runBlocking {
+            val blockerTask = createTask(
+                title = "Blocker", status = TaskStatus.IN_PROGRESS, tags = listOf("backend")
+            )
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "work"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+            every {
+                mockStatusProgressionService.getRoleForStatus("in-progress", "task", listOf("backend"))
+            } returns "work"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(0, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should block when unblockAt=work and blocker is at pending (role=queue)`() = runBlocking {
+            val blockerTask = createTask(
+                title = "Blocker", status = TaskStatus.PENDING, tags = listOf("backend")
+            )
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "work"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", listOf("backend"))
+            } returns "queue"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+
+            val blockedEntry = extractBlockedTasks(result)[0].jsonObject
+            assertEquals(blockedTask.id.toString(), blockedEntry["taskId"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should block when unblockAt=null (default terminal) and blocker is at in-progress`() = runBlocking {
+            val blockerTask = createTask(
+                title = "Blocker", status = TaskStatus.IN_PROGRESS, tags = listOf("backend")
+            )
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+            every {
+                mockStatusProgressionService.getRoleForStatus("in-progress", "task", listOf("backend"))
+            } returns "work"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `RELATES_TO dependencies should never create blocking`() = runBlocking {
+            val relatedTask = createTask(title = "Related", status = TaskStatus.PENDING)
+            val task = createTask(title = "Main Task", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = relatedTask.id, toTaskId = task.id,
+                type = DependencyType.RELATES_TO
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(relatedTask, task))
+            every { mockDependencyRepository.findByToTaskId(task.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(relatedTask.id) } returns emptyList()
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(0, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `fallback behavior without StatusProgressionService matches legacy behavior`() = runBlocking {
+            val blockerTask = createTask(title = "Blocker", status = TaskStatus.IN_PROGRESS)
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+
+            val result = parseResult(tool.execute(params, context))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `fallback without StatusProgressionService treats completed as unblocking`() = runBlocking {
+            val completedBlocker = createTask(title = "Done", status = TaskStatus.COMPLETED)
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = completedBlocker.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(completedBlocker, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            coEvery { mockTaskRepository.getById(completedBlocker.id) } returns Result.Success(completedBlocker)
+
+            val result = parseResult(tool.execute(params, context))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(0, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+        }
+    }
+
+    @Nested
+    inner class RoleAwareFieldsTests {
+
+        private lateinit var mockStatusProgressionService: StatusProgressionService
+        private lateinit var roleAwareContext: ToolExecutionContext
+
+        @BeforeEach
+        fun setupRoleAware() {
+            mockStatusProgressionService = mockk()
+            roleAwareContext = ToolExecutionContext(
+                mockRepositoryProvider,
+                statusProgressionService = mockStatusProgressionService
+            )
+        }
+
+        @Test
+        fun `should include unblockAt and blockerRole in blocker objects`() = runBlocking {
+            val blockerTask = createTask(
+                title = "Blocker", status = TaskStatus.IN_PROGRESS, tags = listOf("backend")
+            )
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "work"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+            every {
+                mockStatusProgressionService.getRoleForStatus("in-progress", "task", listOf("backend"))
+            } returns "work"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(0, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `should include unblockAt and blockerRole when blocker is incomplete`() = runBlocking {
+            val blockerTask = createTask(
+                title = "Blocker", status = TaskStatus.PENDING, tags = listOf("backend")
+            )
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "work"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", listOf("backend"))
+            } returns "queue"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+
+            val blockedEntry = extractBlockedTasks(result)[0].jsonObject
+            val blockers = blockedEntry["blockedBy"]!!.jsonArray
+            assertEquals(1, blockers.size)
+
+            val blockerInfo = blockers[0].jsonObject
+            assertEquals("work", blockerInfo["unblockAt"]?.jsonPrimitive?.content)
+            assertEquals("queue", blockerInfo["blockerRole"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should include unblockAt=terminal for default threshold`() = runBlocking {
+            val blockerTask = createTask(
+                title = "Blocker", status = TaskStatus.PENDING, tags = listOf("backend")
+            )
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS
+                // unblockAt is null, should default to "terminal"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", listOf("backend"))
+            } returns "queue"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+
+            val blockedEntry = extractBlockedTasks(result)[0].jsonObject
+            val blockerInfo = blockedEntry["blockedBy"]!!.jsonArray[0].jsonObject
+            assertEquals("terminal", blockerInfo["unblockAt"]?.jsonPrimitive?.content)
+            assertEquals("queue", blockerInfo["blockerRole"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should include different unblockAt thresholds correctly`() = runBlocking {
+            val blocker1 = createTask(title = "Work Blocker", status = TaskStatus.PENDING, tags = listOf("backend"))
+            val blocker2 = createTask(title = "Review Blocker", status = TaskStatus.PENDING, tags = listOf("frontend"))
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep1 = createDependency(
+                fromTaskId = blocker1.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "work"
+            )
+            val dep2 = createDependency(
+                fromTaskId = blocker2.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "review"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blocker1, blocker2, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep1, dep2)
+            every { mockDependencyRepository.findByToTaskId(blocker1.id) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(blocker2.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blocker1.id) } returns Result.Success(blocker1)
+            coEvery { mockTaskRepository.getById(blocker2.id) } returns Result.Success(blocker2)
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", listOf("backend"))
+            } returns "queue"
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", listOf("frontend"))
+            } returns "queue"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+
+            val blockedEntry = extractBlockedTasks(result)[0].jsonObject
+            val blockers = blockedEntry["blockedBy"]!!.jsonArray
+            assertEquals(2, blockers.size)
+
+            val blocker1Info = blockers.find { it.jsonObject["title"]?.jsonPrimitive?.content == "Work Blocker" }!!.jsonObject
+            assertEquals("work", blocker1Info["unblockAt"]?.jsonPrimitive?.content)
+
+            val blocker2Info = blockers.find { it.jsonObject["title"]?.jsonPrimitive?.content == "Review Blocker" }!!.jsonObject
+            assertEquals("review", blocker2Info["unblockAt"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should set blockerRole to null when StatusProgressionService is unavailable`() = runBlocking {
+            val blockerTask = createTask(title = "Blocker", status = TaskStatus.PENDING)
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep = createDependency(
+                fromTaskId = blockerTask.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "work"
+            )
+
+            val params = buildJsonObject { }
+
+            // Using context WITHOUT StatusProgressionService
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(blockerTask, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep)
+            every { mockDependencyRepository.findByToTaskId(blockerTask.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(blockerTask.id) } returns Result.Success(blockerTask)
+
+            val result = parseResult(tool.execute(params, context))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+
+            val blockedEntry = extractBlockedTasks(result)[0].jsonObject
+            val blockerInfo = blockedEntry["blockedBy"]!!.jsonArray[0].jsonObject
+            assertEquals("work", blockerInfo["unblockAt"]?.jsonPrimitive?.content)
+            assertTrue(blockerInfo["blockerRole"] is JsonNull)
+        }
+
+        @Test
+        fun `should show different roles for different blocker statuses`() = runBlocking {
+            val pendingBlocker = createTask(title = "Pending Blocker", status = TaskStatus.PENDING, tags = listOf("backend"))
+            val inProgressBlocker = createTask(title = "In Progress Blocker", status = TaskStatus.IN_PROGRESS, tags = listOf("backend"))
+            val blockedTask = createTask(title = "Blocked", status = TaskStatus.PENDING)
+            val dep1 = createDependency(
+                fromTaskId = pendingBlocker.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "terminal"
+            )
+            val dep2 = createDependency(
+                fromTaskId = inProgressBlocker.id, toTaskId = blockedTask.id,
+                type = DependencyType.BLOCKS, unblockAt = "terminal"
+            )
+
+            val params = buildJsonObject { }
+
+            coEvery { mockTaskRepository.findAll(limit = any()) } returns
+                    Result.Success(listOf(pendingBlocker, inProgressBlocker, blockedTask))
+            every { mockDependencyRepository.findByToTaskId(blockedTask.id) } returns listOf(dep1, dep2)
+            every { mockDependencyRepository.findByToTaskId(pendingBlocker.id) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(inProgressBlocker.id) } returns emptyList()
+            coEvery { mockTaskRepository.getById(pendingBlocker.id) } returns Result.Success(pendingBlocker)
+            coEvery { mockTaskRepository.getById(inProgressBlocker.id) } returns Result.Success(inProgressBlocker)
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", listOf("backend"))
+            } returns "queue"
+            every {
+                mockStatusProgressionService.getRoleForStatus("in-progress", "task", listOf("backend"))
+            } returns "work"
+
+            val result = parseResult(tool.execute(params, roleAwareContext))
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            assertEquals(1, extractData(result)["totalBlocked"]?.jsonPrimitive?.int)
+
+            val blockedEntry = extractBlockedTasks(result)[0].jsonObject
+            val blockers = blockedEntry["blockedBy"]!!.jsonArray
+            assertEquals(2, blockers.size)
+
+            val pendingInfo = blockers.find { it.jsonObject["title"]?.jsonPrimitive?.content == "Pending Blocker" }!!.jsonObject
+            assertEquals("queue", pendingInfo["blockerRole"]?.jsonPrimitive?.content)
+
+            val inProgressInfo = blockers.find { it.jsonObject["title"]?.jsonPrimitive?.content == "In Progress Blocker" }!!.jsonObject
+            assertEquals("work", inProgressInfo["blockerRole"]?.jsonPrimitive?.content)
         }
     }
 }

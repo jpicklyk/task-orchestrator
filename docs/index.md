@@ -90,6 +90,7 @@ New to Task Orchestrator? Follow this path for the best experience:
 ### For Developers
 - **[Developer Guides](developer-guides)** - Architecture, contributing, and development setup
 - **[Database Migrations](developer-guides/database-migrations)** - Schema change management guide
+- **[Hook Integration Guide](hook-integration-guide)** - Writing Claude Code hooks for status transitions
 - **[Troubleshooting](troubleshooting)** - Comprehensive problem resolution
 - **[GitHub Repository](https://github.com/jpicklyk/task-orchestrator)** - Source code and contributing
 

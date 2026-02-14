@@ -379,6 +379,22 @@ auto_cascade:
   # Depth 3: safety margin
   max_depth: 3
 
+  # Role Aggregation — configurable thresholds for feature advancement
+  # When X% of tasks reach a certain role, the feature auto-advances.
+  # Default thresholds are 100% (matching existing all_tasks_complete behavior).
+  # Lower thresholds enable earlier feature progression for parallel workflows.
+  role_aggregation:
+    enabled: false  # Disabled by default for backward compatibility
+    rules:
+      # Example: Advance feature to in-development when 50% of tasks are in work+
+      # - role_threshold: work
+      #   percentage: 0.5
+      #   target_feature_status: in-development
+      # Example: Advance feature to in-review when 80% of tasks are in review+
+      # - role_threshold: review
+      #   percentage: 0.8
+      #   target_feature_status: in-review
+
 # ============================================================================
 # SETUP CHECK CONFIGURATION
 # ============================================================================

@@ -40,7 +40,7 @@ object TaskImplementationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("analysis", "planning")
+                tags = listOf("analysis", "planning", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -54,7 +54,7 @@ object TaskImplementationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = false,
-                tags = listOf("implementation", "execution")
+                tags = listOf("implementation", "execution", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -69,7 +69,7 @@ object TaskImplementationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("testing", "validation")
+                tags = listOf("testing", "validation", "role:review")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -79,7 +79,7 @@ object TaskImplementationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.JSON,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:review")
             )
         )
 

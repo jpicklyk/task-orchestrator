@@ -35,8 +35,12 @@ class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : 
         SQLiteDependencyRepository(databaseManager)
     }
 
+    private val roleTransitionRepository: SQLiteRoleTransitionRepository by lazy {
+        SQLiteRoleTransitionRepository(databaseManager)
+    }
+
     override fun projectRepository(): ProjectRepository = projectRepository
-    
+
     override fun taskRepository(): TaskRepository = taskRepository
 
     override fun featureRepository(): FeatureRepository = featureRepository
@@ -46,4 +50,6 @@ class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : 
     override fun templateRepository(): TemplateRepository = templateRepository
 
     override fun dependencyRepository(): DependencyRepository = dependencyRepository
+
+    override fun roleTransitionRepository(): RoleTransitionRepository = roleTransitionRepository
 }

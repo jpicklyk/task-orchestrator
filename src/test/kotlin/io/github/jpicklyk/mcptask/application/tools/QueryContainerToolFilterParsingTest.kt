@@ -63,6 +63,7 @@ class QueryContainerToolFilterParsingTest {
             override fun sectionRepository() = throw UnsupportedOperationException()
             override fun dependencyRepository() = throw UnsupportedOperationException()
             override fun templateRepository() = throw UnsupportedOperationException()
+            override fun roleTransitionRepository() = throw UnsupportedOperationException()
         }
 
         context = ToolExecutionContext(repositoryProvider)

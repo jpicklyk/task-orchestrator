@@ -90,7 +90,8 @@ class CollapsedMigrationSchemaTest {
             "work_sessions",
             "task_locks",
             "entity_assignments",
-            "migration_test_table"  // Backward compatibility table
+            "migration_test_table",  // Backward compatibility table
+            "role_transitions"  // V14 - Role transition audit trail
         )
 
         val existingTables = getExistingTables()

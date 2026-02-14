@@ -4,7 +4,9 @@ import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.domain.model.Priority
+import io.github.jpicklyk.mcptask.domain.model.StatusRole
 import io.github.jpicklyk.mcptask.domain.model.Task
 import io.github.jpicklyk.mcptask.domain.model.TaskStatus
 import io.github.jpicklyk.mcptask.domain.repository.Result
@@ -291,11 +293,14 @@ class GetNextTaskTool : BaseToolDefinition() {
 
     /**
      * Filters out tasks that are blocked by incomplete dependencies.
+     * Uses role-aware checking when StatusProgressionService is available.
      */
     private suspend fun filterUnblockedTasks(
         tasks: List<Task>,
         context: ToolExecutionContext
     ): List<Task> {
+        val statusProgressionService = context.statusProgressionService()
+
         return tasks.filter { task ->
             // Get incoming dependencies (tasks that block this one)
             val incomingDeps = context.repositoryProvider.dependencyRepository().findByToTaskId(task.id)
@@ -307,15 +312,28 @@ class GetNextTaskTool : BaseToolDefinition() {
 
             // Check if all blockers are complete
             val hasIncompleteBlockers = incomingDeps.any { dep ->
-                when (val blockerResult = context.taskRepository().getById(dep.fromTaskId)) {
+                // Only BLOCKS and IS_BLOCKED_BY create actual blocking
+                if (dep.type == DependencyType.RELATES_TO) return@any false
+
+                val blockerTaskId = dep.getBlockerTaskId()
+                when (val blockerResult = context.taskRepository().getById(blockerTaskId)) {
                     is Result.Success -> {
                         val blocker = blockerResult.data
-                        // Blocker is incomplete if not completed or cancelled
-                        blocker.status != TaskStatus.COMPLETED && blocker.status != TaskStatus.CANCELLED
+                        val threshold = dep.effectiveUnblockRole() ?: "terminal"
+
+                        if (statusProgressionService != null) {
+                            val blockerRole = statusProgressionService.getRoleForStatus(
+                                blocker.status.name.lowercase().replace('_', '-'), "task", blocker.tags
+                            )
+                            !StatusRole.isRoleAtOrBeyond(blockerRole, threshold)
+                        } else {
+                            // Fallback: only terminal statuses unblock
+                            blocker.status != TaskStatus.COMPLETED && blocker.status != TaskStatus.CANCELLED
+                        }
                     }
                     is Result.Error -> {
                         // If we can't find the blocker, assume it's incomplete (conservative approach)
-                        logger.warn("Failed to get blocker task ${dep.fromTaskId}: ${blockerResult.error.message}")
+                        logger.warn("Failed to get blocker task ${blockerTaskId}: ${blockerResult.error.message}")
                         true
                     }
                 }

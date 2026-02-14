@@ -100,6 +100,28 @@ interface StatusProgressionService {
     ): String?
 
     /**
+     * Convenience: check if [currentRole] is at or beyond [threshold] in the role progression.
+     * Delegates to [io.github.jpicklyk.mcptask.domain.model.StatusRole.isRoleAtOrBeyond].
+     */
+    fun isRoleAtOrBeyond(currentRole: String?, threshold: String?): Boolean
+
+    /**
+     * Reverse lookup: given a role name, return all statuses mapped to that role.
+     * Searches across all flows for the given container type.
+     * Used for role-based query filtering (resolve role → statuses → filter).
+     *
+     * @param role Role name: "queue", "work", "review", "blocked", "terminal"
+     * @param containerType Container type ("project", "feature", or "task")
+     * @param tags Optional entity tags for flow-specific resolution (if empty, uses all flows)
+     * @return Set of status names mapped to the given role, empty if role not found
+     */
+    fun getStatusesForRole(
+        role: String,
+        containerType: String,
+        tags: List<String> = emptyList()
+    ): Set<String>
+
+    /**
      * Check readiness to transition to a specific status.
      *
      * Integrates with StatusValidator to check:

@@ -66,6 +66,10 @@ Directions:
 
 Returns dependency objects with counts breakdown and applied filters.
 
+Each dependency object includes:
+- unblockAt: The role threshold for unblocking (only present when explicitly set, e.g., "work", "review")
+- effectiveUnblockRole: The resolved unblock threshold — equals unblockAt if set, otherwise "terminal" (default). Omitted for RELATES_TO dependencies (no blocking semantics).
+
 When neighborsOnly=false, adds a "graph" key with:
 - chain: topologically sorted task IDs
 - depth: maximum chain depth
@@ -347,6 +351,13 @@ Docs: task-orchestrator://docs/tools/query-dependencies
             put("toTaskId", dependency.toTaskId.toString())
             put("type", dependency.type.name)
             put("createdAt", dependency.createdAt.toString())
+
+            // Include unblockAt threshold when explicitly set
+            dependency.unblockAt?.let { put("unblockAt", it) }
+            // For blocking deps, show the effective threshold (defaults to "terminal" when unblockAt is null)
+            if (dependency.type != DependencyType.RELATES_TO) {
+                put("effectiveUnblockRole", dependency.effectiveUnblockRole() ?: "terminal")
+            }
 
             if (includeTaskInfo) {
                 val relatedTaskId = if (dependency.fromTaskId == currentTaskId) {

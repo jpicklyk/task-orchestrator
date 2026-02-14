@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.application.service
 
+import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.*
 import io.mockk.*
@@ -1834,6 +1835,321 @@ class StatusValidatorTest {
         // Should allow in-review → in-progress (backward for rework)
         val result = validator.validateTransition("in-review", "in-progress", "task", tags = listOf("docs"))
         assertTrue(result is StatusValidator.ValidationResult.Valid)
+    }
+
+    // ========== ROLE-BASED HELPER METHOD TESTS ==========
+
+    @Test
+    fun `isTerminalStatus - completed is terminal without service (fallback)`() {
+        val validatorNoService = StatusValidator()
+        assertTrue(validatorNoService.isTerminalStatus("completed"))
+    }
+
+    @Test
+    fun `isTerminalStatus - cancelled is terminal without service (fallback)`() {
+        val validatorNoService = StatusValidator()
+        assertTrue(validatorNoService.isTerminalStatus("cancelled"))
+    }
+
+    @Test
+    fun `isTerminalStatus - in-progress is not terminal without service (fallback)`() {
+        val validatorNoService = StatusValidator()
+        assertFalse(validatorNoService.isTerminalStatus("in-progress"))
+    }
+
+    @Test
+    fun `isTerminalStatus - archived is terminal for features without service (fallback)`() {
+        val validatorNoService = StatusValidator()
+        assertTrue(validatorNoService.isTerminalStatus("archived", "feature"))
+    }
+
+    @Test
+    fun `isTerminalStatus - archived is terminal for projects without service (fallback)`() {
+        val validatorNoService = StatusValidator()
+        assertTrue(validatorNoService.isTerminalStatus("archived", "project"))
+    }
+
+    @Test
+    fun `isTerminalStatus - completed is terminal with mock service returning terminal`() {
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+
+        val validatorWithService = StatusValidator(mockService)
+        assertTrue(validatorWithService.isTerminalStatus("completed"))
+    }
+
+    @Test
+    fun `isTerminalStatus - in-progress is not terminal with mock service returning work`() {
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("in-progress", "task", emptyList()) } returns "work"
+
+        val validatorWithService = StatusValidator(mockService)
+        assertFalse(validatorWithService.isTerminalStatus("in-progress"))
+    }
+
+    @Test
+    fun `isStatusAtOrBeyondRole - completed at terminal threshold with fallback (no service)`() {
+        val validatorNoService = StatusValidator()
+        assertTrue(validatorNoService.isStatusAtOrBeyondRole("completed", "terminal"))
+    }
+
+    @Test
+    fun `isStatusAtOrBeyondRole - in-progress not at terminal threshold with fallback (no service)`() {
+        val validatorNoService = StatusValidator()
+        assertFalse(validatorNoService.isStatusAtOrBeyondRole("in-progress", "terminal"))
+    }
+
+    @Test
+    fun `isStatusAtOrBeyondRole - non-terminal threshold without service returns false (conservative)`() {
+        val validatorNoService = StatusValidator()
+        // Without service, non-terminal thresholds can't be evaluated
+        assertFalse(validatorNoService.isStatusAtOrBeyondRole("in-progress", "work"))
+    }
+
+    // ========== ROLE-AWARE PREREQUISITE TESTS ==========
+
+    @Test
+    fun `prerequisite - task IN_PROGRESS with unblockAt=work passes when blocker is in-progress`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService for role-aware checks
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("in-progress", "task", emptyList()) } returns "work"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        val blockingDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = blockerId,
+            toTaskId = taskId,
+            type = DependencyType.BLOCKS,
+            unblockAt = "work"
+        )
+
+        val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.IN_PROGRESS)
+
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Blocker at in-progress (work role) should satisfy unblockAt=work threshold")
+    }
+
+    @Test
+    fun `prerequisite - task IN_PROGRESS with unblockAt=work fails when blocker is pending`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService for role-aware checks
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("pending", "task", emptyList()) } returns "queue"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        val blockingDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = blockerId,
+            toTaskId = taskId,
+            type = DependencyType.BLOCKS,
+            unblockAt = "work"
+        )
+
+        val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.PENDING)
+
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Blocker at pending (queue role) should NOT satisfy unblockAt=work threshold")
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("blocked by"))
+        assertTrue(invalid.reason.contains("needs work role"))
+    }
+
+    @Test
+    fun `prerequisite - task IN_PROGRESS with unblockAt=null uses terminal default`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService for role-aware checks
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("in-progress", "task", emptyList()) } returns "work"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        // Dependency with no unblockAt (null) — should default to "terminal"
+        val blockingDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = blockerId,
+            toTaskId = taskId,
+            type = DependencyType.BLOCKS
+        )
+
+        val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.IN_PROGRESS)
+
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Blocker at in-progress (work role) should NOT satisfy terminal threshold when unblockAt is null")
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("needs terminal role"))
+    }
+
+    @Test
+    fun `prerequisite - validateAllTasksCompleted uses isTerminalStatus with mock service`() = runBlocking {
+        val featureId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService
+        val mockService = mockk<StatusProgressionService>()
+        // "completed" is terminal
+        every { mockService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+        // "in-progress" is work (not terminal)
+        every { mockService.getRoleForStatus("in-progress", "task", emptyList()) } returns "work"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        val tasks = listOf(
+            createMockTask(UUID.randomUUID(), "Task 1", TaskStatus.COMPLETED),
+            createMockTask(UUID.randomUUID(), "Task 2", TaskStatus.IN_PROGRESS)
+        )
+
+        coEvery { mockTaskRepo.findByFeature(featureId, null, null, 1000) } returns Result.Success(tasks)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(featureId, "completed", "feature", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Feature should not complete when in-progress task exists (service-based terminal check)")
+    }
+
+    @Test
+    fun `prerequisite - validateAllTasksCompleted succeeds when all tasks terminal via service`() = runBlocking {
+        val featureId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+        every { mockService.getRoleForStatus("cancelled", "task", emptyList()) } returns "terminal"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        val tasks = listOf(
+            createMockTask(UUID.randomUUID(), "Task 1", TaskStatus.COMPLETED),
+            createMockTask(UUID.randomUUID(), "Task 2", TaskStatus.CANCELLED)
+        )
+
+        coEvery { mockTaskRepo.findByFeature(featureId, null, null, 1000) } returns Result.Success(tasks)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(featureId, "completed", "feature", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Feature should complete when all tasks are terminal via service")
+    }
+
+    @Test
+    fun `prerequisite - validateProjectPrerequisites uses isTerminalStatus for features with mock service`() = runBlocking {
+        val projectId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService for features
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("completed", "feature", emptyList()) } returns "terminal"
+        every { mockService.getRoleForStatus("in-development", "feature", emptyList()) } returns "work"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        val features = listOf(
+            createMockFeature(UUID.randomUUID(), "Feature 1", FeatureStatus.COMPLETED),
+            createMockFeature(UUID.randomUUID(), "Feature 2", FeatureStatus.IN_DEVELOPMENT)
+        )
+
+        coEvery { mockFeatureRepo.findByProject(projectId, 1000) } returns Result.Success(features)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(projectId, "completed", "project", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Project should not complete when in-development feature exists (service-based terminal check)")
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("Feature 2"))
+    }
+
+    @Test
+    fun `prerequisite - validateProjectPrerequisites succeeds when all features terminal via service`() = runBlocking {
+        val projectId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // Mock the StatusProgressionService — archived is terminal for features
+        val mockService = mockk<StatusProgressionService>()
+        every { mockService.getRoleForStatus("completed", "feature", emptyList()) } returns "terminal"
+        every { mockService.getRoleForStatus("archived", "feature", emptyList()) } returns "terminal"
+
+        val validatorWithService = StatusValidator(mockService)
+
+        val features = listOf(
+            createMockFeature(UUID.randomUUID(), "Feature 1", FeatureStatus.COMPLETED),
+            createMockFeature(UUID.randomUUID(), "Feature 2", FeatureStatus.ARCHIVED)
+        )
+
+        coEvery { mockFeatureRepo.findByProject(projectId, 1000) } returns Result.Success(features)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validatorWithService.validatePrerequisites(projectId, "completed", "project", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Project should complete when all features are terminal via service")
     }
 
     /**

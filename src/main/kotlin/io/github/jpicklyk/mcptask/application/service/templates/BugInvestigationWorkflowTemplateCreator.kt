@@ -40,7 +40,7 @@ object BugInvestigationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("investigation", "reproduction", "diagnosis")
+                tags = listOf("investigation", "reproduction", "diagnosis", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -54,7 +54,7 @@ object BugInvestigationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("root-cause", "analysis")
+                tags = listOf("root-cause", "analysis", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -69,7 +69,7 @@ object BugInvestigationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("fix-implementation", "verification", "testing")
+                tags = listOf("fix-implementation", "verification", "testing", "role:review")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -79,7 +79,7 @@ object BugInvestigationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.JSON,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:review")
             )
         )
 

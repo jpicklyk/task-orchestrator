@@ -73,4 +73,11 @@ class ToolExecutionContext(
      * @return The DependencyRepository
      */
     fun dependencyRepository(): DependencyRepository = repositoryProvider.dependencyRepository()
+
+    /**
+     * Gets the RoleTransitionRepository instance.
+     *
+     * @return The RoleTransitionRepository
+     */
+    fun roleTransitionRepository(): RoleTransitionRepository = repositoryProvider.roleTransitionRepository()
 }

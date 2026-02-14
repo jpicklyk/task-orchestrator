@@ -40,7 +40,7 @@ Include requirements for: core functionality, data handling, integrations, and b
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("functional", "core", "critical", "acceptance-criteria", "requirements")
+                tags = listOf("functional", "core", "critical", "acceptance-criteria", "requirements", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -53,7 +53,7 @@ Include requirements for: core functionality, data handling, integrations, and b
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = false,
-                tags = listOf("optional", "enhancements", "future", "nice-to-have", "requirements")
+                tags = listOf("optional", "enhancements", "future", "nice-to-have", "requirements", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -69,7 +69,7 @@ Include requirements for: core functionality, data handling, integrations, and b
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("constraints", "non-functional", "performance", "security", "requirements")
+                tags = listOf("constraints", "non-functional", "performance", "security", "requirements", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -79,7 +79,7 @@ Include requirements for: core functionality, data handling, integrations, and b
                 contentFormat = ContentFormat.JSON,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:terminal")
             )
         )
 
