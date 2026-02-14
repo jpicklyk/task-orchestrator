@@ -61,7 +61,7 @@ object TaskOrchestratorResources {
      * Agents whose instructions file contains an older marker will be prompted by `server.instructions`
      * to re-read the setup resource and update their instructions block.
      */
-    const val SETUP_INSTRUCTIONS_VERSION = "v2"
+    const val SETUP_INSTRUCTIONS_VERSION = "v3"
 
     /**
      * Configures all Task Orchestrator guideline resources with the MCP server.
@@ -1343,6 +1343,7 @@ All features and tasks belong to this project. Always pass `projectId` when crea
    - `cascadeEvents` — parent entities that should advance (act on them)
    - `unblockedTasks` — downstream tasks now available to start
    - Flow context (`activeFlow`, `flowSequence`, `flowPosition`)
+   - `previousRole` / `newRole` — role phase annotations (queue, work, review, terminal)
 
 4. **Token-efficient queries** — Default to `query_container(operation="overview")` for status checks and dashboards. Use `get` only when you need section content. Use `export` for full markdown snapshots before completion or archival.
 
@@ -1350,14 +1351,17 @@ All features and tasks belong to this project. Always pass `projectId` when crea
 
 6. **Completion requirements** — Tasks: summary populated, dependencies resolved, required sections filled. Features: all child tasks in terminal status (completed or cancelled). Projects: all features completed.
 
+7. **Role-based queries** — Use the `role` parameter in `query_container` to filter by semantic phase (`queue`, `work`, `review`, `terminal`) instead of specific status names. Example: `query_container(operation="search", role="work")` finds all in-progress entities.
+
 ### Status Flows (Tag-Driven)
 
 Tags applied at creation time select which status flow an entity follows:
 
 | Entity | Tags | Flow |
 |--------|------|------|
-| Task | _(default)_ | backlog → pending → in-progress → testing → completed |
-| Task | `bug`, `bugfix`, `fix` | pending → in-progress → testing → completed |
+| Task | _(default)_ | backlog → pending → in-progress → completed |
+| Task | `bug`, `bugfix`, `fix` | pending → in-progress → completed |
+| Task | `qa-required`, `manual-test` | backlog → pending → in-progress → testing → completed |
 | Task | `documentation`, `docs` | pending → in-progress → in-review → completed |
 | Task | `hotfix`, `emergency` | in-progress → testing → completed |
 | Feature | _(default)_ | draft → planning → in-development → testing → validating → completed |
@@ -1371,6 +1375,8 @@ When a feature reaches terminal status (completed/archived), its child tasks are
 ### Dependency Batch Creation
 
 Use `manage_dependencies` with a `dependencies` array or pattern shortcuts (`linear`, `fan-out`, `fan-in`) for creating multiple dependencies at once. Avoid creating them one at a time.
+
+Set `unblockAt` per dependency to control when it unblocks: `"work"` (blocker enters active work), `"review"` (enters validation), or `null` (default: waits for terminal status).
 
 ### Session Start
 
@@ -1393,7 +1399,8 @@ For detailed guidance beyond these rules, read these MCP resources:
 
 ## Version History
 
-- **$SETUP_INSTRUCTIONS_VERSION**: Initial release — 6 workflow rules, tag-driven status flows, completion cleanup, dependency patterns, session start, resource links
+- **$SETUP_INSTRUCTIONS_VERSION**: Role-based features — role query filter, `unblockAt` dependency gating, `previousRole`/`newRole` transition annotations, simplified default task flow
+- **v2**: Initial release — 6 workflow rules, tag-driven status flows, completion cleanup, dependency patterns, session start, resource links
                         """.trimIndent()
                     )
                 )

@@ -21,7 +21,8 @@ For single-feature work, skip the project layer and create a standalone feature.
 2. **Add features** under it with `projectId` parameter. See `feature-orchestration` skill.
 3. **Track progress** with `query_container(operation="overview", containerType="project")` — returns features + task counts without section content
 4. **Search** across all project tasks with `query_container(operation="search", containerType="task", projectId=...)`
-5. **Find blockers** across features with `get_blocked_tasks(projectId=...)`
+5. **Role filter:** `query_container(operation="search", containerType="task", projectId=..., role="work")` — find all actively-in-progress tasks across the project
+6. **Find blockers** across features with `get_blocked_tasks(projectId=...)`
 
 ## Status Flow
 

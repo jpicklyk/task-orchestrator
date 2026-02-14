@@ -27,3 +27,18 @@ Templates define reusable section structures that standardize documentation acro
 Use `manage_template` operations `enable`, `disable`, and `delete` to manage template lifecycle. Disabled templates are hidden from default `query_templates` results but findable with `isEnabled=false`.
 
 Use `query_templates(operation="get", includeSections=true)` to inspect a template's section structure.
+
+## Role-Tagged Sections
+
+Built-in templates tag sections with role conventions to associate content with workflow phases:
+
+| Role Tag | Phase | Example Sections |
+|----------|-------|-----------------|
+| `role:queue` | Planning/preparation | Requirements, Context & Background |
+| `role:work` | Active implementation | Technical Approach, Implementation Notes |
+| `role:review` | Validation/testing | Testing Strategy, Definition of Done |
+| `role:terminal` | Completion/archival | Final Notes, Lessons Learned |
+
+Query role-appropriate sections: `query_sections(entityType="TASK", entityId=..., tags="role:work")`
+
+When creating custom templates, apply role tags to sections via the `tags` parameter in `manage_template(operation="addSection", tags="role:work,implementation")`.

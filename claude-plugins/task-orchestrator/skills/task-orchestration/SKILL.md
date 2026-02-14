@@ -105,10 +105,12 @@ Sections hold detailed content (technical approach, test plan, notes). Templates
 
 **Section tags** enable targeted retrieval: `query_sections(tags="requirements,api")` returns only sections matching those tags. Templates automatically set tags on created sections. Add custom tags via `manage_sections(operation="updateMetadata", tags="...")` for cross-entity filtering.
 
+Template sections are tagged with role conventions (`role:queue`, `role:work`, `role:review`, `role:terminal`) to associate content with workflow phases. Filter by role tag: `query_sections(tags="role:work")` to retrieve phase-appropriate content.
+
 ## Finding Work
 
 - **Smart recommendation:** `get_next_task` — respects dependencies, sorts by priority then complexity (quick wins first)
-- **Filtered search:** `query_container(operation="search")` — supports multi-value filters (`status="pending,in-progress"`) and negation (`status="!completed,!cancelled"`)
+- **Filtered search:** `query_container(operation="search")` — supports multi-value filters (`status="pending,in-progress"`), negation (`status="!completed,!cancelled"`), and `role` filtering (`role="work"` to filter by semantic phase instead of specific status names)
 - **Export:** `query_container(operation="export")` — full markdown representation with all sections
 
 ### Query Operation Selection
@@ -121,6 +123,8 @@ Sections hold detailed content (technical approach, test plan, notes). Templates
 | `export` | Complete markdown with all sections and children | Snapshot before feature completion, archival, sharing outside MCP |
 
 Default to `overview` for token efficiency (85-90% reduction vs `get` with sections). Use `export` specifically before feature completion to preserve task details that cleanup will delete.
+
+All query operations support `role` filtering to select entities by semantic phase (`queue`, `work`, `review`, `terminal`) instead of specific status names. Example: `query_container(operation="overview", containerType="feature", id=..., role="work")`.
 
 ## Standalone Tasks vs Feature Tasks
 

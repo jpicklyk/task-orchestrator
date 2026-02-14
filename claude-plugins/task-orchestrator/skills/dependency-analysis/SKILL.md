@@ -17,6 +17,22 @@ Dependencies control work ordering and block status transitions until prerequisi
 
 `BLOCKS` and `IS_BLOCKED_BY` are directional inverses — use whichever reads naturally. `fromTaskId` is the prerequisite, `toTaskId` is the dependent.
 
+### Role-Based Unblocking
+
+Dependencies support an `unblockAt` parameter that controls when a blocker releases the dependent task. Instead of waiting for the blocker to reach terminal status, you can unblock earlier based on the blocker's role phase:
+
+| `unblockAt` Value | Unblocks When Blocker Reaches | Use Case |
+|-------------------|-------------------------------|----------|
+| `"queue"` | Any queue-role status (e.g., backlog, pending) | Unblock as soon as blocker is acknowledged |
+| `"work"` | Any work-role status (e.g., in-progress) | Parallel work — dependent can start once blocker is actively underway |
+| `"review"` | Any review-role status (e.g., testing, in-review) | Dependent needs reviewed output, not completed |
+| `"terminal"` | Terminal status (completed, cancelled) | Explicit terminal (same as null) |
+| `null` | Terminal status (default) | Backward-compatible — blocker must fully complete |
+
+- Only applies to `BLOCKS` and `IS_BLOCKED_BY` types (ignored for `RELATES_TO`)
+- Example: `manage_dependencies(operation="create", dependencies=[{fromTaskId: "A", toTaskId: "B", unblockAt: "work"}])` — task B unblocks when task A enters any work-role status (e.g., in-progress)
+- Transient: if a blocker regresses to `blocked` role, downstream tasks re-block until the blocker advances past the threshold again
+
 ## Querying Dependencies
 
 - `query_dependencies(taskId=...)` — all dependencies for a task
@@ -27,7 +43,7 @@ Dependencies control work ordering and block status transitions until prerequisi
 
 - `get_blocked_tasks(featureId=...)` — all blocked tasks in a feature
 - `get_blocked_tasks(projectId=...)` — all blocked tasks across a project
-- Response includes each blocked task, its blockers, and their statuses
+- Response includes each blocked task, its blockers, their statuses, `blockerRole` (current role of each blocker), and `unblockAt` threshold on each blocking entry
 
 ## Resolving Blockers
 
@@ -62,6 +78,8 @@ Use `manage_dependencies(operation="delete")` — by dependency ID, by task pair
   - `pattern="linear"` + `taskIds=[A,B,C,D]` → A blocks B blocks C blocks D
   - `pattern="fan-out"` + `source=A` + `targets=[B,C,D]` → A blocks B, C, and D
   - `pattern="fan-in"` + `sources=[B,C,D]` + `target=E` → B, C, D all block E
+
+Each dependency in the `dependencies` array can include an `unblockAt` field to control early unblocking. Pattern shortcuts (`linear`, `fan-out`, `fan-in`) use the default `type` and `unblockAt` (null/terminal) unless overridden.
 
 Batch creation is atomic — if any dependency fails validation (cycle, duplicate, missing task), none are created.
 

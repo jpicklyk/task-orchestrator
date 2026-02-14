@@ -2,7 +2,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 
-const EXPECTED_VERSION = 'v2';
+const EXPECTED_VERSION = 'v3';
 
 // 1. Config opt-out check
 const CONFIG_FILE = '.taskorchestrator/config.yaml';

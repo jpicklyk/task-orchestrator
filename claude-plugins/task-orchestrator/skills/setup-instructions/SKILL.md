@@ -48,12 +48,15 @@ All features and tasks belong to this project. Always pass `projectId` when crea
    - `cascadeEvents` — parent entities that should advance (act on them)
    - `unblockedTasks` — downstream tasks now available to start
    - Flow context (`activeFlow`, `flowSequence`, `flowPosition`)
+   - `previousRole` / `newRole` — role phase change annotations (queue, work, review, terminal)
 
 4. **Token-efficient queries** — Default to `query_container(operation="overview")` for status checks and dashboards. Use `get` only when you need section content. Use `export` for full markdown snapshots before completion or archival.
 
 5. **Work selection** — Use `get_next_task(projectId="{uuid}")` for dependency-aware, priority-sorted recommendations instead of manual searching. Use `get_blocked_tasks` to identify bottlenecks.
 
 6. **Completion requirements** — Tasks: summary populated, dependencies resolved, required sections filled. Features: all child tasks in terminal status (completed or cancelled). Projects: all features completed.
+
+7. **Role-based queries** — Use `role` parameter in `query_container` to filter by semantic phase (queue, work, review, terminal) instead of specific status names. Example: `query_container(operation="search", role="work")` finds all in-progress entities regardless of status naming.
 
 ### Status Flows (Tag-Driven)
 
@@ -76,7 +79,7 @@ When a feature reaches terminal status (completed/archived), its child tasks are
 
 ### Dependency Batch Creation
 
-Use `manage_dependencies` with a `dependencies` array or pattern shortcuts (`linear`, `fan-out`, `fan-in`) for creating multiple dependencies at once. Avoid creating them one at a time.
+Use `manage_dependencies` with a `dependencies` array or pattern shortcuts (`linear`, `fan-out`, `fan-in`) for creating multiple dependencies at once. Avoid creating them one at a time. Set `unblockAt` on dependencies to control when they unblock: `"work"` (unblocks when blocker enters active work), `"review"` (enters validation), or null (default — waits for terminal).
 
 ### Session Start
 

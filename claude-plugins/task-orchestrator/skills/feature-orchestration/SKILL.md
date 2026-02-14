@@ -29,6 +29,7 @@ Default flow: `draft` -> `planning` -> `in-development` -> `testing` -> `validat
 - **Find tasks:** `query_container(operation="search", containerType="task", featureId=...)`
 - **Next task:** `get_next_task(featureId=...)`
 - **Blockers:** `get_blocked_tasks(featureId=...)`
+- **Role filter:** `query_container(operation="search", containerType="task", featureId=..., role="work")` — find all actively-in-progress tasks by semantic phase
 
 ## Feature Tagging
 
@@ -53,6 +54,10 @@ Use for filtering and categorization:
 - **Priority signals:** `blocking`, `deferred`, `critical`
 
 Tags are searchable via `query_container(operation="search", tags="authentication")`.
+
+## Role Aggregation
+
+Features can auto-advance when a configurable percentage of tasks reach a given role threshold. Configure in `.taskorchestrator/config.yaml` under `auto_cascade.role_aggregation`. This enables scenarios like advancing a feature to `testing` when 80% of its tasks reach the `review` role.
 
 ## Completion Workflow
 
