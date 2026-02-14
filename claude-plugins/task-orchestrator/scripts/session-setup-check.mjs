@@ -38,6 +38,7 @@ if (!instructionFile || !foundVersion) {
   // Missing - output additionalContext
   console.log(JSON.stringify({
     hookSpecificOutput: {
+      hookEventName: "SessionStart",
       additionalContext: "MCP Task Orchestrator setup instructions are not installed in this project. To enable workflow rules, read the MCP resource task-orchestrator://guidelines/setup-instructions and follow its steps to add the instruction block to your project's agent instructions file. This ensures consistent tool usage patterns across sessions."
     }
   }));
@@ -45,6 +46,7 @@ if (!instructionFile || !foundVersion) {
   // Outdated - output additionalContext with version info
   console.log(JSON.stringify({
     hookSpecificOutput: {
+      hookEventName: "SessionStart",
       additionalContext: `MCP Task Orchestrator setup instructions are outdated (found ${foundVersion}, current is ${EXPECTED_VERSION}). Read the MCP resource task-orchestrator://guidelines/setup-instructions to get the updated instruction block. Replace the existing block in ${instructionFile}.`
     }
   }));
