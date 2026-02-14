@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Container tools: `create_task`, `get_task`, `update_task`, `delete_task`, `search_tasks`, `create_feature`, `get_feature`, `update_feature`, `delete_feature`, `search_features`, `create_project`, `get_project`, `update_project`, `delete_project`, `search_projects`, `get_overview`, `task_to_markdown`, `feature_to_markdown`, `project_to_markdown`
 - Section tools: `add_section`, `get_sections`, `update_section`, `update_section_text`, `update_section_metadata`, `delete_section`, `reorder_sections`, `bulk_create_sections`, `bulk_update_sections`, `bulk_delete_sections`
 - Template tools: `create_template`, `get_template`, `list_templates`, `update_template_metadata`, `delete_template`, `enable_template`, `disable_template`, `add_template_section`
-- Dependency tools: `create_dependency`, `get_task_dependencies`, `delete_dependency`
+- Dependency tools: `create_dependency`, `get_task_dependencies`, `delete_dependency` (now consolidated into `manage_dependencies` and `query_dependencies`)
 - Task query tools: `get_blocked_tasks`, `get_next_task`, `bulk_update_tasks`, `get_feature_tasks`
 
 **Migration Required**: See [v2.0 Migration Guide](docs/migration/v2.0-migration-guide.md) for complete tool mapping and code examples.

@@ -588,7 +588,7 @@ For detailed hybrid architecture documentation, see:
 - `section/` - Section management tools
   - AddSectionTool, GetSectionsTool, UpdateSectionTool, DeleteSectionTool, BulkCreateSectionsTool, BulkUpdateSectionsTool, BulkDeleteSectionsTool, UpdateSectionTextTool, UpdateSectionMetadataTool, ReorderSectionsTool
 - `dependency/` - Dependency management tools
-  - CreateDependencyTool, GetTaskDependenciesTool, DeleteDependencyTool
+  - CreateDependenciesTool, QueryDependenciesTool, DeleteDependenciesTool
 
 #### Services (`application/service/`)
 - `TemplateInitializer.kt` - Interface for template initialization
