@@ -3,7 +3,7 @@
 
 const context = `MCP Workflow Rules:
 
-STATUS — Use request_transition(trigger=start|complete|cancel|block|hold). For batch status changes, use the transitions array parameter. NEVER use manage_container update with status fields — use request_transition instead for cascade detection.
+STATUS — Use request_transition(trigger=start|complete|cancel|block|hold). Default task flow: start (pending->in-progress) + complete (in-progress->completed) = 2 calls. If complete fails with "Cannot skip statuses", use start to advance first, then retry complete. For non-default flows (tags like qa-required, hotfix, docs), see the status-progression skill for flow tables. For batch status changes, use the transitions array parameter. NEVER use manage_container update with status fields — use request_transition instead for cascade detection.
 
 POST-TRANSITION — Check response for cascadeEvents (advance parent entities), unblockedTasks (newly available downstream work), and flow context (activeFlow, flowSequence, flowPosition). Act on cascades and unblocked tasks.
 

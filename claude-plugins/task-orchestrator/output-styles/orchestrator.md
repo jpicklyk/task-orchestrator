@@ -50,13 +50,15 @@ Every delegation prompt must include: entity IDs, exact tool operations, expecte
 
 ### Post-Plan Sequencing
 
-After plan approval, work proceeds in two strict phases. **Never start Phase 2 until Phase 1 is complete.**
+After plan approval, work proceeds through two strict phases **automatically — no additional user confirmation needed.** Plan approval is the green light for the full pipeline. Do NOT use AskUserQuestion between phases.
 
 **Phase 1 — Materialize.** Create all MCP containers (feature, tasks, dependencies, sections). Task creation MAY be parallelized across multiple subagents when tasks are independent. Phase 1 is done when all container UUIDs exist and the dependency graph is verified.
 
-**Phase 2 — Implement.** Dispatch implementation subagents. Every implementation delegation prompt MUST include the MCP task UUID it corresponds to. Implementation agents are responsible for transitioning their assigned task (`request_transition(trigger="start")` at the beginning, `trigger="complete"` at the end) and populating task sections with findings.
+**Phase 2 — Implement.** Immediately after Phase 1, dispatch implementation subagents. Every implementation delegation prompt MUST include the MCP task UUID it corresponds to. Implementation agents are responsible for transitioning their assigned task (`request_transition(trigger="start")` at the beginning, `trigger="complete"` at the end) and populating task sections with findings.
 
-Dispatching implementation before materialization is complete means agents cannot reference task UUIDs, cannot transition statuses, and containers become decorative. This defeats the purpose of persistent tracking.
+**Never start Phase 2 until Phase 1 is complete.** Dispatching implementation before materialization is complete means agents cannot reference task UUIDs, cannot transition statuses, and containers become decorative.
+
+**Transition guidance:** For default-flow tasks, `start` + `complete` = 2 calls. For tasks with workflow tags on longer flows (e.g., `qa-required`, `hotfix`), include the expected flow in the delegation prompt so the agent knows how many `start` calls precede `complete`. See the `status-progression` skill for flow tables and transition mechanics.
 
 ## Visual Formatting
 

@@ -29,13 +29,14 @@ Emergency triggers bypass normal flow. Always include `summary` for emergency tr
 ## Status Flows
 
 ### Tasks
-**Default:** backlog -> pending -> in-progress -> testing -> completed
+**Default:** backlog -> pending -> in-progress -> completed
 
 | Tags | Flow |
 |------|------|
-| `bug`, `bugfix`, `fix` | pending -> in-progress -> testing -> completed |
+| `bug`, `bugfix`, `fix` | pending -> in-progress -> completed |
 | `documentation`, `docs` | pending -> in-progress -> in-review -> completed |
 | `hotfix`, `emergency` | in-progress -> testing -> completed |
+| `qa-required`, `manual-test` | backlog -> pending -> in-progress -> testing -> completed |
 
 ### Features
 **Default:** draft -> planning -> in-development -> testing -> validating -> completed
@@ -64,6 +65,31 @@ Emergency triggers bypass normal flow. Always include `summary` for emergency tr
 - Backward transitions allowed (e.g., testing -> in-progress for rework)
 - Dependencies must be resolved before completing
 - Emergency transitions bypass normal flow
+
+## Transition Mechanics
+
+The `complete` trigger resolves directly to `completed` status. With `enforce_sequential: true` (the default), `complete` only succeeds from the **penultimate status** in the active flow — one step before `completed`.
+
+### Default Flow (2 calls)
+
+For the default task flow (`pending -> in-progress -> completed`):
+1. `request_transition(trigger="start")` — pending to in-progress
+2. `request_transition(trigger="complete")` — in-progress to completed
+
+### Longer Flows (3+ calls)
+
+For tagged flows with additional statuses (e.g., `qa-required` uses `with_testing_flow`):
+1. Use `start` repeatedly to advance through intermediate statuses
+2. Use `complete` only from the penultimate status
+
+Example (`with_testing_flow`):
+1. `start` — pending to in-progress
+2. `start` — in-progress to testing
+3. `complete` — testing to completed
+
+### Recovery
+
+If `complete` fails with "Cannot skip statuses. Must transition through: ...", use `start` to advance to the next status, then retry `complete` when you reach the penultimate position.
 
 ## Direct Override
 

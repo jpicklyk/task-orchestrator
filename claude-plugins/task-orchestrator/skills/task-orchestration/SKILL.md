@@ -31,11 +31,12 @@ These tags select which status flow a task follows (see `status-progression` ski
 
 | Tags | Effect |
 |------|--------|
-| `bug`, `bugfix`, `fix` | Bug fix flow (pending → in-progress → testing → completed) |
-| `documentation`, `docs` | Documentation flow (pending → in-progress → in-review → completed) |
-| `hotfix`, `emergency` | Hotfix flow — skips pending (in-progress → testing → completed) |
+| `bug`, `bugfix`, `fix` | Bug fix flow (pending -> in-progress -> completed) |
+| `documentation`, `docs` | Documentation flow (pending -> in-progress -> in-review -> completed) |
+| `hotfix`, `emergency` | Hotfix flow — skips pending (in-progress -> testing -> completed) |
+| `qa-required`, `manual-test` | Testing flow (backlog -> pending -> in-progress -> testing -> completed) |
 
-Without workflow tags, the default task flow applies: backlog → pending → in-progress → testing → completed.
+Without workflow tags, the default task flow applies: backlog -> pending -> in-progress -> completed.
 
 ### Organizational Tags
 

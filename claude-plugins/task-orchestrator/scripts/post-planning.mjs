@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // PostToolUse hook for ExitPlanMode: Creates MCP containers from approved plan.
 
-const context = `Plan approved. Materialize the plan into MCP Task Orchestrator containers:
+const context = `Plan approved. Execute the full workflow — materialize then implement — without stopping for additional confirmation. Plan approval is the user's green light for the entire pipeline.
+
+## Phase 1 — Materialize
 
 1. READ plan.md and check for an existing MCP Feature UUID line (<!-- MCP Feature: ... -->).
 
@@ -21,13 +23,19 @@ const context = `Plan approved. Materialize the plan into MCP Task Orchestrator 
 
 5. REPORT: Use query_container(operation='overview') to show the user the created container hierarchy with task statuses. This is the task view — not plan.md.
 
-6. SEQUENCING RULE — MATERIALIZATION BEFORE IMPLEMENTATION:
-   - Phase 1 (Materialize): Steps 1-5 above MUST complete before ANY implementation subagent is dispatched. Task creation within Phase 1 MAY be parallelized across subagents when tasks are independent.
-   - Phase 2 (Implement): Dispatch implementation subagents ONLY after all container UUIDs exist. Every implementation delegation prompt MUST include the MCP task UUID. Implementation agents MUST call request_transition(trigger='start') when beginning work and request_transition(trigger='complete') when done.
-   - NEVER dispatch materialization and implementation in parallel. Implementation agents launched without task UUIDs cannot transition statuses or populate sections, making containers decorative.
-   - If the feature has an 'Execution Notes' section, respect the user's delegation preference.
+## Phase 2 — Implement
 
-7. Token efficiency: Use templateIds during create (not separate apply_template). Use manage_sections(operation='bulkCreate') for multiple custom sections. Use manage_container containers array for batch creates/updates.
+After materialization is verified (steps 1-5 complete), IMMEDIATELY proceed to implementation:
+
+6. Dispatch implementation subagents for unblocked tasks. Every delegation prompt MUST include the MCP task UUID. Implementation agents MUST call request_transition(trigger='start') when beginning work and request_transition(trigger='complete') when done.
+   - If the feature has an 'Execution Notes' section, respect the user's delegation preference for parallelism and ordering.
+   - Respect dependency ordering: dispatch unblocked tasks first, then dispatch newly unblocked tasks as predecessors complete.
+
+## Rules
+
+- AUTOMATIC CONTINUATION: Do NOT use AskUserQuestion or stop to ask the user between phases. The plan approval already authorized both materialization and implementation. Proceed through the full pipeline.
+- MATERIALIZATION BEFORE IMPLEMENTATION: Steps 1-5 MUST complete before dispatching ANY implementation subagent. NEVER dispatch materialization and implementation in parallel.
+- Token efficiency: Use templateIds during create (not separate apply_template). Use manage_sections(operation='bulkCreate') for multiple custom sections. Use manage_container containers array for batch creates/updates.
 
 plan.md is the design document. MCP is the execution tracker. query_container(operation='overview') is the task view.`;
 

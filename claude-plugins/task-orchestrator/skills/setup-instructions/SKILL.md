@@ -33,7 +33,7 @@ The following block is the output. Replace `{name}` with the project name and `{
 ---
 
 ```markdown
-<!-- mcp-task-orchestrator-setup: v2 -->
+<!-- mcp-task-orchestrator-setup: v3 -->
 ## MCP Task Orchestrator — Project: {name} (`{uuid}`)
 
 All features and tasks belong to this project. Always pass `projectId` when creating features or standalone tasks so they remain queryable.
@@ -61,10 +61,11 @@ Tags applied at creation time select which status flow an entity follows:
 
 | Entity | Tags | Flow |
 |--------|------|------|
-| Task | _(default)_ | backlog → pending → in-progress → testing → completed |
-| Task | `bug`, `bugfix`, `fix` | pending → in-progress → testing → completed |
+| Task | _(default)_ | backlog → pending → in-progress → completed |
+| Task | `bug`, `bugfix`, `fix` | pending → in-progress → completed |
 | Task | `documentation`, `docs` | pending → in-progress → in-review → completed |
 | Task | `hotfix`, `emergency` | in-progress → testing → completed |
+| Task | `qa-required`, `manual-test` | backlog → pending → in-progress → testing → completed |
 | Feature | _(default)_ | draft → planning → in-development → testing → validating → completed |
 | Feature | `prototype`, `poc`, `spike` | draft → in-development → completed |
 | Feature | `experiment`, `research` | draft → in-development → archived |
@@ -99,7 +100,7 @@ For detailed guidance beyond these rules, read these MCP resources:
 ## Notes
 
 - The block is **self-contained** — it works for any MCP client, not just Claude Code
-- The `<!-- mcp-task-orchestrator-setup: v2 -->` comment is a version marker — the MCP server's `instructions` field tells agents to check for it and update when a newer version ships
+- The `<!-- mcp-task-orchestrator-setup: v3 -->` comment is a version marker — the MCP server's `instructions` field tells agents to check for it and update when a newer version ships
 - If the user also installs the Task Orchestrator plugin, the plugin's skills and hooks provide additional automation (template enforcement, planning workflow, subagent context injection) on top of this base block
 - The block should be placed near the top of your agent instructions file so it's always in context
 - For projects with multiple MCP servers, this block can coexist with other integration instructions
