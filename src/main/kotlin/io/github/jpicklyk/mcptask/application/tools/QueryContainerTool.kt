@@ -28,6 +28,14 @@ class QueryContainerTool(
 ) : SimpleLockAwareToolDefinition(lockingService, sessionManager) {
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
+    private data class OverviewFilters(
+        val rawStatus: String?,
+        val rawPriority: String?,
+        val tags: List<String>?
+    ) {
+        val isActive: Boolean get() = rawStatus != null || rawPriority != null || tags != null
+    }
+
     override val toolAnnotations: ToolAnnotations = ToolAnnotations(
         readOnlyHint = true,
         destructiveHint = false,
@@ -61,9 +69,9 @@ Parameters:
 | containerType | enum | Yes | project, feature, task |
 | id | UUID | Varies | Container ID (required for: get, export; optional for: overview) |
 | query | string | No | Search text query (search only) |
-| status | string | No | Filter by status (supports multi-value: "pending,in-progress" or negation: "!completed") |
-| priority | string | No | Filter by priority (feature/task only, supports multi-value: "high,medium" or negation: "!low") |
-| tags | string | No | Comma-separated tags filter |
+| status | string | No | Filter by status (search & overview; supports multi-value: "pending,in-progress" or negation: "!completed") |
+| priority | string | No | Filter by priority (search & overview; feature/task only, supports multi-value: "high,medium" or negation: "!low") |
+| tags | string | No | Comma-separated tags filter (search & overview) |
 | projectId | UUID | No | Filter by project (feature/task) |
 | featureId | UUID | No | Filter by feature (task only) |
 | limit | integer | No | Max results (default: 20) |
@@ -76,11 +84,19 @@ Overview Operation:
   - Useful for: "Show me all features", "List all projects"
 
 - With id: Scoped overview (hierarchical view of specific container)
-  - Project: Returns project metadata + features array + task counts
+  - Project: Returns project metadata + standalone tasks array + features array + task counts
   - Feature: Returns feature metadata + tasks array + task counts
   - Task: Returns task metadata + dependencies (blocking/blockedBy)
   - Token efficient: No section content, minimal child fields
   - Useful for: "Show me details on Feature X", "What's the status of Project Y?"
+
+Overview Filtering:
+- status, priority, and tags parameters filter child collections in overview responses
+- Scoped project overview: filters features[] and tasks[] arrays; parent taskCounts stay unfiltered
+- Scoped feature overview: filters tasks[] array; parent taskCounts stay unfiltered
+- Global overview: filters the items[] array
+- When filters are active, response includes *Meta objects (e.g., featureMeta: {returned: 14, total: 35})
+- Scoped task overview is not affected by filters (single entity + deps, no children)
 
 Token Efficiency:
 - Scoped overview provides 85-90% token reduction vs get with includeSections=true
@@ -113,6 +129,10 @@ query_container(operation="overview", containerType="feature")
 # Scoped overview - specific feature with tasks
 query_container(operation="overview", containerType="feature", id="uuid")
 → Returns feature metadata + tasks array + task counts (no sections)
+
+# Filtered overview - exclude completed features
+query_container(operation="overview", containerType="project", id="uuid", status="!completed,!cancelled")
+→ Returns only non-terminal features with featureMeta showing returned vs total counts
 
 # Compare with get operation:
 query_container(operation="get", containerType="feature", id="uuid", includeSections=true)
@@ -288,6 +308,49 @@ Docs: task-orchestrator://docs/tools/query-container
                 }
             }
         }
+    }
+
+    private fun parseOverviewFilters(params: JsonElement): OverviewFilters {
+        val statusStr = optionalString(params, "status")
+        val priorityStr = optionalString(params, "priority")
+        val tagsStr = optionalString(params, "tags")
+        val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+
+        return OverviewFilters(statusStr, priorityStr, tags)
+    }
+
+    private fun matchesOverviewFilters(
+        status: Any,
+        priority: Priority?,
+        tags: List<String>,
+        filters: OverviewFilters,
+        containerType: String
+    ): Boolean {
+        // Parse status filter for the child's actual type, not the parent's type
+        filters.rawStatus?.let { rawStatus ->
+            val statusFilter = parseStatusFilter(rawStatus, containerType)
+            if (statusFilter != null) {
+                @Suppress("UNCHECKED_CAST")
+                val typedFilter = statusFilter as StatusFilter<Any>
+                if (!typedFilter.matches(status)) return false
+            }
+        }
+
+        // Check priority filter
+        if (priority != null && filters.rawPriority != null) {
+            val priorityFilter = parsePriorityFilter(filters.rawPriority)
+            if (priorityFilter != null && !priorityFilter.matches(priority)) return false
+        } else if (filters.rawPriority != null && priority == null) {
+            // Entity has no priority (project) but filter requires it — exclude
+            return false
+        }
+
+        // Check tags filter (ANY match — at least one tag must match)
+        filters.tags?.let { filterTags ->
+            if (tags.none { it in filterTags }) return false
+        }
+
+        return true
     }
 
     override suspend fun executeInternal(params: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -703,6 +766,7 @@ Docs: task-orchestrator://docs/tools/query-container
         containerType: String
     ): JsonElement {
         val summaryLength = optionalInt(params, "summaryLength") ?: 100
+        val filters = parseOverviewFilters(params)
         val idString = optionalString(params, "id")
 
         // Check if scoped overview (id provided) or global overview (no id)
@@ -720,8 +784,8 @@ Docs: task-orchestrator://docs/tools/query-container
             }
 
             when (containerType) {
-                "project" -> scopedProjectOverview(context, id, summaryLength)
-                "feature" -> scopedFeatureOverview(context, id, summaryLength)
+                "project" -> scopedProjectOverview(context, id, summaryLength, filters)
+                "feature" -> scopedFeatureOverview(context, id, summaryLength, filters)
                 "task" -> scopedTaskOverview(context, id, summaryLength)
                 else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
             }
@@ -730,20 +794,26 @@ Docs: task-orchestrator://docs/tools/query-container
             logger.info("Executing global overview operation for $containerType")
 
             when (containerType) {
-                "project" -> overviewProjects(context, summaryLength)
-                "feature" -> overviewFeatures(context, summaryLength)
-                "task" -> overviewTasks(context, summaryLength)
+                "project" -> overviewProjects(context, summaryLength, filters)
+                "feature" -> overviewFeatures(context, summaryLength, filters)
+                "task" -> overviewTasks(context, summaryLength, filters)
                 else -> errorResponse("Unsupported container type: $containerType", ErrorCodes.VALIDATION_ERROR)
             }
         }
     }
 
-    private suspend fun overviewProjects(context: ToolExecutionContext, summaryLength: Int): JsonElement {
+    private suspend fun overviewProjects(context: ToolExecutionContext, summaryLength: Int, filters: OverviewFilters): JsonElement {
         val projectsResult = context.projectRepository().findAll(limit = 100)
 
         return when (projectsResult) {
             is Result.Success -> {
-                val projects = projectsResult.data
+                val allProjects = projectsResult.data
+                val projects = if (filters.isActive) {
+                    allProjects.filter { project ->
+                        matchesOverviewFilters(project.status, null, project.tags, filters, "project")
+                    }
+                } else allProjects
+
                 successResponse(
                     buildJsonObject {
                         put("items", buildJsonArray {
@@ -752,6 +822,12 @@ Docs: task-orchestrator://docs/tools/query-container
                             }
                         })
                         put("count", projects.size)
+                        if (filters.isActive) {
+                            put("meta", buildJsonObject {
+                                put("returned", projects.size)
+                                put("total", allProjects.size)
+                            })
+                        }
                     },
                     "${projects.size} project(s) retrieved"
                 )
@@ -764,12 +840,18 @@ Docs: task-orchestrator://docs/tools/query-container
         }
     }
 
-    private suspend fun overviewFeatures(context: ToolExecutionContext, summaryLength: Int): JsonElement {
+    private suspend fun overviewFeatures(context: ToolExecutionContext, summaryLength: Int, filters: OverviewFilters): JsonElement {
         val featuresResult = context.featureRepository().findAll(limit = 100)
 
         return when (featuresResult) {
             is Result.Success -> {
-                val features = featuresResult.data
+                val allFeatures = featuresResult.data
+                val features = if (filters.isActive) {
+                    allFeatures.filter { feature ->
+                        matchesOverviewFilters(feature.status, feature.priority, feature.tags, filters, "feature")
+                    }
+                } else allFeatures
+
                 successResponse(
                     buildJsonObject {
                         put("items", buildJsonArray {
@@ -778,6 +860,12 @@ Docs: task-orchestrator://docs/tools/query-container
                             }
                         })
                         put("count", features.size)
+                        if (filters.isActive) {
+                            put("meta", buildJsonObject {
+                                put("returned", features.size)
+                                put("total", allFeatures.size)
+                            })
+                        }
                     },
                     "${features.size} feature(s) retrieved"
                 )
@@ -790,12 +878,18 @@ Docs: task-orchestrator://docs/tools/query-container
         }
     }
 
-    private suspend fun overviewTasks(context: ToolExecutionContext, summaryLength: Int): JsonElement {
+    private suspend fun overviewTasks(context: ToolExecutionContext, summaryLength: Int, filters: OverviewFilters): JsonElement {
         val tasksResult = context.taskRepository().findAll(limit = 100)
 
         return when (tasksResult) {
             is Result.Success -> {
-                val tasks = tasksResult.data
+                val allTasks = tasksResult.data
+                val tasks = if (filters.isActive) {
+                    allTasks.filter { task ->
+                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task")
+                    }
+                } else allTasks
+
                 successResponse(
                     buildJsonObject {
                         put("items", buildJsonArray {
@@ -804,6 +898,12 @@ Docs: task-orchestrator://docs/tools/query-container
                             }
                         })
                         put("count", tasks.size)
+                        if (filters.isActive) {
+                            put("meta", buildJsonObject {
+                                put("returned", tasks.size)
+                                put("total", allTasks.size)
+                            })
+                        }
                     },
                     "${tasks.size} task(s) retrieved"
                 )
@@ -820,18 +920,20 @@ Docs: task-orchestrator://docs/tools/query-container
 
     /**
      * Returns scoped overview for a specific project.
-     * Includes project metadata, list of features, and task counts.
+     * Includes project metadata, standalone tasks (no feature), list of features, and task counts.
      * No section content included (token efficient).
      *
      * @param context Tool execution context with repository access
      * @param id The project ID
      * @param summaryLength Max length for summary truncation (0 = no summary)
+     * @param filters Optional filters for child entities (features and standalone tasks)
      * @return JsonElement with project overview data
      */
     private suspend fun scopedProjectOverview(
         context: ToolExecutionContext,
         id: UUID,
-        summaryLength: Int
+        summaryLength: Int,
+        filters: OverviewFilters
     ): JsonElement {
         // Fetch project by ID
         val projectResult = context.projectRepository().getById(id)
@@ -840,15 +942,30 @@ Docs: task-orchestrator://docs/tools/query-container
             is Result.Success -> {
                 val project = projectResult.data
 
-                // Fetch features for this project
-                val featuresResult = context.featureRepository().findByProject(id, limit = 100)
-                val features = when (featuresResult) {
-                    is Result.Success -> featuresResult.data
+                // Fetch ALL features for total count, then filtered set for display
+                val allFeaturesResult = context.featureRepository().findByProject(id, limit = 100)
+                val allFeatures = when (allFeaturesResult) {
+                    is Result.Success -> allFeaturesResult.data
                     is Result.Error -> emptyList()
                 }
 
-                // Build task counts for this project
-                val taskCounts = buildTaskCounts(context, projectId = id)
+                val features = if (filters.isActive) {
+                    allFeatures.filter { feature ->
+                        matchesOverviewFilters(feature.status, feature.priority, feature.tags, filters, "feature")
+                    }
+                } else allFeatures
+
+                // Build task counts UNFILTERED (true project health)
+                val taskCountsResult = buildTaskCountsWithTasks(context, projectId = id)
+                val taskCounts = taskCountsResult.counts
+
+                // Filter standalone tasks for display
+                val allStandaloneTasks = taskCountsResult.tasks.filter { it.featureId == null }.take(100)
+                val standaloneTasks = if (filters.isActive) {
+                    allStandaloneTasks.filter { task ->
+                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task")
+                    }
+                } else allStandaloneTasks
 
                 successResponse(
                     buildJsonObject {
@@ -871,6 +988,19 @@ Docs: task-orchestrator://docs/tools/query-container
 
                         put("taskCounts", taskCounts)
 
+                        put("tasks", buildJsonArray {
+                            standaloneTasks.forEach { task ->
+                                add(buildTaskSearchResult(task))
+                            }
+                        })
+
+                        if (filters.isActive) {
+                            put("taskMeta", buildJsonObject {
+                                put("returned", standaloneTasks.size)
+                                put("total", allStandaloneTasks.size)
+                            })
+                        }
+
                         put("features", buildJsonArray {
                             features.forEach { feature ->
                                 // Merge minimal feature fields with per-feature task counts
@@ -882,6 +1012,13 @@ Docs: task-orchestrator://docs/tools/query-container
                                 })
                             }
                         })
+
+                        if (filters.isActive) {
+                            put("featureMeta", buildJsonObject {
+                                put("returned", features.size)
+                                put("total", allFeatures.size)
+                            })
+                        }
                     },
                     "Project overview retrieved"
                 )
@@ -897,12 +1034,14 @@ Docs: task-orchestrator://docs/tools/query-container
      * @param context Tool execution context with repository access
      * @param id The feature ID
      * @param summaryLength Max length for summary truncation (0 = no summary)
+     * @param filters Optional filters for child tasks
      * @return JsonElement with feature overview data
      */
     private suspend fun scopedFeatureOverview(
         context: ToolExecutionContext,
         id: UUID,
-        summaryLength: Int
+        summaryLength: Int,
+        filters: OverviewFilters
     ): JsonElement {
         // Fetch feature by ID
         val featureResult = context.featureRepository().getById(id)
@@ -911,14 +1050,20 @@ Docs: task-orchestrator://docs/tools/query-container
             is Result.Success -> {
                 val feature = featureResult.data
 
-                // Fetch tasks for this feature
+                // Fetch ALL tasks (for unfiltered counts)
                 val tasksResult = context.taskRepository().findByFeature(id, limit = 100)
-                val tasks = when (tasksResult) {
+                val allTasks = when (tasksResult) {
                     is Result.Success -> tasksResult.data
                     is Result.Error -> emptyList()
                 }
 
-                // Build task counts for this feature
+                val tasks = if (filters.isActive) {
+                    allTasks.filter { task ->
+                        matchesOverviewFilters(task.status, task.priority, task.tags, filters, "task")
+                    }
+                } else allTasks
+
+                // Build task counts UNFILTERED
                 val taskCounts = buildTaskCounts(context, featureId = id)
 
                 successResponse(
@@ -950,6 +1095,13 @@ Docs: task-orchestrator://docs/tools/query-container
                                 add(buildTaskSearchResult(task))
                             }
                         })
+
+                        if (filters.isActive) {
+                            put("taskMeta", buildJsonObject {
+                                put("returned", tasks.size)
+                                put("total", allTasks.size)
+                            })
+                        }
                     },
                     "Feature overview retrieved"
                 )
@@ -1211,6 +1363,12 @@ Docs: task-orchestrator://docs/tools/query-container
     // ========== HELPER METHODS ==========
 
     /**
+     * Data class holding task counts and the raw task list.
+     * Used internally to avoid redundant repository calls when both counts and task data are needed.
+     */
+    private data class TaskCountsResult(val counts: JsonObject, val tasks: List<Task>)
+
+    /**
      * Builds task counts for a feature or project.
      * Fetches all tasks and groups by status to provide:
      * - total: Total number of tasks
@@ -1243,7 +1401,22 @@ Docs: task-orchestrator://docs/tools/query-container
         context: ToolExecutionContext,
         featureId: UUID? = null,
         projectId: UUID? = null
-    ): JsonObject {
+    ): JsonObject = buildTaskCountsWithTasks(context, featureId, projectId).counts
+
+    /**
+     * Builds task counts and returns both the counts JSON and the raw task list.
+     * This is used when the caller needs both the counts and the tasks to avoid redundant repository calls.
+     *
+     * @param context Tool execution context
+     * @param featureId Optional feature ID to count tasks for
+     * @param projectId Optional project ID to count tasks for
+     * @return TaskCountsResult with counts JsonObject and tasks List
+     */
+    private suspend fun buildTaskCountsWithTasks(
+        context: ToolExecutionContext,
+        featureId: UUID? = null,
+        projectId: UUID? = null
+    ): TaskCountsResult {
         val progressionService = context.statusProgressionService()
 
         val tasksResult = if (featureId != null) {
@@ -1259,16 +1432,19 @@ Docs: task-orchestrator://docs/tools/query-container
                 limit = 1000  // High limit to get all tasks for counting
             )
         } else {
-            return buildJsonObject {
-                put("total", 0)
-                put("byStatus", buildJsonObject {})
-                if (progressionService != null) {
-                    put("byRole", buildJsonObject {
-                        put("queue", 0); put("work", 0); put("review", 0)
-                        put("blocked", 0); put("terminal", 0)
-                    })
-                }
-            }
+            return TaskCountsResult(
+                counts = buildJsonObject {
+                    put("total", 0)
+                    put("byStatus", buildJsonObject {})
+                    if (progressionService != null) {
+                        put("byRole", buildJsonObject {
+                            put("queue", 0); put("work", 0); put("review", 0)
+                            put("blocked", 0); put("terminal", 0)
+                        })
+                    }
+                },
+                tasks = emptyList()
+            )
         }
 
         return when (tasksResult) {
@@ -1281,44 +1457,50 @@ Docs: task-orchestrator://docs/tools/query-container
                     mutableMapOf("queue" to 0, "work" to 0, "review" to 0, "blocked" to 0, "terminal" to 0)
                 } else null
 
-                buildJsonObject {
-                    put("total", tasks.size)
-                    put("byStatus", buildJsonObject {
-                        statusGroups.forEach { (status, taskList) ->
-                            val statusName = status.name.lowercase().replace('_', '-')
-                            val count = taskList.size
-                            val role = progressionService?.getRoleForStatus(statusName, "task")
+                TaskCountsResult(
+                    counts = buildJsonObject {
+                        put("total", tasks.size)
+                        put("byStatus", buildJsonObject {
+                            statusGroups.forEach { (status, taskList) ->
+                                val statusName = status.name.lowercase().replace('_', '-')
+                                val count = taskList.size
+                                val role = progressionService?.getRoleForStatus(statusName, "task")
 
-                            if (role != null && roleCounts != null) {
-                                roleCounts[role] = (roleCounts[role] ?: 0) + count
-                            }
-
-                            put(statusName, buildJsonObject {
-                                put("count", count)
-                                if (role != null) {
-                                    put("role", role)
+                                if (role != null && roleCounts != null) {
+                                    roleCounts[role] = (roleCounts[role] ?: 0) + count
                                 }
+
+                                put(statusName, buildJsonObject {
+                                    put("count", count)
+                                    if (role != null) {
+                                        put("role", role)
+                                    }
+                                })
+                            }
+                        })
+                        if (roleCounts != null) {
+                            put("byRole", buildJsonObject {
+                                roleCounts.forEach { (role, count) -> put(role, count) }
                             })
                         }
-                    })
-                    if (roleCounts != null) {
-                        put("byRole", buildJsonObject {
-                            roleCounts.forEach { (role, count) -> put(role, count) }
-                        })
-                    }
-                }
+                    },
+                    tasks = tasks
+                )
             }
             is Result.Error -> {
-                buildJsonObject {
-                    put("total", 0)
-                    put("byStatus", buildJsonObject {})
-                    if (progressionService != null) {
-                        put("byRole", buildJsonObject {
-                            put("queue", 0); put("work", 0); put("review", 0)
-                            put("blocked", 0); put("terminal", 0)
-                        })
-                    }
-                }
+                TaskCountsResult(
+                    counts = buildJsonObject {
+                        put("total", 0)
+                        put("byStatus", buildJsonObject {})
+                        if (progressionService != null) {
+                            put("byRole", buildJsonObject {
+                                put("queue", 0); put("work", 0); put("review", 0)
+                                put("blocked", 0); put("terminal", 0)
+                            })
+                        }
+                    },
+                    tasks = emptyList()
+                )
             }
         }
     }

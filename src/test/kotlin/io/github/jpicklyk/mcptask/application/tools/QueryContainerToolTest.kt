@@ -1393,6 +1393,220 @@ class QueryContainerToolTest {
                 val projectCounts = data?.get("taskCounts")?.jsonObject
                 assertEquals(5, projectCounts?.get("total")?.jsonPrimitive?.int)
             }
+
+            @Test
+            fun `test scoped project overview includes standalone tasks array`() = runBlocking {
+                val feature = mockFeature.copy(id = UUID.randomUUID(), name = "Feature 1")
+                val standaloneTask1 = mockTask.copy(
+                    id = UUID.randomUUID(),
+                    title = "Standalone Task 1",
+                    projectId = projectId,
+                    featureId = null
+                )
+                val standaloneTask2 = mockTask.copy(
+                    id = UUID.randomUUID(),
+                    title = "Standalone Task 2",
+                    projectId = projectId,
+                    featureId = null
+                )
+                val featureTask = mockTask.copy(
+                    id = UUID.randomUUID(),
+                    title = "Feature Task",
+                    projectId = projectId,
+                    featureId = feature.id
+                )
+
+                val params = buildJsonObject {
+                    put("operation", "overview")
+                    put("containerType", "project")
+                    put("id", projectId.toString())
+                }
+
+                coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns Result.Success(listOf(feature))
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = 1000
+                ) } returns Result.Success(listOf(standaloneTask1, standaloneTask2, featureTask))
+                coEvery { mockTaskRepository.findByFeature(feature.id) } returns Result.Success(listOf(featureTask))
+
+                val result = tool.execute(params, context)
+
+                val response = result.jsonObject
+                assertTrue(response["success"]?.jsonPrimitive?.boolean == true)
+
+                val data = response["data"]?.jsonObject
+                assertNotNull(data)
+
+                // Verify standalone tasks array exists with exactly 2 items
+                val tasks = data!!["tasks"]?.jsonArray
+                assertNotNull(tasks)
+                assertEquals(2, tasks!!.size)
+
+                // Verify each standalone task has required fields
+                tasks.forEach { taskElement ->
+                    val taskObj = taskElement.jsonObject
+                    assertNotNull(taskObj["id"])
+                    assertNotNull(taskObj["title"])
+                    assertNotNull(taskObj["status"])
+                    assertNotNull(taskObj["priority"])
+                    // Verify featureId is null or absent
+                    val featureIdField = taskObj["featureId"]
+                    assertTrue(featureIdField == null || featureIdField.jsonPrimitive.content == "null")
+                }
+
+                // Verify features array still exists
+                val features = data["features"]?.jsonArray
+                assertNotNull(features)
+                assertEquals(1, features!!.size)
+
+                // Verify taskCounts.total counts ALL tasks (not just standalone)
+                val taskCounts = data["taskCounts"]?.jsonObject
+                assertNotNull(taskCounts)
+                assertEquals(3, taskCounts!!["total"]?.jsonPrimitive?.int)
+            }
+
+            @Test
+            fun `test scoped project overview with no standalone tasks returns empty tasks array`() = runBlocking {
+                val feature = mockFeature.copy(id = UUID.randomUUID(), name = "Feature 1")
+                val featureTask = mockTask.copy(
+                    id = UUID.randomUUID(),
+                    title = "Feature Task",
+                    projectId = projectId,
+                    featureId = feature.id
+                )
+
+                val params = buildJsonObject {
+                    put("operation", "overview")
+                    put("containerType", "project")
+                    put("id", projectId.toString())
+                }
+
+                coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns Result.Success(listOf(feature))
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = 1000
+                ) } returns Result.Success(listOf(featureTask))
+                coEvery { mockTaskRepository.findByFeature(feature.id) } returns Result.Success(listOf(featureTask))
+
+                val result = tool.execute(params, context)
+
+                val response = result.jsonObject
+                assertTrue(response["success"]?.jsonPrimitive?.boolean == true)
+
+                val data = response["data"]?.jsonObject
+                assertNotNull(data)
+
+                // Verify tasks array exists but is empty
+                val tasks = data!!["tasks"]?.jsonArray
+                assertNotNull(tasks)
+                assertEquals(0, tasks!!.size)
+            }
+
+            @Test
+            fun `test scoped project overview limits standalone tasks to 100`() = runBlocking {
+                val standaloneTasks = (1..150).map { i ->
+                    mockTask.copy(
+                        id = UUID.randomUUID(),
+                        title = "Standalone Task $i",
+                        projectId = projectId,
+                        featureId = null
+                    )
+                }
+
+                val params = buildJsonObject {
+                    put("operation", "overview")
+                    put("containerType", "project")
+                    put("id", projectId.toString())
+                }
+
+                coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns Result.Success(emptyList())
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = 1000
+                ) } returns Result.Success(standaloneTasks)
+
+                val result = tool.execute(params, context)
+
+                val response = result.jsonObject
+                assertTrue(response["success"]?.jsonPrimitive?.boolean == true)
+
+                val data = response["data"]?.jsonObject
+                assertNotNull(data)
+
+                // Verify tasks array has exactly 100 items
+                val tasks = data!!["tasks"]?.jsonArray
+                assertNotNull(tasks)
+                assertEquals(100, tasks!!.size)
+
+                // Verify taskCounts.total is NOT limited (shows all 150)
+                val taskCounts = data["taskCounts"]?.jsonObject
+                assertNotNull(taskCounts)
+                assertEquals(150, taskCounts!!["total"]?.jsonPrimitive?.int)
+            }
+
+            @Test
+            fun `test scoped project overview tasks array appears before features array`() = runBlocking {
+                val feature = mockFeature.copy(id = UUID.randomUUID(), name = "Feature 1")
+                val standaloneTask = mockTask.copy(
+                    id = UUID.randomUUID(),
+                    title = "Standalone Task",
+                    projectId = projectId,
+                    featureId = null
+                )
+
+                val params = buildJsonObject {
+                    put("operation", "overview")
+                    put("containerType", "project")
+                    put("id", projectId.toString())
+                }
+
+                coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+                coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns Result.Success(listOf(feature))
+                coEvery { mockTaskRepository.findByFilters(
+                    projectId = projectId,
+                    statusFilter = null,
+                    priorityFilter = null,
+                    tags = null,
+                    textQuery = null,
+                    limit = 1000
+                ) } returns Result.Success(listOf(standaloneTask))
+                coEvery { mockTaskRepository.findByFeature(feature.id) } returns Result.Success(emptyList())
+
+                val result = tool.execute(params, context)
+
+                val response = result.jsonObject
+                assertTrue(response["success"]?.jsonPrimitive?.boolean == true)
+
+                val data = response["data"]?.jsonObject
+                assertNotNull(data)
+
+                // Get the keys of the data object in order
+                val keys = data!!.keys.toList()
+
+                // Find indices of "tasks" and "features"
+                val tasksIndex = keys.indexOf("tasks")
+                val featuresIndex = keys.indexOf("features")
+
+                // Assert both exist and tasks comes before features
+                assertTrue(tasksIndex >= 0, "tasks key not found")
+                assertTrue(featuresIndex >= 0, "features key not found")
+                assertTrue(tasksIndex < featuresIndex, "tasks should appear before features")
+            }
         }
 
         @Nested
@@ -3027,6 +3241,726 @@ class QueryContainerToolTest {
 
             // byRole should be absent entirely
             assertNull(taskCounts["byRole"], "byRole should be absent without StatusProgressionService")
+        }
+    }
+
+    @Nested
+    inner class FilteredOverviewTests {
+        @Test
+        fun `test scoped project overview with status filter excludes matching features`() = runBlocking {
+            // Create 3 features with different statuses
+            val completedFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Completed Feature",
+                status = FeatureStatus.COMPLETED
+            )
+            val inDevFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "In Development Feature",
+                status = FeatureStatus.IN_DEVELOPMENT
+            )
+            val planningFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Planning Feature",
+                status = FeatureStatus.PLANNING
+            )
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns
+                Result.Success(listOf(completedFeature, inDevFeature, planningFeature))
+
+            // Mock task repository for standalone tasks
+            coEvery { mockTaskRepository.findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000
+            ) } returns Result.Success(emptyList())
+
+            // Mock per-feature task queries
+            coEvery { mockTaskRepository.findByFeature(completedFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(inDevFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(planningFeature.id) } returns Result.Success(emptyList())
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with status filter
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("status", "!completed")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+            assertNotNull(data)
+
+            // Verify features array is filtered (only 2 features)
+            val features = data!!["features"]?.jsonArray
+            assertNotNull(features)
+            assertEquals(2, features!!.size)
+
+            // Verify completed feature is excluded
+            val featureNames = features.map { it.jsonObject["name"]?.jsonPrimitive?.content }
+            assertFalse(featureNames.contains("Completed Feature"))
+            assertTrue(featureNames.contains("In Development Feature"))
+            assertTrue(featureNames.contains("Planning Feature"))
+
+            // Verify featureMeta
+            val featureMeta = data["featureMeta"]?.jsonObject
+            assertNotNull(featureMeta)
+            assertEquals(2, featureMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(3, featureMeta["total"]?.jsonPrimitive?.int)
+
+            // Verify taskCounts is still present and unfiltered
+            val taskCounts = data["taskCounts"]?.jsonObject
+            assertNotNull(taskCounts)
+            assertEquals(0, taskCounts!!["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test scoped project overview with status filter also filters standalone tasks`() = runBlocking {
+            // Create standalone tasks with different statuses
+            val completedTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Completed Task",
+                status = TaskStatus.COMPLETED,
+                featureId = null
+            )
+            val pendingTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Pending Task",
+                status = TaskStatus.PENDING,
+                featureId = null
+            )
+
+            // Create features with mixed statuses
+            val completedFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Completed Feature",
+                status = FeatureStatus.COMPLETED
+            )
+            val inDevFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "In Development Feature",
+                status = FeatureStatus.IN_DEVELOPMENT
+            )
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns
+                Result.Success(listOf(completedFeature, inDevFeature))
+
+            // Mock task repository for standalone tasks
+            coEvery { mockTaskRepository.findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000
+            ) } returns Result.Success(listOf(completedTask, pendingTask))
+
+            // Mock per-feature task queries
+            coEvery { mockTaskRepository.findByFeature(completedFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(inDevFeature.id) } returns Result.Success(emptyList())
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with status filter
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("status", "!completed")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+            assertNotNull(data)
+
+            // Verify features array is filtered
+            val features = data!!["features"]?.jsonArray
+            assertEquals(1, features!!.size)
+            assertEquals("In Development Feature", features[0].jsonObject["name"]?.jsonPrimitive?.content)
+
+            // Verify featureMeta
+            val featureMeta = data["featureMeta"]?.jsonObject
+            assertEquals(1, featureMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(2, featureMeta["total"]?.jsonPrimitive?.int)
+
+            // Verify tasks array is filtered (only pending task)
+            val tasks = data["tasks"]?.jsonArray
+            assertEquals(1, tasks!!.size)
+            assertEquals("Pending Task", tasks[0].jsonObject["title"]?.jsonPrimitive?.content)
+
+            // Verify taskMeta for standalone tasks
+            val taskMeta = data["taskMeta"]?.jsonObject
+            assertEquals(1, taskMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(2, taskMeta["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test scoped feature overview with status filter excludes matching tasks`() = runBlocking {
+            // Create 3 tasks with different statuses
+            val completedTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Completed Task",
+                status = TaskStatus.COMPLETED
+            )
+            val pendingTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Pending Task",
+                status = TaskStatus.PENDING
+            )
+            val inProgressTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "In Progress Task",
+                status = TaskStatus.IN_PROGRESS
+            )
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+
+            // Mock task repository (both overloads)
+            coEvery { mockTaskRepository.findByFeature(featureId, limit = 100) } returns
+                Result.Success(listOf(completedTask, pendingTask, inProgressTask))
+            coEvery { mockTaskRepository.findByFeature(featureId) } returns
+                Result.Success(listOf(completedTask, pendingTask, inProgressTask))
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, featureId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with status filter
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("status", "!completed")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+            assertNotNull(data)
+
+            // Verify tasks array is filtered (only 2 tasks)
+            val tasks = data!!["tasks"]?.jsonArray
+            assertEquals(2, tasks!!.size)
+
+            val taskTitles = tasks.map { it.jsonObject["title"]?.jsonPrimitive?.content }
+            assertFalse(taskTitles.contains("Completed Task"))
+            assertTrue(taskTitles.contains("Pending Task"))
+            assertTrue(taskTitles.contains("In Progress Task"))
+
+            // Verify taskMeta
+            val taskMeta = data["taskMeta"]?.jsonObject
+            assertEquals(2, taskMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(3, taskMeta["total"]?.jsonPrimitive?.int)
+
+            // Verify parent taskCounts is still 3 (unfiltered)
+            val taskCounts = data["taskCounts"]?.jsonObject
+            assertEquals(3, taskCounts!!["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test scoped project overview with priority filter`() = runBlocking {
+            // Create features with different priorities
+            val highFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "High Priority Feature",
+                priority = Priority.HIGH
+            )
+            val mediumFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Medium Priority Feature",
+                priority = Priority.MEDIUM
+            )
+            val lowFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Low Priority Feature",
+                priority = Priority.LOW
+            )
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns
+                Result.Success(listOf(highFeature, mediumFeature, lowFeature))
+
+            // Mock task repository for standalone tasks
+            coEvery { mockTaskRepository.findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000
+            ) } returns Result.Success(emptyList())
+
+            // Mock per-feature task queries
+            coEvery { mockTaskRepository.findByFeature(highFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(mediumFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(lowFeature.id) } returns Result.Success(emptyList())
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with priority filter
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("priority", "high")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+
+            // Verify only HIGH priority feature is returned
+            val features = data!!["features"]?.jsonArray
+            assertEquals(1, features!!.size)
+            assertEquals("High Priority Feature", features[0].jsonObject["name"]?.jsonPrimitive?.content)
+            assertEquals("high", features[0].jsonObject["priority"]?.jsonPrimitive?.content)
+
+            // Verify featureMeta
+            val featureMeta = data["featureMeta"]?.jsonObject
+            assertEquals(1, featureMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(3, featureMeta["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test scoped feature overview with tags filter`() = runBlocking {
+            // Create tasks with different tags
+            val backendTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Backend Task",
+                tags = listOf("backend")
+            )
+            val frontendTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Frontend Task",
+                tags = listOf("frontend")
+            )
+            val backendApiTask = mockTask.copy(
+                id = UUID.randomUUID(),
+                title = "Backend API Task",
+                tags = listOf("backend", "api")
+            )
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+
+            // Mock task repository (both overloads)
+            coEvery { mockTaskRepository.findByFeature(featureId, limit = 100) } returns
+                Result.Success(listOf(backendTask, frontendTask, backendApiTask))
+            coEvery { mockTaskRepository.findByFeature(featureId) } returns
+                Result.Success(listOf(backendTask, frontendTask, backendApiTask))
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.FEATURE, featureId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with tags filter
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("tags", "backend")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+
+            // Verify only tasks with "backend" tag are returned (2 tasks)
+            val tasks = data!!["tasks"]?.jsonArray
+            assertEquals(2, tasks!!.size)
+
+            val taskTitles = tasks.map { it.jsonObject["title"]?.jsonPrimitive?.content }
+            assertTrue(taskTitles.contains("Backend Task"))
+            assertTrue(taskTitles.contains("Backend API Task"))
+            assertFalse(taskTitles.contains("Frontend Task"))
+
+            // Verify taskMeta
+            val taskMeta = data["taskMeta"]?.jsonObject
+            assertEquals(2, taskMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(3, taskMeta["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test global feature overview with status filter`() = runBlocking {
+            // Create features with mixed statuses
+            val completedFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Completed Feature",
+                status = FeatureStatus.COMPLETED
+            )
+            val inDevFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "In Development Feature",
+                status = FeatureStatus.IN_DEVELOPMENT
+            )
+            val planningFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Planning Feature",
+                status = FeatureStatus.PLANNING
+            )
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findAll(100) } returns
+                Result.Success(listOf(completedFeature, inDevFeature, planningFeature))
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute global overview with status filter (no id)
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("status", "!completed")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+
+            // Verify items array is filtered
+            val items = data!!["items"]?.jsonArray
+            assertEquals(2, items!!.size)
+
+            val featureNames = items.map { it.jsonObject["name"]?.jsonPrimitive?.content }
+            assertFalse(featureNames.contains("Completed Feature"))
+            assertTrue(featureNames.contains("In Development Feature"))
+            assertTrue(featureNames.contains("Planning Feature"))
+
+            // Verify meta
+            val meta = data["meta"]?.jsonObject
+            assertNotNull(meta)
+            assertEquals(2, meta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(3, meta["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test overview without filters has no meta fields`() = runBlocking {
+            // Create multiple features
+            val feature1 = mockFeature.copy(id = UUID.randomUUID(), name = "Feature 1")
+            val feature2 = mockFeature.copy(id = UUID.randomUUID(), name = "Feature 2")
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns
+                Result.Success(listOf(feature1, feature2))
+
+            // Mock task repository for standalone tasks
+            coEvery { mockTaskRepository.findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000
+            ) } returns Result.Success(emptyList())
+
+            // Mock per-feature task queries
+            coEvery { mockTaskRepository.findByFeature(feature1.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(feature2.id) } returns Result.Success(emptyList())
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute WITHOUT any filter parameters
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+
+            // Verify featureMeta is null/absent
+            assertNull(data!!["featureMeta"], "featureMeta should be absent without filters")
+
+            // Verify taskMeta is null/absent
+            assertNull(data["taskMeta"], "taskMeta should be absent without filters")
+
+            // Verify features array still present
+            val features = data["features"]?.jsonArray
+            assertEquals(2, features!!.size)
+        }
+
+        @Test
+        fun `test scoped project overview with combined status and priority filters`() = runBlocking {
+            // Create features with different status and priority combinations
+            val highCompleted = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "High Completed",
+                status = FeatureStatus.COMPLETED,
+                priority = Priority.HIGH
+            )
+            val highInDev = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "High In Development",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.HIGH
+            )
+            val lowInDev = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Low In Development",
+                status = FeatureStatus.IN_DEVELOPMENT,
+                priority = Priority.LOW
+            )
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns
+                Result.Success(listOf(highCompleted, highInDev, lowInDev))
+
+            // Mock task repository for standalone tasks
+            coEvery { mockTaskRepository.findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000
+            ) } returns Result.Success(emptyList())
+
+            // Mock per-feature task queries
+            coEvery { mockTaskRepository.findByFeature(highCompleted.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(highInDev.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(lowInDev.id) } returns Result.Success(emptyList())
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with BOTH status and priority filters
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("status", "!completed")
+                put("priority", "high")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+
+            // Verify only the HIGH+IN_DEVELOPMENT feature is returned
+            val features = data!!["features"]?.jsonArray
+            assertEquals(1, features!!.size)
+            assertEquals("High In Development", features[0].jsonObject["name"]?.jsonPrimitive?.content)
+            assertEquals("high", features[0].jsonObject["priority"]?.jsonPrimitive?.content)
+            assertEquals("in-development", features[0].jsonObject["status"]?.jsonPrimitive?.content)
+
+            // Verify featureMeta
+            val featureMeta = data["featureMeta"]?.jsonObject
+            assertEquals(1, featureMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(3, featureMeta["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test scoped project overview with negated status filter`() = runBlocking {
+            // Create features with different statuses
+            val completedFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Completed Feature",
+                status = FeatureStatus.COMPLETED
+            )
+            val archivedFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Archived Feature",
+                status = FeatureStatus.ARCHIVED
+            )
+            val inDevFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "In Development Feature",
+                status = FeatureStatus.IN_DEVELOPMENT
+            )
+            val planningFeature = mockFeature.copy(
+                id = UUID.randomUUID(),
+                name = "Planning Feature",
+                status = FeatureStatus.PLANNING
+            )
+
+            // Mock project repository
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(mockProject)
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.findByProject(projectId, 100) } returns
+                Result.Success(listOf(completedFeature, archivedFeature, inDevFeature, planningFeature))
+
+            // Mock task repository for standalone tasks
+            coEvery { mockTaskRepository.findByFilters(
+                projectId = projectId,
+                statusFilter = null,
+                priorityFilter = null,
+                tags = null,
+                textQuery = null,
+                limit = 1000
+            ) } returns Result.Success(emptyList())
+
+            // Mock per-feature task queries
+            coEvery { mockTaskRepository.findByFeature(completedFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(archivedFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(inDevFeature.id) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.findByFeature(planningFeature.id) } returns Result.Success(emptyList())
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.PROJECT, projectId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with negated status filter
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("status", "!completed,!archived")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+
+            // Verify 2 features returned (IN_DEVELOPMENT and PLANNING)
+            val features = data!!["features"]?.jsonArray
+            assertEquals(2, features!!.size)
+
+            val featureNames = features.map { it.jsonObject["name"]?.jsonPrimitive?.content }
+            assertTrue(featureNames.contains("In Development Feature"))
+            assertTrue(featureNames.contains("Planning Feature"))
+            assertFalse(featureNames.contains("Completed Feature"))
+            assertFalse(featureNames.contains("Archived Feature"))
+
+            // Verify featureMeta
+            val featureMeta = data["featureMeta"]?.jsonObject
+            assertEquals(2, featureMeta!!["returned"]?.jsonPrimitive?.int)
+            assertEquals(4, featureMeta["total"]?.jsonPrimitive?.int)
+        }
+
+        @Test
+        fun `test scoped task overview is unaffected by filters`() = runBlocking {
+            // Mock task repository
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
+
+            // Mock dependency repository
+            every { mockDependencyRepository.findByFromTaskId(taskId) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+
+            // Mock section repository
+            coEvery { mockSectionRepository.getSectionsForEntity(EntityType.TASK, taskId) } returns
+                Result.Success(emptyList())
+
+            // Create context and tool
+            context = ToolExecutionContext(mockRepositoryProvider, null)
+            tool = QueryContainerTool()
+
+            // Execute with status filter on task overview
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "task")
+                put("id", taskId.toString())
+                put("status", "!completed")
+            }
+
+            val result = tool.execute(params, context)
+
+            // Verify response is successful
+            assertTrue(result.jsonObject["success"]?.jsonPrimitive?.boolean == true)
+            val data = result.jsonObject["data"]?.jsonObject
+            assertNotNull(data)
+
+            // Verify the task is still returned normally (no filtering applied)
+            assertEquals(taskId.toString(), data!!["id"]?.jsonPrimitive?.content)
+            assertEquals("Test Task", data["title"]?.jsonPrimitive?.content)
+            assertEquals("pending", data["status"]?.jsonPrimitive?.content)
+
+            // Verify dependencies are present
+            val dependencies = data["dependencies"]?.jsonObject
+            assertNotNull(dependencies)
+            assertNotNull(dependencies!!["blocking"])
+            assertNotNull(dependencies["blockedBy"])
+
+            // Verify no meta fields are present (task overview doesn't filter)
+            assertNull(data["taskMeta"])
         }
     }
 }

@@ -15,9 +15,9 @@ Generate a Tier 1 dashboard for the current project.
 ## Steps
 
 1. **Resolve project ID** — use provided ID, or extract from CLAUDE.md
-2. **Query in parallel:**
+2. **Query project overview:**
    - `query_container(operation="overview", containerType="project", id=projectId)`
-   - `query_container(operation="search", containerType="task", projectId=projectId, tags="action-item", status="!completed,!cancelled")`
+   - The overview includes `features[]` with per-feature task counts, AND `tasks[]` containing standalone project-level tasks (no featureId)
 3. **Format dashboard** using the template below
 
 ## Dashboard Template
@@ -29,8 +29,9 @@ Generate a Tier 1 dashboard for the current project.
 
 ### Active Features
 
-| Feature | Status | Progress | Priority |
-|---------|--------|----------|----------|
+| ID | Feature | Status | Progress | Priority |
+|----|---------|--------|----------|----------|
+| `{id[0..8]}` | {name} | {status} | {done}/{total} | {priority} |
 (only non-terminal features: planning, in-development, blocked, on-hold, etc.)
 
 Status symbols: ◉ in-progress/in-development, ⊘ blocked/on-hold, ○ pending/planning
@@ -39,7 +40,10 @@ Status symbols: ◉ in-progress/in-development, ⊘ blocked/on-hold, ○ pending
 
 ### Action Items
 
-(table of standalone action-item tasks, or "No open action items." if none)
+| ID | Task | Priority | Status |
+|----|------|----------|--------|
+| `{id[0..8]}` | {title} | {priority} | {status} |
+(filter tasks[] for tag "action-item" with non-terminal status, or "No open action items." if none)
 
 ### Housekeeping
 
@@ -51,7 +55,8 @@ Status symbols: ◉ in-progress/in-development, ⊘ blocked/on-hold, ○ pending
 ## Notes
 
 - This is a **read-only** skill — it queries and formats, never modifies state
-- Only 2 MCP calls — do NOT delegate to a subagent (the overhead far exceeds the payload)
+- Only 1 MCP call — do NOT delegate to a subagent (the overhead far exceeds the payload)
+- **Short UUIDs** — display the first 8 characters of entity IDs as `` `abcd1234` `` inline code. Include in feature table, action items, and housekeeping references
 - Keep the dashboard concise — no section content, no task-level details
 - Completed features go in a summary line, NOT in the table — the table is for actionable work only
 - For deeper feature inspection, use `query_container(operation="overview", containerType="feature", id=...)`

@@ -192,7 +192,7 @@ get_next_status(containerId="uuid", containerType="task")
 
 Use `query_container(operation="overview")` for token-efficient hierarchical views:
 - Feature overview: metadata + tasks list + counts (NO section content)
-- Project overview: metadata + features list + task counts
+- Project overview: metadata + standalone tasks list + features list + task counts
 - Global overview: array of all entities with minimal fields
 
 ### Template Discovery (always do this before creating entities)

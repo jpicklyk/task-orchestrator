@@ -414,11 +414,58 @@ Returns a specific entity with hierarchical child data and task counts. Section 
 }
 ```
 
+##### Overview Filtering
+
+The overview operation supports `status`, `priority`, and `tags` filters to reduce response payload. These are the same filter parameters and syntax used by the `search` operation.
+
+**Behavior:**
+- **Global overview**: Filters the `items[]` array directly
+- **Scoped project overview**: Filters the `features[]` and `tasks[]` child arrays. Parent project `taskCounts` remain unfiltered (shows true project health). Per-feature `taskCounts` on returned features also remain unfiltered.
+- **Scoped feature overview**: Filters the `tasks[]` child array. Parent feature `taskCounts` remain unfiltered.
+- **Scoped task overview**: Not affected by filters (single entity with dependencies, no child collections).
+
+**Metadata Fields**: When filters are active, the response includes `*Meta` objects showing how many items were filtered:
+
+| Meta Field | Present On | Content |
+|-----------|-----------|---------|
+| `meta` | Global overview | `{ "returned": N, "total": M }` |
+| `featureMeta` | Scoped project overview | `{ "returned": N, "total": M }` |
+| `taskMeta` | Scoped project/feature overview | `{ "returned": N, "total": M }` |
+
+When no filters are applied, meta fields are omitted (zero overhead for existing callers).
+
+**Example - Filtered Project Overview** (exclude completed/cancelled features):
+```json
+{
+  "operation": "overview",
+  "containerType": "project",
+  "id": "project-uuid",
+  "status": "!completed,!cancelled"
+}
+```
+
+**Response** (showing meta fields):
+```json
+{
+  "success": true,
+  "data": {
+    "id": "project-uuid",
+    "name": "My Project",
+    "status": "in-development",
+    "taskCounts": { "total": 55, "byStatus": { ... } },
+    "tasks": [ ... ],
+    "taskMeta": { "returned": 3, "total": 10 },
+    "features": [ ... ],
+    "featureMeta": { "returned": 14, "total": 35 }
+  }
+}
+```
+
 **Scoped Overview by Container Type**:
 
 | Container Type | Returns | Child Data Included |
 |----------------|---------|---------------------|
-| **Project** | Project metadata | Array of features + task counts for each feature |
+| **Project** | Project metadata | Array of standalone tasks + array of features (with task counts per feature) |
 | **Feature** | Feature metadata | Array of tasks + task counts |
 | **Task** | Task metadata | Dependencies (blocking and blockedBy arrays) |
 
@@ -460,6 +507,16 @@ Returns a specific entity with hierarchical child data and task counts. Section 
         "queue": 7, "work": 10, "review": 0, "blocked": 0, "terminal": 28
       }
     },
+    "tasks": [
+      {
+        "id": "task-uuid-standalone-1",
+        "title": "Configure CI/CD pipeline",
+        "status": "in-progress",
+        "priority": "high",
+        "complexity": 5,
+        "requiresVerification": false
+      }
+    ],
     "features": [
       {
         "id": "feature-uuid-1",
