@@ -173,6 +173,81 @@ class ManageSectionsToolTest {
         }
 
         @Test
+        fun `should reject TEMPLATE entityType for add operation`() {
+            val params = buildJsonObject {
+                put("operation", "add")
+                put("entityType", "TEMPLATE")
+                put("entityId", taskId.toString())
+                put("title", "New Section")
+                put("usageDescription", "Usage")
+                put("content", "Content")
+                put("ordinal", 0)
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid entityType"))
+            assertTrue(exception.message!!.contains("TEMPLATE"))
+        }
+
+        @Test
+        fun `should reject SECTION entityType for add operation`() {
+            val params = buildJsonObject {
+                put("operation", "add")
+                put("entityType", "SECTION")
+                put("entityId", taskId.toString())
+                put("title", "New Section")
+                put("usageDescription", "Usage")
+                put("content", "Content")
+                put("ordinal", 0)
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid entityType"))
+            assertTrue(exception.message!!.contains("SECTION"))
+        }
+
+        @Test
+        fun `should reject TEMPLATE entityType for reorder operation`() {
+            val params = buildJsonObject {
+                put("operation", "reorder")
+                put("entityType", "TEMPLATE")
+                put("entityId", taskId.toString())
+                put("sectionOrder", "${UUID.randomUUID()}")
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid entityType"))
+        }
+
+        @Test
+        fun `should reject TEMPLATE entityType in bulkCreate sections`() {
+            val params = buildJsonObject {
+                put("operation", "bulkCreate")
+                put("sections", buildJsonArray {
+                    add(buildJsonObject {
+                        put("entityType", "TEMPLATE")
+                        put("entityId", taskId.toString())
+                        put("title", "Section 1")
+                        put("usageDescription", "Usage")
+                        put("content", "Content")
+                        put("ordinal", 0)
+                    })
+                })
+            }
+
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid entityType"))
+        }
+
+        @Test
         fun `should accept valid add params`() {
             val params = buildJsonObject {
                 put("operation", "add")

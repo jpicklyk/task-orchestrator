@@ -117,7 +117,7 @@ Docs: task-orchestrator://docs/tools/manage-sections
                     mapOf(
                         "type" to JsonPrimitive("string"),
                         "description" to JsonPrimitive("Type of entity (PROJECT, TASK, FEATURE)"),
-                        "enum" to JsonArray(EntityType.entries.map { JsonPrimitive(it.name) })
+                        "enum" to JsonArray(listOf("PROJECT", "FEATURE", "TASK").map { JsonPrimitive(it) })
                     )
                 ),
                 "entityId" to JsonObject(
@@ -225,7 +225,10 @@ Docs: task-orchestrator://docs/tools/manage-sections
     // ========== VALIDATION METHODS ==========
 
     private fun validateAddParams(params: JsonElement) {
-        requireString(params, "entityType")
+        val entityTypeStr = requireString(params, "entityType")
+        if (entityTypeStr !in listOf("PROJECT", "FEATURE", "TASK")) {
+            throw ToolValidationException("Invalid entityType: $entityTypeStr. Must be one of: PROJECT, FEATURE, TASK")
+        }
         val entityIdStr = requireString(params, "entityId")
         val title = requireString(params, "title")
         val usageDescription = requireString(params, "usageDescription")
@@ -285,10 +288,13 @@ Docs: task-orchestrator://docs/tools/manage-sections
         val entityIdStr = requireString(params, "entityId")
         val sectionOrderStr = requireString(params, "sectionOrder")
 
-        try {
+        val entityType = try {
             EntityType.valueOf(entityTypeStr)
         } catch (_: IllegalArgumentException) {
             throw ToolValidationException("Invalid entityType: $entityTypeStr")
+        }
+        if (entityType !in listOf(EntityType.PROJECT, EntityType.FEATURE, EntityType.TASK)) {
+            throw ToolValidationException("Invalid entityType: $entityTypeStr. Must be one of: PROJECT, FEATURE, TASK")
         }
 
         try {
@@ -337,6 +343,13 @@ Docs: task-orchestrator://docs/tools/manage-sections
             requiredFields.forEach { field ->
                 if (!sectionObj.containsKey(field)) {
                     throw ToolValidationException("Section at index $index missing required field: $field")
+                }
+            }
+
+            // Validate entityType value
+            sectionObj["entityType"]?.jsonPrimitive?.content?.let { entityTypeStr ->
+                if (entityTypeStr !in listOf("PROJECT", "FEATURE", "TASK")) {
+                    throw ToolValidationException("Invalid entityType at index $index: $entityTypeStr. Must be one of: PROJECT, FEATURE, TASK")
                 }
             }
 
@@ -545,13 +558,10 @@ Docs: task-orchestrator://docs/tools/manage-sections
                     is Result.Success -> {}
                 }
             }
-            EntityType.TEMPLATE -> {
-                when (context.templateRepository().getTemplate(entityId)) {
-                    is Result.Error -> return errorResponse("Template not found", ErrorCodes.RESOURCE_NOT_FOUND)
-                    is Result.Success -> {}
-                }
-            }
-            else -> {}
+            else -> return errorResponse(
+                "Unsupported entityType: ${entityType.name}. Sections can only be added to PROJECT, FEATURE, or TASK entities.",
+                ErrorCodes.VALIDATION_ERROR
+            )
         }
 
         val section = Section(
