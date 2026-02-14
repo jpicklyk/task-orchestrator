@@ -101,8 +101,8 @@ request_transition(containerId="task-uuid", containerType="task", trigger="compl
   }],
   "unblockedTasks": [{"taskId": "...", "title": "..."}],
   "activeFlow": "default_flow",
-  "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-  "flowPosition": 4
+  "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+  "flowPosition": 3
 }
 ```
 
@@ -211,19 +211,16 @@ completed, archived
 - `archived` - Archived for reference (terminal)
 - `deployed` - Successfully deployed to environment
 
-### Task Flow (Default - Software Development)
+### Task Flow (Default - AI-Driven Development)
 
 ```
+backlog → pending → in-progress → completed
+
+With Testing (qa-required, manual-test tags):
 backlog → pending → in-progress → testing → completed
 
-Alternative with Code Review:
-backlog → pending → in-progress → in-review → testing → completed
-
-With Review Iterations:
-...→ in-progress → in-review → changes-requested → in-progress → in-review → testing → completed
-
-With Deployment Tracking (if enabled):
-...→ completed → deployed (+ env:production)
+Alternative with Code Review (with_review_flow tag):
+backlog → pending → in-progress → in-review → changes-requested → in-progress → in-review → testing → completed
 
 Emergency Transitions (if allow_emergency: true):
 Any status → blocked (dependency fails)
@@ -763,7 +760,7 @@ request_transition(trigger="start")
 ```yaml
 status_progression:
   tasks:
-    default_flow: [backlog, pending, in-progress, testing, completed]
+    default_flow: [backlog, pending, in-progress, completed]
     # 'deployed' not in any flow
 ```
 
@@ -868,12 +865,12 @@ request_transition(
         "success": true,
         "containerId": "task-1",
         "newStatus": "completed",
-        "previousStatus": "testing",
+        "previousStatus": "in-progress",
         "previousRole": "work",
         "newRole": "terminal",
         "activeFlow": "default_flow",
-        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-        "flowPosition": 4,
+        "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+        "flowPosition": 3,
         "unblockedTasks": []
       },
       // ... results for task-2, task-3, task-4
@@ -885,8 +882,8 @@ request_transition(
         "previousRole": "work",
         "newRole": "terminal",
         "activeFlow": "default_flow",
-        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-        "flowPosition": 4,
+        "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+        "flowPosition": 3,
         "unblockedTasks": [
           {
             "taskId": "task-6-uuid",
@@ -937,21 +934,21 @@ All transition responses now include flow context fields:
 // Task at "in-progress" in default_flow
 {
   "activeFlow": "default_flow",
-  "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+  "flowSequence": ["backlog", "pending", "in-progress", "completed"],
   "flowPosition": 2
 }
 
 // Calculate progress
 const progress = (flowPosition / (flowSequence.length - 1)) * 100;
-// Result: 50% through workflow
+// Result: 67% through workflow
 
 // Check next status
 const nextStatus = flowSequence[flowPosition + 1];
-// Result: "testing"
+// Result: "completed"
 
 // Check if near completion
 const isNearEnd = flowPosition >= flowSequence.length - 2;
-// Result: false (2 >= 3 is false)
+// Result: true (2 >= 2 is true)
 ```
 
 ### Partial Failures
@@ -1280,7 +1277,7 @@ request_transition(containerId="uuid", containerType="task", trigger="complete")
 **Don't:**
 ```javascript
 // Force all tasks through same flow
-default_flow: [backlog, pending, in-progress, testing, completed]
+default_flow: [backlog, pending, in-progress, completed]
 ```
 
 **Do:**
