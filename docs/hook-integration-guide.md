@@ -52,8 +52,8 @@ The `toolOutput` field contains the complete response from `request_transition`:
       "previousRole": "work",
       "newRole": "review",
       "activeFlow": "with_testing_flow",
-      "flowSequence": ["pending", "in-progress", "testing", "completed"],
-      "flowPosition": 2,
+      "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+      "flowPosition": 3,
       "summary": "Optional transition note",
       "unblockedTasks": [
         {

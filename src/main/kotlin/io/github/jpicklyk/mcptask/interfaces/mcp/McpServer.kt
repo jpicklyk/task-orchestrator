@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.application.tools.section.QuerySectionsTool
 import io.github.jpicklyk.mcptask.application.tools.task.GetNextTaskTool
 import io.github.jpicklyk.mcptask.application.tools.task.GetBlockedTasksTool
 import io.github.jpicklyk.mcptask.application.tools.status.GetNextStatusTool
+import io.github.jpicklyk.mcptask.application.tools.status.QueryRoleTransitionsTool
 import io.github.jpicklyk.mcptask.application.tools.status.RequestTransitionTool
 import io.github.jpicklyk.mcptask.application.tools.template.ApplyTemplateTool
 import io.github.jpicklyk.mcptask.application.tools.template.ManageTemplateTool
@@ -199,7 +200,7 @@ class McpServer(
         registerTools(server)
 
         // Configure AI guidance
-        server.configureAiGuidance(repositoryProvider)
+        server.configureAiGuidance()
 
         // Configure markdown resources
         server.configureMarkdownResources(repositoryProvider)
@@ -266,7 +267,7 @@ class McpServer(
     /**
      * Creates all tool instances that should be registered with the server.
      *
-     * Total: 13 tools
+     * Total: 14 tools
      */
     private fun createTools(): List<ToolDefinition> {
         return listOf(
@@ -295,7 +296,8 @@ class McpServer(
 
             // Status progression - Intelligent workflow recommendations
             GetNextStatusTool(statusProgressionService),
-            RequestTransitionTool(statusProgressionService)
+            RequestTransitionTool(statusProgressionService),
+            QueryRoleTransitionsTool()
         )
     }
 

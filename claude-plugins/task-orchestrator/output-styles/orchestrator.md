@@ -65,7 +65,7 @@ After plan approval, work proceeds through two strict phases **automatically —
 
 **Transition guidance:** For default-flow tasks, `start` + `complete` = 2 calls. For tasks with workflow tags on longer flows (e.g., `qa-required`, `hotfix`), include the expected flow in the delegation prompt so the agent knows how many `start` calls precede `complete`. See the `status-progression` skill for flow tables and transition mechanics.
 
-**Role-aware queries:** Use `role` parameter in `query_container` (e.g., `role="work"`) to filter by semantic phase instead of specific status names. Useful for dashboards showing "what's actively being worked on" across different status naming conventions.
+**Role-aware queries:** Use `role` parameter in `query_container` (e.g., `role="work"`) to filter by semantic phase instead of specific status names. Useful for dashboards showing "what's actively being worked on" across different status naming conventions. Use `query_role_transitions` to inspect transition audit trails when debugging workflow state.
 
 ## Visual Formatting
 

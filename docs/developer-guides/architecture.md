@@ -114,11 +114,14 @@ The 4-tier system is an **Interface Layer enhancement** that optimizes how AI ag
 ┌──────────────────────────────┼─────────────────────────────────┐
 │                    APPLICATION LAYER                           │
 │                                                                 │
-│  All tiers use the same MCP tools:                             │
-│  - get_task, create_task, update_task                         │
-│  - get_feature, create_feature                                │
-│  - add_section, get_sections, update_section                  │
-│  - recommend_agent, set_status                                │
+│  All tiers use the same 14 MCP tools (v2.0):                   │
+│  - query_container, manage_container                          │
+│  - query_sections, manage_sections                            │
+│  - query_templates, manage_template, apply_template           │
+│  - query_dependencies, manage_dependencies                    │
+│  - get_next_task, get_blocked_tasks                           │
+│  - get_next_status, request_transition                        │
+│  - query_role_transitions                                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -134,9 +137,9 @@ The 4-tier system is an **Interface Layer enhancement** that optimizes how AI ag
 **Location**: Application Layer (`application/tools/`)
 
 **Examples**:
-- `create_task(title="Add login endpoint", featureId="...", templateIds=["technical-approach"])`
-- `get_feature(id="...", includeTasks=true)`
-- `set_status(taskId="...", status="completed")`
+- `manage_container(operation="create", containerType="task", containers=[{title: "Add login endpoint"}], featureId="...", templateIds=["..."])`
+- `query_container(operation="overview", containerType="feature", id="...")`
+- `request_transition(transitions=[{containerId: "...", containerType: "task", trigger: "complete"}])`
 
 **When to Use**: You know exactly what tool to call and have all parameters ready
 
@@ -169,9 +172,9 @@ The 4-tier system is an **Interface Layer enhancement** that optimizes how AI ag
 
 | Skill | Purpose | Allowed Tools | Token Cost |
 |-------|---------|---------------|------------|
-| Feature Management | Coordinate feature lifecycle | get_feature, get_next_task, update_feature | 300-600 |
-| Task Management | Route tasks, update status | get_task, recommend_agent, set_status, add_section | 300-600 |
-| Dependency Analysis | Analyze blockers, chains | get_blocked_tasks, get_task_dependencies | 300-500 |
+| Feature Management | Coordinate feature lifecycle | query_container, get_next_task, manage_container | 300-600 |
+| Task Management | Route tasks, update status | query_container, manage_container, request_transition | 300-600 |
+| Dependency Analysis | Analyze blockers, chains | get_blocked_tasks, query_dependencies | 300-500 |
 | Hook Builder | Create automation hooks | Write (bash scripts) | 400-700 |
 | Skill Builder | Create custom Skills | Write (SKILL.md files) | 500-800 |
 
@@ -761,12 +764,13 @@ Sub-agent orchestration integrates at the **Interface Layer**, specifically as a
 ┌──────────────────────────┼────────────────────────────────────────┐
 │                    APPLICATION LAYER                              │
 │                                                                    │
-│  All sub-agents use the same MCP tools:                           │
-│  - get_task, create_task, update_task                            │
-│  - get_feature, create_feature                                   │
-│  - add_section, get_sections, update_section                     │
-│  - recommend_agent (routing intelligence)                        │
-│  - set_status (unified status updates)                           │
+│  All sub-agents use the same 14 MCP tools (v2.0):                │
+│  - query_container, manage_container                             │
+│  - query_sections, manage_sections                               │
+│  - query_templates, manage_template, apply_template              │
+│  - query_dependencies, manage_dependencies                       │
+│  - get_next_task, get_blocked_tasks                              │
+│  - get_next_status, request_transition, query_role_transitions   │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```

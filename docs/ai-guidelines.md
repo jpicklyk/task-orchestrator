@@ -54,7 +54,7 @@ The AI Guidelines system provides AI agents with comprehensive knowledge about h
 
 ## MCP Tools Reference
 
-The Task Orchestrator exposes 12 MCP tools organized into categories:
+The Task Orchestrator exposes 14 MCP tools organized into categories:
 
 ### Container Management (unified CRUD for Projects/Features/Tasks)
 - **`manage_container`** - Write operations: create, update, delete (all use array parameters)
@@ -80,12 +80,13 @@ The Task Orchestrator exposes 12 MCP tools organized into categories:
 ### Status Progression
 - **`get_next_status`** - Read-only status progression recommendations based on workflow configuration
 - **`request_transition`** - Trigger-based status transitions with validation (start, complete, cancel, block, hold)
+- **`query_role_transitions`** - Query role transition audit trail for workflow analytics and bottleneck detection
 
 ---
 
 ## Orchestration Patterns and Decision Gates
 
-This section teaches AI assistants how to effectively use task-orchestrator's 12 tools including template discovery, dependency-aware workflows, and proactive task management.
+This section teaches AI assistants how to effectively use task-orchestrator's 14 tools including template discovery, dependency-aware workflows, and proactive task management.
 
 ### Session Start Routine
 
@@ -1420,7 +1421,7 @@ AI: "Fix complete with 5 regression tests:
    - Enforce test documentation (BUG/ROOT CAUSE/FIX comments)
    - Cannot complete bug fix without comprehensive tests
 
-7. **Use the 12 MCP tools consistently for all work types**
+7. **Use the 14 MCP tools consistently for all work types**
    - Tasks, features, AND bugs use the same tool-based approach
    - Use `manage_container` and `query_container` for all entity operations
    - Use `get_next_task` and `get_blocked_tasks` for workflow optimization

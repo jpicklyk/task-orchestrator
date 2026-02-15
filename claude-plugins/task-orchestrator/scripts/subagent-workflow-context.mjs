@@ -5,7 +5,7 @@ const context = `MCP Workflow Rules:
 
 STATUS — Use request_transition(trigger=start|complete|cancel|block|hold). Default task flow: start (pending->in-progress) + complete (in-progress->completed) = 2 calls. If complete fails with "Cannot skip statuses", use start to advance first, then retry complete. For non-default flows (tags like qa-required, hotfix, docs), see the status-progression skill for flow tables. For batch status changes, use the transitions array parameter. NEVER use manage_container update with status fields — use request_transition instead for cascade detection.
 
-ROLES — Transition responses include previousRole and newRole (queue, work, review, blocked, terminal). Use role changes to select behavior: queue→work = task pickup, work→review = trigger validation, review→terminal = archive artifacts.
+ROLES — Transition responses include previousRole and newRole (queue, work, review, blocked, terminal). Use role changes to select behavior: queue→work = task pickup, work→review = trigger validation, review→terminal = archive artifacts. Use query_role_transitions to inspect transition audit trails for any entity.
 
 POST-TRANSITION — Check response for cascadeEvents (advance parent entities), unblockedTasks (newly available downstream work), flow context (activeFlow, flowSequence, flowPosition), and previousRole/newRole (role phase annotations). Act on cascades and unblocked tasks.
 

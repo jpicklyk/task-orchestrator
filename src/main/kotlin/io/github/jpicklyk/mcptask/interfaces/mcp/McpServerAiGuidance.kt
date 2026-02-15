@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 
 /**
@@ -19,11 +18,9 @@ object McpServerAiGuidance {
      * - MCP Resources (discoverable guidelines for AI agents)
      * - Enhanced tool descriptions and parameter documentation
      * - Server-level metadata and descriptions
-     *
-     * @param repositoryProvider Provider for accessing entity repositories
      */
-    fun Server.configureAiGuidance(repositoryProvider: RepositoryProvider) {
+    fun Server.configureAiGuidance() {
         // Configure MCP Resources for AI guidelines
-        TaskOrchestratorResources.configure(this, repositoryProvider)
+        TaskOrchestratorResources.configure(this)
     }
 }

@@ -94,7 +94,7 @@ These two documents are the **external-facing API contracts**. Any change to too
 
 2. **API Reference** — `docs/api-reference.md`
    - Complete MCP tools documentation with parameter tables, examples, and response shapes
-   - This is the **comprehensive reference** for all 13 tools — tool descriptions are summaries of this
+   - This is the **comprehensive reference** for all 14 tools — tool descriptions are summaries of this
 
 When modifying a tool's `description`, `parameterSchema`, or `outputSchema`, update both of these documents to stay in sync. If you're unsure whether a change is material enough to bump the setup instructions version, err on the side of bumping it — agents with stale instructions will auto-detect the mismatch.
 

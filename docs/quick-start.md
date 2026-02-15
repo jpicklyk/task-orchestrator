@@ -382,7 +382,7 @@ Modern checkout with payment processing, inventory validation, order confirmatio
 
 - **[📝 Templates](templates.md)** - 9 built-in templates explained
 - **[🤖 AI Guidelines](ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
-- **[🔧 API Reference](api-reference.md)** - Complete tool documentation (12 MCP tools)
+- **[🔧 API Reference](api-reference.md)** - Complete tool documentation (14 MCP tools)
 - **[📄 Status Progression](status-progression.md)** - Status workflow guide with examples
 
 ### Advanced Features

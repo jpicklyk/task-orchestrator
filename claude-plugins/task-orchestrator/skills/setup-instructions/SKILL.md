@@ -95,7 +95,7 @@ For detailed guidance beyond these rules, read these MCP resources:
 - `task-orchestrator://guidelines/template-strategy` — template discovery patterns and selection trees
 - `task-orchestrator://guidelines/task-management` — intent recognition and 6 executable workflow patterns
 - `task-orchestrator://guidelines/workflow-integration` — status flows, verification gates, update efficiency
-- `task-orchestrator://docs/tools/{tool-name}` — per-tool documentation (13 tools)
+- `task-orchestrator://docs/tools/{tool-name}` — per-tool documentation (14 tools)
 ```
 
 ---

@@ -1,18 +1,8 @@
 package io.github.jpicklyk.mcptask.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.domain.repository.Result
-import io.github.jpicklyk.mcptask.infrastructure.repository.RepositoryProvider
 import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.add
-import java.util.UUID
 
 /**
  * MCP Resources for Task Orchestrator AI Guidelines.
@@ -66,13 +56,12 @@ object TaskOrchestratorResources {
     /**
      * Configures all Task Orchestrator guideline resources with the MCP server.
      */
-    fun configure(server: Server, repositoryProvider: RepositoryProvider) {
+    fun configure(server: Server) {
         addUsageOverviewResource(server)
         addTemplateStrategyResource(server)
         addTaskManagementPatternsResource(server)
         addWorkflowIntegrationResource(server)
         addSetupInstructionsResource(server)
-        addRoleTransitionResource(server, repositoryProvider)
     }
 
     /**
@@ -1392,7 +1381,7 @@ For detailed guidance beyond these rules, read these MCP resources:
 - `task-orchestrator://guidelines/template-strategy` — template discovery patterns and selection trees
 - `task-orchestrator://guidelines/task-management` — intent recognition and 6 executable workflow patterns
 - `task-orchestrator://guidelines/workflow-integration` — status flows, verification gates, update efficiency
-- `task-orchestrator://docs/tools/{tool-name}` — per-tool documentation (13 tools)
+- `task-orchestrator://docs/tools/{tool-name}` — per-tool documentation (14 tools)
 ```
 
 ---
@@ -1408,112 +1397,4 @@ For detailed guidance beyond these rules, read these MCP resources:
         }
     }
 
-    /**
-     * Adds the role transition resource for querying transition history.
-     *
-     * Provides access to role transition records via `task-orchestrator://transitions/{entityId}`.
-     * Returns JSON with transition history including fromRole, toRole, fromStatus, toStatus,
-     * timestamp, trigger, and optional summary.
-     */
-    private fun addRoleTransitionResource(
-        server: Server,
-        repositoryProvider: RepositoryProvider
-    ) {
-        server.addResource(
-            uri = "task-orchestrator://transitions/{entityId}",
-            name = "Role Transition History",
-            description = "Query role transition history for a task, feature, or project by entity UUID",
-            mimeType = "application/json"
-        ) { request ->
-            val uriPath = request.uri
-            val entityIdStr = uriPath.substringAfterLast("/")
-
-            try {
-                val entityId = UUID.fromString(entityIdStr)
-                val roleTransitionRepository = repositoryProvider.roleTransitionRepository()
-
-                val result = runBlocking {
-                    roleTransitionRepository.findByEntityId(entityId)
-                }
-
-                when (result) {
-                    is Result.Success -> {
-                        val transitions = result.data
-                        val jsonContent = buildJsonObject {
-                            put("entityId", entityId.toString())
-                            putJsonArray("transitions") {
-                                transitions.forEach { transition ->
-                                    add(buildJsonObject {
-                                        put("id", transition.id.toString())
-                                        put("fromRole", transition.fromRole)
-                                        put("toRole", transition.toRole)
-                                        put("fromStatus", transition.fromStatus)
-                                        put("toStatus", transition.toStatus)
-                                        put("transitionedAt", transition.transitionedAt.toString())
-                                        put("trigger", transition.trigger ?: "")
-                                        put("summary", transition.summary ?: "")
-                                    })
-                                }
-                            }
-                            put("count", transitions.size)
-                        }
-
-                        ReadResourceResult(
-                            contents = listOf(
-                                TextResourceContents(
-                                    uri = uriPath,
-                                    mimeType = "application/json",
-                                    text = Json.encodeToString(
-                                        kotlinx.serialization.json.JsonObject.serializer(),
-                                        jsonContent
-                                    )
-                                )
-                            )
-                        )
-                    }
-                    is Result.Error -> {
-                        val errorJson = buildJsonObject {
-                            put("entityId", entityId.toString())
-                            putJsonArray("transitions") {}
-                            put("count", 0)
-                            put("error", result.error.message)
-                        }
-
-                        ReadResourceResult(
-                            contents = listOf(
-                                TextResourceContents(
-                                    uri = uriPath,
-                                    mimeType = "application/json",
-                                    text = Json.encodeToString(
-                                        kotlinx.serialization.json.JsonObject.serializer(),
-                                        errorJson
-                                    )
-                                )
-                            )
-                        )
-                    }
-                }
-            } catch (e: IllegalArgumentException) {
-                // Invalid UUID format
-                val errorJson = buildJsonObject {
-                    put("error", "Invalid entity ID format: $entityIdStr")
-                    putJsonArray("transitions") {}
-                    put("count", 0)
-                }
-
-                ReadResourceResult(
-                    contents = listOf(
-                        TextResourceContents(
-                            uri = uriPath,
-                            mimeType = "application/json",
-                            text = Json.encodeToString(
-                                kotlinx.serialization.json.JsonObject.serializer(),
-                                errorJson
-                            )
-                        )
-                    )
-                )
-            }
-        }
-    }
 }

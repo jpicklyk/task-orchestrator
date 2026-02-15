@@ -7,12 +7,13 @@ description: Navigate status workflows using get_next_status and request_transit
 
 Status changes are config-driven with validation, prerequisites, and cascade detection.
 
-## Two Tools, Two Purposes
+## Three Tools
 
 - `get_next_status` — read-only check of available transitions, blockers, active flow, and role annotations
 - `request_transition` — apply a status change with validation using named triggers
+- `query_role_transitions` — audit trail of role changes (queue->work, work->review, etc.) with timestamps, triggers, and status details. Use for workflow analytics, bottleneck detection, and entity lifecycle inspection.
 
-**Pattern:** Check readiness first, then transition.
+**Pattern:** Check readiness with `get_next_status`, transition with `request_transition`, audit with `query_role_transitions`.
 
 ## Named Triggers
 
@@ -108,22 +109,30 @@ Use `manage_dependencies` to set `unblockAt` when creating dependencies.
 
 The `complete` trigger resolves directly to `completed` status. With `enforce_sequential: true` (the default), `complete` only succeeds from the **penultimate status** in the active flow — one step before `completed`.
 
-### Default Flow (2 calls)
+### Default Flow (3 calls)
 
-For the default task flow (`pending -> in-progress -> completed`):
+For the default task flow (`backlog -> pending -> in-progress -> completed`):
+1. `request_transition(trigger="start")` — backlog to pending
+2. `request_transition(trigger="start")` — pending to in-progress
+3. `request_transition(trigger="complete")` — in-progress to completed
+
+### Shorter Flows (2 calls)
+
+For tagged flows with fewer statuses (e.g., `bug` uses `bug_fix_flow`: pending -> in-progress -> completed):
 1. `request_transition(trigger="start")` — pending to in-progress
 2. `request_transition(trigger="complete")` — in-progress to completed
 
-### Longer Flows (3+ calls)
+### Longer Flows (4+ calls)
 
 For tagged flows with additional statuses (e.g., `qa-required` uses `with_testing_flow`):
 1. Use `start` repeatedly to advance through intermediate statuses
 2. Use `complete` only from the penultimate status
 
-Example (`with_testing_flow`):
-1. `start` — pending to in-progress
-2. `start` — in-progress to testing
-3. `complete` — testing to completed
+Example (`with_testing_flow`: backlog -> pending -> in-progress -> testing -> completed):
+1. `start` — backlog to pending
+2. `start` — pending to in-progress
+3. `start` — in-progress to testing
+4. `complete` — testing to completed
 
 ### Recovery
 

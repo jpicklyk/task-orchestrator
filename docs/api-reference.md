@@ -5,7 +5,7 @@ title: API Reference
 
 # MCP Tools API Reference (v2.0)
 
-The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
+The MCP Task Orchestrator v2.0 provides **14 MCP tools** for AI-driven project management, achieving **70% token reduction** through container-based consolidation.
 
 > **Migration from v1.x**: See [v2.0 Migration Guide](migration/v2.0-migration-guide.md) for complete migration instructions.
 
@@ -31,6 +31,7 @@ The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project m
   - [get_blocked_tasks](#get_blocked_tasks) 🔍
   - [get_next_status](#get_next_status) 🔍
   - [request_transition](#request_transition) ✏️
+  - [query_role_transitions](#query_role_transitions) 🔍
 - [Permission Model](#permission-model)
 - [Best Practices](#best-practices)
 
@@ -42,7 +43,7 @@ The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project m
 
 ### Massive Consolidation
 
-**v1.x: 56 tools** → **v2.0: 13 tools** (77% reduction)
+**v1.x: 56 tools** → **v2.0: 14 tools** (75% reduction)
 
 | Category | v1.x Tools | v2.0 Tools | Reduction |
 |----------|------------|------------|-----------|
@@ -50,7 +51,7 @@ The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project m
 | Sections | 11 tools | 2 tools | 82% |
 | Templates | 9 tools | 3 tools | 67% |
 | Dependencies | 3 tools | 2 tools | 33% |
-| Workflow & Status | 6 tools | 3 tools | 50% |
+| Workflow & Status | 6 tools | 5 tools | 16% |
 
 ### Key Improvements
 
@@ -93,6 +94,7 @@ The MCP Task Orchestrator v2.0 provides **13 MCP tools** for AI-driven project m
 | `get_blocked_tasks` | 🔍 READ | (single operation) | Dependency blocking analysis |
 | `get_next_status` | 🔍 READ | (single operation) | Status progression recommendations with role annotations |
 | `request_transition` | ✏️ WRITE | (single operation) | Trigger-based status transitions with validation |
+| `query_role_transitions` | 🔍 READ | (single operation) | Query role transition audit trail for workflow analytics |
 
 ---
 
@@ -2185,16 +2187,16 @@ The tool analyzes the entity and workflow configuration to recommend the next st
 ```json
 {
   "success": true,
-  "message": "Ready to progress to 'testing' in default_flow",
+  "message": "Ready to progress to 'completed' in default_flow",
   "data": {
     "recommendation": "Ready",
-    "recommendedStatus": "testing",
+    "recommendedStatus": "completed",
     "currentStatus": "in-progress",
     "activeFlow": "default_flow",
-    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+    "flowSequence": ["backlog", "pending", "in-progress", "completed"],
     "currentPosition": 2,
     "matchedTags": ["backend", "api"],
-    "reason": "Task is ready to progress from in-progress to testing. All prerequisites met."
+    "reason": "Task is ready to progress from in-progress to completed. All prerequisites met."
   }
 }
 ```
@@ -2216,13 +2218,13 @@ The tool analyzes the entity and workflow configuration to recommend the next st
   "message": "Blocked by 1 issue(s)",
   "data": {
     "recommendation": "Blocked",
-    "currentStatus": "testing",
+    "currentStatus": "in-progress",
     "blockers": [
       "Task summary must be at most 500 characters (current: 50)"
     ],
     "activeFlow": "default_flow",
-    "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-    "currentPosition": 3,
+    "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+    "currentPosition": 2,
     "reason": "Cannot progress: Task summary must be at most 500 characters (current: 50)"
   }
 }
@@ -2417,7 +2419,7 @@ request_transition(containerId="...", containerType="task",
         "previousRole": "queue",
         "newRole": "work",
         "activeFlow": "default_flow",
-        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+        "flowSequence": ["backlog", "pending", "in-progress", "completed"],
         "flowPosition": 2,
         "cascadeEvents": [],
         "unblockedTasks": []
@@ -2457,12 +2459,12 @@ request_transition(containerId="...", containerType="task",
         "applied": true,
         "containerId": "640522b7-810e-49a2-865c-3725f5d39608",
         "newStatus": "completed",
-        "previousStatus": "testing",
+        "previousStatus": "in-progress",
         "previousRole": "work",
         "newRole": "terminal",
         "activeFlow": "default_flow",
-        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-        "flowPosition": 4,
+        "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+        "flowPosition": 3,
         "cascadeEvents": [],
         "unblockedTasks": [
           {
@@ -2525,12 +2527,12 @@ request_transition(containerId="...", containerType="task",
         "applied": true,
         "containerId": "task-1-uuid",
         "newStatus": "completed",
-        "previousStatus": "testing",
+        "previousStatus": "in-progress",
         "previousRole": "work",
         "newRole": "terminal",
         "activeFlow": "default_flow",
-        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-        "flowPosition": 4,
+        "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+        "flowPosition": 3,
         "cascadeEvents": [],
         "unblockedTasks": []
       },
@@ -2542,8 +2544,8 @@ request_transition(containerId="...", containerType="task",
         "previousRole": "work",
         "newRole": "terminal",
         "activeFlow": "default_flow",
-        "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
-        "flowPosition": 4,
+        "flowSequence": ["backlog", "pending", "in-progress", "completed"],
+        "flowPosition": 3,
         "cascadeEvents": [],
         "unblockedTasks": [
           {
@@ -2608,13 +2610,13 @@ request_transition(containerId="...", containerType="task",
 // Response indicates position in flow
 {
   "activeFlow": "default_flow",
-  "flowSequence": ["backlog", "pending", "in-progress", "testing", "completed"],
+  "flowSequence": ["backlog", "pending", "in-progress", "completed"],
   "flowPosition": 2  // Currently at "in-progress" (index 2)
 }
 
 // Calculate progress percentage
 const progress = (flowPosition / (flowSequence.length - 1)) * 100;
-// Result: (2 / 4) * 100 = 50% through workflow
+// Result: (2 / 3) * 100 = 67% through workflow
 ```
 
 #### Validation and Prerequisites
@@ -2748,6 +2750,121 @@ When a task completes or is cancelled, `request_transition` identifies downstrea
 
 - **[Status Progression Guide](status-progression.md)** - Comprehensive workflow examples
 - **[Workflow Configuration](../src/main/resources/configuration/default-config.yaml)** - Flow definitions
+
+---
+
+### query_role_transitions
+
+**Permission**: 🔍 READ-ONLY
+
+**Purpose**: Query role transition history for a task, feature, or project. Returns an audit trail of role changes (e.g., queue->work, work->review) with timestamps, triggers, and status details.
+
+**Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entityId` | UUID | **Yes** | UUID of the entity to query transitions for |
+| `entityType` | enum | No | Filter by entity type: `task`, `feature`, or `project`. If omitted, returns all transitions for the entityId. |
+| `limit` | integer | No | Maximum transitions to return (default: 50, max: 100) |
+| `fromRole` | string | No | Filter to transitions FROM this role (e.g., `queue`, `work`, `review`, `blocked`, `terminal`) |
+| `toRole` | string | No | Filter to transitions TO this role (e.g., `work`, `review`, `terminal`) |
+
+**Response Fields**:
+- `entityId` - The queried entity UUID
+- `transitionCount` - Number of transitions returned
+- `transitions` - Array of transition records, each with:
+  - `id` - Transition record UUID
+  - `entityId` - Entity UUID
+  - `entityType` - `task`, `feature`, or `project`
+  - `fromRole` - Role before transition (queue, work, review, blocked, terminal)
+  - `toRole` - Role after transition
+  - `fromStatus` - Status before transition
+  - `toStatus` - Status after transition
+  - `transitionedAt` - ISO 8601 timestamp
+  - `trigger` - Trigger that caused the transition (start, complete, cancel, block, hold)
+  - `summary` - Optional note about the transition
+
+#### Example - Get All Transitions for a Task
+
+**Request**:
+```json
+{
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "3 role transition(s) found for entity 640522b7",
+  "data": {
+    "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+    "transitionCount": 3,
+    "transitions": [
+      {
+        "id": "a1b2c3d4-...",
+        "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+        "entityType": "task",
+        "fromRole": "queue",
+        "toRole": "work",
+        "fromStatus": "pending",
+        "toStatus": "in-progress",
+        "transitionedAt": "2025-01-15T10:30:00Z",
+        "trigger": "start",
+        "summary": ""
+      },
+      {
+        "id": "e5f6a7b8-...",
+        "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+        "entityType": "task",
+        "fromRole": "work",
+        "toRole": "review",
+        "fromStatus": "in-progress",
+        "toStatus": "testing",
+        "transitionedAt": "2025-01-15T14:45:00Z",
+        "trigger": "start",
+        "summary": ""
+      },
+      {
+        "id": "c9d0e1f2-...",
+        "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+        "entityType": "task",
+        "fromRole": "review",
+        "toRole": "terminal",
+        "fromStatus": "testing",
+        "toStatus": "completed",
+        "transitionedAt": "2025-01-15T16:00:00Z",
+        "trigger": "complete",
+        "summary": "All tests passing"
+      }
+    ]
+  }
+}
+```
+
+#### Example - Filter by Role Transition
+
+**Request** (find all transitions into the review phase):
+```json
+{
+  "entityId": "640522b7-810e-49a2-865c-3725f5d39608",
+  "toRole": "review"
+}
+```
+
+#### Use Cases
+
+- **Workflow analytics**: Calculate time-in-role metrics (e.g., how long tasks spend in work vs review)
+- **Audit trail**: Track when an entity entered or exited each workflow phase
+- **Bottleneck detection**: Identify slow role transitions across a project
+- **Reporting**: Role-based velocity and throughput dashboards
+
+#### Related Tools
+
+- `request_transition` - Create status transitions (which generate role transition records)
+- `get_next_status` - Preview what the next transition would be
+- `query_container` - Get entity details with `role` filter parameter
 
 ---
 
@@ -3181,4 +3298,4 @@ AI Workflow:
 
 **Last Updated**: 2025-11-03
 **Version**: 2.0.0
-**Tool Count**: 13 tools (77% reduction from v1.x)
+**Tool Count**: 14 tools (75% reduction from v1.x)

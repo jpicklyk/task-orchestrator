@@ -144,9 +144,9 @@ private fun getConfigPath(): Path {
 - `StatusProgressionServiceImpl` - Reads `.taskorchestrator/config.yaml`
 - Any future services accessing `.taskorchestrator/` configuration
 
-## MCP Tools (13 tools)
+## MCP Tools (14 tools)
 
-The server exposes 13 MCP tools organized into categories:
+The server exposes 14 MCP tools organized into categories:
 
 ### Container Management (unified CRUD for Projects/Features/Tasks)
 - **`manage_container`** - Write operations: create, update, delete (all use array parameters)
@@ -172,6 +172,7 @@ The server exposes 13 MCP tools organized into categories:
 ### Status Progression
 - **`get_next_status`** - Read-only status progression recommendations based on workflow configuration. Returns role annotations (queue, work, review, blocked, terminal) for semantic context.
 - **`request_transition`** - Trigger-based status transitions with validation. Use named triggers (start, complete, cancel, block, hold) instead of raw status values. Supports batch transitions via `transitions` array parameter. Responses include flow context (activeFlow, flowSequence, flowPosition). Cascade events detected after transitions are automatically applied by default (task completion -> feature advancement -> project advancement). Configure via `auto_cascade` section in `.taskorchestrator/config.yaml`. Responses include `cascadeEvents` with `applied: true/false` and nested `childCascades`.
+- **`query_role_transitions`** - Query role transition history for a task, feature, or project. Returns an audit trail of role changes (e.g., queue to work, work to review) with timestamps, triggers, and status details.
 
 ### Status Management Workflow
 
