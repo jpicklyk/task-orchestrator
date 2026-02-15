@@ -144,6 +144,7 @@ class ValidateTransitionSignatureTest {
         val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.IN_PROGRESS)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
 
         val context = StatusValidator.PrerequisiteContext(

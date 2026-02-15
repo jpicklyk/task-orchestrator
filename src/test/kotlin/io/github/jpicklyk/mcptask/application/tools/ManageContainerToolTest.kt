@@ -1054,6 +1054,7 @@ class ManageContainerToolTest {
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(mockTask)
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedTask)
             every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(taskId) } returns emptyList()
 
             val result = tool.execute(params, context)
 
@@ -1559,6 +1560,7 @@ class ManageContainerToolTest {
             coEvery { mockTaskRepository.update(match { it.id == taskId }) } returns Result.Success(updatedTask1)
             coEvery { mockTaskRepository.update(match { it.id == task2Id }) } returns Result.Success(updatedTask2)
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
 
             val result = tool.execute(params, context)
 

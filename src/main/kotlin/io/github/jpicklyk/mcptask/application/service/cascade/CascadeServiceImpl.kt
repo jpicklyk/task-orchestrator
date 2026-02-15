@@ -55,7 +55,8 @@ class CascadeServiceImpl(
     private val projectRepository: ProjectRepository,
     private val dependencyRepository: DependencyRepository,
     private val sectionRepository: SectionRepository,
-    private val aggregationRules: List<RoleAggregationConfig> = emptyList()
+    private val aggregationRules: List<RoleAggregationConfig> = emptyList(),
+    private val roleTransitionRepository: RoleTransitionRepository? = null
 ) : CascadeService {
 
     private val logger = LoggerFactory.getLogger(CascadeServiceImpl::class.java)
@@ -462,6 +463,16 @@ class CascadeServiceImpl(
                     continue
                 }
 
+                // Record role transition for the cascade status change
+                recordRoleTransition(
+                    entityId = event.targetId,
+                    entityType = event.targetType.name.lowercase(),
+                    currentStatus = currentStatus,
+                    targetStatus = event.suggestedStatus,
+                    tags = tags,
+                    trigger = "cascade:${event.event}"
+                )
+
                 // Find newly unblocked tasks if this was a task-type cascade target at terminal role
                 val unblockedTasks = if (event.targetType.name.lowercase() == "task") {
                     val suggestedRole = statusProgressionService.getRoleForStatus(
@@ -517,6 +528,40 @@ class CascadeServiceImpl(
         return results
     }
 
+    /**
+     * Records a role transition for a cascade status change.
+     * Silently skips if roleTransitionRepository is null or if roles are the same.
+     */
+    private suspend fun recordRoleTransition(
+        entityId: UUID,
+        entityType: String,
+        currentStatus: String,
+        targetStatus: String,
+        tags: List<String>,
+        trigger: String
+    ) {
+        if (roleTransitionRepository == null) return
+        try {
+            val previousRole = statusProgressionService.getRoleForStatus(currentStatus, entityType, tags)
+            val newRole = statusProgressionService.getRoleForStatus(targetStatus, entityType, tags)
+            if (previousRole != null && newRole != null && previousRole != newRole) {
+                val roleTransition = RoleTransition(
+                    entityId = entityId,
+                    entityType = entityType,
+                    fromRole = previousRole,
+                    toRole = newRole,
+                    fromStatus = currentStatus,
+                    toStatus = targetStatus,
+                    trigger = trigger,
+                    summary = "Auto-cascade status change"
+                )
+                roleTransitionRepository.create(roleTransition)
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to record role transition for cascade on $entityType $entityId: ${e.message}")
+        }
+    }
+
     override suspend fun findNewlyUnblockedTasks(completedTaskId: UUID): List<DomainUnblockedTask> {
         return try {
             // Get outgoing dependencies from the completed/cancelled task
@@ -537,13 +582,17 @@ class CascadeServiceImpl(
                 val downstreamRole = statusProgressionService.getRoleForStatus(downstreamStatus, "task", downstreamTask.tags)
                 if (statusProgressionService.isRoleAtOrBeyond(downstreamRole, "terminal")) continue
 
-                // Get ALL incoming dependencies for the downstream task
-                val incomingDeps = dependencyRepository.findByToTaskId(downstreamTaskId)
+                // Get ALL blocking dependencies for the downstream task (both directions):
+                // 1. BLOCKS deps where downstream is toTaskId
+                // 2. IS_BLOCKED_BY deps where downstream is fromTaskId
+                val downstreamBlocksDeps = dependencyRepository.findByToTaskId(downstreamTaskId)
+                    .filter { it.type != DependencyType.RELATES_TO }
+                val downstreamIsBlockedByDeps = dependencyRepository.findByFromTaskId(downstreamTaskId)
+                    .filter { it.type == DependencyType.IS_BLOCKED_BY }
+                val allDownstreamBlockingDeps = downstreamBlocksDeps + downstreamIsBlockedByDeps
 
                 // Check if ALL blocking dependencies are resolved using role-aware + unblockAt-aware logic
-                val allBlockersResolved = incomingDeps.all { incomingDep ->
-                    // RELATES_TO has no blocking semantics — always satisfied
-                    if (incomingDep.type == DependencyType.RELATES_TO) return@all true
+                val allBlockersResolved = allDownstreamBlockingDeps.all { incomingDep ->
 
                     val blockerTaskId = incomingDep.getBlockerTaskId()
                     val blockerTask = taskRepository.getById(blockerTaskId).getOrNull()

@@ -283,6 +283,7 @@ class GetBlockedTasksTool : BaseToolDefinition() {
     /**
      * Finds which tasks are blocked by incomplete dependencies.
      * Uses role-aware checking when StatusProgressionService is available.
+     * Checks both BLOCKS and IS_BLOCKED_BY dependency types.
      */
     private suspend fun findBlockedTasks(
         tasks: List<Task>,
@@ -293,21 +294,24 @@ class GetBlockedTasksTool : BaseToolDefinition() {
         val statusProgressionService = context.statusProgressionService()
 
         for (task in tasks) {
-            // Get incoming dependencies (tasks that block this one)
-            val incomingDeps = context.repositoryProvider.dependencyRepository().findByToTaskId(task.id)
+            // Get all dependencies where this task is the blocked party:
+            // 1. BLOCKS deps where this task is the toTaskId (findByToTaskId)
+            // 2. IS_BLOCKED_BY deps where this task is the fromTaskId (findByFromTaskId)
+            val blocksDeps = context.repositoryProvider.dependencyRepository().findByToTaskId(task.id)
+                .filter { it.type == DependencyType.BLOCKS }
+            val isBlockedByDeps = context.repositoryProvider.dependencyRepository().findByFromTaskId(task.id)
+                .filter { it.type == DependencyType.IS_BLOCKED_BY }
+            val allBlockingDeps = blocksDeps + isBlockedByDeps
 
-            if (incomingDeps.isEmpty()) {
-                // No dependencies, not blocked
+            if (allBlockingDeps.isEmpty()) {
+                // No blocking dependencies, not blocked
                 continue
             }
 
             // Check which blockers are incomplete
             val incompleteBlockers = mutableListOf<JsonObject>()
 
-            for (dep in incomingDeps) {
-                // Only BLOCKS and IS_BLOCKED_BY create actual blocking
-                if (dep.type == DependencyType.RELATES_TO) continue
-
+            for (dep in allBlockingDeps) {
                 val blockerTaskId = dep.getBlockerTaskId()
                 // Get the blocking task
                 when (val blockerResult = context.taskRepository().getById(blockerTaskId)) {

@@ -38,7 +38,10 @@ class ManageContainerTool(
         val errorCode: String? = null
     )
 
+    // StatusValidator without service — used for status string validation in validateParams()
+    // and parse*Status() methods which don't need role-aware dependency checks.
     private val statusValidator = StatusValidator()
+
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val toolAnnotations: ToolAnnotations = ToolAnnotations(
@@ -1399,13 +1402,15 @@ Docs: task-orchestrator://docs/tools/manage-container
         // Validate status transition when status is being changed
         val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
         if (statusStr != null && statusStr != currentStatusStr) {
+            // Create service-aware StatusValidator for role-based dependency checks
+            val transitionValidator = StatusValidator(context.statusProgressionService())
             val prerequisiteContext = StatusValidator.PrerequisiteContext(
                 taskRepository = context.taskRepository(),
                 featureRepository = context.featureRepository(),
                 projectRepository = context.projectRepository(),
                 dependencyRepository = context.dependencyRepository()
             )
-            val transitionValidation = statusValidator.validateTransition(
+            val transitionValidation = transitionValidator.validateTransition(
                 currentStatusStr, statusStr, "project", id, prerequisiteContext, existing.tags
             )
             if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
@@ -1465,13 +1470,15 @@ Docs: task-orchestrator://docs/tools/manage-container
         // Validate status transition when status is being changed
         val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
         if (statusStr != null && statusStr != currentStatusStr) {
+            // Create service-aware StatusValidator for role-based dependency checks
+            val transitionValidator = StatusValidator(context.statusProgressionService())
             val prerequisiteContext = StatusValidator.PrerequisiteContext(
                 taskRepository = context.taskRepository(),
                 featureRepository = context.featureRepository(),
                 projectRepository = context.projectRepository(),
                 dependencyRepository = context.dependencyRepository()
             )
-            val transitionValidation = statusValidator.validateTransition(
+            val transitionValidation = transitionValidator.validateTransition(
                 currentStatusStr, statusStr, "feature", id, prerequisiteContext, existing.tags
             )
             if (transitionValidation is StatusValidator.ValidationResult.Invalid) {
@@ -1538,13 +1545,15 @@ Docs: task-orchestrator://docs/tools/manage-container
         // Validate status transition when status is being changed
         val currentStatusStr = existing.status.name.lowercase().replace('_', '-')
         if (statusStr != null && statusStr != currentStatusStr) {
+            // Create service-aware StatusValidator for role-based dependency checks
+            val transitionValidator = StatusValidator(context.statusProgressionService())
             val prerequisiteContext = StatusValidator.PrerequisiteContext(
                 taskRepository = context.taskRepository(),
                 featureRepository = context.featureRepository(),
                 projectRepository = context.projectRepository(),
                 dependencyRepository = context.dependencyRepository()
             )
-            val transitionValidation = statusValidator.validateTransition(
+            val transitionValidation = transitionValidator.validateTransition(
                 currentStatusStr, statusStr, "task", id, prerequisiteContext, existing.tags
             )
             if (transitionValidation is StatusValidator.ValidationResult.Invalid) {

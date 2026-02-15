@@ -88,7 +88,8 @@ class McpServer(
             projectRepository = repositoryProvider.projectRepository(),
             dependencyRepository = repositoryProvider.dependencyRepository(),
             sectionRepository = repositoryProvider.sectionRepository(),
-            aggregationRules = aggregationRules
+            aggregationRules = aggregationRules,
+            roleTransitionRepository = repositoryProvider.roleTransitionRepository()
         )
 
         // Initialize tool execution context with status progression service and cascade service

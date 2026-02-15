@@ -292,11 +292,14 @@ class StatusValidator(
     ): ValidationResult {
         return when (newStatus) {
             "in-progress" -> {
-                // Check for blocking dependencies
-                val dependencies = context.dependencyRepository.findByToTaskId(taskId)
-                val blockingDeps = dependencies.filter {
-                    it.type == io.github.jpicklyk.mcptask.domain.model.DependencyType.BLOCKS
-                }
+                // Check for blocking dependencies in both directions:
+                // 1. BLOCKS deps where this task is toTaskId (findByToTaskId)
+                // 2. IS_BLOCKED_BY deps where this task is fromTaskId (findByFromTaskId)
+                val blocksDeps = context.dependencyRepository.findByToTaskId(taskId)
+                    .filter { it.type == io.github.jpicklyk.mcptask.domain.model.DependencyType.BLOCKS }
+                val isBlockedByDeps = context.dependencyRepository.findByFromTaskId(taskId)
+                    .filter { it.type == io.github.jpicklyk.mcptask.domain.model.DependencyType.IS_BLOCKED_BY }
+                val blockingDeps = blocksDeps + isBlockedByDeps
 
                 if (blockingDeps.isEmpty()) {
                     return ValidationResult.Valid
@@ -306,7 +309,7 @@ class StatusValidator(
                 val incompleteBlockers = mutableListOf<String>()
 
                 for (dep in blockingDeps) {
-                    val blockerResult = context.taskRepository.getById(dep.fromTaskId)
+                    val blockerResult = context.taskRepository.getById(dep.getBlockerTaskId())
                     if (blockerResult.isSuccess()) {
                         val blocker = blockerResult.getOrNull()
                         if (blocker != null) {

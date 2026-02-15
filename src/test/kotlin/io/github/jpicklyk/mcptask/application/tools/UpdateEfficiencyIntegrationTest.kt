@@ -122,6 +122,7 @@ class UpdateEfficiencyIntegrationTest {
 
         // Mock dependency operations (needed for StatusValidator prerequisite checks)
         coEvery { dependencyRepo.findByToTaskId(any()) } returns emptyList()
+        every { dependencyRepo.findByFromTaskId(any()) } returns emptyList()
     }
 
     @Test

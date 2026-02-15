@@ -42,8 +42,6 @@ class RequestTransitionTool(
     private val statusProgressionService: StatusProgressionService
 ) : BaseToolDefinition() {
 
-    private val statusValidator = StatusValidator()
-
     override val category: ToolCategory = ToolCategory.TASK_MANAGEMENT
 
     override val toolAnnotations: ToolAnnotations = ToolAnnotations(
@@ -391,6 +389,9 @@ Related: manage_container, get_next_status"""
                     put("applied", false)
                 }
             }
+
+            // Create StatusValidator with service from context for role-aware dependency checks
+            val statusValidator = StatusValidator(context.statusProgressionService())
 
             // Build prerequisite context for validation
             val prerequisiteContext = StatusValidator.PrerequisiteContext(

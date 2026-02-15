@@ -588,6 +588,7 @@ class StatusValidatorTest {
         val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.IN_PROGRESS)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
 
         val context = StatusValidator.PrerequisiteContext(
@@ -621,6 +622,7 @@ class StatusValidatorTest {
         val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.COMPLETED)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
 
         val context = StatusValidator.PrerequisiteContext(
@@ -640,6 +642,7 @@ class StatusValidatorTest {
         val mockDependencyRepo = mockk<DependencyRepository>()
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns emptyList()
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
 
         val context = StatusValidator.PrerequisiteContext(
             mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
@@ -927,6 +930,7 @@ class StatusValidatorTest {
         val cancelledBlocker = createMockTask(blockerId, "Cancelled Blocker", TaskStatus.CANCELLED)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(cancelledBlocker)
 
         val context = StatusValidator.PrerequisiteContext(
@@ -1934,6 +1938,7 @@ class StatusValidatorTest {
         val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.IN_PROGRESS)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
 
         val context = StatusValidator.PrerequisiteContext(
@@ -1971,6 +1976,7 @@ class StatusValidatorTest {
         val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.PENDING)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
 
         val context = StatusValidator.PrerequisiteContext(
@@ -2011,6 +2017,7 @@ class StatusValidatorTest {
         val blockerTask = createMockTask(blockerId, "Blocker Task", TaskStatus.IN_PROGRESS)
 
         coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blockingDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns emptyList()
         coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
 
         val context = StatusValidator.PrerequisiteContext(
@@ -2150,6 +2157,125 @@ class StatusValidatorTest {
         val result = validatorWithService.validatePrerequisites(projectId, "completed", "project", context)
         assertTrue(result is StatusValidator.ValidationResult.Valid,
             "Project should complete when all features are terminal via service")
+    }
+
+    // ========== IS_BLOCKED_BY DIRECTION TESTS ==========
+
+    @Test
+    fun `prerequisite - task IN_PROGRESS blocked by IS_BLOCKED_BY dependency`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // IS_BLOCKED_BY: task (from) IS_BLOCKED_BY blocker (to)
+        val isBlockedByDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = taskId,
+            toTaskId = blockerId,
+            type = DependencyType.IS_BLOCKED_BY,
+            createdAt = Instant.now()
+        )
+
+        val blockerTask = createMockTask(blockerId, "IS_BLOCKED_BY Blocker", TaskStatus.IN_PROGRESS)
+
+        // No BLOCKS deps for this task
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns emptyList()
+        // IS_BLOCKED_BY dep from this task
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns listOf(isBlockedByDep)
+        coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(blockerTask)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "IS_BLOCKED_BY dependency should block task from starting")
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("blocked by"))
+        assertTrue(invalid.reason.contains("IS_BLOCKED_BY Blocker"))
+    }
+
+    @Test
+    fun `prerequisite - task IN_PROGRESS succeeds when IS_BLOCKED_BY blocker is completed`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        val isBlockedByDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = taskId,
+            toTaskId = blockerId,
+            type = DependencyType.IS_BLOCKED_BY,
+            createdAt = Instant.now()
+        )
+
+        val completedBlocker = createMockTask(blockerId, "Completed Blocker", TaskStatus.COMPLETED)
+
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns emptyList()
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns listOf(isBlockedByDep)
+        coEvery { mockTaskRepo.getById(blockerId) } returns Result.Success(completedBlocker)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Valid,
+            "Completed IS_BLOCKED_BY blocker should not block task from starting")
+    }
+
+    @Test
+    fun `prerequisite - mixed BLOCKS and IS_BLOCKED_BY both detected`() = runBlocking {
+        val taskId = UUID.randomUUID()
+        val blockerAId = UUID.randomUUID()
+        val blockerBId = UUID.randomUUID()
+        val mockFeatureRepo = mockk<FeatureRepository>()
+        val mockTaskRepo = mockk<TaskRepository>()
+        val mockProjectRepo = mockk<ProjectRepository>()
+        val mockDependencyRepo = mockk<DependencyRepository>()
+
+        // BLOCKS: blockerA (from) blocks task (to)
+        val blocksDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = blockerAId,
+            toTaskId = taskId,
+            type = DependencyType.BLOCKS,
+            createdAt = Instant.now()
+        )
+        // IS_BLOCKED_BY: task (from) IS_BLOCKED_BY blockerB (to)
+        val isBlockedByDep = Dependency(
+            id = UUID.randomUUID(),
+            fromTaskId = taskId,
+            toTaskId = blockerBId,
+            type = DependencyType.IS_BLOCKED_BY,
+            createdAt = Instant.now()
+        )
+
+        val blockerA = createMockTask(blockerAId, "BLOCKS Blocker", TaskStatus.PENDING)
+        val blockerB = createMockTask(blockerBId, "IS_BLOCKED_BY Blocker", TaskStatus.IN_PROGRESS)
+
+        coEvery { mockDependencyRepo.findByToTaskId(taskId) } returns listOf(blocksDep)
+        every { mockDependencyRepo.findByFromTaskId(taskId) } returns listOf(isBlockedByDep)
+        coEvery { mockTaskRepo.getById(blockerAId) } returns Result.Success(blockerA)
+        coEvery { mockTaskRepo.getById(blockerBId) } returns Result.Success(blockerB)
+
+        val context = StatusValidator.PrerequisiteContext(
+            mockTaskRepo, mockFeatureRepo, mockProjectRepo, mockDependencyRepo
+        )
+
+        val result = validator.validatePrerequisites(taskId, "in-progress", "task", context)
+        assertTrue(result is StatusValidator.ValidationResult.Invalid,
+            "Both BLOCKS and IS_BLOCKED_BY blockers should be detected")
+        val invalid = result as StatusValidator.ValidationResult.Invalid
+        assertTrue(invalid.reason.contains("2 incomplete task(s)"),
+            "Should report 2 blockers but got: ${invalid.reason}")
     }
 
     /**

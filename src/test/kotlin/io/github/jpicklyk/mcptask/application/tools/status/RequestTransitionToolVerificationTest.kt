@@ -261,6 +261,7 @@ class RequestTransitionToolVerificationTest {
             // Mock dependency check
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskId.toString())

@@ -393,6 +393,7 @@ class RequestTransitionToolTest {
             // Mock dependency repository for prerequisite validation
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskId.toString())
@@ -1214,6 +1215,7 @@ class RequestTransitionToolTest {
 
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
 
             val params = buildJsonObject {
                 put("containerId", taskId.toString())
@@ -2775,6 +2777,7 @@ status_validation:
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
 
             // Mock status progression service to return role changes
             coEvery { mockStatusProgressionService.getNextStatus(any(), any(), any()) } returns
@@ -2880,6 +2883,7 @@ status_validation:
             coEvery { mockTaskRepository.update(any()) } returns Result.Success(inProgressTask)
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
 
             // Mock status progression service
             coEvery { mockStatusProgressionService.getNextStatus(any(), any(), any()) } returns
@@ -2975,6 +2979,264 @@ status_validation:
             coVerify(exactly = 0) {
                 mockRoleTransitionRepository.create(any())
             }
+        }
+    }
+
+    @Nested
+    inner class UnblockAtDependencyGatingTests {
+
+        /**
+         * These tests verify that StatusValidator correctly evaluates role-based unblockAt
+         * thresholds when the StatusProgressionService is available via ToolExecutionContext.
+         *
+         * The bug: StatusValidator was created at class level without StatusProgressionService,
+         * causing isStatusAtOrBeyondRole() to return false for ALL non-terminal unblockAt thresholds
+         * -- even when the blocker was COMPLETED. The fix creates StatusValidator inside execute()
+         * using context.statusProgressionService().
+         */
+
+        private val blockerTaskId = UUID.randomUUID()
+        private val blockedTaskId = UUID.randomUUID()
+
+        private fun createTestTask(
+            id: UUID,
+            title: String,
+            status: TaskStatus = TaskStatus.PENDING,
+            summary: String = "Test summary"
+        ): Task = Task(
+            id = id,
+            title = title,
+            description = "Description",
+            summary = summary,
+            status = status,
+            priority = Priority.HIGH,
+            complexity = 5,
+            tags = emptyList(),
+            featureId = featureId,
+            projectId = projectId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        /**
+         * Helper to set up the context with the StatusProgressionService available.
+         * This is critical: the fix passes context.statusProgressionService() into
+         * the StatusValidator constructor, so the context must have the service.
+         */
+        private fun createContextWithService(): ToolExecutionContext {
+            return ToolExecutionContext(
+                repositoryProvider = mockRepositoryProvider,
+                statusProgressionService = mockStatusProgressionService,
+                cascadeService = mockCascadeService
+            )
+        }
+
+        /**
+         * Helper to set up common mocks for "start" trigger on a pending task.
+         */
+        private fun setupStartTriggerMocks() {
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = any(),
+                containerType = any(),
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow workflow"
+            )
+
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled")
+            )
+        }
+
+        @Test
+        fun `transition succeeds with work-gated dependency when blocker at work role`() = runBlocking {
+            // Blocker is IN_PROGRESS (role = "work"), dependency has unblockAt = "work"
+            // Since work >= work threshold, the blocked task should be able to start
+            val contextWithService = createContextWithService()
+            setupStartTriggerMocks()
+
+            val blockerTask = createTestTask(blockerTaskId, "Blocker Task", TaskStatus.IN_PROGRESS)
+            val blockedTask = createTestTask(blockedTaskId, "Blocked Task", TaskStatus.PENDING)
+            val updatedBlockedTask = blockedTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            // Fetch entity details for the blocked task
+            coEvery { mockTaskRepository.getById(blockedTaskId) } returns Result.Success(blockedTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedBlockedTask)
+
+            // Blocker task lookup during prerequisite validation
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(blockerTask)
+
+            // Dependency: blockerTask BLOCKS blockedTask with unblockAt = "work"
+            val workGatedDep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = blockedTaskId,
+                type = DependencyType.BLOCKS,
+                unblockAt = "work"
+            )
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(blockedTaskId) } returns listOf(workGatedDep)
+            every { mockDependencyRepository.findByFromTaskId(blockedTaskId) } returns emptyList()
+
+            // Role lookups: IN_PROGRESS maps to "work" role
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+
+            val params = buildJsonObject {
+                put("containerId", blockedTaskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, contextWithService) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Transition should succeed")
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean, "Transition should be applied")
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `transition succeeds with work-gated dependency when blocker completed`() = runBlocking {
+            // Blocker is COMPLETED (role = "terminal"), dependency has unblockAt = "work"
+            // Since terminal >= work threshold, the blocked task should be able to start
+            val contextWithService = createContextWithService()
+            setupStartTriggerMocks()
+
+            val blockerTask = createTestTask(blockerTaskId, "Blocker Task", TaskStatus.COMPLETED)
+            val blockedTask = createTestTask(blockedTaskId, "Blocked Task", TaskStatus.PENDING)
+            val updatedBlockedTask = blockedTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            coEvery { mockTaskRepository.getById(blockedTaskId) } returns Result.Success(blockedTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedBlockedTask)
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(blockerTask)
+
+            val workGatedDep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = blockedTaskId,
+                type = DependencyType.BLOCKS,
+                unblockAt = "work"
+            )
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(blockedTaskId) } returns listOf(workGatedDep)
+            every { mockDependencyRepository.findByFromTaskId(blockedTaskId) } returns emptyList()
+
+            // COMPLETED maps to "terminal" role
+            every { mockStatusProgressionService.getRoleForStatus("completed", "task", any()) } returns "terminal"
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            val params = buildJsonObject {
+                put("containerId", blockedTaskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, contextWithService) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Transition should succeed")
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean, "Transition should be applied")
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `transition blocked with work-gated dependency when blocker at queue role`() = runBlocking {
+            // Blocker is PENDING (role = "queue"), dependency has unblockAt = "work"
+            // Since queue < work threshold, the blocked task should NOT be able to start
+            val contextWithService = createContextWithService()
+            setupStartTriggerMocks()
+
+            val blockerTask = createTestTask(blockerTaskId, "Blocker Task", TaskStatus.PENDING)
+            val blockedTask = createTestTask(blockedTaskId, "Blocked Task", TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.getById(blockedTaskId) } returns Result.Success(blockedTask)
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(blockerTask)
+
+            val workGatedDep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = blockedTaskId,
+                type = DependencyType.BLOCKS,
+                unblockAt = "work"
+            )
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(blockedTaskId) } returns listOf(workGatedDep)
+            every { mockDependencyRepository.findByFromTaskId(blockedTaskId) } returns emptyList()
+
+            // PENDING maps to "queue" role
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+
+            val params = buildJsonObject {
+                put("containerId", blockedTaskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, contextWithService) as JsonObject
+
+            // The transition should be blocked -- tool returns error response
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "Request should not succeed")
+
+            // Verify the error message mentions blocking
+            val message = result["message"]?.jsonPrimitive?.content ?: ""
+            assertTrue(
+                message.contains("blocked", ignoreCase = true),
+                "Error message should mention blocking: '$message'"
+            )
+        }
+
+        @Test
+        fun `transition succeeds with review-gated dependency when blocker at review role`() = runBlocking {
+            // Blocker is at TESTING status (role = "review"), dependency has unblockAt = "review"
+            // Since review >= review threshold, the blocked task should be able to start
+            val contextWithService = createContextWithService()
+            setupStartTriggerMocks()
+
+            val blockerTask = createTestTask(blockerTaskId, "Blocker Task", TaskStatus.TESTING)
+            val blockedTask = createTestTask(blockedTaskId, "Blocked Task", TaskStatus.PENDING)
+            val updatedBlockedTask = blockedTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            coEvery { mockTaskRepository.getById(blockedTaskId) } returns Result.Success(blockedTask)
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(updatedBlockedTask)
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(blockerTask)
+
+            val reviewGatedDep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = blockedTaskId,
+                type = DependencyType.BLOCKS,
+                unblockAt = "review"
+            )
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(blockedTaskId) } returns listOf(reviewGatedDep)
+            every { mockDependencyRepository.findByFromTaskId(blockedTaskId) } returns emptyList()
+
+            // TESTING maps to "review" role
+            every { mockStatusProgressionService.getRoleForStatus("testing", "task", any()) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            val params = buildJsonObject {
+                put("containerId", blockedTaskId.toString())
+                put("containerType", "task")
+                put("trigger", "start")
+            }
+
+            val result = tool.execute(params, contextWithService) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Transition should succeed")
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean, "Transition should be applied")
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
         }
     }
 }
