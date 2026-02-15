@@ -111,6 +111,62 @@ The codebase follows **Clean Architecture** with four distinct layers:
 5. **Template Method** - BaseToolDefinition provides structure for all tools
 6. **Result Pattern** - Type-safe error handling with `Result<T>` sealed class
 
+## Tight Coupling Areas
+
+When modifying these areas, changes in one location require synchronized updates in others.
+
+### Adding a New Status Enum Value
+
+Four locations must stay in sync:
+
+1. **Domain enum** — Add value to `TaskStatus`, `FeatureStatus`, or `ProjectStatus` in `domain/model/`
+2. **Flyway migration** — New `V{N}__*.sql` recreating the table with updated `CHECK (status IN (...))` constraint (SQLite has no `ALTER TYPE`)
+3. **Workflow config** — Add status to relevant flows and `status_roles` in `src/main/resources/configuration/default-config.yaml`
+4. **Role mapping** — Ensure the new status maps to a role (queue/work/review/terminal) in the config's `status_roles` section
+
+There is **no compile-time validation** between SQL CHECK constraints and Kotlin enum values. A mismatch causes runtime failures on insert.
+
+**Status normalization**: YAML uses `lowercase-with-hyphens` (e.g., `in-progress`). Domain enums use `UPPERCASE_UNDERSCORES` (e.g., `IN_PROGRESS`). The conversion is `status.uppercase().replace('-', '_')` in tools. Mismatches fail silently at transition time.
+
+### Service Dependency Graph
+
+```
+RequestTransitionTool
+├── StatusProgressionService  (resolves trigger → target status, role lookups)
+├── StatusValidator           (validates transitions, checks prerequisites)
+├── CascadeService            (detects & applies cascades, finds unblocked tasks)
+│   ├── StatusProgressionService  (cascade target resolution)
+│   └── StatusValidator           (cascade validation)
+└── RoleTransitionRepository  (records role change audit trail)
+```
+
+`StatusValidator` and `StatusProgressionService` each maintain **independent config caches** (60s TTL). Both read from `.taskorchestrator/config.yaml` but do not share state. `CascadeService` depends on both.
+
+### DirectDatabaseSchemaManager Table Ordering
+
+`DirectDatabaseSchemaManager` maintains a **manually-ordered list** of table objects. Tables must appear in foreign-key dependency order (e.g., `ProjectsTable` before `FeaturesTable` before `TaskTable`). Adding a new table requires inserting it at the correct position — the Kotlin compiler cannot detect incorrect ordering.
+
+### Template Initializer Registration
+
+Adding a built-in template requires three changes in `TemplateInitializerImpl.kt`:
+1. Add template name to the `templateNames` list
+2. Add a `when` branch mapping the name to a creator method
+3. Add the private creator method calling the template creator object
+
+Additionally, `ApplyTemplateTool` has a hardcoded check for the **"Verification"** section title — if a template includes a section named "Verification", the tool auto-sets `requiresVerification=true` on the target entity.
+
+### ToolExecutionContext
+
+All tools receive a shared `ToolExecutionContext` constructed in `McpServer.kt`:
+```kotlin
+ToolExecutionContext(repositoryProvider, statusProgressionService, cascadeService)
+```
+- `repositoryProvider` — access to all repositories (task, feature, project, section, template, dependency, roleTransition)
+- `statusProgressionService` — optional, for role-aware status operations
+- `cascadeService` — optional, for cascade detection and application
+
+Adding a new service dependency requires updating both the context class and the `McpServer` construction site.
+
 ## Configuration Directory (AGENT_CONFIG_DIR)
 
 **CRITICAL:** All services that read configuration files from `.taskorchestrator/` MUST support the `AGENT_CONFIG_DIR` environment variable for Docker compatibility.
@@ -201,21 +257,30 @@ query_templates(targetEntityType="TASK", isEnabled=true)
 
 1. Create tool class extending `BaseToolDefinition` in `application/tools/`
 2. Implement `validateParams()` and `execute()` methods
-3. Register in `McpServer.createTools()`
-4. Add tests in `src/test/kotlin/application/tools/`
+3. Register in `McpServer.createTools()` — pass required services from context
+4. Add tool documentation in `docs/tools/{tool-name}.md`
+5. Register documentation resource in `ToolDocumentationResources.kt`
+6. Update `docs/api-reference.md` with parameter tables and examples
+7. Update setup instructions in `TaskOrchestratorResources.kt` if the tool affects agent workflows
+8. Update plugin skills that reference tool workflows (see scoped CLAUDE.md cross-reference table)
+9. Add tests in `src/test/kotlin/application/tools/`
 
 ### Adding a Database Migration
 
-**Flyway (Production):** Create `src/main/resources/db/migration/V{N}__{Description}.sql` with sequential numbering. Server auto-applies on restart.
+**Flyway (Production):** Create `src/main/resources/db/migration/V{N}__{Description}.sql` with sequential numbering. Server auto-applies on restart. For status enum changes, SQLite requires table recreation with updated `CHECK` constraints — see "Tight Coupling Areas" above.
 
-**Direct (Development):** Update schema in `infrastructure/database/schema/` and `DirectDatabaseSchemaManager.kt`
+**Direct (Development):** Update schema in `infrastructure/database/schema/` and `DirectDatabaseSchemaManager.kt`. New tables must be inserted in foreign-key dependency order in the manager's table list.
 
 See [database-migrations.md](docs/developer-guides/database-migrations.md) for patterns and examples.
 
 ### Adding a New Template
 
 1. Create template creator in `application/service/templates/` following existing patterns
-2. Register in `TemplateInitializerImpl.kt` (add to when statement and initialization list)
+2. Register in `TemplateInitializerImpl.kt` (add name to list, `when` branch, and creator method)
+3. Tag all sections with `role:` prefixes (`role:queue`, `role:work`, `role:review`, `role:terminal`) for workflow phase filtering
+4. If template includes a section titled "Verification", `ApplyTemplateTool` will auto-set `requiresVerification=true`
+
+Template UUIDs are random — agents must discover them at runtime via `query_templates`. Never hardcode template UUIDs.
 
 ### Adding a Repository Method
 

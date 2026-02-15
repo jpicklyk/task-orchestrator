@@ -122,6 +122,16 @@ These two documents are the **external-facing API contracts**. Any change to too
 
 When modifying a tool's `description`, `parameterSchema`, or `outputSchema`, update both of these documents to stay in sync. If you're unsure whether a change is material enough to bump the setup instructions version, err on the side of bumping it — agents with stale instructions will auto-detect the mismatch.
 
+### SETUP_INSTRUCTIONS_VERSION Sync
+
+The version constant must stay in sync across three files:
+
+1. `interfaces/mcp/TaskOrchestratorResources.kt` — `SETUP_INSTRUCTIONS_VERSION` constant
+2. `claude-plugins/task-orchestrator/skills/setup-instructions/SKILL.md` — version in embedded template
+3. `claude-plugins/task-orchestrator/scripts/session-setup-check.mjs` — `EXPECTED_VERSION` constant
+
+A mismatch causes session-start warnings prompting agents to re-install stale instructions.
+
 ## Cross-Reference Locations
 
 The full set of locations that contain tool API examples. Check ALL of these when making format changes:
@@ -140,5 +150,24 @@ The full set of locations that contain tool API examples. Check ALL of these whe
 | `docs/tools/` | Per-tool deep-dive documentation |
 | `docs/ai-guidelines.md` | AI usage guide with workflow examples |
 | `docs/workflow-patterns.md` | End-to-end workflow examples |
-| `claude-plugins/task-orchestrator/skills/` | Plugin skill SKILL.md files |
+| `claude-plugins/task-orchestrator/skills/` | Plugin skill SKILL.md files — tool names, parameter examples, trigger names, template names |
+| `claude-plugins/task-orchestrator/hooks/session-hooks.json` | Hook matchers use exact MCP tool IDs (e.g., `mcp__mcp-task-orchestrator__manage_container`) |
+| `claude-plugins/task-orchestrator/scripts/` | Hook scripts reference tool names, trigger values, and operation names |
 | `CLAUDE.md` (project root) | Tool summary descriptions |
+
+### Tool Name Change Checklist
+
+Renaming a tool or changing parameter names requires updates in **all** of these locations:
+
+1. Tool class (`application/tools/`) — `name` property
+2. `McpServer.createTools()` — registration
+3. `ToolDocumentationResources.kt` — documentation resource URI
+4. `TaskOrchestratorResources.kt` — embedded examples in all 5 resources
+5. `docs/api-reference.md` — parameter tables and examples
+6. `docs/tools/{old-name}.md` → rename to `docs/tools/{new-name}.md`
+7. Plugin skills (`claude-plugins/task-orchestrator/skills/`) — all SKILL.md files referencing the tool
+8. Plugin hook matchers (`hooks/session-hooks.json`) — exact MCP tool ID strings
+9. Plugin hook scripts (`scripts/`) — tool name references in injected context
+10. `CLAUDE.md` (project root) — tool summary descriptions
+
+Bump `SETUP_INSTRUCTIONS_VERSION` whenever tool names, parameter names, or trigger values change.
