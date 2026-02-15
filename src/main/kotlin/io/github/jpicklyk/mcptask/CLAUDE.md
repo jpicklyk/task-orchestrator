@@ -116,6 +116,5 @@ The full set of locations that contain tool API examples. Check ALL of these whe
 | `docs/tools/` | Per-tool deep-dive documentation |
 | `docs/ai-guidelines.md` | AI usage guide with workflow examples |
 | `docs/workflow-patterns.md` | End-to-end workflow examples |
-| `docs/developer-guides/subagent-template.md` | Subagent delegation examples |
 | `claude-plugins/task-orchestrator/skills/` | Plugin skill SKILL.md files |
 | `CLAUDE.md` (project root) | Tool summary descriptions |
