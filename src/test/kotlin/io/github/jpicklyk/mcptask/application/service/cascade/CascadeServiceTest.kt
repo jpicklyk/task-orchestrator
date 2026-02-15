@@ -128,13 +128,6 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "Ready to progress"
-            )
             // Role-based terminal check
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
@@ -147,7 +140,8 @@ class CascadeServiceTest {
             assertEquals(ContainerType.FEATURE, event.targetType)
             assertEquals(featureId, event.targetId)
             assertEquals("in-development", event.currentStatus)
-            assertEquals("testing", event.suggestedStatus)
+            // Fix 2: all_tasks_complete now advances directly to terminal status
+            assertEquals("completed", event.suggestedStatus)
             assertEquals("default_flow", event.flow)
             assertTrue(event.automatic)
         }
@@ -243,12 +237,13 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "project", project.tags, project.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "completed", activeFlow = "default_flow",
+            // Fix 2: all_features_complete now uses project flow path to find terminal status
+            every { mockStatusProgressionService.getFlowPath("project", project.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All features complete"
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
@@ -257,6 +252,7 @@ class CascadeServiceTest {
             assertEquals("all_features_complete", events.first().event)
             assertEquals(ContainerType.PROJECT, events.first().targetType)
             assertEquals(projectId, events.first().targetId)
+            assertEquals("completed", events.first().suggestedStatus)
         }
 
         @Test
@@ -329,6 +325,7 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep)
@@ -363,8 +360,10 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(depAtoB)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(depAtoB, depCtoB)
+            every { mockDependencyRepository.findByFromTaskId(taskBId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(
                 createTestTask(id = taskAId, status = TaskStatus.COMPLETED)
             )
@@ -392,6 +391,7 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
@@ -411,6 +411,7 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(relatesDep)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
 
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
             assertTrue(unblocked.isEmpty())
@@ -420,6 +421,7 @@ class CascadeServiceTest {
         fun `handles task with no outgoing dependencies`() = runBlocking {
             val taskAId = UUID.randomUUID()
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             val unblocked = cascadeService.findNewlyUnblockedTasks(taskAId)
             assertTrue(unblocked.isEmpty())
         }
@@ -437,6 +439,7 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep)
@@ -465,9 +468,11 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep)
+            every { mockDependencyRepository.findByFromTaskId(taskBId) } returns emptyList()
             mockRoleForStatus("pending", "queue")
             mockIsRoleAtOrBeyond("queue", "terminal", false)
             mockRoleForStatus("in-progress", "work")
@@ -495,6 +500,7 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(blocksDep)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(blocksDep, relatesDep)
@@ -529,10 +535,12 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(depAtoB)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
             coEvery { mockTaskRepository.getById(taskCId) } returns Result.Success(taskC)
             every { mockDependencyRepository.findByToTaskId(taskBId) } returns listOf(depAtoB, depCtoB)
+            every { mockDependencyRepository.findByFromTaskId(taskBId) } returns emptyList()
             mockRoleForStatus("pending", "queue")
             mockIsRoleAtOrBeyond("queue", "terminal", false)
             mockRoleForStatus("in-progress", "work")
@@ -562,6 +570,7 @@ class CascadeServiceTest {
             )
 
             every { mockDependencyRepository.findByFromTaskId(taskAId) } returns listOf(depAtoB)
+            every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
             coEvery { mockTaskRepository.getById(taskBId) } returns Result.Success(taskB)
             coEvery { mockTaskRepository.getById(taskAId) } returns Result.Success(taskA)
             coEvery { mockTaskRepository.getById(taskCId) } returns Result.Success(taskC)
@@ -600,19 +609,13 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
-            )
+            // Fix 2: all_tasks_complete now skips to terminal status ("completed")
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
             coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development", newStatus = "testing",
+                    currentStatus = "in-development", newStatus = "completed",
                     containerType = "feature", containerId = featureId,
                     context = any(), tags = feature.tags
                 )
@@ -622,6 +625,27 @@ class CascadeServiceTest {
                 Result.Success(firstArg<Feature>())
             }
 
+            // Completion cleanup mocks (feature reached terminal status)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task)
+            every { mockDependencyRepository.deleteByTaskId(any()) } returns 0
+            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mockTaskRepository.delete(any()) } returns Result.Success(true)
+
+            // Recursive cascade detection for the feature after it reaches completed
+            // Feature is now completed, check if project should cascade
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            val project = createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 1 // Not all features done, so no further cascade
+            )
+
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
 
             assertEquals(1, results.size)
@@ -629,7 +653,7 @@ class CascadeServiceTest {
             assertEquals("all_tasks_complete", result.event)
             assertTrue(result.applied)
             assertEquals("in-development", result.previousStatus)
-            assertEquals("testing", result.newStatus)
+            assertEquals("completed", result.newStatus)
             assertNull(result.error)
         }
 
@@ -642,7 +666,8 @@ class CascadeServiceTest {
         @Test
         fun `skips cascade when target already at suggested status`() = runBlocking {
             val task = createTestTask(status = TaskStatus.COMPLETED)
-            val feature = createTestFeature(status = FeatureStatus.TESTING)
+            // Feature already at terminal status ("completed") - cascade should be skipped
+            val feature = createTestFeature(status = FeatureStatus.COMPLETED)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
@@ -650,19 +675,12 @@ class CascadeServiceTest {
                 total = 1, completed = 1, pending = 0,
                 inProgress = 0, testing = 0, cancelled = 0, blocked = 0
             )
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 2, matchedTags = emptyList(),
+                currentPosition = 3, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
-            )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("testing", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 2, matchedTags = emptyList(), reason = "Already at target"
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
@@ -689,19 +707,13 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
-            )
+            // Fix 2: all_tasks_complete now targets terminal status ("completed")
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
             coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development", newStatus = "testing",
+                    currentStatus = "in-development", newStatus = "completed",
                     containerType = "feature", containerId = featureId,
                     context = any(), tags = feature.tags
                 )
@@ -913,20 +925,7 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "completed", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
-            )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", emptyList(), feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "completed", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
-            )
+            // Fix 2: all_tasks_complete now uses flow sequence terminal (no getNextStatus needed)
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", task1.tags) } returns "terminal"
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", task2.tags) } returns "terminal"
             mockRoleForStatus("completed", "terminal")
@@ -1128,13 +1127,7 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "cancelled", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks cancelled"
-            )
+            // Fix 2: all_tasks_complete now uses terminal status from flow sequence
             mockRoleForStatus("cancelled", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
@@ -1142,6 +1135,8 @@ class CascadeServiceTest {
 
             assertEquals(1, events.size)
             assertEquals("all_tasks_complete", events.first().event)
+            // Terminal status from flow sequence is "completed"
+            assertEquals("completed", events.first().suggestedStatus)
         }
 
         @Test
@@ -1187,13 +1182,7 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
-            } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "testing", activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "All tasks complete"
-            )
+            // Fix 2: all_tasks_complete now targets terminal status ("completed")
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
             coEvery {

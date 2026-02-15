@@ -100,6 +100,10 @@ class GetNextStatusToolTest {
             modifiedAt = Instant.now()
         )
 
+        // Default: no dependencies (prevents dependency-check from triggering in unrelated tests)
+        every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+        every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
         // Create execution context
         context = ToolExecutionContext(mockRepositoryProvider)
 
@@ -708,6 +712,335 @@ class GetNextStatusToolTest {
             // Roles should be absent when null
             assertNull(data["currentRole"])
             assertNull(data["nextRole"])
+        }
+    }
+
+    @Nested
+    inner class DependencyBlockingTests {
+
+        @Test
+        fun `should return Blocked when task has incomplete BLOCKS dependency`() = runBlocking {
+            val blockerTaskId = UUID.randomUUID()
+            val pendingTask = mockTask.copy(status = TaskStatus.PENDING, tags = emptyList())
+            val blockerTask = Task(
+                id = blockerTaskId,
+                title = "Blocker Task",
+                description = "This task blocks the target",
+                status = TaskStatus.PENDING,
+                priority = Priority.MEDIUM,
+                complexity = 3,
+                tags = emptyList(),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+            }
+
+            // Mock: target task lookup
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+
+            // Mock: blocker task lookup
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(blockerTask)
+
+            // Mock: BLOCKS dependency (blockerTask -> targetTask)
+            val dep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = taskId,
+                type = DependencyType.BLOCKS
+            )
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns listOf(dep)
+            every { mockDependencyRepository.findByFromTaskId(taskId) } returns emptyList()
+
+            // Mock: blocker role lookup (pending = queue, needs terminal)
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", emptyList())
+            } returns "queue"
+
+            // Mock: flow info call (used for building the Blocked response)
+            val flowRecommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "pending",
+                    containerType = "task",
+                    tags = emptyList(),
+                    containerId = taskId
+                )
+            } returns flowRecommendation
+
+            // Mock: currentRole lookup for the target task
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", emptyList())
+            } returns "queue"
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Blocked", data["recommendation"]?.jsonPrimitive?.content)
+            val blockers = data["blockers"] as JsonArray
+            assertEquals(1, blockers.size)
+            assertTrue(blockers[0].jsonPrimitive.content.contains("Blocker Task"))
+            assertTrue(blockers[0].jsonPrimitive.content.contains("needs terminal role"))
+            assertTrue(data["reason"]?.jsonPrimitive?.content?.contains("incomplete dependency") == true)
+        }
+
+        @Test
+        fun `should return Ready when all blocking dependencies satisfied`() = runBlocking {
+            val blockerTaskId = UUID.randomUUID()
+            val pendingTask = mockTask.copy(status = TaskStatus.PENDING, tags = emptyList())
+            val completedBlocker = Task(
+                id = blockerTaskId,
+                title = "Completed Blocker",
+                description = "This blocker is done",
+                status = TaskStatus.COMPLETED,
+                priority = Priority.MEDIUM,
+                complexity = 3,
+                tags = emptyList(),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+            }
+
+            // Mock: target task lookup
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+
+            // Mock: completed blocker task lookup
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(completedBlocker)
+
+            // Mock: BLOCKS dependency (blockerTask -> targetTask)
+            val dep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = taskId,
+                type = DependencyType.BLOCKS
+            )
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns listOf(dep)
+            every { mockDependencyRepository.findByFromTaskId(taskId) } returns emptyList()
+
+            // Mock: blocker role is terminal (completed)
+            every {
+                mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList())
+            } returns "terminal"
+
+            // Mock: service recommendation (should proceed to this since deps are satisfied)
+            val flowRecommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "pending",
+                    containerType = "task",
+                    tags = emptyList(),
+                    containerId = taskId
+                )
+            } returns flowRecommendation
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            assertEquals("in-progress", data["recommendedStatus"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should return Blocked when IS_BLOCKED_BY dependency incomplete`() = runBlocking {
+            val blockerTaskId = UUID.randomUUID()
+            val pendingTask = mockTask.copy(status = TaskStatus.PENDING, tags = emptyList())
+            val blockerTask = Task(
+                id = blockerTaskId,
+                title = "IS_BLOCKED_BY Blocker",
+                description = "This task blocks via IS_BLOCKED_BY",
+                status = TaskStatus.IN_PROGRESS,
+                priority = Priority.HIGH,
+                complexity = 5,
+                tags = emptyList(),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+            }
+
+            // Mock: target task lookup
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+
+            // Mock: blocker task lookup
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(blockerTask)
+
+            // Mock: IS_BLOCKED_BY dependency (targetTask IS_BLOCKED_BY blockerTask)
+            // fromTaskId = taskId, toTaskId = blockerTaskId
+            val dep = Dependency(
+                fromTaskId = taskId,
+                toTaskId = blockerTaskId,
+                type = DependencyType.IS_BLOCKED_BY
+            )
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(taskId) } returns listOf(dep)
+
+            // Mock: blocker role (in-progress = work, needs terminal)
+            every {
+                mockStatusProgressionService.getRoleForStatus("in-progress", "task", emptyList())
+            } returns "work"
+
+            // Mock: flow info call for Blocked response
+            val flowRecommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "pending",
+                    containerType = "task",
+                    tags = emptyList(),
+                    containerId = taskId
+                )
+            } returns flowRecommendation
+
+            // Mock: currentRole for target task
+            every {
+                mockStatusProgressionService.getRoleForStatus("pending", "task", emptyList())
+            } returns "queue"
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Blocked", data["recommendation"]?.jsonPrimitive?.content)
+            val blockers = data["blockers"] as JsonArray
+            assertEquals(1, blockers.size)
+            assertTrue(blockers[0].jsonPrimitive.content.contains("IS_BLOCKED_BY Blocker"))
+            assertTrue(blockers[0].jsonPrimitive.content.contains("needs terminal role"))
+            assertTrue(blockers[0].jsonPrimitive.content.contains("currently work"))
+        }
+
+        @Test
+        fun `should return Ready with unblockAt work gate satisfied`() = runBlocking {
+            val blockerTaskId = UUID.randomUUID()
+            val pendingTask = mockTask.copy(status = TaskStatus.PENDING, tags = emptyList())
+            val inProgressBlocker = Task(
+                id = blockerTaskId,
+                title = "Work-Gated Blocker",
+                description = "Blocker with work gate",
+                status = TaskStatus.IN_PROGRESS,
+                priority = Priority.MEDIUM,
+                complexity = 3,
+                tags = emptyList(),
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+            }
+
+            // Mock: target task lookup
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(pendingTask)
+
+            // Mock: blocker task lookup (in-progress)
+            coEvery { mockTaskRepository.getById(blockerTaskId) } returns Result.Success(inProgressBlocker)
+
+            // Mock: BLOCKS dependency with unblockAt="work"
+            val dep = Dependency(
+                fromTaskId = blockerTaskId,
+                toTaskId = taskId,
+                type = DependencyType.BLOCKS,
+                unblockAt = "work"
+            )
+            every { mockDependencyRepository.findByToTaskId(taskId) } returns listOf(dep)
+            every { mockDependencyRepository.findByFromTaskId(taskId) } returns emptyList()
+
+            // Mock: blocker role is "work" (in-progress), threshold is "work" -> satisfied
+            every {
+                mockStatusProgressionService.getRoleForStatus("in-progress", "task", emptyList())
+            } returns "work"
+
+            // Mock: service recommendation (deps satisfied, should pass through)
+            val flowRecommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("pending", "in-progress", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "pending",
+                    containerType = "task",
+                    tags = emptyList(),
+                    containerId = taskId
+                )
+            } returns flowRecommendation
+
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            assertEquals("in-progress", data["recommendedStatus"]?.jsonPrimitive?.content)
+        }
+
+        @Test
+        fun `should skip dependency check for feature container type`() = runBlocking {
+            val params = buildJsonObject {
+                put("containerId", featureId.toString())
+                put("containerType", "feature")
+            }
+
+            // Mock feature repository
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(mockFeature)
+
+            // Mock service response
+            val recommendation = NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in workflow"
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = listOf("api"),
+                    containerId = featureId
+                )
+            } returns recommendation
+
+            // Execute tool - should NOT call dependency repository at all for features
+            val result = tool.execute(params, context) as JsonObject
+
+            assertTrue(result["success"]?.jsonPrimitive?.boolean == true)
+            val data = result["data"] as JsonObject
+            assertEquals("Ready", data["recommendation"]?.jsonPrimitive?.content)
+            assertEquals("testing", data["recommendedStatus"]?.jsonPrimitive?.content)
         }
     }
 }

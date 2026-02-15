@@ -34,7 +34,8 @@ import java.util.UUID
  * - "complete": Move to the "completed" terminal status
  * - "cancel": Move to the "cancelled" terminal status (emergency transition)
  * - "block": Move to the "blocked" status (emergency transition)
- * - "unblock": Move back to the previous non-blocked status
+ * - "hold": Move to the "on-hold" status (emergency transition)
+ * - "resume": Resume from blocked/on-hold to previous in-flow status
  *
  * Custom triggers can be defined via flow event_handlers in the workflow config.
  */
@@ -75,6 +76,7 @@ Built-in triggers:
 - "cancel" - Move to cancelled (emergency transition)
 - "block" - Move to blocked (emergency transition)
 - "hold" - Move to on-hold (emergency transition)
+- "resume" - Resume from blocked/on-hold to previous in-flow status
 
 Returns:
 - results array with per-item outcomes (containerId, previousStatus, newStatus, applied, previousRole, newRole, flow context)
@@ -97,7 +99,7 @@ Related: manage_container, get_next_status"""
                 "transitions" to JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("array"),
-                        "description" to JsonPrimitive("Array of transition objects. Even for a single transition, wrap it in an array. Each object: {containerId (UUID), containerType (task|feature|project), trigger (start|complete|cancel|block|hold), summary? (optional note)}."),
+                        "description" to JsonPrimitive("Array of transition objects. Even for a single transition, wrap it in an array. Each object: {containerId (UUID), containerType (task|feature|project), trigger (start|complete|cancel|block|hold|resume), summary? (optional note)}."),
                         "items" to JsonObject(
                             mapOf(
                                 "type" to JsonPrimitive("object"),
@@ -362,7 +364,7 @@ Related: manage_container, get_next_status"""
             val (currentStatus, tags) = entityDetails
 
             // Resolve trigger to target status
-            val targetStatus = resolveTrigger(trigger, currentStatus, containerType, tags)
+            val targetStatus = resolveTrigger(trigger, currentStatus, containerType, tags, containerId, context)
                 ?: return buildJsonObject {
                     put("applied", false)
                     put("error", "Unknown trigger '$trigger' for $containerType in status '$currentStatus'")
@@ -616,7 +618,9 @@ Related: manage_container, get_next_status"""
         trigger: String,
         currentStatus: String,
         containerType: String,
-        tags: List<String>
+        tags: List<String>,
+        containerId: UUID,
+        context: ToolExecutionContext
     ): String? {
         return when (trigger) {
             "start" -> {
@@ -639,7 +643,64 @@ Related: manage_container, get_next_status"""
             "cancel" -> "cancelled"
             "block" -> "blocked"
             "hold" -> "on-hold"
+            "resume" -> {
+                // Only valid from blocked or on-hold status (blocked-role statuses)
+                val role = statusProgressionService.getRoleForStatus(currentStatus, containerType, tags)
+                if (role != "blocked") {
+                    return null // "resume" only valid from blocked-role statuses
+                }
+
+                // Query RoleTransition history to find previous in-flow status
+                val history = context.roleTransitionRepository()
+                    .findByEntityId(containerId, containerType)
+
+                val transitions = when (history) {
+                    is Result.Success -> history.data
+                    is Result.Error -> emptyList()
+                }
+
+                // Find the most recent transition TO a blocked-role status
+                val transitionToBlocked = transitions
+                    .filter {
+                        val toRole = statusProgressionService.getRoleForStatus(it.toStatus, containerType, tags)
+                        toRole == "blocked"
+                    }
+                    .maxByOrNull { it.transitionedAt }
+
+                if (transitionToBlocked != null) {
+                    val previousStatus = transitionToBlocked.fromStatus
+                    // Verify previous status is not terminal
+                    val prevRole = statusProgressionService.getRoleForStatus(previousStatus, containerType, tags)
+                    if (prevRole != null && prevRole != "terminal") {
+                        previousStatus
+                    } else {
+                        // Previous status was terminal, fall back to first work-role status in flow
+                        fallbackResumeStatus(containerType, tags)
+                    }
+                } else {
+                    // No history, fall back to first work-role status in flow
+                    fallbackResumeStatus(containerType, tags)
+                }
+            }
             else -> null // Unknown trigger
+        }
+    }
+
+    /**
+     * Determines a fallback status for the "resume" trigger when no role transition history is available.
+     * Returns the first work-role status in the flow, or "pending" as an ultimate fallback.
+     */
+    private suspend fun fallbackResumeStatus(containerType: String, tags: List<String>): String? {
+        // Get the flow path and find the first work-role status
+        val recommendation = statusProgressionService.getNextStatus(
+            currentStatus = "pending", // Start from the beginning
+            containerType = containerType,
+            tags = tags
+        )
+        return when (recommendation) {
+            is io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation.Ready ->
+                recommendation.recommendedStatus
+            else -> "pending" // Ultimate fallback
         }
     }
 

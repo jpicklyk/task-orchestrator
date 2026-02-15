@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.application.tools.base.BaseToolDefinition
+import io.github.jpicklyk.mcptask.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.domain.model.StatusRole
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.infrastructure.util.ErrorCodes
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -66,6 +68,11 @@ class GetNextStatusTool(
         - If Ready: recommendedStatus, activeFlow, flowSequence, currentPosition, matchedTags, reason
         - If Blocked: currentStatus, blockers, activeFlow, flowSequence, currentPosition
         - If Terminal: terminalStatus, activeFlow, reason
+
+        Dependency Awareness (tasks only):
+        - For tasks, automatically checks dependency blockers before recommending progression
+        - Returns "Blocked" with dependency details if task has incomplete blocking dependencies
+        - Respects unblockAt thresholds (e.g., a dependency with unblockAt="work" is satisfied when blocker reaches work role)
 
         Use Cases:
         - Status Progression Skill ("What's next?" / "Can I complete this?")
@@ -242,6 +249,80 @@ class GetNextStatusTool(
             }
 
             logger.debug("Analyzing status progression for $containerType $containerId: status=$statusToUse, tags=$tagsToUse")
+
+            // Check for dependency blockers (tasks only)
+            if (containerType == "task") {
+                val blocksDeps = context.dependencyRepository().findByToTaskId(containerId)
+                    .filter { it.type == DependencyType.BLOCKS }
+                val isBlockedByDeps = context.dependencyRepository().findByFromTaskId(containerId)
+                    .filter { it.type == DependencyType.IS_BLOCKED_BY }
+                val allBlockingDeps = blocksDeps + isBlockedByDeps
+
+                if (allBlockingDeps.isNotEmpty()) {
+                    val incompleteBlockers = mutableListOf<String>()
+
+                    for (dep in allBlockingDeps) {
+                        val blockerTaskId = dep.getBlockerTaskId()
+                        when (val blockerResult = context.taskRepository().getById(blockerTaskId)) {
+                            is Result.Success -> {
+                                val blocker = blockerResult.data
+                                val threshold = dep.effectiveUnblockRole() ?: "terminal"
+                                val blockerStatus = blocker.status.name.lowercase().replace('_', '-')
+                                val blockerRole = statusProgressionService.getRoleForStatus(blockerStatus, "task", blocker.tags)
+
+                                if (!StatusRole.isRoleAtOrBeyond(blockerRole, threshold)) {
+                                    incompleteBlockers.add(
+                                        "\"${blocker.title}\" (${blockerStatus}, needs $threshold role, currently ${blockerRole ?: "unknown"})"
+                                    )
+                                }
+                            }
+                            is Result.Error -> {
+                                logger.warn("Failed to get blocker task $blockerTaskId: ${blockerResult.error.message}")
+                            }
+                        }
+                    }
+
+                    if (incompleteBlockers.isNotEmpty()) {
+                        // Get flow info for the response
+                        val flowInfo = statusProgressionService.getNextStatus(
+                            currentStatus = statusToUse,
+                            containerType = containerType,
+                            tags = tagsToUse,
+                            containerId = containerId
+                        )
+                        val activeFlow = when (flowInfo) {
+                            is NextStatusRecommendation.Ready -> flowInfo.activeFlow
+                            is NextStatusRecommendation.Blocked -> flowInfo.activeFlow
+                            is NextStatusRecommendation.Terminal -> flowInfo.activeFlow
+                        }
+                        val flowSequence = when (flowInfo) {
+                            is NextStatusRecommendation.Ready -> flowInfo.flowSequence
+                            is NextStatusRecommendation.Blocked -> flowInfo.flowSequence
+                            is NextStatusRecommendation.Terminal -> emptyList()
+                        }
+                        val currentPosition = when (flowInfo) {
+                            is NextStatusRecommendation.Ready -> flowInfo.currentPosition
+                            is NextStatusRecommendation.Blocked -> flowInfo.currentPosition
+                            is NextStatusRecommendation.Terminal -> -1
+                        }
+                        val currentRole = statusProgressionService.getRoleForStatus(statusToUse, containerType, tagsToUse)
+
+                        return successResponse(
+                            data = buildJsonObject {
+                                put("recommendation", "Blocked")
+                                put("currentStatus", statusToUse)
+                                put("blockers", JsonArray(incompleteBlockers.map { JsonPrimitive(it) }))
+                                put("activeFlow", activeFlow)
+                                put("flowSequence", JsonArray(flowSequence.map { JsonPrimitive(it) }))
+                                put("currentPosition", currentPosition)
+                                put("currentRole", currentRole?.let { JsonPrimitive(it) } ?: JsonNull)
+                                put("reason", "Blocked by ${incompleteBlockers.size} incomplete dependency(ies): ${incompleteBlockers.joinToString("; ")}")
+                            },
+                            message = "Task blocked by ${incompleteBlockers.size} incomplete dependency blocker(s)"
+                        )
+                    }
+                }
+            }
 
             // Get recommendation from StatusProgressionService
             val recommendation = statusProgressionService.getNextStatus(

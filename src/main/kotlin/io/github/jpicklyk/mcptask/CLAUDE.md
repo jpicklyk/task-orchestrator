@@ -82,6 +82,30 @@ manage_dependencies(operation="delete", id="dep-uuid")
 manage_dependencies(operation="delete", fromTaskId="A", deleteAll=true)
 ```
 
+## query_container
+
+Use operation-specific parameters. Prefer `overview` over `get` for dashboards.
+
+```
+# Get with sections (heavy — use only when section content is needed)
+query_container(operation="get", containerType="feature", id="...", includeSections=true)
+
+# Overview (lightweight — metadata + child counts, no section content)
+query_container(operation="overview", containerType="project", id="...")
+
+# Search with filters
+query_container(operation="search", containerType="task", status="pending,in-progress", projectId="...")
+
+# Role-based filtering (semantic phase instead of specific status names)
+query_container(operation="overview", containerType="project", id="...", role="work")
+
+# Export
+query_container(operation="export", containerType="feature", id="...")
+```
+
+**Prefer:** `overview` for dashboards and status checks (85-90% token reduction vs `get` with sections).
+**Prefer:** `role` parameter over multi-status filters when querying by semantic phase.
+
 ## Authoritative References
 
 These two documents are the **external-facing API contracts**. Any change to tool descriptions, schemas, or examples in this directory tree MUST be reflected in both:
@@ -94,7 +118,7 @@ These two documents are the **external-facing API contracts**. Any change to too
 
 2. **API Reference** — `docs/api-reference.md`
    - Complete MCP tools documentation with parameter tables, examples, and response shapes
-   - This is the **comprehensive reference** for all 14 tools — tool descriptions are summaries of this
+   - This is the **comprehensive reference** for all tools — tool descriptions are summaries of this
 
 When modifying a tool's `description`, `parameterSchema`, or `outputSchema`, update both of these documents to stay in sync. If you're unsure whether a change is material enough to bump the setup instructions version, err on the side of bumping it — agents with stale instructions will auto-detect the mismatch.
 
@@ -106,7 +130,7 @@ The full set of locations that contain tool API examples. Check ALL of these whe
 | Location | What to check |
 |----------|--------------|
 | `application/tools/*/` | Tool `description` strings and `parameterSchema` |
-| `interfaces/mcp/TaskOrchestratorResources.kt` | MCP Resource text content (4 guideline resources + setup instructions) |
+| `interfaces/mcp/TaskOrchestratorResources.kt` | MCP Resource text content (guideline resources + setup instructions) |
 | `interfaces/mcp/McpServer.kt` | Server instructions text |
 
 ### Downstream Consumers (must mirror source of truth)

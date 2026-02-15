@@ -3239,4 +3239,253 @@ status_validation:
             assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
         }
     }
+
+    @Nested
+    inner class ResumeTriggerTests {
+
+        private fun createTask(
+            id: UUID,
+            title: String,
+            status: TaskStatus = TaskStatus.IN_PROGRESS,
+            summary: String = "A".repeat(350)
+        ): Task = Task(
+            id = id,
+            title = title,
+            description = "Description",
+            summary = summary,
+            status = status,
+            priority = Priority.HIGH,
+            complexity = 5,
+            tags = listOf("backend"),
+            featureId = featureId,
+            projectId = projectId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        @Test
+        fun `resume from on-hold returns to previous in-flow status`() = runBlocking {
+            val onHoldTask = createTask(taskId, "Test Task", TaskStatus.ON_HOLD)
+            val resumedTask = onHoldTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            // Fetch entity details - task is on-hold
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(onHoldTask)
+
+            // Role for on-hold is "blocked"
+            every { mockStatusProgressionService.getRoleForStatus("on-hold", "task", any()) } returns "blocked"
+            // Role for in-progress is "work"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Mock role transition history: went from in-progress to on-hold
+            coEvery { mockRoleTransitionRepository.findByEntityId(taskId, "task") } returns Result.Success(
+                listOf(
+                    RoleTransition(
+                        entityId = taskId,
+                        entityType = "task",
+                        fromRole = "work",
+                        toRole = "blocked",
+                        fromStatus = "in-progress",
+                        toStatus = "on-hold",
+                        trigger = "hold",
+                        transitionedAt = Instant.now()
+                    )
+                )
+            )
+
+            // Mock the update
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(resumedTask)
+
+            // Mock dependency repository for StatusValidator prerequisite validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for response enrichment
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "resume")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("on-hold", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("resume", data["trigger"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+        }
+
+        @Test
+        fun `resume from blocked returns to previous in-flow status`() = runBlocking {
+            val blockedTask = createTask(taskId, "Test Task", TaskStatus.BLOCKED)
+            val resumedTask = blockedTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            // Fetch entity details - task is blocked
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(blockedTask)
+
+            // Role for blocked is "blocked"
+            every { mockStatusProgressionService.getRoleForStatus("blocked", "task", any()) } returns "blocked"
+            // Role for in-progress is "work"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Mock role transition history: went from in-progress to blocked
+            coEvery { mockRoleTransitionRepository.findByEntityId(taskId, "task") } returns Result.Success(
+                listOf(
+                    RoleTransition(
+                        entityId = taskId,
+                        entityType = "task",
+                        fromRole = "work",
+                        toRole = "blocked",
+                        fromStatus = "in-progress",
+                        toStatus = "blocked",
+                        trigger = "block",
+                        transitionedAt = Instant.now()
+                    )
+                )
+            )
+
+            // Mock the update
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(resumedTask)
+
+            // Mock dependency repository for StatusValidator prerequisite validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for response enrichment
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "resume")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("blocked", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("resume", data["trigger"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+        }
+
+        @Test
+        fun `resume with no history falls back to first work status`() = runBlocking {
+            val onHoldTask = createTask(taskId, "Test Task", TaskStatus.ON_HOLD)
+            val resumedTask = onHoldTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            // Fetch entity details - task is on-hold
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(onHoldTask)
+
+            // Role for on-hold is "blocked"
+            every { mockStatusProgressionService.getRoleForStatus("on-hold", "task", any()) } returns "blocked"
+            // Role for in-progress is "work"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Mock role transition history: empty (no history)
+            coEvery { mockRoleTransitionRepository.findByEntityId(taskId, "task") } returns Result.Success(emptyList())
+
+            // Fallback: getNextStatus from "pending" returns "in-progress"
+            coEvery { mockStatusProgressionService.getNextStatus(
+                currentStatus = "pending",
+                containerType = "task",
+                tags = any(),
+                containerId = any()
+            ) } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-progress",
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next status in default_flow workflow"
+            )
+
+            // Mock the update
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(resumedTask)
+
+            // Mock dependency repository for StatusValidator prerequisite validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for response enrichment
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "resume")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("on-hold", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("resume", data["trigger"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+        }
+
+        @Test
+        fun `resume from non-blocked status returns error`() = runBlocking {
+            // Task is in-progress (not blocked or on-hold)
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+
+            // Role for in-progress is "work" (not "blocked")
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Mock getFlowPath for error response enrichment
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "resume")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+
+            val message = result["message"]!!.jsonPrimitive.content
+            assertTrue(
+                message.contains("Unknown trigger") && message.contains("resume"),
+                "Error should mention unknown trigger 'resume', got: $message"
+            )
+        }
+    }
 }

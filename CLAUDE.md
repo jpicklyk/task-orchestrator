@@ -21,15 +21,6 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 # Build the project (creates fat JAR)
 ./gradlew build
 
-# Run tests
-./gradlew test
-
-# Run specific test
-./gradlew test --tests "ClassName"
-
-# Run all migration tests
-./gradlew test --tests "*migration*"
-
 # Clean build
 ./gradlew clean build
 
@@ -55,14 +46,14 @@ docker run --rm -i -v mcp-task-data:/app/data task-orchestrator:dev
 # Run with project mount (recommended - enables config reading)
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project:ro \
+  -v "$(pwd)":/project:ro \
   -e AGENT_CONFIG_DIR=/project \
   task-orchestrator:dev
 
 # Debug with logs
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project:ro \
+  -v "$(pwd)":/project:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e LOG_LEVEL=DEBUG \
   task-orchestrator:dev
@@ -86,9 +77,12 @@ The codebase follows **Clean Architecture** with four distinct layers:
   - `template/` - Template management tools
   - `section/` - Section management tools
   - `dependency/` - Dependency management tools
+  - `base/` - BaseToolDefinition, SimpleLockAwareToolDefinition
+  - `utils/` - Shared tool utilities
+- Container tools (`ManageContainerTool`, `QueryContainerTool`) live in the `tools/` root directory
 - `service/` - Services like TemplateInitializer, StatusValidator
 - `service/progression/` - Status progression service
-- `service/templates/` - 9 built-in template creators
+- `service/templates/` - Built-in template creators
 
 ### 3. Infrastructure Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/`)
 - **External concerns and framework implementations**
@@ -144,13 +138,13 @@ private fun getConfigPath(): Path {
 - `StatusProgressionServiceImpl` - Reads `.taskorchestrator/config.yaml`
 - Any future services accessing `.taskorchestrator/` configuration
 
-## MCP Tools (14 tools)
+## MCP Tools
 
-The server exposes 14 MCP tools organized into categories:
+The server exposes MCP tools organized into categories:
 
 ### Container Management (unified CRUD for Projects/Features/Tasks)
 - **`manage_container`** - Write operations: create, update, delete (all use array parameters)
-- **`query_container`** - Read operations: get, search, export, overview
+- **`query_container`** - Read operations: get, search, export, overview. Supports `role` parameter for semantic phase filtering (queue, work, review, blocked, terminal).
 
 ### Section Management
 - **`manage_sections`** - Write operations: add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete
@@ -285,10 +279,14 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Database schema:** `src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/database/schema/`
 - **Migrations:** `src/main/resources/db/migration/`
 - **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
+- **Status progression:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/progression/`
+- **Cascade service:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/cascade/`
 - **Workflow config:** `src/main/resources/configuration/default-config.yaml`
 - **Docker:** `Dockerfile`, `.dockerignore`, `docker-compose.yml`
 - **Build scripts:** `scripts/docker-build.sh`, `scripts/docker-build.bat`
 - **CI/CD:** `.github/workflows/docker-publish.yml`
+- **Plugin:** `claude-plugins/task-orchestrator/` (skills, hooks, output styles)
+- **Scoped CLAUDE.md:** `src/main/kotlin/io/github/jpicklyk/mcptask/CLAUDE.md` (tool API formatting rules)
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
 
 ## Tool Development Guidelines

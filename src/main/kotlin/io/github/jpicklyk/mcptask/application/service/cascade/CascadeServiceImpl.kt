@@ -214,23 +214,19 @@ class CascadeServiceImpl(
             val allDone = (taskCounts.completed + taskCounts.cancelled) == taskCounts.total
 
             if (allDone && taskCounts.total > 0) {
-                val recommendation = statusProgressionService.getNextStatus(
-                    currentStatus = featureStatusNormalized,
-                    containerType = "feature",
-                    tags = feature.tags,
-                    containerId = feature.id
-                )
+                // When all tasks are terminal, advance feature directly to terminal status
+                // instead of just the next step, to avoid multi-step friction
+                val terminalStatus = flowPath.flowSequence.lastOrNull() ?: "completed"
 
-                if (recommendation is NextStatusRecommendation.Ready &&
-                    recommendation.recommendedStatus != featureStatusNormalized) {
+                if (terminalStatus != featureStatusNormalized) {
                     events.add(CascadeEvent(
                         event = "all_tasks_complete",
                         targetType = ContainerType.FEATURE,
                         targetId = feature.id,
                         targetName = feature.name,
                         currentStatus = featureStatusNormalized,
-                        suggestedStatus = recommendation.recommendedStatus,
-                        flow = recommendation.activeFlow,
+                        suggestedStatus = terminalStatus,
+                        flow = flowPath.activeFlow,
                         automatic = true,
                         reason = "All ${taskCounts.total} tasks completed/cancelled"
                     ))
@@ -330,23 +326,21 @@ class CascadeServiceImpl(
             val featureCounts = projectRepository.getFeatureCountsByProjectId(projectId)
             val allDone = featureCounts.completed == featureCounts.total
 
-            if (allDone && featureCounts.total > 0 && projectStatusNormalized != "completed") {
-                val recommendation = statusProgressionService.getNextStatus(
-                    currentStatus = projectStatusNormalized,
-                    containerType = "project",
-                    tags = project.tags,
-                    containerId = project.id
-                )
+            if (allDone && featureCounts.total > 0) {
+                // When all features are terminal, advance project directly to terminal status
+                // instead of just the next step, to avoid multi-step friction
+                val projectFlowPath = statusProgressionService.getFlowPath("project", project.tags, projectStatusNormalized)
+                val terminalStatus = projectFlowPath.flowSequence.lastOrNull() ?: "completed"
 
-                if (recommendation is NextStatusRecommendation.Ready) {
+                if (terminalStatus != projectStatusNormalized) {
                     events.add(CascadeEvent(
                         event = "all_features_complete",
                         targetType = ContainerType.PROJECT,
                         targetId = project.id,
                         targetName = project.name,
                         currentStatus = projectStatusNormalized,
-                        suggestedStatus = recommendation.recommendedStatus,
-                        flow = recommendation.activeFlow,
+                        suggestedStatus = terminalStatus,
+                        flow = projectFlowPath.activeFlow,
                         automatic = true,
                         reason = "All ${featureCounts.total} features completed"
                     ))
@@ -564,16 +558,21 @@ class CascadeServiceImpl(
 
     override suspend fun findNewlyUnblockedTasks(completedTaskId: UUID): List<DomainUnblockedTask> {
         return try {
-            // Get outgoing dependencies from the completed/cancelled task
-            val outgoingDeps = dependencyRepository.findByFromTaskId(completedTaskId)
-            val blocksDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
+            // Get downstream candidates from BLOCKS deps (completedTask is fromTaskId)
+            val outgoingBlocksDeps = dependencyRepository.findByFromTaskId(completedTaskId)
+                .filter { it.type == DependencyType.BLOCKS }
 
-            if (blocksDeps.isEmpty()) return emptyList()
+            // Get downstream candidates from IS_BLOCKED_BY deps (completedTask is toTaskId/blocker)
+            val incomingIsBlockedByDeps = dependencyRepository.findByToTaskId(completedTaskId)
+                .filter { it.type == DependencyType.IS_BLOCKED_BY }
+
+            val allBlockingDeps = outgoingBlocksDeps + incomingIsBlockedByDeps
+            if (allBlockingDeps.isEmpty()) return emptyList()
 
             val unblockedTasks = mutableListOf<DomainUnblockedTask>()
+            val downstreamTaskIds = allBlockingDeps.map { it.getBlockedTaskId() }.distinct()
 
-            for (dep in blocksDeps) {
-                val downstreamTaskId = dep.toTaskId
+            for (downstreamTaskId in downstreamTaskIds) {
 
                 // Check if the downstream task itself is still active (not completed/cancelled)
                 val downstreamTask = taskRepository.getById(downstreamTaskId).getOrNull()
