@@ -58,7 +58,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("code-changes", "files", "methods", "role:queue")
+                tags = listOf("code-changes", "files", "methods", "role:queue", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -82,7 +82,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("technical", "specification", "code", "role:queue")
+                tags = listOf("technical", "specification", "code", "role:queue", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -102,7 +102,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("testing", "test-plan", "quality", "role:queue")
+                tags = listOf("testing", "test-plan", "quality", "role:queue", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -112,7 +112,7 @@ object ImplementationSpecificationTemplateCreator {
                 contentFormat = ContentFormat.JSON,
                 ordinal = 4,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality", "role:queue")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:review")
             )
         )
 

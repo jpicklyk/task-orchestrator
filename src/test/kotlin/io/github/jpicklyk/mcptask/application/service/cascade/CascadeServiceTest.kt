@@ -102,6 +102,11 @@ class CascadeServiceTest {
         every { mockStatusProgressionService.getRoleForStatus(status, "task", tags) } returns role
     }
 
+    /** Helper to mock getRoleForStatus for feature type. */
+    private fun mockFeatureRoleForStatus(status: String, role: String?, tags: List<String> = emptyList()) {
+        every { mockStatusProgressionService.getRoleForStatus(status, "feature", tags) } returns role
+    }
+
     /** Helper to mock isRoleAtOrBeyond for role comparison. */
     private fun mockIsRoleAtOrBeyond(currentRole: String?, threshold: String?, result: Boolean) {
         every { mockStatusProgressionService.isRoleAtOrBeyond(currentRole, threshold) } returns result
@@ -132,6 +137,26 @@ class CascadeServiceTest {
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
+            // Mock getNextStatus to return next step
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
             assertEquals(1, events.size)
@@ -140,8 +165,7 @@ class CascadeServiceTest {
             assertEquals(ContainerType.FEATURE, event.targetType)
             assertEquals(featureId, event.targetId)
             assertEquals("in-development", event.currentStatus)
-            // Fix 2: all_tasks_complete now advances directly to terminal status
-            assertEquals("completed", event.suggestedStatus)
+            assertEquals("testing", event.suggestedStatus) // Now expects next step, not terminal
             assertEquals("default_flow", event.flow)
             assertTrue(event.automatic)
         }
@@ -237,13 +261,27 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            // Fix 2: all_features_complete now uses project flow path to find terminal status
             every { mockStatusProgressionService.getFlowPath("project", project.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "completed"),
                 currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "project",
+                    tags = project.tags,
+                    containerId = project.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
             )
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
@@ -609,13 +647,32 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            // Fix 2: all_tasks_complete now skips to terminal status ("completed")
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
+            // Mock getNextStatus to return next step (testing)
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+
             coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development", newStatus = "completed",
+                    currentStatus = "in-development", newStatus = "testing",
                     containerType = "feature", containerId = featureId,
                     context = any(), tags = feature.tags
                 )
@@ -625,25 +682,21 @@ class CascadeServiceTest {
                 Result.Success(firstArg<Feature>())
             }
 
-            // Completion cleanup mocks (feature reached terminal status)
+            // No cleanup since testing is not terminal
             coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task)
-            every { mockDependencyRepository.deleteByTaskId(any()) } returns 0
-            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(any()) } returns Result.Success(true)
 
-            // Recursive cascade detection for the feature after it reaches completed
-            // Feature is now completed, check if project should cascade
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
+            // Recursive cascade detection for the feature after it reaches testing
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 3, matchedTags = emptyList(),
+                currentPosition = 2, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             val project = createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
-                total = 2, completed = 1 // Not all features done, so no further cascade
+                total = 2, completed = 0 // Not terminal
             )
 
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
@@ -653,7 +706,7 @@ class CascadeServiceTest {
             assertEquals("all_tasks_complete", result.event)
             assertTrue(result.applied)
             assertEquals("in-development", result.previousStatus)
-            assertEquals("completed", result.newStatus)
+            assertEquals("testing", result.newStatus) // Now expects next step, not terminal
             assertNull(result.error)
         }
 
@@ -707,13 +760,31 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            // Fix 2: all_tasks_complete now targets terminal status ("completed")
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
             coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+
+            coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development", newStatus = "completed",
+                    currentStatus = "in-development", newStatus = "testing",
                     containerType = "feature", containerId = featureId,
                     context = any(), tags = feature.tags
                 )
@@ -749,7 +820,7 @@ class CascadeServiceTest {
         fun `returns defaults when no config file exists`() {
             val config = cascadeService.loadAutoCascadeConfig()
             assertTrue(config.enabled)
-            assertEquals(3, config.maxDepth)
+            assertEquals(10, config.maxDepth)
         }
 
         @Test
@@ -757,7 +828,7 @@ class CascadeServiceTest {
             val config = cascadeService.loadAutoCascadeConfig()
             assertNotNull(config)
             assertTrue(config.enabled)
-            assertEquals(3, config.maxDepth)
+            assertEquals(10, config.maxDepth)
         }
     }
 
@@ -810,6 +881,8 @@ class CascadeServiceTest {
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
                 currentPosition = 1, matchedTags = emptyList(), reason = "Role aggregation"
             )
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", emptyList())
             mockRoleForStatus("in-review", "review", task1.tags)
             mockRoleForStatus("in-review", "review", task2.tags)
             mockRoleForStatus("in-progress", "work", task3.tags)
@@ -925,11 +998,29 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            // Fix 2: all_tasks_complete now uses flow sequence terminal (no getNextStatus needed)
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", task1.tags) } returns "terminal"
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", task2.tags) } returns "terminal"
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (completed is terminal)
+            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
 
             val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
 
@@ -1107,6 +1198,471 @@ class CascadeServiceTest {
     }
 
     @Nested
+    inner class StepThroughIntermediateStatusesTests {
+
+        @Test
+        fun `feature cascade suggests next step not terminal`() = runBlocking {
+            val completedTask = createTestTask(status = TaskStatus.COMPLETED)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, pending = 0, inProgress = 0, testing = 0,
+                completed = 1, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            // Mock getNextStatus to return next step (testing), not terminal
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step in workflow"
+            )
+
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+
+            val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            assertEquals(1, events.size)
+            val event = events.first()
+            assertEquals("all_tasks_complete", event.event)
+            assertEquals("in-development", event.currentStatus)
+            assertEquals("testing", event.suggestedStatus) // Next step, NOT "completed"
+        }
+
+        @Test
+        fun `feature self-advancement through multi-step flow`() = runBlocking {
+            // Feature at testing, all tasks done -> should advance to validating
+            val feature = createTestFeature(status = FeatureStatus.TESTING)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
+                createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+            )
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 3, completed = 3, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 2, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "testing",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "validating",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                reason = "Next step in workflow"
+            )
+            // Mock getRoleForStatus for recommended status (validating is review role, not terminal)
+            mockFeatureRoleForStatus("validating", "review", feature.tags)
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 0 // Not all features done
+            )
+
+            val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            assertEquals(1, events.size)
+            val event = events.first()
+            assertEquals("feature_self_advancement", event.event)
+            assertEquals("testing", event.currentStatus)
+            assertEquals("validating", event.suggestedStatus)
+        }
+
+        @Test
+        fun `max_depth default is 10`() {
+            val config = AutoCascadeConfig()
+            assertEquals(10, config.maxDepth)
+        }
+
+        @Test
+        fun `project cascade uses next-step not terminal`() = runBlocking {
+            val feature = createTestFeature(status = FeatureStatus.COMPLETED)
+            val project = createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 2
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+            every { mockStatusProgressionService.getFlowPath("project", project.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "deployed", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("on-hold", "cancelled")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "project",
+                    tags = project.tags,
+                    containerId = project.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "deployed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "deployed", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step in workflow"
+            )
+            // Projects don't need the feature role mock since they cascade to project status
+
+            val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            assertEquals(1, events.size)
+            assertEquals("all_features_complete", events.first().event)
+            assertEquals("deployed", events.first().suggestedStatus) // Next step, NOT "completed"
+        }
+
+        @Test
+        fun `feature self-advancement skipped when recommendation is blocked`() = runBlocking {
+            val feature = createTestFeature(status = FeatureStatus.TESTING)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
+                createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+            )
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 2, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "testing",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Blocked(
+                currentStatus = "testing",
+                blockers = listOf("Verification required"),
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 2
+            )
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 1, completed = 0
+            )
+
+            val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            assertTrue(events.isEmpty()) // No cascade when blocked
+        }
+
+        @Test
+        fun `feature self-advancement skipped when already terminal`() = runBlocking {
+            val feature = createTestFeature(status = FeatureStatus.COMPLETED)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
+                createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+            )
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 1 // Not all features done
+            )
+
+            val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            assertTrue(events.isEmpty()) // Feature already terminal, only project cascade would fire (but not all features done)
+        }
+    }
+
+    @Nested
+    inner class VerificationGateTests {
+
+        @Test
+        fun `cascade stops before terminal when requiresVerification is true`() = runBlocking {
+            val completedTask = createTestTask(status = TaskStatus.COMPLETED)
+            val feature = createTestFeature(status = FeatureStatus.VALIDATING).copy(requiresVerification = true)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "validating") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "validating",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", feature.tags) } returns "terminal"
+
+            val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            // Should NOT emit cascade event because target is terminal and verification is required
+            val allTasksCompleteEvents = events.filter { it.event == "all_tasks_complete" }
+            assertTrue(allTasksCompleteEvents.isEmpty())
+        }
+
+        @Test
+        fun `cascade proceeds to terminal when requiresVerification is false`() = runBlocking {
+            val completedTask = createTestTask(status = TaskStatus.COMPLETED)
+            val feature = createTestFeature(status = FeatureStatus.VALIDATING).copy(requiresVerification = false)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "validating") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "validating",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", feature.tags) } returns "terminal"
+
+            val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            // Should emit cascade event because verification is not required
+            val allTasksCompleteEvents = events.filter { it.event == "all_tasks_complete" }
+            assertEquals(1, allTasksCompleteEvents.size)
+            assertEquals("completed", allTasksCompleteEvents.first().suggestedStatus)
+        }
+
+        @Test
+        fun `cascade proceeds to non-terminal step even with requiresVerification true`() = runBlocking {
+            val completedTask = createTestTask(status = TaskStatus.COMPLETED)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT).copy(requiresVerification = true)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, completed = 1, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            every { mockStatusProgressionService.getRoleForStatus("testing", "feature", feature.tags) } returns "review"
+
+            val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            // Should emit cascade event because target is non-terminal (review role)
+            val allTasksCompleteEvents = events.filter { it.event == "all_tasks_complete" }
+            assertEquals(1, allTasksCompleteEvents.size)
+            assertEquals("testing", allTasksCompleteEvents.first().suggestedStatus)
+        }
+
+        @Test
+        fun `feature self-advancement stops before terminal when requiresVerification is true`() = runBlocking {
+            val feature = createTestFeature(status = FeatureStatus.VALIDATING).copy(requiresVerification = true)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
+                createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+            )
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, completed = 2, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "validating") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "validating",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", feature.tags) } returns "terminal"
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 0 // Not all features done
+            )
+
+            val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            // Should NOT emit cascade event because target is terminal and verification is required
+            val selfAdvancementEvents = events.filter { it.event == "feature_self_advancement" }
+            assertTrue(selfAdvancementEvents.isEmpty())
+        }
+
+        @Test
+        fun `feature self-advancement proceeds to terminal when requiresVerification is false`() = runBlocking {
+            val feature = createTestFeature(status = FeatureStatus.VALIDATING).copy(requiresVerification = false)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(
+                createTestProject(status = ProjectStatus.IN_DEVELOPMENT)
+            )
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, completed = 2, pending = 0,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "validating") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "validating",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", feature.tags) } returns "terminal"
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 0 // Not all features done
+            )
+
+            val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            // Should emit cascade event because verification is not required
+            val selfAdvancementEvents = events.filter { it.event == "feature_self_advancement" }
+            assertEquals(1, selfAdvancementEvents.size)
+            assertEquals("completed", selfAdvancementEvents.first().suggestedStatus)
+        }
+    }
+
+    @Nested
     inner class EdgeCaseTests {
 
         @Test
@@ -1127,16 +1683,33 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            // Fix 2: all_tasks_complete now uses terminal status from flow sequence
             mockRoleForStatus("cancelled", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
             assertEquals(1, events.size)
             assertEquals("all_tasks_complete", events.first().event)
-            // Terminal status from flow sequence is "completed"
-            assertEquals("completed", events.first().suggestedStatus)
+            assertEquals("testing", events.first().suggestedStatus) // Next step, not terminal
         }
 
         @Test
@@ -1182,9 +1755,28 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
-            // Fix 2: all_tasks_complete now targets terminal status ("completed")
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+
             coEvery {
                 mockStatusValidator.validateTransition(any(), any(), any(), any(), any(), any())
             } returns StatusValidator.ValidationResult.Valid

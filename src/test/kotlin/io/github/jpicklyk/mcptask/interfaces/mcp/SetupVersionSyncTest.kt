@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.interfaces.mcp
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import java.io.File
+import java.nio.file.Paths
 import kotlin.test.assertEquals
 import kotlin.test.fail
 
@@ -23,7 +24,10 @@ class SetupVersionSyncTest {
 
     private val kotlinVersion: String = TaskOrchestratorResources.SETUP_INSTRUCTIONS_VERSION
 
-    private val projectRoot: String = System.getProperty("user.dir")
+    // Use Paths.get("").toAbsolutePath() instead of System.getProperty("user.dir")
+    // because other tests mutate user.dir via System.setProperty(), which affects
+    // all tests in the same JVM. The Paths approach returns the actual process CWD.
+    private val projectRoot: String = Paths.get("").toAbsolutePath().toString()
 
     // ---- helpers ----
 

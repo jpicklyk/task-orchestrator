@@ -79,7 +79,7 @@ Include requirements for: core functionality, data handling, integrations, and b
                 contentFormat = ContentFormat.JSON,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality", "role:terminal")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:review")
             )
         )
 

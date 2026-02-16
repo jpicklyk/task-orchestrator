@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.application.tools.status
 
 import io.github.jpicklyk.mcptask.application.service.progression.StatusProgressionService
 import io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation
+import io.github.jpicklyk.mcptask.application.service.progression.FlowPath
 import io.github.jpicklyk.mcptask.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.repository.*
@@ -80,10 +81,42 @@ class RequestTransitionToolVerificationTest {
             modifiedAt = Instant.now()
         )
 
-        // Default mock for role lookups
-        every { mockStatusProgressionService.getRoleForStatus(any(), any(), any()) } returns null
+        // Default mock for role lookups — return terminal for completed/cancelled so
+        // StatusValidator.isTerminalStatus() works via the role-based path
+        every { mockStatusProgressionService.getRoleForStatus(any(), any(), any()) } answers {
+            val status = arg<String>(0)
+            when (status.lowercase().replace('_', '-')) {
+                "completed", "cancelled", "archived" -> "terminal"
+                "in-progress", "in-development" -> "work"
+                "pending", "backlog", "draft", "planning" -> "queue"
+                "blocked", "on-hold" -> "blocked"
+                "testing", "validating", "in-review" -> "review"
+                else -> null
+            }
+        }
 
-        context = ToolExecutionContext(mockRepositoryProvider)
+        // Default mock for flow path (default task flow)
+        every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } answers {
+            val containerType = arg<String>(0)
+            val status = arg<String>(2)
+            val flowSequence = if (containerType == "task") {
+                listOf("backlog", "pending", "in-progress", "completed")
+            } else if (containerType == "feature") {
+                listOf("draft", "planning", "in-development", "testing", "validating", "completed")
+            } else {
+                listOf("planning", "in-development", "completed", "archived")
+            }
+            io.github.jpicklyk.mcptask.application.service.progression.FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = flowSequence,
+                currentPosition = flowSequence.indexOf(status).takeIf { it >= 0 },
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled", "archived"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+        }
+
+        context = ToolExecutionContext(mockRepositoryProvider, mockStatusProgressionService)
         tool = RequestTransitionTool(mockStatusProgressionService)
     }
 

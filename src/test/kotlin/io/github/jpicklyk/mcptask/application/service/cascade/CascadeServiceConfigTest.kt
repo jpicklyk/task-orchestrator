@@ -56,7 +56,7 @@ class CascadeServiceConfigTest {
                 version: "2.0.0"
                 auto_cascade:
                   enabled: true
-                  max_depth: 3
+                  max_depth: 10
                 """.trimIndent()
             )
 
@@ -65,7 +65,7 @@ class CascadeServiceConfigTest {
 
             // Assert
             assertTrue(config.enabled, "Expected enabled=true from custom config")
-            assertEquals(3, config.maxDepth)
+            assertEquals(10, config.maxDepth)
         }
 
         @Test
@@ -76,7 +76,7 @@ class CascadeServiceConfigTest {
                 version: "2.0.0"
                 auto_cascade:
                   enabled: false
-                  max_depth: 3
+                  max_depth: 10
                 """.trimIndent()
             )
 
@@ -85,7 +85,7 @@ class CascadeServiceConfigTest {
 
             // Assert
             assertFalse(config.enabled, "Expected enabled=false from custom config")
-            assertEquals(3, config.maxDepth)
+            assertEquals(10, config.maxDepth)
         }
 
         @Test
@@ -145,7 +145,7 @@ class CascadeServiceConfigTest {
 
             // Assert: falls back to AutoCascadeConfig() defaults
             assertTrue(config.enabled, "Expected enabled=true (default)")
-            assertEquals(3, config.maxDepth, "Expected max_depth=3 (default)")
+            assertEquals(10, config.maxDepth, "Expected max_depth=3 (default)")
         }
 
         @Test
@@ -163,7 +163,7 @@ class CascadeServiceConfigTest {
 
             // Assert: falls back to AutoCascadeConfig() defaults on exception
             assertTrue(config.enabled, "Expected enabled=true (default after malformed YAML)")
-            assertEquals(3, config.maxDepth, "Expected max_depth=3 (default after malformed YAML)")
+            assertEquals(10, config.maxDepth, "Expected max_depth=3 (default after malformed YAML)")
         }
 
         @Test
@@ -175,7 +175,7 @@ class CascadeServiceConfigTest {
 
             // Assert: loads from bundled default-config.yaml (enabled=true, max_depth=3)
             assertTrue(config.enabled, "Expected enabled=true from bundled default-config.yaml")
-            assertEquals(3, config.maxDepth, "Expected max_depth=3 from bundled default-config.yaml")
+            assertEquals(10, config.maxDepth, "Expected max_depth=3 from bundled default-config.yaml")
         }
     }
 

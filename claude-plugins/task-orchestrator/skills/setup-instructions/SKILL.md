@@ -33,14 +33,14 @@ The following block is the output. Replace `{name}` with the project name and `{
 ---
 
 ```markdown
-<!-- mcp-task-orchestrator-setup: v3 -->
+<!-- mcp-task-orchestrator-setup: v4 -->
 ## MCP Task Orchestrator — Project: {name} (`{uuid}`)
 
 All features and tasks belong to this project. Always pass `projectId` when creating features or standalone tasks so they remain queryable.
 
 ### Workflow Rules
 
-1. **Status changes** — Use `request_transition(transitions=[{containerId, containerType, trigger: "start"|"complete"|"cancel"|"block"|"hold"}])`. Always wrap in a `transitions` array, even for single transitions. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
+1. **Status changes** — Use `request_transition(transitions=[{containerId, containerType, trigger: "start"|"complete"|"cancel"|"block"|"hold"|"resume"|"back"}])`. Always wrap in a `transitions` array, even for single transitions. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
 
 2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
 

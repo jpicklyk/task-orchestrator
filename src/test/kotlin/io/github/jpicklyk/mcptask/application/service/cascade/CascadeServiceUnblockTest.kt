@@ -307,7 +307,7 @@ class CascadeServiceUnblockTest {
     inner class MultiStepCascadeAdvancementTests {
 
         @Test
-        fun `all_tasks_complete advances feature to terminal status not just next step`() = runBlocking {
+        fun `all_tasks_complete advances feature to next step not terminal`() = runBlocking {
             val taskId = UUID.randomUUID()
             val task = createTestTask(id = taskId, status = TaskStatus.COMPLETED)
             // Feature is at "planning" -- several steps from terminal
@@ -330,19 +330,39 @@ class CascadeServiceUnblockTest {
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
             every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "terminal") } returns true
 
+            // Mock getNextStatus to return next step (in-development)
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "planning",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-development",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Mock getRoleForStatus for recommended status (in-development is work role, not terminal)
+            every { mockStatusProgressionService.getRoleForStatus("in-development", "feature", feature.tags) } returns "work"
+
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
             assertEquals(1, events.size)
             val event = events.first()
             assertEquals("all_tasks_complete", event.event)
             assertEquals("planning", event.currentStatus)
-            // Should skip directly to terminal, not "in-development"
-            assertEquals("completed", event.suggestedStatus)
+            // Now advances to next step, not terminal
+            assertEquals("in-development", event.suggestedStatus)
             assertEquals("default_flow", event.flow)
         }
 
         @Test
-        fun `all_features_complete advances project to terminal status not just next step`() = runBlocking {
+        fun `all_features_complete advances project to next step not terminal`() = runBlocking {
             val feature = createTestFeature(status = FeatureStatus.COMPLETED)
             // Project at "planning" -- multiple steps from terminal
             val project = Project(
@@ -376,14 +396,31 @@ class CascadeServiceUnblockTest {
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
 
+            // Mock getNextStatus to return next step
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "planning",
+                    containerType = "project",
+                    tags = project.tags,
+                    containerId = project.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-development",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 0,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
             assertEquals(1, events.size)
             val event = events.first()
             assertEquals("all_features_complete", event.event)
             assertEquals("planning", event.currentStatus)
-            // Should skip directly to terminal, not "in-development"
-            assertEquals("completed", event.suggestedStatus)
+            // Now advances to next step, not terminal
+            assertEquals("in-development", event.suggestedStatus)
         }
 
         @Test
@@ -409,14 +446,28 @@ class CascadeServiceUnblockTest {
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
             every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "terminal") } returns true
 
+            // getNextStatus called but returns Terminal
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "completed",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Terminal(
+                terminalStatus = "completed",
+                activeFlow = "default_flow",
+                reason = "Already terminal"
+            )
+
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
-            // "completed" == "completed" (terminal from flow), so no cascade event
+            // getNextStatus returns Terminal, so no cascade event
             assertTrue(events.isEmpty())
         }
 
         @Test
-        fun `cascade application advances feature to completed in single step`() = runBlocking {
+        fun `cascade application advances feature to next step not terminal`() = runBlocking {
             val taskId = UUID.randomUUID()
             val task = createTestTask(id = taskId, status = TaskStatus.COMPLETED)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
@@ -438,10 +489,27 @@ class CascadeServiceUnblockTest {
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
             every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "terminal") } returns true
 
-            // Application phase: validate and apply "in-development" -> "completed"
+            // Mock getNextStatus to return next step (testing)
+            coEvery {
+                mockStatusProgressionService.getNextStatus(
+                    currentStatus = "in-development",
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "testing",
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                reason = "Next step"
+            )
+
+            // Application phase: validate and apply "in-development" -> "testing"
             coEvery {
                 mockStatusValidator.validateTransition(
-                    currentStatus = "in-development", newStatus = "completed",
+                    currentStatus = "in-development", newStatus = "testing",
                     containerType = "feature", containerId = featureId,
                     context = any(), tags = feature.tags
                 )
@@ -453,20 +521,17 @@ class CascadeServiceUnblockTest {
 
             // Role transition recording
             every { mockStatusProgressionService.getRoleForStatus("in-development", "feature", emptyList()) } returns "work"
-            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", emptyList()) } returns "terminal"
+            every { mockStatusProgressionService.getRoleForStatus("testing", "feature", emptyList()) } returns "review"
             coEvery { mockRoleTransitionRepository.create(any()) } returns Result.Success(mockk())
 
-            // Completion cleanup mocks (CompletionCleanupService)
+            // No cleanup since testing is not terminal
             coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task)
-            every { mockDependencyRepository.deleteByTaskId(any()) } returns 0
-            coEvery { mockSectionRepository.getSectionsForEntity(any(), any()) } returns Result.Success(emptyList())
-            coEvery { mockTaskRepository.delete(any()) } returns Result.Success(true)
 
-            // Recursive cascade detection for feature -> project
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "completed") } returns FlowPath(
+            // Recursive cascade detection for feature (now at testing)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 3, matchedTags = emptyList(),
+                currentPosition = 2, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
@@ -477,7 +542,7 @@ class CascadeServiceUnblockTest {
             )
             coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
-                total = 2, completed = 1 // Not all done
+                total = 2, completed = 0 // Not all done
             )
 
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
@@ -486,7 +551,7 @@ class CascadeServiceUnblockTest {
             val result = results.first()
             assertTrue(result.applied)
             assertEquals("in-development", result.previousStatus)
-            assertEquals("completed", result.newStatus)
+            assertEquals("testing", result.newStatus) // Now expects next step, not terminal
             assertEquals("all_tasks_complete", result.event)
         }
     }

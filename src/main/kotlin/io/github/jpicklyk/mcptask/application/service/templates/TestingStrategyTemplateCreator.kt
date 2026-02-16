@@ -39,7 +39,7 @@ object TestingStrategyTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("testing", "coverage", "unit-tests", "integration-tests", "role:review")
+                tags = listOf("testing", "coverage", "unit-tests", "integration-tests", "role:queue", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -52,7 +52,7 @@ object TestingStrategyTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 1,
                 isRequired = true,
-                tags = listOf("acceptance-criteria", "completion", "quality", "role:queue")
+                tags = listOf("acceptance-criteria", "completion", "quality", "role:queue", "role:review")
             )
         )
 

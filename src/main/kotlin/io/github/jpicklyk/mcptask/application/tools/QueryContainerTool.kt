@@ -272,8 +272,17 @@ Docs: task-orchestrator://docs/tools/query-container
     private fun validateOptionalParams(params: JsonElement, containerType: String, operation: String) {
         // Validate status if present (supports multi-value and negation)
         optionalString(params, "status")?.let { statusParam ->
-            if (!isValidStatusFilter(statusParam, containerType)) {
-                throw ToolValidationException("Invalid status filter for $containerType: $statusParam")
+            val isOverviewWithId = operation == "overview"
+                                   && optionalString(params, "id") != null
+            val valid = if (isOverviewWithId) {
+                isValidStatusFilterForOverview(statusParam, containerType)
+            } else {
+                isValidStatusFilter(statusParam, containerType)
+            }
+            if (!valid) {
+                throw ToolValidationException(
+                    "Invalid status filter for $containerType: $statusParam"
+                )
             }
         }
 
@@ -1802,6 +1811,25 @@ Docs: task-orchestrator://docs/tools/query-container
             false
         }
     }
+
+    /**
+     * Validates a status filter for scoped overview operations.
+     * For scoped overview, child collection filters are validated against child types
+     * (e.g., project overview can filter by feature or task statuses).
+     */
+    private fun isValidStatusFilterForOverview(statusParam: String, containerType: String): Boolean = try {
+        statusParam.split(",").map { it.trim() }.all { part ->
+            val sv = if (part.startsWith("!")) part.substring(1) else part
+            when (containerType) {
+                "project" -> isValidStatus(sv, "project")
+                          || isValidStatus(sv, "feature")
+                          || isValidStatus(sv, "task")
+                "feature" -> isValidStatus(sv, "feature")
+                          || isValidStatus(sv, "task")
+                else -> isValidStatus(sv, containerType)
+            }
+        }
+    } catch (_: Exception) { false }
 
     /**
      * Validates a priority filter string supporting multi-value and negation.

@@ -347,7 +347,7 @@ status_validation:
 
 completion_cleanup:
   # Master switch for automatic cleanup. Set to false to keep all tasks indefinitely.
-  enabled: true
+  enabled: false
 
   # Tasks with any of these tags survive cleanup. Checked case-insensitively against task tags.
   # Common patterns: bug reports, critical fixes, hotfixes that have diagnostic value.
@@ -374,10 +374,10 @@ auto_cascade:
   enabled: true
 
   # Maximum cascade depth. Prevents runaway recursion.
-  # Depth 1: task -> feature
-  # Depth 2: task -> feature -> project (typical max for hierarchy)
-  # Depth 3: safety margin
-  max_depth: 3
+  # Depth 1: task -> feature (one step)
+  # Depth 2: task -> feature (one step) -> feature (next step)
+  # Depth 10: Allows multi-step progression through intermediate statuses
+  max_depth: 10
 
   # Role Aggregation — configurable thresholds for feature advancement
   # When X% of tasks reach a certain role, the feature auto-advances.

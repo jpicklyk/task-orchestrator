@@ -324,7 +324,7 @@ class RoleTaggedTemplateTest {
     @Test
     fun `section filtering by role terminal returns only terminal sections`() {
         // Get a template with completion sections
-        val (template, allSections) = RequirementsSpecificationTemplateCreator.create()
+        val (template, allSections) = DesignDecisionTemplateCreator.create()
 
         // Filter for role:terminal
         val terminalSections = allSections.filter { section ->

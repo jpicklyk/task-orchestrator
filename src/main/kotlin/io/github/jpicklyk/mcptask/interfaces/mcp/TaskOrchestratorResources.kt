@@ -51,7 +51,7 @@ object TaskOrchestratorResources {
      * Agents whose instructions file contains an older marker will be prompted by `server.instructions`
      * to re-read the setup resource and update their instructions block.
      */
-    const val SETUP_INSTRUCTIONS_VERSION = "v3"
+    const val SETUP_INSTRUCTIONS_VERSION = "v4"
 
     /**
      * Configures all Task Orchestrator guideline resources with the MCP server.
@@ -1187,7 +1187,7 @@ Task Orchestrator provides guidance through multiple channels:
 **Purpose**: Config-driven workflow advancement with validation
 
 - **`get_next_status`**: Read-only recommendations based on workflow config and entity state
-- **`request_transition`**: Preferred tool for status changes — uses named triggers (start, complete, cancel, block, hold) with prerequisite validation
+- **`request_transition`**: Preferred tool for status changes — uses named triggers (start, complete, cancel, block, hold, resume, back) with prerequisite validation
 
 ## Core Workflow Pattern
 
@@ -1324,7 +1324,7 @@ All features and tasks belong to this project. Always pass `projectId` when crea
 
 ### Workflow Rules
 
-1. **Status changes** — Use `request_transition(transitions=[{containerId, containerType, trigger: "start"|"complete"|"cancel"|"block"|"hold"}])`. Always wrap in a `transitions` array, even for single transitions. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
+1. **Status changes** — Use `request_transition(transitions=[{containerId, containerType, trigger: "start"|"complete"|"cancel"|"block"|"hold"|"resume"|"back"}])`. Always wrap in a `transitions` array, even for single transitions. The `setStatus` operation was removed in v2 — use `request_transition` exclusively for all status changes.
 
 2. **Template discovery** — Before creating any task or feature, run `query_templates(operation="list", targetEntityType="TASK"|"FEATURE", isEnabled=true)` and include `templateIds` in the create call.
 

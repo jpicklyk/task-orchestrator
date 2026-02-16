@@ -10,6 +10,6 @@ package io.github.jpicklyk.mcptask.domain.model.workflow
  * @property retainTags Tasks with any of these tags survive cleanup. Checked case-insensitively.
  */
 data class CleanupConfig(
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     val retainTags: List<String> = listOf("bug", "bugfix", "fix", "hotfix", "critical")
 )

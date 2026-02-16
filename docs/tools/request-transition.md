@@ -76,10 +76,14 @@ Progress a task to its next status:
 | `cancel` | Move to cancelled (emergency transition) | `cancelled` |
 | `block` | Move to blocked (emergency transition) | `blocked` |
 | `hold` | Move to on-hold (emergency transition) | `on-hold` |
+| `resume` | Resume from blocked/on-hold to previous in-flow status | Previous status from role transition history |
+| `back` | Move to previous status in workflow flow | Previous in sequence |
 
 ### How Triggers Resolve
 
 - **`start`**: Looks at the active workflow flow sequence and advances to the next status. If at `pending`, moves to `in-progress`. If at `in-progress`, moves to `testing`, etc.
+- **`back`**: Looks at the active workflow flow sequence and moves to the previous status. If at `in-progress`, moves to `pending`. Returns null if already at the first status in the flow.
+- **`resume`**: Queries the role transition history to find the previous non-blocked status before the entity entered a blocked state. Falls back to first work-role status if no history exists.
 - **`complete`/`cancel`/`block`/`hold`**: Always resolve to their fixed target regardless of flow position. Emergency triggers (`cancel`, `block`, `hold`) can be used from any status.
 
 ## Response Schema
@@ -295,7 +299,7 @@ Emergency transition - works from any status without following the normal flow.
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `RESOURCE_NOT_FOUND` | Entity doesn't exist | Verify container ID |
-| `VALIDATION_ERROR` (unknown trigger) | Invalid trigger name | Use: start, complete, cancel, block, hold |
+| `VALIDATION_ERROR` (unknown trigger) | Invalid trigger name | Use: start, complete, cancel, block, hold, resume, back |
 | `VALIDATION_ERROR` (blocked) | Prerequisites not met | Check blockers in response, resolve them |
 | `VALIDATION_ERROR` (flow violation) | Transition not allowed | Use `get_next_status` to see valid transitions |
 

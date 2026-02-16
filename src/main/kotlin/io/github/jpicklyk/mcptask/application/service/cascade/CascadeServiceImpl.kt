@@ -214,22 +214,35 @@ class CascadeServiceImpl(
             val allDone = (taskCounts.completed + taskCounts.cancelled) == taskCounts.total
 
             if (allDone && taskCounts.total > 0) {
-                // When all tasks are terminal, advance feature directly to terminal status
-                // instead of just the next step, to avoid multi-step friction
-                val terminalStatus = flowPath.flowSequence.lastOrNull() ?: "completed"
+                // Use getNextStatus to advance one step at a time through the workflow
+                val recommendation = statusProgressionService.getNextStatus(
+                    currentStatus = featureStatusNormalized,
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
 
-                if (terminalStatus != featureStatusNormalized) {
-                    events.add(CascadeEvent(
-                        event = "all_tasks_complete",
-                        targetType = ContainerType.FEATURE,
-                        targetId = feature.id,
-                        targetName = feature.name,
-                        currentStatus = featureStatusNormalized,
-                        suggestedStatus = terminalStatus,
-                        flow = flowPath.activeFlow,
-                        automatic = true,
-                        reason = "All ${taskCounts.total} tasks completed/cancelled"
-                    ))
+                if (recommendation is NextStatusRecommendation.Ready) {
+                    // Check verification gate: don't cascade to terminal if verification required
+                    val targetRole = statusProgressionService.getRoleForStatus(
+                        recommendation.recommendedStatus, "feature", feature.tags
+                    )
+                    if (targetRole == "terminal" && feature.requiresVerification) {
+                        // Stop cascade — manual complete trigger will enforce verification gate
+                        // Don't emit the event, verification must be provided first
+                    } else {
+                        events.add(CascadeEvent(
+                            event = "all_tasks_complete",
+                            targetType = ContainerType.FEATURE,
+                            targetId = feature.id,
+                            targetName = feature.name,
+                            currentStatus = featureStatusNormalized,
+                            suggestedStatus = recommendation.recommendedStatus,
+                            flow = recommendation.activeFlow,
+                            automatic = true,
+                            reason = "All ${taskCounts.total} tasks completed/cancelled"
+                        ))
+                    }
                 }
             }
         }
@@ -303,6 +316,7 @@ class CascadeServiceImpl(
      * Detects cascade events for feature status changes.
      *
      * Events detected:
+     * - feature_self_advancement: Feature not terminal AND all tasks terminal -> advance one step
      * - all_features_complete: Feature reaches terminal status AND all features in project terminal
      */
     private suspend fun detectFeatureCascades(featureId: UUID): List<CascadeEvent> {
@@ -320,6 +334,44 @@ class CascadeServiceImpl(
         val flowPath = statusProgressionService.getFlowPath("feature", feature.tags, featureStatusNormalized)
         val isFeatureTerminal = flowPath.terminalStatuses.contains(featureStatusNormalized)
 
+        // Event: feature_self_advancement
+        // Trigger: Feature NOT terminal AND all tasks are terminal -> advance feature one step
+        if (!isFeatureTerminal) {
+            val taskCounts = featureRepository.getTaskCountsByFeatureId(featureId)
+            val allTasksDone = (taskCounts.completed + taskCounts.cancelled) == taskCounts.total && taskCounts.total > 0
+
+            if (allTasksDone) {
+                val recommendation = statusProgressionService.getNextStatus(
+                    currentStatus = featureStatusNormalized,
+                    containerType = "feature",
+                    tags = feature.tags,
+                    containerId = feature.id
+                )
+
+                if (recommendation is NextStatusRecommendation.Ready) {
+                    // Check verification gate: don't cascade to terminal if verification required
+                    val targetRole = statusProgressionService.getRoleForStatus(
+                        recommendation.recommendedStatus, "feature", feature.tags
+                    )
+                    if (targetRole == "terminal" && feature.requiresVerification) {
+                        // Feature stays at current status — requires manual completion with verification
+                    } else {
+                        events.add(CascadeEvent(
+                            event = "feature_self_advancement",
+                            targetType = ContainerType.FEATURE,
+                            targetId = feature.id,
+                            targetName = feature.name,
+                            currentStatus = featureStatusNormalized,
+                            suggestedStatus = recommendation.recommendedStatus,
+                            flow = recommendation.activeFlow,
+                            automatic = true,
+                            reason = "All tasks terminal, advancing feature to next workflow step"
+                        ))
+                    }
+                }
+            }
+        }
+
         // Event: all_features_complete
         // Trigger: Feature reaches terminal status AND all features in project are terminal
         if (isFeatureTerminal) {
@@ -327,20 +379,23 @@ class CascadeServiceImpl(
             val allDone = featureCounts.completed == featureCounts.total
 
             if (allDone && featureCounts.total > 0) {
-                // When all features are terminal, advance project directly to terminal status
-                // instead of just the next step, to avoid multi-step friction
-                val projectFlowPath = statusProgressionService.getFlowPath("project", project.tags, projectStatusNormalized)
-                val terminalStatus = projectFlowPath.flowSequence.lastOrNull() ?: "completed"
+                // Use getNextStatus to advance project one step at a time
+                val recommendation = statusProgressionService.getNextStatus(
+                    currentStatus = projectStatusNormalized,
+                    containerType = "project",
+                    tags = project.tags,
+                    containerId = project.id
+                )
 
-                if (terminalStatus != projectStatusNormalized) {
+                if (recommendation is NextStatusRecommendation.Ready) {
                     events.add(CascadeEvent(
                         event = "all_features_complete",
                         targetType = ContainerType.PROJECT,
                         targetId = project.id,
                         targetName = project.name,
                         currentStatus = projectStatusNormalized,
-                        suggestedStatus = terminalStatus,
-                        flow = projectFlowPath.activeFlow,
+                        suggestedStatus = recommendation.recommendedStatus,
+                        flow = recommendation.activeFlow,
                         automatic = true,
                         reason = "All ${featureCounts.total} features completed"
                     ))
@@ -640,7 +695,7 @@ class CascadeServiceImpl(
                 val config = org.yaml.snakeyaml.Yaml().load<Map<String, Any?>>(stream) ?: return AutoCascadeConfig()
                 val section = config["auto_cascade"] as? Map<String, Any?> ?: return AutoCascadeConfig()
                 val enabled = section["enabled"] as? Boolean ?: true
-                val maxDepth = (section["max_depth"] as? Number)?.toInt() ?: 3
+                val maxDepth = (section["max_depth"] as? Number)?.toInt() ?: 10
                 AutoCascadeConfig(enabled = enabled, maxDepth = maxDepth)
             }
         } catch (e: Exception) {

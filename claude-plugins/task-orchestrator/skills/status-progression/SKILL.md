@@ -20,10 +20,12 @@ Status changes are config-driven with validation, prerequisites, and cascade det
 | Trigger | Resolves to | Typical Role Change | Notes |
 |---------|-------------|-------------------|-------|
 | `start` | Next in flow | queue→work OR work→review | Advances one step based on entity's active flow |
+| `back` | Previous in flow | work→queue OR review→work | Moves back one step in the active flow sequence |
 | `complete` | `completed` | review→terminal (or work→terminal) | Terminal status |
 | `cancel` | `cancelled` | any→terminal | Emergency: from any status |
 | `block` | `blocked` | any→blocked | Emergency: from any status |
 | `hold` | `on-hold` | any→blocked | Emergency: from any status |
+| `resume` | Previous in-flow status | blocked→work (or other) | Returns from blocked/on-hold to previous status |
 
 Emergency triggers bypass normal flow. Always include `summary` for emergency transitions.
 

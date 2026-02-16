@@ -69,7 +69,7 @@ object BugInvestigationWorkflowTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("fix-implementation", "verification", "testing", "role:review")
+                tags = listOf("fix-implementation", "verification", "testing", "role:work", "role:review")
             ),
             TemplateSection(
                 templateId = templateId,

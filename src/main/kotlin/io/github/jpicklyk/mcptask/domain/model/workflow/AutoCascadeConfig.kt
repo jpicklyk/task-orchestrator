@@ -8,9 +8,9 @@ package io.github.jpicklyk.mcptask.domain.model.workflow
  * Recursive cascading is supported up to [maxDepth].
  *
  * @property enabled Whether auto-cascade is active. Default: true.
- * @property maxDepth Maximum recursive cascade depth. Default: 3.
+ * @property maxDepth Maximum recursive cascade depth. Default: 10.
  */
 data class AutoCascadeConfig(
     val enabled: Boolean = true,
-    val maxDepth: Int = 3
+    val maxDepth: Int = 10
 )

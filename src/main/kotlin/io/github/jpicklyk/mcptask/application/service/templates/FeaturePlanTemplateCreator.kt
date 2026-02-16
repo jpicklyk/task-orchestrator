@@ -94,7 +94,7 @@ object FeaturePlanTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 2,
                 isRequired = true,
-                tags = listOf("implementation", "phases", "planning", "role:queue")
+                tags = listOf("implementation", "phases", "planning", "role:queue", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -106,7 +106,7 @@ object FeaturePlanTemplateCreator {
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 3,
                 isRequired = true,
-                tags = listOf("files", "manifest", "impact-analysis", "role:queue")
+                tags = listOf("files", "manifest", "impact-analysis", "role:queue", "role:work")
             ),
             TemplateSection(
                 templateId = templateId,
@@ -158,7 +158,7 @@ object FeaturePlanTemplateCreator {
                 contentFormat = ContentFormat.JSON,
                 ordinal = 7,
                 isRequired = true,
-                tags = listOf("verification", "acceptance-criteria", "quality", "role:queue")
+                tags = listOf("verification", "acceptance-criteria", "quality", "role:review")
             )
         )
 

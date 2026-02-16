@@ -36,6 +36,7 @@ import java.util.UUID
  * - "block": Move to the "blocked" status (emergency transition)
  * - "hold": Move to the "on-hold" status (emergency transition)
  * - "resume": Resume from blocked/on-hold to previous in-flow status
+ * - "back": Move to the previous status in the workflow flow
  *
  * Custom triggers can be defined via flow event_handlers in the workflow config.
  */
@@ -77,6 +78,7 @@ Built-in triggers:
 - "block" - Move to blocked (emergency transition)
 - "hold" - Move to on-hold (emergency transition)
 - "resume" - Resume from blocked/on-hold to previous in-flow status
+- "back" - Move to previous status in workflow flow
 
 Returns:
 - results array with per-item outcomes (containerId, previousStatus, newStatus, applied, previousRole, newRole, flow context)
@@ -587,9 +589,9 @@ Related: manage_container, get_next_status"""
                                 }
                             ))
                         }
-                        // Add flow context
+                        // Add flow context (use targetStatus to show position AFTER transition)
                         try {
-                            val flowPath = statusProgressionService.getFlowPath(containerType, tags, currentStatus)
+                            val flowPath = statusProgressionService.getFlowPath(containerType, tags, targetStatus)
                             put("activeFlow", flowPath.activeFlow)
                             put("flowSequence", JsonArray(flowPath.flowSequence.map { JsonPrimitive(it) }))
                             put("flowPosition", flowPath.currentPosition ?: -1)
@@ -639,7 +641,24 @@ Related: manage_container, get_next_status"""
                         null // Already at terminal
                 }
             }
-            "complete" -> "completed"
+            "complete" -> {
+                val flowPath = statusProgressionService.getFlowPath(containerType, tags, currentStatus)
+                val normalizedCurrent = currentStatus.lowercase().replace('_', '-')
+                val currentIndex = flowPath.flowSequence.indexOfFirst {
+                    it.lowercase().replace('_', '-') == normalizedCurrent
+                }
+                val lastIndex = flowPath.flowSequence.size - 1
+                if (currentIndex < 0) {
+                    // Out-of-flow (emergency status like blocked/on-hold) — allow direct completion
+                    "completed"
+                } else if (currentIndex >= lastIndex - 1) {
+                    // At penultimate or later — resolve to flow's terminal status
+                    flowPath.flowSequence.lastOrNull() ?: "completed"
+                } else {
+                    // Too far from terminal — must advance step-by-step with "start"
+                    null
+                }
+            }
             "cancel" -> "cancelled"
             "block" -> "blocked"
             "hold" -> "on-hold"
@@ -681,6 +700,18 @@ Related: manage_container, get_next_status"""
                     // No history, fall back to first work-role status in flow
                     fallbackResumeStatus(containerType, tags)
                 }
+            }
+            "back" -> {
+                // Move to previous status in workflow flow
+                val flowPath = statusProgressionService.getFlowPath(
+                    containerType, tags, currentStatus
+                )
+                val normalizedCurrent = currentStatus.lowercase().replace('_', '-')
+                val currentIndex = flowPath.flowSequence.indexOfFirst {
+                    it.lowercase().replace('_', '-') == normalizedCurrent
+                }
+                if (currentIndex <= 0) null
+                else flowPath.flowSequence[currentIndex - 1]
             }
             else -> null // Unknown trigger
         }

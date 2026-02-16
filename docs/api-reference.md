@@ -2361,7 +2361,7 @@ request_transition(containerId="...", containerType="task",
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `transitions` | array | **Yes** | Array of transition objects. Even for a single transition, wrap it in an array. Each: `{containerId (UUID), containerType (task\|feature\|project), trigger (start\|complete\|cancel\|block\|hold), summary? (optional note)}` |
+| `transitions` | array | **Yes** | Array of transition objects. Even for a single transition, wrap it in an array. Each: `{containerId (UUID), containerType (task\|feature\|project), trigger (start\|complete\|cancel\|block\|hold\|resume\|back), summary? (optional note)}` |
 
 **Trigger Types**:
 - `start` - Progress to next status in workflow flow
@@ -2369,6 +2369,8 @@ request_transition(containerId="...", containerType="task",
 - `cancel` - Move to cancelled (emergency transition)
 - `block` - Move to blocked (emergency transition)
 - `hold` - Move to on-hold (emergency transition)
+- `resume` - Resume from blocked/on-hold to previous in-flow status
+- `back` - Move to previous status in workflow flow
 
 **Response Fields** (per-result in `results` array):
 - `containerId` - UUID of the transitioned entity

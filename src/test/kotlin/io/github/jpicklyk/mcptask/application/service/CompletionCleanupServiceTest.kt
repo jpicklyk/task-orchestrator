@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.application.service
 
 import io.github.jpicklyk.mcptask.domain.model.*
+import io.github.jpicklyk.mcptask.domain.model.workflow.CleanupConfig
 import io.github.jpicklyk.mcptask.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.domain.repository.Result
 import io.github.jpicklyk.mcptask.domain.repository.SectionRepository
@@ -14,6 +15,9 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Instant
 import java.util.*
 import kotlin.test.assertEquals
@@ -26,6 +30,9 @@ class CompletionCleanupServiceTest {
     private lateinit var mockTaskRepository: TaskRepository
     private lateinit var mockSectionRepository: SectionRepository
     private lateinit var mockDependencyRepository: DependencyRepository
+
+    @TempDir
+    lateinit var tempDir: Path
 
     private val featureId = UUID.randomUUID()
     private val projectId = UUID.randomUUID()
@@ -41,6 +48,16 @@ class CompletionCleanupServiceTest {
             sectionRepository = mockSectionRepository,
             dependencyRepository = mockDependencyRepository
         )
+
+        // Redirect config loading to temp directory
+        System.setProperty("user.dir", tempDir.toString())
+    }
+
+    private fun writeConfigFile(yamlContent: String) {
+        val configDir = tempDir.resolve(".taskorchestrator")
+        Files.createDirectories(configDir)
+        val configFile = configDir.resolve("config.yaml")
+        Files.writeString(configFile, yamlContent)
     }
 
     private fun createTask(
@@ -86,6 +103,20 @@ class CompletionCleanupServiceTest {
 
     @Nested
     inner class CleanupEnabledTests {
+        @BeforeEach
+        fun setupCleanupEnabled() {
+            // Enable cleanup for tests in this nested class
+            writeConfigFile("""
+                version: "2.0.0"
+                completion_cleanup:
+                  enabled: true
+                  retain_tags: [bug, bugfix, fix, hotfix, critical]
+                status_progression:
+                  features:
+                    terminal_statuses: [completed, archived]
+            """.trimIndent())
+        }
+
         @Test
         fun `should delete tasks when feature reaches completed status`() = runBlocking {
             val task1 = createTask(title = "Task 1")
@@ -235,6 +266,19 @@ class CompletionCleanupServiceTest {
 
     @Nested
     inner class NonTerminalStatusTests {
+        @BeforeEach
+        fun setupCleanupEnabled() {
+            writeConfigFile("""
+                version: "2.0.0"
+                completion_cleanup:
+                  enabled: true
+                  retain_tags: [bug, bugfix, fix, hotfix, critical]
+                status_progression:
+                  features:
+                    terminal_statuses: [completed, archived]
+            """.trimIndent())
+        }
+
         @Test
         fun `should not clean up when feature status is not terminal`() = runBlocking {
             val result = service.cleanupFeatureTasks(featureId, "in-development")
@@ -278,6 +322,19 @@ class CompletionCleanupServiceTest {
 
     @Nested
     inner class NoTasksTests {
+        @BeforeEach
+        fun setupCleanupEnabled() {
+            writeConfigFile("""
+                version: "2.0.0"
+                completion_cleanup:
+                  enabled: true
+                  retain_tags: [bug, bugfix, fix, hotfix, critical]
+                status_progression:
+                  features:
+                    terminal_statuses: [completed, archived]
+            """.trimIndent())
+        }
+
         @Test
         fun `should handle feature with no tasks`() = runBlocking {
             every { mockTaskRepository.findByFeatureId(featureId) } returns emptyList()
@@ -293,6 +350,19 @@ class CompletionCleanupServiceTest {
 
     @Nested
     inner class AllRetainedTests {
+        @BeforeEach
+        fun setupCleanupEnabled() {
+            writeConfigFile("""
+                version: "2.0.0"
+                completion_cleanup:
+                  enabled: true
+                  retain_tags: [bug, bugfix, fix, hotfix, critical]
+                status_progression:
+                  features:
+                    terminal_statuses: [completed, archived]
+            """.trimIndent())
+        }
+
         @Test
         fun `should handle feature with only bug-tagged tasks`() = runBlocking {
             val bugTask1 = createTask(title = "Bug 1", tags = listOf("bug"))
@@ -311,6 +381,19 @@ class CompletionCleanupServiceTest {
 
     @Nested
     inner class ErrorHandlingTests {
+        @BeforeEach
+        fun setupCleanupEnabled() {
+            writeConfigFile("""
+                version: "2.0.0"
+                completion_cleanup:
+                  enabled: true
+                  retain_tags: [bug, bugfix, fix, hotfix, critical]
+                status_progression:
+                  features:
+                    terminal_statuses: [completed, archived]
+            """.trimIndent())
+        }
+
         @Test
         fun `should continue cleanup if one task deletion fails`() = runBlocking {
             val task1 = createTask(title = "Task 1")
@@ -354,9 +437,15 @@ class CompletionCleanupServiceTest {
     @Nested
     inner class ConfigTests {
         @Test
-        fun `default cleanup config should be enabled`() {
+        fun `CleanupConfig default should have cleanup disabled`() {
+            val config = CleanupConfig()
+            assertFalse(config.enabled, "Default cleanup config should be disabled to prevent data loss")
+        }
+
+        @Test
+        fun `default cleanup config should be disabled`() {
             val config = service.loadCleanupConfig()
-            assertTrue(config.enabled)
+            assertFalse(config.enabled)
         }
 
         @Test
@@ -379,6 +468,19 @@ class CompletionCleanupServiceTest {
 
     @Nested
     inner class DependencyCleanupTests {
+        @BeforeEach
+        fun setupCleanupEnabled() {
+            writeConfigFile("""
+                version: "2.0.0"
+                completion_cleanup:
+                  enabled: true
+                  retain_tags: [bug, bugfix, fix, hotfix, critical]
+                status_progression:
+                  features:
+                    terminal_statuses: [completed, archived]
+            """.trimIndent())
+        }
+
         @Test
         fun `should delete dependencies before deleting task`() = runBlocking {
             val taskId = UUID.randomUUID()

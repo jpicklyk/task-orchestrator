@@ -184,7 +184,7 @@ class CompletionCleanupService(
 
         val cleanupSection = config["completion_cleanup"] as? Map<String, Any?> ?: return CleanupConfig()
 
-        val enabled = cleanupSection["enabled"] as? Boolean ?: true
+        val enabled = cleanupSection["enabled"] as? Boolean ?: false
         val retainTags = (cleanupSection["retain_tags"] as? List<String>) ?: CleanupConfig().retainTags
 
         return CleanupConfig(enabled = enabled, retainTags = retainTags)

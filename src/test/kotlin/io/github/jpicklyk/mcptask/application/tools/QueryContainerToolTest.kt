@@ -310,6 +310,83 @@ class QueryContainerToolTest {
             }
             assertTrue(exception.message!!.contains("Summary length must be between 0 and 200"))
         }
+
+        @Test
+        fun `should accept task status filter on scoped feature overview`() {
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("status", "pending")  // pending is a TaskStatus, not FeatureStatus
+            }
+
+            // Should not throw exception - pending is a valid TaskStatus
+            assertDoesNotThrow {
+                tool.validateParams(params)
+            }
+        }
+
+        @Test
+        fun `should accept task status filter on scoped project overview`() {
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "project")
+                put("id", projectId.toString())
+                put("status", "in-progress")  // in-progress is valid for multiple types
+            }
+
+            // Should not throw exception
+            assertDoesNotThrow {
+                tool.validateParams(params)
+            }
+        }
+
+        @Test
+        fun `should accept negated multi-value task status filter on scoped feature overview`() {
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("status", "!completed,!cancelled")  // negation with task statuses
+            }
+
+            // Should not throw exception
+            assertDoesNotThrow {
+                tool.validateParams(params)
+            }
+        }
+
+        @Test
+        fun `should reject task status filter on get operation for feature`() {
+            val params = buildJsonObject {
+                put("operation", "get")
+                put("containerType", "feature")
+                put("id", featureId.toString())
+                put("status", "pending")  // pending is a TaskStatus, not FeatureStatus
+            }
+
+            // Should throw exception - get operation does not use child-aware validation
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid status"))
+        }
+
+        @Test
+        fun `should reject task status filter on global overview for feature`() {
+            val params = buildJsonObject {
+                put("operation", "overview")
+                put("containerType", "feature")
+                // No id - global overview
+                put("status", "pending")  // pending is a TaskStatus, not FeatureStatus
+            }
+
+            // Should throw exception - global overview validates against parent type only
+            val exception = assertThrows<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(exception.message!!.contains("Invalid status"))
+        }
     }
 
     @Nested

@@ -465,6 +465,24 @@ class RequestTransitionToolTest {
             val completedTask = pendingTask.copy(status = TaskStatus.COMPLETED)
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(completedTask)
 
+            // Mock getFlowPath for complete trigger resolution and response enrichment
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } answers {
+                val status = arg<String>(2)
+                val flowSequence = listOf("backlog", "pending", "in-progress", "completed")
+                FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = flowSequence,
+                    currentPosition = flowSequence.indexOf(status).takeIf { it >= 0 },
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+            }
+
+            // Mock dependency checks
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
             val params = buildJsonObject {
                 put("containerId", taskId.toString())
                 put("containerType", "task")
@@ -594,6 +612,20 @@ class RequestTransitionToolTest {
             // StatusValidator prerequisite checks
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(taskAId) } returns emptyList()
+
+            // Mock getFlowPath for complete trigger and response enrichment
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } answers {
+                val status = arg<String>(2)
+                val flowSequence = listOf("backlog", "pending", "in-progress", "completed")
+                FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = flowSequence,
+                    currentPosition = flowSequence.indexOf(status).takeIf { it >= 0 },
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+            }
 
             // Mock CascadeService methods
             every { mockCascadeService.loadAutoCascadeConfig() } returns io.github.jpicklyk.mcptask.domain.model.workflow.AutoCascadeConfig(enabled = false)
@@ -1097,7 +1129,7 @@ class RequestTransitionToolTest {
     inner class BatchExecutionTests {
         @Test
         fun `should process batch transitions with mixed success and failure`() = runBlocking {
-            val taskA = createTask(taskId, "Task A", TaskStatus.PENDING)
+            val taskA = createTask(taskId, "Task A", TaskStatus.IN_PROGRESS)
             val taskB = createTask(UUID.randomUUID(), "Task B", TaskStatus.IN_PROGRESS)
 
             val taskBId = taskB.id
@@ -1118,6 +1150,20 @@ class RequestTransitionToolTest {
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for flow-aware complete trigger resolution and response enrichment
+            val flowSequence = listOf("backlog", "pending", "in-progress", "completed")
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } answers {
+                val status = arg<String>(2)
+                FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = flowSequence,
+                    currentPosition = flowSequence.indexOf(status).takeIf { it >= 0 },
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+            }
 
             val params = buildJsonObject {
                 put("transitions", buildJsonArray {
@@ -1199,12 +1245,12 @@ class RequestTransitionToolTest {
             every { mockStatusProgressionService.getRoleForStatus("pending", "task", any()) } returns "queue"
             every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
 
-            // Mock getFlowPath for enriched response
-            every { mockStatusProgressionService.getFlowPath("task", any(), "pending") } returns
+            // Mock getFlowPath for enriched response - should be called with target status (in-progress)
+            every { mockStatusProgressionService.getFlowPath("task", any(), "in-progress") } returns
                 io.github.jpicklyk.mcptask.application.service.progression.FlowPath(
                     activeFlow = "default_flow",
                     flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
-                    currentPosition = 1,
+                    currentPosition = 2,  // in-progress is at index 2
                     matchedTags = emptyList(),
                     terminalStatuses = listOf("completed", "cancelled"),
                     emergencyTransitions = listOf("blocked", "on-hold")
@@ -1235,8 +1281,8 @@ class RequestTransitionToolTest {
             assertEquals("default_flow", data["activeFlow"]!!.jsonPrimitive.content)
             val flowSequence = data["flowSequence"]!!.jsonArray
             assertEquals(5, flowSequence.size)
-            assertEquals("pending", flowSequence[1].jsonPrimitive.content)
-            assertEquals(1, data["flowPosition"]!!.jsonPrimitive.int)
+            assertEquals("in-progress", flowSequence[2].jsonPrimitive.content)
+            assertEquals(2, data["flowPosition"]!!.jsonPrimitive.int)  // in-progress is at index 2
         }
 
         @Test
@@ -1375,15 +1421,20 @@ class RequestTransitionToolTest {
             every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.deleteByTaskId(any()) } returns 0
 
-            // StatusProgressionService mocks
-            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("backlog", "pending", "in-progress", "testing", "completed"),
-                currentPosition = 2,
-                matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "on-hold")
-            )
+            // StatusProgressionService mocks - return position based on status
+            // Use the actual default task flow: [backlog, pending, in-progress, completed]
+            val flowSequence = listOf("backlog", "pending", "in-progress", "completed")
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } answers {
+                val status = arg<String>(2)
+                FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = flowSequence,
+                    currentPosition = flowSequence.indexOf(status).takeIf { it >= 0 },
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+            }
 
             // StatusValidator prerequisite mocks (feature -> completed requires these)
             coEvery { mockFeatureRepository.getTaskCount(any()) } returns Result.Success(1)
@@ -2707,14 +2758,19 @@ status_validation:
 
             every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
             every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
-            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("pending", "in-progress", "testing", "completed"),
-                currentPosition = 3,
-                matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "on-hold")
-            )
+            // Override getFlowPath to use 4-status flow (in-progress at penultimate position)
+            every { mockStatusProgressionService.getFlowPath(any(), any(), any()) } answers {
+                val status = arg<String>(2)
+                val flowSequence = listOf("backlog", "pending", "in-progress", "completed")
+                FlowPath(
+                    activeFlow = "default_flow",
+                    flowSequence = flowSequence,
+                    currentPosition = flowSequence.indexOf(status).takeIf { it >= 0 },
+                    matchedTags = emptyList(),
+                    terminalStatuses = listOf("completed", "cancelled"),
+                    emergencyTransitions = listOf("blocked", "on-hold")
+                )
+            }
 
             val params = buildJsonObject {
                 put("containerId", taskAId.toString())
@@ -3486,6 +3542,348 @@ status_validation:
                 message.contains("Unknown trigger") && message.contains("resume"),
                 "Error should mention unknown trigger 'resume', got: $message"
             )
+        }
+
+        @Test
+        fun `flowPosition is correct after resume from blocked`() = runBlocking {
+            val blockedTask = createTask(taskId, "Test Task", TaskStatus.BLOCKED)
+            val resumedTask = blockedTask.copy(status = TaskStatus.IN_PROGRESS)
+
+            // Fetch entity details - task is blocked
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(blockedTask)
+
+            // Role for blocked is "blocked"
+            every { mockStatusProgressionService.getRoleForStatus("blocked", "task", any()) } returns "blocked"
+            // Role for in-progress is "work"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", any()) } returns "work"
+
+            // Mock role transition history: went from in-progress to blocked
+            coEvery { mockRoleTransitionRepository.findByEntityId(taskId, "task") } returns Result.Success(
+                listOf(
+                    RoleTransition(
+                        entityId = taskId,
+                        entityType = "task",
+                        fromRole = "work",
+                        toRole = "blocked",
+                        fromStatus = "in-progress",
+                        toStatus = "blocked",
+                        trigger = "block",
+                        transitionedAt = Instant.now()
+                    )
+                )
+            )
+
+            // Mock the update
+            coEvery { mockTaskRepository.update(any()) } returns Result.Success(resumedTask)
+
+            // Mock dependency repository for StatusValidator prerequisite validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for response enrichment - should be called with targetStatus ("in-progress")
+            every { mockStatusProgressionService.getFlowPath("task", listOf("backend"), "in-progress") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "completed"),
+                currentPosition = 2,  // in-progress is at index 2
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "resume")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertEquals("blocked", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("in-progress", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("resume", data["trigger"]!!.jsonPrimitive.content)
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+
+            // Verify flow context
+            assertEquals("default_flow", data["activeFlow"]!!.jsonPrimitive.content)
+            assertEquals(2, data["flowPosition"]!!.jsonPrimitive.int)
+            assertNotEquals(-1, data["flowPosition"]!!.jsonPrimitive.int,
+                "flowPosition should not be -1 after resume transition")
+
+            val flowSequence = data["flowSequence"]!!.jsonArray
+            assertEquals("in-progress", flowSequence[2].jsonPrimitive.content)
+        }
+    }
+
+    @Nested
+    inner class CompleteTriggerSequentialEnforcementTests {
+
+        private fun createTask(
+            id: UUID,
+            title: String,
+            status: TaskStatus = TaskStatus.IN_PROGRESS,
+            summary: String = "A".repeat(350)
+        ): Task = Task(
+            id = id,
+            title = title,
+            description = "Description",
+            summary = summary,
+            status = status,
+            priority = Priority.HIGH,
+            complexity = 5,
+            tags = emptyList(),
+            featureId = featureId,
+            projectId = projectId,
+            createdAt = Instant.now(),
+            modifiedAt = Instant.now()
+        )
+
+        @Test
+        fun `complete trigger rejects when too far from terminal (pending in 4-step flow)`() = runBlocking {
+            // Task at "pending" in flow [backlog, pending, in-progress, completed]
+            // Penultimate is index 2 (in-progress), pending is index 1, so 1 < 2 → rejected
+            val task = createTask(taskId, "Test Task", TaskStatus.PENDING)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(task)
+
+            // Mock getFlowPath for complete trigger resolution
+            every { mockStatusProgressionService.getFlowPath("task", emptyList(), "pending") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "completed"),
+                currentPosition = 1,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            // Mock dependency checks (not used, but needed to avoid NPE)
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            // When trigger resolution returns null, tool returns errorResponse (success=false)
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "Should return error response")
+            assertTrue(
+                result["message"]!!.jsonPrimitive.content.contains("Unknown trigger"),
+                "Error message should mention unknown trigger"
+            )
+        }
+
+        @Test
+        fun `complete trigger succeeds from penultimate status (in-progress in 4-step flow)`() = runBlocking {
+            // Task at "in-progress" in flow [backlog, pending, in-progress, completed]
+            // Penultimate is index 2 (in-progress), so 2 >= 2 → allowed
+            val task = createTask(taskId, "Test Task", TaskStatus.IN_PROGRESS)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED, modifiedAt = Instant.now())
+
+            coEvery { mockTaskRepository.getById(taskId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // StatusValidator prerequisite check
+                Result.Success(task),           // applyStatusChange
+                Result.Success(task)            // verification gate check
+            )
+
+            // Mock getFlowPath for complete trigger resolution
+            every { mockStatusProgressionService.getFlowPath("task", emptyList(), "in-progress") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "completed"),
+                currentPosition = 2,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            // Mock role lookups
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", emptyList()) } returns "work"
+            every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+
+            // Mock update
+            coEvery { mockTaskRepository.update(match { it.status == TaskStatus.COMPLETED }) } returns Result.Success(completedTask)
+
+            // Mock dependency repository for validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for response enrichment (called with targetStatus "completed")
+            every { mockStatusProgressionService.getFlowPath("task", emptyList(), "completed") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("in-progress", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("completed", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("complete", data["trigger"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `complete trigger succeeds from blocked status (emergency path)`() = runBlocking {
+            // Task at "blocked" status (not in flow sequence)
+            // currentIndex < 0 → emergency path → "completed"
+            val task = createTask(taskId, "Test Task", TaskStatus.BLOCKED)
+            val completedTask = task.copy(status = TaskStatus.COMPLETED, modifiedAt = Instant.now())
+
+            coEvery { mockTaskRepository.getById(taskId) } returnsMany listOf(
+                Result.Success(task),           // fetchEntityDetails
+                Result.Success(task),           // StatusValidator prerequisite check
+                Result.Success(task),           // applyStatusChange
+                Result.Success(task)            // verification gate check
+            )
+
+            // Mock getFlowPath for complete trigger resolution
+            every { mockStatusProgressionService.getFlowPath("task", emptyList(), "blocked") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "completed"),
+                currentPosition = null,  // Not in flow
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            // Mock role lookups
+            every { mockStatusProgressionService.getRoleForStatus("blocked", "task", emptyList()) } returns "blocked"
+            every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+
+            // Mock update
+            coEvery { mockTaskRepository.update(match { it.status == TaskStatus.COMPLETED }) } returns Result.Success(completedTask)
+
+            // Mock dependency repository for validation
+            every { mockDependencyRepository.findByTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByToTaskId(any()) } returns emptyList()
+            every { mockDependencyRepository.findByFromTaskId(any()) } returns emptyList()
+
+            // Mock getFlowPath for response enrichment
+            every { mockStatusProgressionService.getFlowPath("task", emptyList(), "completed") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("backlog", "pending", "in-progress", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            val params = buildJsonObject {
+                put("containerId", taskId.toString())
+                put("containerType", "task")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("blocked", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("completed", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("complete", data["trigger"]!!.jsonPrimitive.content)
+        }
+
+        @Test
+        fun `complete trigger succeeds from penultimate in multi-step flow (validating in 5-step flow)`() = runBlocking {
+            // Feature with multi-step flow: [planning, in-development, testing, validating, completed]
+            // At "validating" (index 3), lastIndex is 4, so 3 >= 4-1=3 → allowed
+            val feature = Feature(
+                id = featureId,
+                name = "Test Feature",
+                description = "Test description",
+                summary = "Test summary",
+                status = FeatureStatus.VALIDATING,
+                priority = Priority.HIGH,
+                tags = emptyList(),
+                projectId = projectId,
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+            val completedFeature = feature.update(status = FeatureStatus.COMPLETED)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returnsMany listOf(
+                Result.Success(feature),           // fetchEntityDetails
+                Result.Success(feature),           // StatusValidator prerequisite check
+                Result.Success(feature)            // applyStatusChange
+            )
+
+            // Mock getFlowPath for complete trigger resolution
+            every { mockStatusProgressionService.getFlowPath("feature", emptyList(), "validating") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 3,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            // Mock role lookups
+            every { mockStatusProgressionService.getRoleForStatus("validating", "feature", emptyList()) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", emptyList()) } returns "terminal"
+
+            // Mock update
+            coEvery { mockFeatureRepository.update(match { it.status == FeatureStatus.COMPLETED }) } returns Result.Success(completedFeature)
+
+            // Mock getFlowPath for response enrichment
+            every { mockStatusProgressionService.getFlowPath("feature", emptyList(), "completed") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "validating", "completed"),
+                currentPosition = 4,
+                matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "on-hold")
+            )
+
+            // Mock findByFeature for feature completion validation (must have all tasks in terminal status)
+            // Return a completed task to satisfy the all-tasks-completed prerequisite
+            val completedTask = Task(
+                id = UUID.randomUUID(),
+                title = "Completed Task",
+                description = "Description",
+                summary = "A".repeat(350),
+                status = TaskStatus.COMPLETED,
+                priority = Priority.HIGH,
+                complexity = 5,
+                tags = emptyList(),
+                featureId = featureId,
+                projectId = projectId,
+                createdAt = Instant.now(),
+                modifiedAt = Instant.now()
+            )
+            coEvery { mockTaskRepository.findByFeature(featureId, any(), any(), any()) } returns Result.Success(listOf(completedTask))
+
+            val params = buildJsonObject {
+                put("containerId", featureId.toString())
+                put("containerType", "feature")
+                put("trigger", "complete")
+            }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+
+            val data = result["data"]!!.jsonObject
+            assertTrue(data["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("validating", data["previousStatus"]!!.jsonPrimitive.content)
+            assertEquals("completed", data["newStatus"]!!.jsonPrimitive.content)
+            assertEquals("complete", data["trigger"]!!.jsonPrimitive.content)
         }
     }
 }

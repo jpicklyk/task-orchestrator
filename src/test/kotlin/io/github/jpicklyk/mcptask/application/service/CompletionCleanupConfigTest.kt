@@ -132,7 +132,7 @@ class CompletionCleanupConfigTest {
 
             val config = service.loadCleanupConfig()
 
-            assertTrue(config.enabled, "Should default to enabled")
+            assertFalse(config.enabled, "Should default to disabled to prevent data loss")
             assertTrue(config.retainTags.contains("bug"), "Should have default retain tags")
             assertTrue(config.retainTags.contains("bugfix"), "Should have default retain tags")
             assertTrue(config.retainTags.contains("fix"), "Should have default retain tags")
