@@ -40,7 +40,7 @@ Include requirements for: core functionality, data handling, integrations, and b
                 contentFormat = ContentFormat.MARKDOWN,
                 ordinal = 0,
                 isRequired = true,
-                tags = listOf("functional", "core", "critical", "acceptance-criteria", "requirements", "role:queue")
+                tags = listOf("functional", "core", "critical", "requirements", "role:queue")
             ),
             TemplateSection(
                 templateId = templateId,

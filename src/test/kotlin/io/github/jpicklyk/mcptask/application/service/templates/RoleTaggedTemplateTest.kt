@@ -380,4 +380,124 @@ class RoleTaggedTemplateTest {
         assertTrue(totalSections > 0, "Should have at least one section across all templates")
         assertTrue(roleDistribution.isNotEmpty(), "Should have role tags assigned")
     }
+
+    @Test
+    fun `JSON Verification sections must include role review`() {
+        val violations = mutableListOf<String>()
+
+        getAllTemplates().forEach { (template, sections) ->
+            sections.forEach { section ->
+                if (section.contentFormat == ContentFormat.JSON &&
+                    section.title.contains("Verification", ignoreCase = true)) {
+                    val roleTags = section.tags.filter { it.startsWith("role:") }
+                    if (!section.tags.contains("role:review")) {
+                        violations.add("${template.name} > ${section.title}: JSON Verification section missing role:review (has: $roleTags)")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            violations.isEmpty(),
+            "JSON Verification sections must have role:review. Violations:\n${violations.joinToString("\n")}"
+        )
+    }
+
+    @Test
+    fun `acceptance-criteria tagged sections must include role review`() {
+        val violations = mutableListOf<String>()
+
+        getAllTemplates().forEach { (template, sections) ->
+            sections.forEach { section ->
+                if (section.tags.contains("acceptance-criteria")) {
+                    if (!section.tags.contains("role:review")) {
+                        violations.add("${template.name} > ${section.title}: has 'acceptance-criteria' tag but missing role:review")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            violations.isEmpty(),
+            "acceptance-criteria tagged sections must have role:review. Violations:\n${violations.joinToString("\n")}"
+        )
+    }
+
+    @Test
+    fun `fix-implementation tagged sections must include role work`() {
+        val violations = mutableListOf<String>()
+
+        getAllTemplates().forEach { (template, sections) ->
+            sections.forEach { section ->
+                if (section.tags.contains("fix-implementation")) {
+                    if (!section.tags.contains("role:work")) {
+                        violations.add("${template.name} > ${section.title}: has 'fix-implementation' tag but missing role:work")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            violations.isEmpty(),
+            "fix-implementation tagged sections must have role:work. Violations:\n${violations.joinToString("\n")}"
+        )
+    }
+
+    @Test
+    fun `implementation and execution tagged sections must include role work`() {
+        val violations = mutableListOf<String>()
+
+        getAllTemplates().forEach { (template, sections) ->
+            sections.forEach { section ->
+                if (section.tags.contains("implementation") && section.tags.contains("execution")) {
+                    if (!section.tags.contains("role:work")) {
+                        violations.add("${template.name} > ${section.title}: has 'implementation'+'execution' tags but missing role:work")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            violations.isEmpty(),
+            "implementation+execution tagged sections must have role:work. Violations:\n${violations.joinToString("\n")}"
+        )
+    }
+
+    @Test
+    fun `every enabled task template has at least one role work section`() {
+        val violations = mutableListOf<String>()
+
+        getAllTemplates()
+            .filter { (template, _) -> template.isEnabled && template.targetEntityType == EntityType.TASK }
+            .forEach { (template, sections) ->
+                val hasWorkSection = sections.any { section -> section.tags.contains("role:work") }
+                if (!hasWorkSection) {
+                    violations.add("${template.name}: enabled TASK template has no role:work sections")
+                }
+            }
+
+        assertTrue(
+            violations.isEmpty(),
+            "Every enabled TASK template must have at least one role:work section. Violations:\n${violations.joinToString("\n")}"
+        )
+    }
+
+    @Test
+    fun `every enabled feature template has at least one role queue section`() {
+        val violations = mutableListOf<String>()
+
+        getAllTemplates()
+            .filter { (template, _) -> template.isEnabled && template.targetEntityType == EntityType.FEATURE }
+            .forEach { (template, sections) ->
+                val hasQueueSection = sections.any { section -> section.tags.contains("role:queue") }
+                if (!hasQueueSection) {
+                    violations.add("${template.name}: enabled FEATURE template has no role:queue sections")
+                }
+            }
+
+        assertTrue(
+            violations.isEmpty(),
+            "Every enabled FEATURE template must have at least one role:queue section. Violations:\n${violations.joinToString("\n")}"
+        )
+    }
 }
