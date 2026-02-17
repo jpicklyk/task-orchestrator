@@ -16,6 +16,7 @@ COPY .git .git
 COPY gradlew gradlew.bat ./
 COPY gradle gradle
 COPY build.gradle.kts settings.gradle.kts ./
+COPY current/build.gradle.kts current/
 RUN chmod +x gradlew
 
 # Download dependencies (cached until build files change)
@@ -23,13 +24,14 @@ RUN ./gradlew dependencies --no-daemon
 
 # Source code and runtime docs (change frequently, placed last for cache)
 COPY src src
+COPY current/src current/src
 COPY docs docs
 
-# Build fat JAR (tests run in CI, skipped here)
-RUN ./gradlew build -x test --no-daemon
+# Build fat JARs for both v2 and current modules (tests run in CI, skipped here)
+RUN ./gradlew jar :current:jar --no-daemon -x test
 
-# --- Runtime stage ---
-FROM amazoncorretto:25-al2023-headless
+# --- Runtime base stage (shared configuration for all runtime targets) ---
+FROM amazoncorretto:25-al2023-headless AS runtime-base
 
 # Amazon Corretto 25 on AL2023 addresses high severity CVEs present in eclipse-temurin:23
 # Using headless variant (runtime-only, no GUI libraries) for optimal production container size
@@ -52,8 +54,6 @@ RUN dnf install -y shadow-utils \
     && mkdir -p /app/data /app/logs \
     && chown -R appuser:appgroup /app
 
-# Copy artifacts from builder
-COPY --from=builder --chown=appuser:appgroup /app/build/libs/mcp-task-orchestrator-*.jar /app/orchestrator.jar
 COPY --from=builder --chown=appuser:appgroup /app/docs /app/docs
 
 # Volume for SQLite database persistence
@@ -64,6 +64,7 @@ ENV DATABASE_PATH=/app/data/tasks.db
 ENV MCP_TRANSPORT=stdio
 ENV LOG_LEVEL=INFO
 ENV USE_FLYWAY=true
+ENV AGENT_CONFIG_DIR=/project
 
 # Switch to non-root user
 USER appuser
@@ -74,3 +75,13 @@ STOPSIGNAL SIGTERM
 # Run the MCP server
 # --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+
 CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]
+
+# --- runtime-v2 target (v2 orchestrator JAR) ---
+# The [0-9]* glob prevents matching the -current- JAR name
+FROM runtime-base AS runtime-v2
+COPY --from=builder --chown=appuser:appgroup /app/build/libs/mcp-task-orchestrator-[0-9]*.jar /app/orchestrator.jar
+
+# --- runtime-current target (current module JAR) ---
+FROM runtime-base AS runtime-current
+COPY --from=builder --chown=appuser:appgroup /app/current/build/libs/mcp-task-orchestrator-current-*.jar /app/orchestrator.jar
+ENV DATABASE_PATH=data/current-tasks.db

@@ -1,6 +1,8 @@
 services:
   mcp-task-orchestrator:
-    build: .
+    build:
+      context: .
+      target: runtime-v2
     container_name: mcp-task-orchestrator
     user: "1001:1001"
     labels:
@@ -31,5 +33,38 @@ services:
           memory: 256M
           cpus: '0.25'
 
+  mcp-task-orchestrator-current:
+    build:
+      context: .
+      target: runtime-current
+    container_name: mcp-task-orchestrator-current
+    profiles:
+      - current
+    user: "1001:1001"
+    labels:
+      mcp.client: claude-desktop
+    volumes:
+      - mcp-task-data-current:/app/data
+      - .:/project:ro
+    environment:
+      DATABASE_PATH: /app/data/current-tasks.db
+      MCP_TRANSPORT: stdio
+      LOG_LEVEL: INFO
+      USE_FLYWAY: "true"
+      AGENT_CONFIG_DIR: /project
+      MCP_SERVER_NAME: mcp-task-orchestrator
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 1.0
+    cpu_shares: 256
+    stop_grace_period: 10s
+
 volumes:
   mcp-task-data:
+  mcp-task-data-current:
