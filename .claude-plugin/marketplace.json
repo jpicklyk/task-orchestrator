@@ -9,7 +9,7 @@
   },
   "plugins": [
     {
-      "name": "current-task-orchestrator",
+      "name": "current",
       "version": "1.0.0",
       "description": "Skills, hooks, and workflows for Current (v3) MCP Task Orchestrator. Schema-aware context, note-driven workflow, and thin session hooks.",
       "author": {

@@ -326,7 +326,7 @@ And in `hooks/hooks.json`:
 
 ## Related Documentation
 
-- [Status Progression Skill](../claude-plugins/task-orchestrator/skills/status-progression/SKILL.md) — Workflow guidance
+- [Status Progression Skill](../claude-plugins/clockwork/skills/status-progression/SKILL.md) — Workflow guidance
 - [Claude Plugin Guide](claude-plugin.md) — Plugin development
 - [Status Progression Guide](status-progression.md) — Workflow configuration
 
