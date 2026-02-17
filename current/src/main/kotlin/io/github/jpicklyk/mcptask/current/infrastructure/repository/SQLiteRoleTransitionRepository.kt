@@ -84,6 +84,19 @@ class SQLiteRoleTransitionRepository(private val databaseManager: DatabaseManage
         Result.Error(RepositoryError.DatabaseError("Failed to find RoleTransitions by time range: ${e.message}", e))
     }
 
+    override suspend fun findSince(since: Instant, limit: Int): Result<List<RoleTransition>> = try {
+        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            val results = RoleTransitionsTable.selectAll()
+                .where { RoleTransitionsTable.transitionedAt greaterEq since }
+                .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
+                .limit(limit)
+                .map { mapRowToRoleTransition(it) }
+            Result.Success(results)
+        }
+    } catch (e: Exception) {
+        Result.Error(RepositoryError.DatabaseError("Failed to find transitions since $since: ${e.message}", e))
+    }
+
     override suspend fun deleteByItemId(itemId: UUID): Result<Int> = try {
         newSuspendedTransaction(db = databaseManager.getDatabase()) {
             val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }

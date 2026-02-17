@@ -1,0 +1,29 @@
+[
+  {
+    "type": "command",
+    "event": "SessionStart",
+    "command": "node hooks/session-start.mjs"
+  },
+  {
+    "type": "command",
+    "event": "PreToolUse",
+    "matcher": "EnterPlanMode",
+    "command": "node hooks/pre-plan.mjs"
+  },
+  {
+    "type": "command",
+    "event": "PostToolUse",
+    "matcher": "ExitPlanMode",
+    "command": "node hooks/post-plan.mjs"
+  },
+  {
+    "type": "command",
+    "event": "SubagentStart",
+    "command": "node hooks/subagent-start.mjs"
+  },
+  {
+    "type": "command",
+    "event": "Stop",
+    "command": "node hooks/stop-check.mjs"
+  }
+]

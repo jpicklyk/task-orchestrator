@@ -296,6 +296,27 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         Result.Error(RepositoryError.DatabaseError("Failed to find root items: ${e.message}", e))
     }
 
+    override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> = try {
+        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            val results = mutableListOf<WorkItem>()
+            val queue = ArrayDeque<UUID>()
+            queue.add(id)
+
+            while (queue.isNotEmpty()) {
+                val current = queue.removeFirst()
+                val children = WorkItemsTable.selectAll()
+                    .where { WorkItemsTable.parentId eq current }
+                    .map { mapRowToWorkItem(it) }
+                results.addAll(children)
+                queue.addAll(children.map { it.id })
+            }
+
+            Result.Success(results)
+        }
+    } catch (e: Exception) {
+        Result.Error(RepositoryError.DatabaseError("Failed to find descendants: ${e.message}", e))
+    }
+
     /**
      * Build a tag filter that matches tags at word boundaries within a comma-separated string.
      * Handles: tag alone ("bug"), at start ("bug,feature"), in middle ("alpha,bug,beta"), at end ("alpha,bug").

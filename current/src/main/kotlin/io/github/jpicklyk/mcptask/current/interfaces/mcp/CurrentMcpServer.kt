@@ -8,8 +8,11 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
+import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
@@ -90,7 +93,12 @@ class CurrentMcpServer(
             AdvanceItemTool(),
             GetNextStatusTool(),
             GetNextItemTool(),
-            GetBlockedItemsTool()
+            GetBlockedItemsTool(),
+            // Phase 3: Compound operations
+            CompleteTreeTool(),
+            CreateWorkTreeTool(),
+            // Phase 3: Context
+            GetContextTool()
         )
         adapter.registerToolsWithServer(server, tools, toolContext)
         logger.info("Registered ${tools.size} MCP tools")
@@ -160,7 +168,7 @@ class CurrentMcpServer(
                     logging = JsonObject(emptyMap())
                 )
             ),
-            instructions = "Current (v3) MCP Task Orchestrator — 10 tools: manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, advance_item, get_next_status, get_next_item, get_blocked_items"
+            instructions = "Current (v3) MCP Task Orchestrator — 13 tools: manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, advance_item, get_next_status, get_next_item, get_blocked_items, complete_tree, create_work_tree, get_context"
         )
     }
 }

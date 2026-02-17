@@ -52,4 +52,10 @@ interface WorkItemRepository {
      * Unlike findRoot() which expects a single root, this returns all parentless items.
      */
     suspend fun findRootItems(limit: Int = 50): Result<List<WorkItem>>
+
+    /**
+     * Find all descendants of the given item (children, grandchildren, etc.) recursively.
+     * Does not include the item itself.
+     */
+    suspend fun findDescendants(id: UUID): Result<List<WorkItem>>
 }
