@@ -412,6 +412,8 @@ class CascadeServiceUnblockTest {
                 matchedTags = emptyList(),
                 reason = "Next step"
             )
+            // Feature is terminal — start cascade does NOT fire
+            every { mockStatusProgressionService.getRoleForStatus("completed", "feature", feature.tags) } returns "terminal"
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 

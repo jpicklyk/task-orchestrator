@@ -199,16 +199,20 @@ class CascadeServiceTest {
             // in-progress is NOT terminal
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // planning feature is in queue role — start cascade will also fire
+            mockFeatureRoleForStatus("planning", "queue", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
-            assertEquals(1, events.size)
-            val event = events.first()
-            assertEquals("first_task_started", event.event)
-            assertEquals(ContainerType.FEATURE, event.targetType)
-            assertEquals(featureId, event.targetId)
-            assertEquals("planning", event.currentStatus)
-            assertEquals("in-development", event.suggestedStatus)
+            // first_task_started fires (legacy: status-based check for first flow position)
+            // first_child_started also fires (role-based start cascade: parent in queue, child in work)
+            assertTrue(events.any { it.event == "first_task_started" })
+            assertTrue(events.any { it.event == "first_child_started" })
+            val firstTaskStarted = events.first { it.event == "first_task_started" }
+            assertEquals(ContainerType.FEATURE, firstTaskStarted.targetType)
+            assertEquals(featureId, firstTaskStarted.targetId)
+            assertEquals("planning", firstTaskStarted.currentStatus)
+            assertEquals("in-development", firstTaskStarted.suggestedStatus)
         }
 
         @Test
@@ -283,6 +287,8 @@ class CascadeServiceTest {
                 matchedTags = emptyList(),
                 reason = "Next step"
             )
+            // Feature is terminal — start cascade does NOT fire (only fires when featureRole == "work")
+            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
@@ -310,6 +316,8 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
+            // Feature is terminal — start cascade does NOT fire
+            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
             assertTrue(events.isEmpty())
@@ -337,6 +345,8 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // in-development feature is in work role — start cascade does NOT fire (not "queue")
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
             coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
                 inProgressTask,
                 createTestTask(id = UUID.randomUUID(), status = TaskStatus.IN_PROGRESS)
@@ -1139,6 +1149,8 @@ class CascadeServiceTest {
             every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task1.tags) } returns "work"
             mockIsRoleAtOrBeyond("work", "work", true)
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Feature is in review role (testing) — start cascade does NOT fire
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
 
             val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
 
@@ -1287,6 +1299,8 @@ class CascadeServiceTest {
             )
             // Mock getRoleForStatus for recommended status (validating is review role, not terminal)
             mockFeatureRoleForStatus("validating", "review", feature.tags)
+            // Feature is in review role (testing) — start cascade does NOT fire (only fires when "work")
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
                 total = 2, completed = 0 // Not all features done
             )
@@ -1345,7 +1359,8 @@ class CascadeServiceTest {
                 matchedTags = emptyList(),
                 reason = "Next step in workflow"
             )
-            // Projects don't need the feature role mock since they cascade to project status
+            // Feature is terminal — start cascade does NOT fire (only fires when featureRole == "work")
+            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
@@ -1390,6 +1405,8 @@ class CascadeServiceTest {
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
                 total = 1, completed = 0
             )
+            // Feature is in review role (testing) — start cascade does NOT fire
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
@@ -1418,6 +1435,8 @@ class CascadeServiceTest {
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
                 total = 2, completed = 1 // Not all features done
             )
+            // Feature is terminal — start cascade does NOT fire
+            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
@@ -1606,6 +1625,8 @@ class CascadeServiceTest {
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
                 total = 2, completed = 0 // Not all features done
             )
+            // Feature is in review role (validating) — start cascade does NOT fire
+            mockFeatureRoleForStatus("validating", "review", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
@@ -1652,6 +1673,8 @@ class CascadeServiceTest {
             every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
                 total = 2, completed = 0 // Not all features done
             )
+            // Feature is in review role (validating) — start cascade does NOT fire
+            mockFeatureRoleForStatus("validating", "review", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(featureId, ContainerType.FEATURE)
 
@@ -1790,6 +1813,208 @@ class CascadeServiceTest {
             assertFalse(results.first().applied)
             assertNotNull(results.first().error)
             assertTrue(results.first().error!!.contains("Failed to update feature"))
+        }
+    }
+
+    @Nested
+    inner class StartCascadeTests {
+
+        /** Helper to build a CascadeServiceImpl with a custom StartCascadeConfig. */
+        private fun cascadeServiceWith(startCascadeEnabled: Boolean): CascadeServiceImpl =
+            CascadeServiceImpl(
+                statusProgressionService = mockStatusProgressionService,
+                statusValidator = mockStatusValidator,
+                taskRepository = mockTaskRepository,
+                featureRepository = mockFeatureRepository,
+                projectRepository = mockProjectRepository,
+                dependencyRepository = mockDependencyRepository,
+                sectionRepository = mockSectionRepository,
+                startCascadeConfig = StartCascadeConfig(enabled = startCascadeEnabled)
+            )
+
+        @Test
+        fun `parent feature auto-starts when first child task starts (queue to work cascade)`(): Unit = runBlocking {
+            val inProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.PLANNING)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
+                inProgressTask,
+                createTestTask(id = UUID.randomUUID(), status = TaskStatus.PENDING)
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "planning") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 0, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            // Task is in work role
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Feature parent is in queue role
+            mockFeatureRoleForStatus("planning", "queue", feature.tags)
+            // getNextStatus for the feature
+            coEvery {
+                mockStatusProgressionService.getNextStatus("planning", "feature", feature.tags, feature.id)
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-development", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 0, matchedTags = emptyList(), reason = "First child started"
+            )
+
+            val service = cascadeServiceWith(startCascadeEnabled = true)
+            val events = service.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            val startCascadeEvents = events.filter { it.event == "first_child_started" }
+            assertEquals(1, startCascadeEvents.size)
+            val event = startCascadeEvents.first()
+            assertEquals(ContainerType.FEATURE, event.targetType)
+            assertEquals(featureId, event.targetId)
+            assertEquals("planning", event.currentStatus)
+            assertEquals("in-development", event.suggestedStatus)
+            assertTrue(event.automatic)
+        }
+
+        @Test
+        fun `parent feature does NOT cascade if already in work role`(): Unit = runBlocking {
+            val inProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(inProgressTask)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            // Task is in work role
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Feature is in work role — cascade should NOT fire
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
+
+            val service = cascadeServiceWith(startCascadeEnabled = true)
+            val events = service.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            val startCascadeEvents = events.filter { it.event == "first_child_started" }
+            assertTrue(startCascadeEvents.isEmpty())
+        }
+
+        @Test
+        fun `parent feature does NOT cascade when start_cascade is disabled`(): Unit = runBlocking {
+            val inProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
+            // Use IN_DEVELOPMENT so first_task_started won't fire (feature not at first flow position)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(inProgressTask)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            // Task is in work role — but start cascade is disabled, so no first_child_started fires
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+
+            val service = cascadeServiceWith(startCascadeEnabled = false)
+            val events = service.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            val startCascadeEvents = events.filter { it.event == "first_child_started" }
+            assertTrue(startCascadeEvents.isEmpty())
+        }
+
+        @Test
+        fun `non-first child starting does NOT re-trigger cascade when parent already in work`(): Unit = runBlocking {
+            val secondInProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(secondInProgressTask)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
+                secondInProgressTask,
+                createTestTask(id = UUID.randomUUID(), status = TaskStatus.IN_PROGRESS)
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            // Task is in work role
+            mockRoleForStatus("in-progress", "work")
+            mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Feature is already in work role — cascade does NOT fire
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
+
+            val service = cascadeServiceWith(startCascadeEnabled = true)
+            val events = service.detectCascadeEvents(taskId, ContainerType.TASK)
+
+            val startCascadeEvents = events.filter { it.event == "first_child_started" }
+            assertTrue(startCascadeEvents.isEmpty())
+        }
+
+        @Test
+        fun `parent project auto-starts when first child feature starts (feature to project cascade)`(): Unit = runBlocking {
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+            val project = createTestProject(status = ProjectStatus.PLANNING)
+
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            coEvery { mockProjectRepository.getById(projectId) } returns Result.Success(project)
+            every { mockProjectRepository.getFeatureCountsByProjectId(projectId) } returns FeatureCounts(
+                total = 2, completed = 0
+            )
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            // For feature_self_advancement check: tasks not all done
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, completed = 0, pending = 2,
+                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
+            )
+            // Feature is in work role
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
+            // Project is in queue role
+            every { mockStatusProgressionService.getRoleForStatus("planning", "project", project.tags) } returns "queue"
+            // getNextStatus for the project
+            coEvery {
+                mockStatusProgressionService.getNextStatus("planning", "project", project.tags, project.id)
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "in-development", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 0, matchedTags = emptyList(), reason = "First feature started"
+            )
+
+            val service = cascadeServiceWith(startCascadeEnabled = true)
+            val events = service.detectCascadeEvents(featureId, ContainerType.FEATURE)
+
+            val startCascadeEvents = events.filter { it.event == "first_child_started" }
+            assertEquals(1, startCascadeEvents.size)
+            val event = startCascadeEvents.first()
+            assertEquals(ContainerType.PROJECT, event.targetType)
+            assertEquals(projectId, event.targetId)
+            assertEquals("planning", event.currentStatus)
+            assertEquals("in-development", event.suggestedStatus)
+            assertTrue(event.automatic)
+        }
+
+        @Test
+        fun `loadStartCascadeConfig returns enabled true by default from bundled config`() {
+            val config = CascadeServiceImpl.loadStartCascadeConfig()
+            assertTrue(config.enabled)
         }
     }
 }

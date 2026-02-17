@@ -379,6 +379,14 @@ auto_cascade:
   # Depth 10: Allows multi-step progression through intermediate statuses
   max_depth: 10
 
+  # Start Cascade — auto-advance parent when first child starts work.
+  # When a child item transitions from queue to work role, if its parent is still
+  # in queue role, the parent automatically advances to work role as well.
+  # This propagates upward: task start -> feature start -> project start.
+  # Role-based: uses queue/work roles, not specific status strings.
+  start_cascade:
+    enabled: true  # Enabled by default for natural workflow progression
+
   # Role Aggregation — configurable thresholds for feature advancement
   # When X% of tasks reach a certain role, the feature auto-advances.
   # Default thresholds are 100% (matching existing all_tasks_complete behavior).

@@ -16,6 +16,13 @@ import io.github.jpicklyk.mcptask.domain.model.workflow.UnblockedTask as DomainU
 import io.github.jpicklyk.mcptask.domain.model.workflow.CascadeCleanupResult as DomainCascadeCleanupResult
 
 /**
+ * Configuration for start cascade — auto-advance parent when first child starts.
+ * When a child transitions from queue to work role, the parent auto-advances
+ * from queue to work if it is still in queue role.
+ */
+data class StartCascadeConfig(val enabled: Boolean = true)
+
+/**
  * Configuration for role-based feature aggregation.
  * When X% of tasks reach a role threshold, the feature auto-advances.
  */
@@ -56,7 +63,8 @@ class CascadeServiceImpl(
     private val dependencyRepository: DependencyRepository,
     private val sectionRepository: SectionRepository,
     private val aggregationRules: List<RoleAggregationConfig> = emptyList(),
-    private val roleTransitionRepository: RoleTransitionRepository? = null
+    private val roleTransitionRepository: RoleTransitionRepository? = null,
+    private val startCascadeConfig: StartCascadeConfig = StartCascadeConfig()
 ) : CascadeService {
 
     private val logger = LoggerFactory.getLogger(CascadeServiceImpl::class.java)
@@ -135,6 +143,47 @@ class CascadeServiceImpl(
             } catch (e: Exception) {
                 logger.warn("Failed to load role aggregation rules: ${e.message}")
                 emptyList()
+            }
+        }
+
+        /**
+         * Loads start cascade configuration from the auto_cascade.start_cascade config section.
+         *
+         * Reads from .taskorchestrator/config.yaml (or bundled default-config.yaml as fallback).
+         * Returns StartCascadeConfig(enabled=true) by default.
+         *
+         * Example config:
+         * ```yaml
+         * auto_cascade:
+         *   start_cascade:
+         *     enabled: true
+         * ```
+         */
+        fun loadStartCascadeConfig(): StartCascadeConfig {
+            val logger = LoggerFactory.getLogger(CascadeServiceImpl::class.java)
+            return try {
+                val configPath = java.nio.file.Paths.get(
+                    System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
+                ).resolve(".taskorchestrator/config.yaml")
+
+                val inputStream = if (java.nio.file.Files.exists(configPath)) {
+                    java.nio.file.Files.newInputStream(configPath)
+                } else {
+                    CascadeServiceImpl::class.java.classLoader.getResourceAsStream("configuration/default-config.yaml")
+                        ?: return StartCascadeConfig()
+                }
+
+                inputStream.use { stream ->
+                    @Suppress("UNCHECKED_CAST")
+                    val config = org.yaml.snakeyaml.Yaml().load<Map<String, Any?>>(stream) ?: return StartCascadeConfig()
+                    val autoCascade = config["auto_cascade"] as? Map<String, Any?> ?: return StartCascadeConfig()
+                    val startCascade = autoCascade["start_cascade"] as? Map<String, Any?> ?: return StartCascadeConfig()
+                    val enabled = startCascade["enabled"] as? Boolean ?: true
+                    StartCascadeConfig(enabled = enabled)
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to load start_cascade config: ${e.message}")
+                StartCascadeConfig()
             }
         }
     }
@@ -241,6 +290,38 @@ class CascadeServiceImpl(
                             flow = recommendation.activeFlow,
                             automatic = true,
                             reason = "All ${taskCounts.total} tasks completed/cancelled"
+                        ))
+                    }
+                }
+            }
+        }
+
+        // Event: first_child_started (start cascade)
+        // Trigger: Task moves to work role AND parent feature is still in queue role
+        if (startCascadeConfig.enabled) {
+            val taskRole = statusProgressionService.getRoleForStatus(taskStatusNormalized, "task", task.tags)
+            if (taskRole == "work") {
+                // Task just entered work role — check if parent feature is in queue role
+                val featureRole = statusProgressionService.getRoleForStatus(featureStatusNormalized, "feature", feature.tags)
+                if (featureRole == "queue") {
+                    val recommendation = statusProgressionService.getNextStatus(
+                        currentStatus = featureStatusNormalized,
+                        containerType = "feature",
+                        tags = feature.tags,
+                        containerId = feature.id
+                    )
+                    if (recommendation is NextStatusRecommendation.Ready &&
+                        recommendation.recommendedStatus != featureStatusNormalized) {
+                        events.add(CascadeEvent(
+                            event = "first_child_started",
+                            targetType = ContainerType.FEATURE,
+                            targetId = feature.id,
+                            targetName = feature.name,
+                            currentStatus = featureStatusNormalized,
+                            suggestedStatus = recommendation.recommendedStatus,
+                            flow = recommendation.activeFlow,
+                            automatic = true,
+                            reason = "First child task started — advancing parent feature from queue to work"
                         ))
                     }
                 }
@@ -399,6 +480,38 @@ class CascadeServiceImpl(
                         automatic = true,
                         reason = "All ${featureCounts.total} features completed"
                     ))
+                }
+            }
+        }
+
+        // Event: first_child_started (start cascade, feature → project)
+        // Trigger: Feature moves to work role AND parent project is still in queue role
+        if (startCascadeConfig.enabled) {
+            val featureRole = statusProgressionService.getRoleForStatus(featureStatusNormalized, "feature", feature.tags)
+            if (featureRole == "work") {
+                // Feature just entered work role — check if parent project is in queue role
+                val projectRole = statusProgressionService.getRoleForStatus(projectStatusNormalized, "project", project.tags)
+                if (projectRole == "queue") {
+                    val recommendation = statusProgressionService.getNextStatus(
+                        currentStatus = projectStatusNormalized,
+                        containerType = "project",
+                        tags = project.tags,
+                        containerId = project.id
+                    )
+                    if (recommendation is NextStatusRecommendation.Ready &&
+                        recommendation.recommendedStatus != projectStatusNormalized) {
+                        events.add(CascadeEvent(
+                            event = "first_child_started",
+                            targetType = ContainerType.PROJECT,
+                            targetId = project.id,
+                            targetName = project.name,
+                            currentStatus = projectStatusNormalized,
+                            suggestedStatus = recommendation.recommendedStatus,
+                            flow = recommendation.activeFlow,
+                            automatic = true,
+                            reason = "First child feature started — advancing parent project from queue to work"
+                        ))
+                    }
                 }
             }
         }
