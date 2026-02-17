@@ -40,7 +40,6 @@ class CascadeServiceUnblockTest {
         projectRepository = mockProjectRepository,
         dependencyRepository = mockDependencyRepository,
         sectionRepository = mockSectionRepository,
-        aggregationRules = emptyList(),
         roleTransitionRepository = mockRoleTransitionRepository
     )
 
@@ -328,6 +327,7 @@ class CascadeServiceUnblockTest {
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "review") } returns true
             every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "terminal") } returns true
 
             // Mock getNextStatus to return next step (in-development)
@@ -446,6 +446,7 @@ class CascadeServiceUnblockTest {
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "review") } returns true
             every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "terminal") } returns true
 
             // getNextStatus called but returns Terminal
@@ -489,6 +490,7 @@ class CascadeServiceUnblockTest {
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", emptyList()) } returns "terminal"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "review") } returns true
             every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "terminal") } returns true
 
             // Mock getNextStatus to return next step (testing)

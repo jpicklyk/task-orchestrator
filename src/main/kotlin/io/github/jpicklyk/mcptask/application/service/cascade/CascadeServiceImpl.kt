@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.application.service.progression.StatusProgress
 import io.github.jpicklyk.mcptask.application.service.progression.NextStatusRecommendation
 import io.github.jpicklyk.mcptask.domain.model.*
 import io.github.jpicklyk.mcptask.domain.model.workflow.*
-import io.github.jpicklyk.mcptask.domain.model.StatusRole
 import io.github.jpicklyk.mcptask.domain.repository.*
 import org.slf4j.LoggerFactory
 import java.util.UUID
@@ -21,25 +20,6 @@ import io.github.jpicklyk.mcptask.domain.model.workflow.CascadeCleanupResult as 
  * from queue to work if it is still in queue role.
  */
 data class StartCascadeConfig(val enabled: Boolean = true)
-
-/**
- * Configuration for role-based feature aggregation.
- * When X% of tasks reach a role threshold, the feature auto-advances.
- */
-data class RoleAggregationConfig(
-    /** Role threshold to check (e.g., "work", "review", "terminal") */
-    val roleThreshold: String,
-    /** Percentage of tasks that must be at or beyond the threshold (0.0 to 1.0) */
-    val percentage: Double = 1.0,
-    /** Target feature status when threshold is met */
-    val targetFeatureStatus: String
-) {
-    init {
-        require(percentage in 0.0..1.0) { "percentage must be between 0.0 and 1.0" }
-        require(roleThreshold.isNotBlank()) { "roleThreshold must not be blank" }
-        require(targetFeatureStatus.isNotBlank()) { "targetFeatureStatus must not be blank" }
-    }
-}
 
 /**
  * Implementation of CascadeService providing unified cascade detection and application.
@@ -62,7 +42,6 @@ class CascadeServiceImpl(
     private val projectRepository: ProjectRepository,
     private val dependencyRepository: DependencyRepository,
     private val sectionRepository: SectionRepository,
-    private val aggregationRules: List<RoleAggregationConfig> = emptyList(),
     private val roleTransitionRepository: RoleTransitionRepository? = null,
     private val startCascadeConfig: StartCascadeConfig = StartCascadeConfig()
 ) : CascadeService {
@@ -70,82 +49,6 @@ class CascadeServiceImpl(
     private val logger = LoggerFactory.getLogger(CascadeServiceImpl::class.java)
 
     companion object {
-        /**
-         * Loads role aggregation rules from the auto_cascade.role_aggregation config section.
-         *
-         * Reads from .taskorchestrator/config.yaml (or bundled default-config.yaml as fallback).
-         * Returns empty list if disabled, missing, or malformed.
-         *
-         * Example config:
-         * ```yaml
-         * auto_cascade:
-         *   role_aggregation:
-         *     enabled: true
-         *     rules:
-         *       - role_threshold: work
-         *         percentage: 0.5
-         *         target_feature_status: in-development
-         *       - role_threshold: review
-         *         percentage: 0.8
-         *         target_feature_status: in-review
-         * ```
-         */
-        fun loadAggregationRules(): List<RoleAggregationConfig> {
-            val logger = LoggerFactory.getLogger(CascadeServiceImpl::class.java)
-            return try {
-                val configPath = java.nio.file.Paths.get(
-                    System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
-                ).resolve(".taskorchestrator/config.yaml")
-
-                val inputStream = if (java.nio.file.Files.exists(configPath)) {
-                    java.nio.file.Files.newInputStream(configPath)
-                } else {
-                    // Fall back to bundled default config
-                    CascadeServiceImpl::class.java.classLoader.getResourceAsStream("configuration/default-config.yaml")
-                        ?: return emptyList()
-                }
-
-                inputStream.use { stream ->
-                    @Suppress("UNCHECKED_CAST")
-                    val config = org.yaml.snakeyaml.Yaml().load<Map<String, Any?>>(stream) ?: return emptyList()
-                    val autoCascade = config["auto_cascade"] as? Map<String, Any?> ?: return emptyList()
-                    val roleAggregation = autoCascade["role_aggregation"] as? Map<String, Any?> ?: return emptyList()
-
-                    val enabled = roleAggregation["enabled"] as? Boolean ?: false
-                    if (!enabled) {
-                        logger.debug("Role aggregation disabled in config")
-                        return emptyList()
-                    }
-
-                    val rules = roleAggregation["rules"] as? List<Map<String, Any?>> ?: return emptyList()
-                    rules.mapNotNull { rule ->
-                        try {
-                            val roleThreshold = rule["role_threshold"] as? String
-                            val percentage = (rule["percentage"] as? Number)?.toDouble()
-                            val targetFeatureStatus = rule["target_feature_status"] as? String
-
-                            if (roleThreshold != null && percentage != null && targetFeatureStatus != null) {
-                                RoleAggregationConfig(
-                                    roleThreshold = roleThreshold,
-                                    percentage = percentage,
-                                    targetFeatureStatus = targetFeatureStatus
-                                )
-                            } else {
-                                logger.warn("Skipping malformed role aggregation rule: $rule")
-                                null
-                            }
-                        } catch (e: Exception) {
-                            logger.warn("Error parsing role aggregation rule: ${e.message}")
-                            null
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                logger.warn("Failed to load role aggregation rules: ${e.message}")
-                emptyList()
-            }
-        }
-
         /**
          * Loads start cascade configuration from the auto_cascade.start_cascade config section.
          *
@@ -204,10 +107,11 @@ class CascadeServiceImpl(
      * Detects cascade events for task status changes.
      *
      * Events detected:
-     * - first_task_started: First task moves to in-progress AND feature at first status in flow
-     * - all_tasks_complete: All tasks completed/cancelled
+     * - all_tasks_complete: All tasks in feature reached terminal role
+     * - first_child_started: First task enters work role AND parent feature is in queue role (Rule 1)
+     * - all_children_in_review: All siblings are in review or terminal role AND parent feature is in work role (Rule 2)
      *
-     * Uses StatusProgressionService to determine next status instead of hardcoded values.
+     * Uses role comparisons exclusively — never status string comparisons.
      */
     private suspend fun detectTaskCascades(taskId: UUID): List<CascadeEvent> {
         val task = taskRepository.getById(taskId).getOrNull() ?: return emptyList()
@@ -221,42 +125,10 @@ class CascadeServiceImpl(
         val featureStatusNormalized = normalizeStatus(feature.status.name)
 
         // Get flow path for the feature
-        val flowPath = statusProgressionService.getFlowPath("feature", feature.tags, featureStatusNormalized)
+        statusProgressionService.getFlowPath("feature", feature.tags, featureStatusNormalized)
 
-        // Event: first_task_started
-        // Trigger: First task moves to in-progress AND feature is at first status in flow
-        if (taskStatusNormalized == "in-progress") {
-            val inProgressCount = countTasksByStatus(featureId, "in-progress")
-
-            // Check if this is the first in-progress task AND feature is at the first flow status
-            val firstFeatureStatus = flowPath.flowSequence.firstOrNull() ?: "planning"
-            if (inProgressCount == 1 && featureStatusNormalized == firstFeatureStatus) {
-                val recommendation = statusProgressionService.getNextStatus(
-                    currentStatus = featureStatusNormalized,
-                    containerType = "feature",
-                    tags = feature.tags,
-                    containerId = feature.id
-                )
-
-                if (recommendation is NextStatusRecommendation.Ready &&
-                    recommendation.recommendedStatus != featureStatusNormalized) {
-                    events.add(CascadeEvent(
-                        event = "first_task_started",
-                        targetType = ContainerType.FEATURE,
-                        targetId = feature.id,
-                        targetName = feature.name,
-                        currentStatus = featureStatusNormalized,
-                        suggestedStatus = recommendation.recommendedStatus,
-                        flow = recommendation.activeFlow,
-                        automatic = true,
-                        reason = "First task started in feature"
-                    ))
-                }
-            }
-        }
-
-        // Event: all_tasks_complete
-        // Trigger: Task reached terminal role AND all tasks in feature are done
+        // Rule 3 — Completion cascade:
+        // Trigger: Task reached terminal role AND all tasks in feature are terminal
         val taskRole = statusProgressionService.getRoleForStatus(taskStatusNormalized, "task", task.tags)
         if (statusProgressionService.isRoleAtOrBeyond(taskRole, "terminal")) {
             val taskCounts = featureRepository.getTaskCountsByFeatureId(featureId)
@@ -296,10 +168,9 @@ class CascadeServiceImpl(
             }
         }
 
-        // Event: first_child_started (start cascade)
+        // Rule 1 — Start cascade (first_child_started):
         // Trigger: Task moves to work role AND parent feature is still in queue role
         if (startCascadeConfig.enabled) {
-            val taskRole = statusProgressionService.getRoleForStatus(taskStatusNormalized, "task", task.tags)
             if (taskRole == "work") {
                 // Task just entered work role — check if parent feature is in queue role
                 val featureRole = statusProgressionService.getRoleForStatus(featureStatusNormalized, "feature", feature.tags)
@@ -328,69 +199,51 @@ class CascadeServiceImpl(
             }
         }
 
-        // Check role aggregation rules (additive to existing cascade logic)
-        if (aggregationRules.isNotEmpty()) {
-            val allTasks = taskRepository.findByFeatureId(featureId)
-            val aggregationEvent = checkRoleAggregation(
-                featureId = featureId,
-                featureName = feature.name,
-                featureStatus = featureStatusNormalized,
-                tasks = allTasks,
-                aggregationRules = aggregationRules,
-                statusProgressionService = statusProgressionService
-            )
-            if (aggregationEvent != null) {
-                events.add(aggregationEvent)
+        // Rule 2 — Review cascade (all_children_in_review):
+        // Trigger: Task enters review role AND all siblings are in review or terminal role
+        //          AND parent feature is in work role
+        if (statusProgressionService.isRoleAtOrBeyond(taskRole, "review") &&
+            !statusProgressionService.isRoleAtOrBeyond(taskRole, "terminal")) {
+            val featureRole = statusProgressionService.getRoleForStatus(featureStatusNormalized, "feature", feature.tags)
+            if (featureRole == "work") {
+                val allSiblings = taskRepository.findByFeatureId(featureId)
+                val allInReviewOrBeyond = allSiblings.isNotEmpty() && allSiblings.all { sibling ->
+                    val siblingStatus = normalizeStatus(sibling.status.name)
+                    val siblingRole = statusProgressionService.getRoleForStatus(siblingStatus, "task", sibling.tags)
+                    statusProgressionService.isRoleAtOrBeyond(siblingRole, "review")
+                }
+                if (allInReviewOrBeyond) {
+                    val recommendation = statusProgressionService.getNextStatus(
+                        currentStatus = featureStatusNormalized,
+                        containerType = "feature",
+                        tags = feature.tags,
+                        containerId = feature.id
+                    )
+                    if (recommendation is NextStatusRecommendation.Ready &&
+                        recommendation.recommendedStatus != featureStatusNormalized) {
+                        // Only emit if recommended target is review role (not terminal — that's Rule 3's job)
+                        val targetRole = statusProgressionService.getRoleForStatus(
+                            recommendation.recommendedStatus, "feature", feature.tags
+                        )
+                        if (targetRole == "review") {
+                            events.add(CascadeEvent(
+                                event = "all_children_in_review",
+                                targetType = ContainerType.FEATURE,
+                                targetId = feature.id,
+                                targetName = feature.name,
+                                currentStatus = featureStatusNormalized,
+                                suggestedStatus = recommendation.recommendedStatus,
+                                flow = recommendation.activeFlow,
+                                automatic = true,
+                                reason = "All ${allSiblings.size} child tasks reached review or beyond — advancing parent feature to review"
+                            ))
+                        }
+                    }
+                }
             }
         }
 
         return events
-    }
-
-    /**
-     * Checks if a feature should advance based on role aggregation rules.
-     * Returns a suggested cascade event if the threshold is met, or null.
-     *
-     * This is ADDITIVE to existing cascade logic — it runs alongside, not instead of,
-     * the existing 100% completion check.
-     */
-    private suspend fun checkRoleAggregation(
-        featureId: UUID,
-        featureName: String,
-        featureStatus: String,
-        tasks: List<Task>,
-        aggregationRules: List<RoleAggregationConfig>,
-        statusProgressionService: StatusProgressionService?
-    ): CascadeEvent? {
-        if (statusProgressionService == null || aggregationRules.isEmpty() || tasks.isEmpty()) return null
-
-        for (rule in aggregationRules) {
-            // Count tasks at or beyond the role threshold
-            val atOrBeyondCount = tasks.count { task ->
-                val taskRole = statusProgressionService.getRoleForStatus(
-                    normalizeStatus(task.status.name), "task", task.tags
-                )
-                StatusRole.isRoleAtOrBeyond(taskRole, rule.roleThreshold)
-            }
-
-            val percentage = atOrBeyondCount.toDouble() / tasks.size
-
-            if (percentage >= rule.percentage && featureStatus != rule.targetFeatureStatus) {
-                // Create event - validation will handle checking if this is a valid progression during application
-                return CascadeEvent(
-                    event = "role_aggregation_threshold",
-                    targetType = ContainerType.FEATURE,
-                    targetId = featureId,
-                    targetName = featureName,
-                    currentStatus = featureStatus,
-                    suggestedStatus = rule.targetFeatureStatus,
-                    flow = "role_aggregation", // Will be updated during application
-                    automatic = true,
-                    reason = "${(percentage * 100).toInt()}% of tasks at role '${rule.roleThreshold}' or beyond (threshold: ${(rule.percentage * 100).toInt()}%)"
-                )
-            }
-        }
-        return null
     }
 
     /**
@@ -956,15 +809,4 @@ class CascadeServiceImpl(
         )
     }
 
-    /**
-     * Counts tasks in a feature with normalized status.
-     *
-     * @param featureId Feature UUID
-     * @param normalizedStatus Status in normalized format
-     * @return Count of tasks with matching status
-     */
-    private suspend fun countTasksByStatus(featureId: UUID, normalizedStatus: String): Int {
-        val tasks = taskRepository.findByFeatureId(featureId)
-        return tasks.count { normalizeStatus(it.status.name) == normalizedStatus }
-    }
 }

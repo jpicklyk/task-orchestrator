@@ -136,6 +136,10 @@ class CascadeServiceTest {
             // Role-based terminal check
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — needed for start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             // Mock getNextStatus to return next step
             coEvery {
@@ -171,17 +175,12 @@ class CascadeServiceTest {
         }
 
         @Test
-        fun `first task in-progress triggers first_task_started`() = runBlocking {
+        fun `first task in-progress triggers first_child_started`() = runBlocking {
             val inProgressTask = createTestTask(status = TaskStatus.IN_PROGRESS)
             val feature = createTestFeature(status = FeatureStatus.PLANNING)
 
             coEvery { mockTaskRepository.getById(taskId) } returns Result.Success(inProgressTask)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
-                inProgressTask,
-                createTestTask(id = UUID.randomUUID(), status = TaskStatus.PENDING),
-                createTestTask(id = UUID.randomUUID(), status = TaskStatus.PENDING)
-            )
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "planning") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
@@ -199,20 +198,22 @@ class CascadeServiceTest {
             // in-progress is NOT terminal
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
-            // planning feature is in queue role — start cascade will also fire
+            // Rule 2 check: task is work role, not review+ — skips review cascade
+            mockIsRoleAtOrBeyond("work", "review", false)
+            // planning feature is in queue role — start cascade fires
             mockFeatureRoleForStatus("planning", "queue", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
 
-            // first_task_started fires (legacy: status-based check for first flow position)
-            // first_child_started also fires (role-based start cascade: parent in queue, child in work)
-            assertTrue(events.any { it.event == "first_task_started" })
+            // first_child_started fires (role-based start cascade: parent in queue, child in work)
             assertTrue(events.any { it.event == "first_child_started" })
-            val firstTaskStarted = events.first { it.event == "first_task_started" }
-            assertEquals(ContainerType.FEATURE, firstTaskStarted.targetType)
-            assertEquals(featureId, firstTaskStarted.targetId)
-            assertEquals("planning", firstTaskStarted.currentStatus)
-            assertEquals("in-development", firstTaskStarted.suggestedStatus)
+            // first_task_started (legacy status-based) is removed — should NOT appear
+            assertFalse(events.any { it.event == "first_task_started" })
+            val firstChildStarted = events.first { it.event == "first_child_started" }
+            assertEquals(ContainerType.FEATURE, firstChildStarted.targetType)
+            assertEquals(featureId, firstChildStarted.targetId)
+            assertEquals("planning", firstChildStarted.currentStatus)
+            assertEquals("in-development", firstChildStarted.suggestedStatus)
         }
 
         @Test
@@ -243,6 +244,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — so Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — need mock for start cascade check
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
             assertTrue(events.isEmpty())
@@ -345,12 +350,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Rule 2 guard: work role is NOT at or beyond review — Rule 2 skipped
+            mockIsRoleAtOrBeyond("work", "review", false)
             // in-development feature is in work role — start cascade does NOT fire (not "queue")
             mockFeatureRoleForStatus("in-development", "work", feature.tags)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(
-                inProgressTask,
-                createTestTask(id = UUID.randomUUID(), status = TaskStatus.IN_PROGRESS)
-            )
 
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
             assertTrue(events.isEmpty())
@@ -659,6 +662,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             // Mock getNextStatus to return next step (testing)
             coEvery {
@@ -747,6 +754,8 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
 
             val results = cascadeService.applyCascades(taskId, "task", depth = 0, maxDepth = 3)
             assertTrue(results.isEmpty())
@@ -772,6 +781,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             coEvery {
                 mockStatusProgressionService.getNextStatus(
@@ -843,40 +856,32 @@ class CascadeServiceTest {
     }
 
     @Nested
-    inner class RoleAggregationTests {
+    inner class ReviewCascadeTests {
+
+        /** Helper: create a CascadeServiceImpl with startCascade enabled. */
+        private fun makeCascadeService() = CascadeServiceImpl(
+            statusProgressionService = mockStatusProgressionService,
+            statusValidator = mockStatusValidator,
+            taskRepository = mockTaskRepository,
+            featureRepository = mockFeatureRepository,
+            projectRepository = mockProjectRepository,
+            dependencyRepository = mockDependencyRepository,
+            sectionRepository = mockSectionRepository,
+            startCascadeConfig = StartCascadeConfig(enabled = true)
+        )
 
         @Test
-        fun `role aggregation advances feature when threshold met`() = runBlocking {
+        fun `all children in review triggers all_children_in_review cascade when parent is work`(): Unit = runBlocking {
             val taskId1 = UUID.randomUUID()
             val taskId2 = UUID.randomUUID()
-            val taskId3 = UUID.randomUUID()
             val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
             val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_REVIEW)
-            val task3 = createTestTask(id = taskId3, status = TaskStatus.IN_PROGRESS)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
-            val aggregationRules = listOf(
-                RoleAggregationConfig(
-                    roleThreshold = "review",
-                    percentage = 0.66, // 66% threshold
-                    targetFeatureStatus = "testing"
-                )
-            )
-
-            val cascadeServiceWithRules = CascadeServiceImpl(
-                statusProgressionService = mockStatusProgressionService,
-                statusValidator = mockStatusValidator,
-                taskRepository = mockTaskRepository,
-                featureRepository = mockFeatureRepository,
-                projectRepository = mockProjectRepository,
-                dependencyRepository = mockDependencyRepository,
-                sectionRepository = mockSectionRepository,
-                aggregationRules = aggregationRules
-            )
+            val service = makeCascadeService()
 
             coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2, task3)
             every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
@@ -884,328 +889,209 @@ class CascadeServiceTest {
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
+            // Task1 is in review role — Rule 2 guard passes
+            mockRoleForStatus("in-review", "review")
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+            mockIsRoleAtOrBeyond("review", "review", true)
+            // Feature is in work role — Rule 1 skipped, Rule 2 proceeds
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
+            // All siblings: both in review
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2)
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task2.tags) } returns "review"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "review") } returns true
+            // Parent's next status is in review role
             coEvery {
-                mockStatusProgressionService.getNextStatus("in-development", "feature", emptyList(), feature.id)
+                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
                 recommendedStatus = "testing", activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(), reason = "Role aggregation"
+                currentPosition = 1, matchedTags = emptyList(), reason = "All children in review"
             )
-            // Mock getRoleForStatus for recommended status (testing is review role, not terminal)
-            mockFeatureRoleForStatus("testing", "review", emptyList())
-            mockRoleForStatus("in-review", "review", task1.tags)
-            mockRoleForStatus("in-review", "review", task2.tags)
-            mockRoleForStatus("in-progress", "work", task3.tags)
-            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
-            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task2.tags) } returns "review"
-            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task3.tags) } returns "work"
-            mockIsRoleAtOrBeyond("review", "review", true)
-            mockIsRoleAtOrBeyond("work", "review", false)
-            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "terminal") } returns false
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+            // No terminal check needed for task counts (task is not terminal)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, inProgress = 0, testing = 0, pending = 0, completed = 0, cancelled = 0, blocked = 0
+            )
 
-            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+            val events = service.detectCascadeEvents(taskId1, ContainerType.TASK)
 
-            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
-            assertEquals(1, aggregationEvents.size)
-            val event = aggregationEvents.first()
+            val reviewEvents = events.filter { it.event == "all_children_in_review" }
+            assertEquals(1, reviewEvents.size)
+            val event = reviewEvents.first()
             assertEquals(ContainerType.FEATURE, event.targetType)
             assertEquals(featureId, event.targetId)
             assertEquals("in-development", event.currentStatus)
             assertEquals("testing", event.suggestedStatus)
-            assertTrue(event.reason.contains("66% of tasks at role 'review' or beyond"))
+            assertTrue(event.automatic)
         }
 
         @Test
-        fun `role aggregation does not advance when below threshold`() = runBlocking {
+        fun `review cascade does NOT fire when some children are still in work role`(): Unit = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val taskId2 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_PROGRESS) // still work role
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            val service = makeCascadeService()
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("in-review", "review")
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+            mockIsRoleAtOrBeyond("review", "review", true)
+            // Feature is in work role
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
+            // Siblings: one in review, one in work
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2)
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
+            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task2.tags) } returns "work"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "review") } returns true
+            every { mockStatusProgressionService.isRoleAtOrBeyond("work", "review") } returns false
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 2, inProgress = 1, testing = 0, pending = 0, completed = 0, cancelled = 0, blocked = 0
+            )
+
+            val events = service.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            val reviewEvents = events.filter { it.event == "all_children_in_review" }
+            assertTrue(reviewEvents.isEmpty())
+        }
+
+        @Test
+        fun `review cascade does NOT fire when parent feature is NOT in work role`(): Unit = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            // Feature is in queue role (not work)
+            val feature = createTestFeature(status = FeatureStatus.PLANNING)
+
+            val service = makeCascadeService()
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "planning") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 0, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("in-review", "review")
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+            mockIsRoleAtOrBeyond("review", "review", true)
+            // Feature is in queue role — Rule 1 requires taskRole == "work" (not "review"), so it does NOT fire.
+            // Rule 2 requires featureRole == "work", so it also does NOT fire.
+            mockFeatureRoleForStatus("planning", "queue", feature.tags)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, inProgress = 0, testing = 0, pending = 0, completed = 0, cancelled = 0, blocked = 0
+            )
+
+            val events = service.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            // Neither Rule 1 (requires taskRole=="work") nor Rule 2 (requires featureRole=="work") fires
+            assertTrue(events.isEmpty())
+        }
+
+        @Test
+        fun `review cascade with mixed review and terminal siblings advances parent`(): Unit = runBlocking {
             val taskId1 = UUID.randomUUID()
             val taskId2 = UUID.randomUUID()
             val taskId3 = UUID.randomUUID()
             val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
-            val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_PROGRESS)
-            val task3 = createTestTask(id = taskId3, status = TaskStatus.IN_PROGRESS)
+            val task2 = createTestTask(id = taskId2, status = TaskStatus.COMPLETED) // terminal
+            val task3 = createTestTask(id = taskId3, status = TaskStatus.IN_REVIEW)
             val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
 
-            val aggregationRules = listOf(
-                RoleAggregationConfig(
-                    roleThreshold = "review",
-                    percentage = 0.66, // 66% threshold, but only 33% at review
-                    targetFeatureStatus = "testing"
-                )
-            )
-
-            val cascadeServiceWithRules = CascadeServiceImpl(
-                statusProgressionService = mockStatusProgressionService,
-                statusValidator = mockStatusValidator,
-                taskRepository = mockTaskRepository,
-                featureRepository = mockFeatureRepository,
-                projectRepository = mockProjectRepository,
-                dependencyRepository = mockDependencyRepository,
-                sectionRepository = mockSectionRepository,
-                aggregationRules = aggregationRules
-            )
+            val service = makeCascadeService()
 
             coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
             coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
+                activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(),
+                terminalStatuses = listOf("completed", "cancelled"),
+                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
+            )
+            mockRoleForStatus("in-review", "review")
+            mockIsRoleAtOrBeyond("review", "terminal", false)
+            mockIsRoleAtOrBeyond("review", "review", true)
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
             coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2, task3)
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 1, matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
-            )
             every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
-            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task2.tags) } returns "work"
-            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task3.tags) } returns "work"
-            mockIsRoleAtOrBeyond("review", "review", true)
-            mockIsRoleAtOrBeyond("work", "review", false)
-            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "terminal") } returns false
-
-            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
-
-            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
-            assertTrue(aggregationEvents.isEmpty())
-        }
-
-        @Test
-        fun `role aggregation uses default 100 percent which matches existing behavior`() = runBlocking {
-            val taskId1 = UUID.randomUUID()
-            val taskId2 = UUID.randomUUID()
-            val task1 = createTestTask(id = taskId1, status = TaskStatus.COMPLETED)
-            val task2 = createTestTask(id = taskId2, status = TaskStatus.COMPLETED)
-            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
-
-            val aggregationRules = listOf(
-                RoleAggregationConfig(
-                    roleThreshold = "terminal",
-                    percentage = 1.0, // 100% - same as existing all_tasks_complete
-                    targetFeatureStatus = "completed"
-                )
-            )
-
-            val cascadeServiceWithRules = CascadeServiceImpl(
-                statusProgressionService = mockStatusProgressionService,
-                statusValidator = mockStatusValidator,
-                taskRepository = mockTaskRepository,
-                featureRepository = mockFeatureRepository,
-                projectRepository = mockProjectRepository,
-                dependencyRepository = mockDependencyRepository,
-                sectionRepository = mockSectionRepository,
-                aggregationRules = aggregationRules
-            )
-
-            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2)
-            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
-                total = 2, completed = 2, pending = 0,
-                inProgress = 0, testing = 0, cancelled = 0, blocked = 0
-            )
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "completed"),
-                currentPosition = 1, matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
-            )
-            every { mockStatusProgressionService.getRoleForStatus("completed", "task", task1.tags) } returns "terminal"
             every { mockStatusProgressionService.getRoleForStatus("completed", "task", task2.tags) } returns "terminal"
-            mockRoleForStatus("completed", "terminal")
-            mockIsRoleAtOrBeyond("terminal", "terminal", true)
-
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task3.tags) } returns "review"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "review") } returns true
+            every { mockStatusProgressionService.isRoleAtOrBeyond("terminal", "review") } returns true
             coEvery {
-                mockStatusProgressionService.getNextStatus(
-                    currentStatus = "in-development",
-                    containerType = "feature",
-                    tags = feature.tags,
-                    containerId = feature.id
-                )
+                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
             } returns NextStatusRecommendation.Ready(
-                recommendedStatus = "completed",
+                recommendedStatus = "testing", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "testing", "completed"),
+                currentPosition = 1, matchedTags = emptyList(), reason = "All children in review"
+            )
+            mockFeatureRoleForStatus("testing", "review", feature.tags)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 3, inProgress = 0, testing = 0, pending = 0, completed = 1, cancelled = 0, blocked = 0
+            )
+
+            val events = service.detectCascadeEvents(taskId1, ContainerType.TASK)
+
+            val reviewEvents = events.filter { it.event == "all_children_in_review" }
+            assertEquals(1, reviewEvents.size)
+            assertEquals("testing", reviewEvents.first().suggestedStatus)
+        }
+
+        @Test
+        fun `review cascade does NOT fire when parent next status would be terminal (Rule 3 handles that)`(): Unit = runBlocking {
+            val taskId1 = UUID.randomUUID()
+            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
+            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
+
+            val service = makeCascadeService()
+
+            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
+            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
+            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
                 activeFlow = "default_flow",
                 flowSequence = listOf("planning", "in-development", "completed"),
-                currentPosition = 1,
-                matchedTags = emptyList(),
-                reason = "Next step"
-            )
-
-            // Mock getRoleForStatus for recommended status (completed is terminal)
-            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
-
-            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
-
-            // Should have both all_tasks_complete AND role_aggregation_threshold
-            assertTrue(events.any { it.event == "all_tasks_complete" })
-            assertTrue(events.any { it.event == "role_aggregation_threshold" })
-        }
-
-        @Test
-        fun `role aggregation skips when no StatusProgressionService`() = runBlocking {
-            val taskId1 = UUID.randomUUID()
-            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
-            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
-
-            val aggregationRules = listOf(
-                RoleAggregationConfig(
-                    roleThreshold = "review",
-                    percentage = 0.5,
-                    targetFeatureStatus = "testing"
-                )
-            )
-
-            // Create service without StatusProgressionService (null)
-            val cascadeServiceWithoutSPS = CascadeServiceImpl(
-                statusProgressionService = mockStatusProgressionService,
-                statusValidator = mockStatusValidator,
-                taskRepository = mockTaskRepository,
-                featureRepository = mockFeatureRepository,
-                projectRepository = mockProjectRepository,
-                dependencyRepository = mockDependencyRepository,
-                sectionRepository = mockSectionRepository,
-                aggregationRules = aggregationRules
-            )
-
-            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "in-review", "completed"),
                 currentPosition = 1, matchedTags = emptyList(),
                 terminalStatuses = listOf("completed", "cancelled"),
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             mockRoleForStatus("in-review", "review")
             mockIsRoleAtOrBeyond("review", "terminal", false)
-
-            val events = cascadeServiceWithoutSPS.detectCascadeEvents(taskId1, ContainerType.TASK)
-
-            // Should still work since we have StatusProgressionService
-            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
-            assertTrue(aggregationEvents.isNotEmpty())
-        }
-
-        @Test
-        fun `role aggregation skips when no rules configured`() = runBlocking {
-            val taskId1 = UUID.randomUUID()
-            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
-            val feature = createTestFeature(status = FeatureStatus.IN_DEVELOPMENT)
-
-            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "in-development") } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "in-review", "completed"),
-                currentPosition = 1, matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
-            )
-            mockRoleForStatus("in-review", "review")
-            mockIsRoleAtOrBeyond("review", "terminal", false)
-
-            // cascadeService has empty rules by default
-            val events = cascadeService.detectCascadeEvents(taskId1, ContainerType.TASK)
-
-            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
-            assertTrue(aggregationEvents.isEmpty())
-        }
-
-        @Test
-        fun `role aggregation does not regress feature status`() = runBlocking {
-            val taskId1 = UUID.randomUUID()
-            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_PROGRESS)
-            val feature = createTestFeature(status = FeatureStatus.TESTING)
-
-            val aggregationRules = listOf(
-                RoleAggregationConfig(
-                    roleThreshold = "work",
-                    percentage = 1.0,
-                    targetFeatureStatus = "in-development" // Trying to regress from in-review back to in-development
-                )
-            )
-
-            val cascadeServiceWithRules = CascadeServiceImpl(
-                statusProgressionService = mockStatusProgressionService,
-                statusValidator = mockStatusValidator,
-                taskRepository = mockTaskRepository,
-                featureRepository = mockFeatureRepository,
-                projectRepository = mockProjectRepository,
-                dependencyRepository = mockDependencyRepository,
-                sectionRepository = mockSectionRepository,
-                aggregationRules = aggregationRules
-            )
-
-            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 2, matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
-            )
-            every { mockStatusProgressionService.getRoleForStatus("in-progress", "task", task1.tags) } returns "work"
-            mockIsRoleAtOrBeyond("work", "work", true)
-            mockIsRoleAtOrBeyond("work", "terminal", false)
-            // Feature is in review role (testing) — start cascade does NOT fire
-            mockFeatureRoleForStatus("testing", "review", feature.tags)
-
-            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
-
-            // Should still create event - validation will catch regression during application
-            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
-            assertTrue(aggregationEvents.isNotEmpty())
-            assertEquals("in-development", aggregationEvents.first().suggestedStatus)
-        }
-
-        @Test
-        fun `role aggregation skips when feature already at target status`() = runBlocking {
-            val taskId1 = UUID.randomUUID()
-            val taskId2 = UUID.randomUUID()
-            val task1 = createTestTask(id = taskId1, status = TaskStatus.IN_REVIEW)
-            val task2 = createTestTask(id = taskId2, status = TaskStatus.IN_REVIEW)
-            val feature = createTestFeature(status = FeatureStatus.TESTING)
-
-            val aggregationRules = listOf(
-                RoleAggregationConfig(
-                    roleThreshold = "review",
-                    percentage = 1.0,
-                    targetFeatureStatus = "testing"
-                )
-            )
-
-            val cascadeServiceWithRules = CascadeServiceImpl(
-                statusProgressionService = mockStatusProgressionService,
-                statusValidator = mockStatusValidator,
-                taskRepository = mockTaskRepository,
-                featureRepository = mockFeatureRepository,
-                projectRepository = mockProjectRepository,
-                dependencyRepository = mockDependencyRepository,
-                sectionRepository = mockSectionRepository,
-                aggregationRules = aggregationRules
-            )
-
-            coEvery { mockTaskRepository.getById(taskId1) } returns Result.Success(task1)
-            coEvery { mockFeatureRepository.getById(featureId) } returns Result.Success(feature)
-            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1, task2)
-            every { mockStatusProgressionService.getFlowPath("feature", feature.tags, "testing") } returns FlowPath(
-                activeFlow = "default_flow",
-                flowSequence = listOf("planning", "in-development", "testing", "completed"),
-                currentPosition = 2, matchedTags = emptyList(),
-                terminalStatuses = listOf("completed", "cancelled"),
-                emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
-            )
-            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
-            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task2.tags) } returns "review"
             mockIsRoleAtOrBeyond("review", "review", true)
-            mockIsRoleAtOrBeyond("review", "terminal", false)
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
+            coEvery { mockTaskRepository.findByFeatureId(featureId) } returns listOf(task1)
+            every { mockStatusProgressionService.getRoleForStatus("in-review", "task", task1.tags) } returns "review"
+            every { mockStatusProgressionService.isRoleAtOrBeyond("review", "review") } returns true
+            // Next status is terminal — Rule 2 must not emit (only Rule 3 handles terminal)
+            coEvery {
+                mockStatusProgressionService.getNextStatus("in-development", "feature", feature.tags, feature.id)
+            } returns NextStatusRecommendation.Ready(
+                recommendedStatus = "completed", activeFlow = "default_flow",
+                flowSequence = listOf("planning", "in-development", "completed"),
+                currentPosition = 1, matchedTags = emptyList(), reason = "Next step"
+            )
+            // "completed" is terminal — Rule 2 skips it
+            mockFeatureRoleForStatus("completed", "terminal", feature.tags)
+            every { mockFeatureRepository.getTaskCountsByFeatureId(featureId) } returns TaskCounts(
+                total = 1, inProgress = 0, testing = 0, pending = 0, completed = 0, cancelled = 0, blocked = 0
+            )
 
-            val events = cascadeServiceWithRules.detectCascadeEvents(taskId1, ContainerType.TASK)
+            val events = service.detectCascadeEvents(taskId1, ContainerType.TASK)
 
-            val aggregationEvents = events.filter { it.event == "role_aggregation_threshold" }
-            assertTrue(aggregationEvents.isEmpty())
+            val reviewEvents = events.filter { it.event == "all_children_in_review" }
+            assertTrue(reviewEvents.isEmpty())
         }
     }
 
@@ -1232,6 +1118,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             // Mock getNextStatus to return next step (testing), not terminal
             coEvery {
@@ -1467,6 +1357,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in review role (validating) — start cascade guard
+            mockFeatureRoleForStatus("validating", "review", feature.tags)
 
             coEvery {
                 mockStatusProgressionService.getNextStatus(
@@ -1513,6 +1407,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in review role (validating) — start cascade guard
+            mockFeatureRoleForStatus("validating", "review", feature.tags)
 
             coEvery {
                 mockStatusProgressionService.getNextStatus(
@@ -1560,6 +1458,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             coEvery {
                 mockStatusProgressionService.getNextStatus(
@@ -1708,6 +1610,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("cancelled", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             coEvery {
                 mockStatusProgressionService.getNextStatus(
@@ -1754,6 +1660,7 @@ class CascadeServiceTest {
                 emergencyTransitions = listOf("blocked", "cancelled", "on-hold")
             )
             mockRoleForStatus("completed", "terminal")
+            mockIsRoleAtOrBeyond("terminal", "review", true)
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
 
             val events = cascadeService.detectCascadeEvents(taskId, ContainerType.TASK)
@@ -1780,6 +1687,10 @@ class CascadeServiceTest {
             )
             mockRoleForStatus("completed", "terminal")
             mockIsRoleAtOrBeyond("terminal", "terminal", true)
+            // Rule 2 guard: terminal is at or beyond review, but also terminal — Rule 2 is skipped
+            mockIsRoleAtOrBeyond("terminal", "review", true)
+            // Feature is in work role — start cascade guard
+            mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
             coEvery {
                 mockStatusProgressionService.getNextStatus(
@@ -1853,6 +1764,8 @@ class CascadeServiceTest {
             // Task is in work role
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Rule 2 guard: work role is NOT at or beyond review — Rule 2 skipped
+            mockIsRoleAtOrBeyond("work", "review", false)
             // Feature parent is in queue role
             mockFeatureRoleForStatus("planning", "queue", feature.tags)
             // getNextStatus for the feature
@@ -1895,6 +1808,8 @@ class CascadeServiceTest {
             // Task is in work role
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Rule 2 guard: work role is NOT at or beyond review — Rule 2 skipped
+            mockIsRoleAtOrBeyond("work", "review", false)
             // Feature is in work role — cascade should NOT fire
             mockFeatureRoleForStatus("in-development", "work", feature.tags)
 
@@ -1924,6 +1839,8 @@ class CascadeServiceTest {
             // Task is in work role — but start cascade is disabled, so no first_child_started fires
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Rule 2 guard: work role is NOT at or beyond review — Rule 2 skipped
+            mockIsRoleAtOrBeyond("work", "review", false)
 
             val service = cascadeServiceWith(startCascadeEnabled = false)
             val events = service.detectCascadeEvents(taskId, ContainerType.TASK)
@@ -1953,6 +1870,8 @@ class CascadeServiceTest {
             // Task is in work role
             mockRoleForStatus("in-progress", "work")
             mockIsRoleAtOrBeyond("work", "terminal", false)
+            // Rule 2 guard: work role is NOT at or beyond review — Rule 2 skipped
+            mockIsRoleAtOrBeyond("work", "review", false)
             // Feature is already in work role — cascade does NOT fire
             mockFeatureRoleForStatus("in-development", "work", feature.tags)
 

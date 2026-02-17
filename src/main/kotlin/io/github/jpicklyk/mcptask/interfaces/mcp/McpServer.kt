@@ -78,8 +78,7 @@ class McpServer(
         statusValidator = StatusValidator()
         statusProgressionService = StatusProgressionServiceImpl(statusValidator)
 
-        // Initialize cascade service with role aggregation rules and start cascade config from config
-        val aggregationRules = CascadeServiceImpl.loadAggregationRules()
+        // Initialize cascade service with start cascade config from config
         val startCascadeConfig = CascadeServiceImpl.loadStartCascadeConfig()
         cascadeService = CascadeServiceImpl(
             statusProgressionService = statusProgressionService,
@@ -89,7 +88,6 @@ class McpServer(
             projectRepository = repositoryProvider.projectRepository(),
             dependencyRepository = repositoryProvider.dependencyRepository(),
             sectionRepository = repositoryProvider.sectionRepository(),
-            aggregationRules = aggregationRules,
             roleTransitionRepository = repositoryProvider.roleTransitionRepository(),
             startCascadeConfig = startCascadeConfig
         )
