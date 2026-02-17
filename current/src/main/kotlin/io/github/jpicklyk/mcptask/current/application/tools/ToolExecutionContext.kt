@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
@@ -17,7 +19,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
  * Additional services (e.g., StatusProgressionService, CascadeService) will be
  * added to this context as Phase 1 progresses.
  */
-class ToolExecutionContext(val repositoryProvider: RepositoryProvider) {
+class ToolExecutionContext(
+    val repositoryProvider: RepositoryProvider,
+    private val noteSchemaService: NoteSchemaService = NoOpNoteSchemaService
+) {
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
@@ -30,4 +35,7 @@ class ToolExecutionContext(val repositoryProvider: RepositoryProvider) {
 
     /** Access to RoleTransition audit trail operations. */
     fun roleTransitionRepository(): RoleTransitionRepository = repositoryProvider.roleTransitionRepository()
+
+    /** Access to Note schema configuration service. */
+    fun noteSchemaService(): NoteSchemaService = noteSchemaService
 }

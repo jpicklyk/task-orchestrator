@@ -17,7 +17,7 @@ class WorkItemTest {
         assertEquals("My task", item.title)
         assertEquals(Role.QUEUE, item.role)
         assertEquals(Priority.MEDIUM, item.priority)
-        assertEquals(5, item.complexity)
+        assertEquals(null, item.complexity)
         assertEquals(0, item.depth)
         assertEquals("", item.summary)
         assertEquals(null, item.parentId)
@@ -77,7 +77,7 @@ class WorkItemTest {
         val ex = assertFailsWith<ValidationException> {
             WorkItem(title = "test", complexity = 0)
         }
-        assertTrue(ex.message!!.contains("Complexity must be between 1 and 10"))
+        assertTrue(ex.message!!.contains("complexity must be between 1 and 10"))
     }
 
     @Test
@@ -85,7 +85,7 @@ class WorkItemTest {
         val ex = assertFailsWith<ValidationException> {
             WorkItem(title = "test", complexity = 11)
         }
-        assertTrue(ex.message!!.contains("Complexity must be between 1 and 10"))
+        assertTrue(ex.message!!.contains("complexity must be between 1 and 10"))
     }
 
     @Test

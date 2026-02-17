@@ -34,6 +34,8 @@ interface WorkItemRepository {
         createdBefore: Instant? = null,
         modifiedAfter: Instant? = null,
         modifiedBefore: Instant? = null,
+        roleChangedAfter: Instant? = null,
+        roleChangedBefore: Instant? = null,
         sortBy: String? = null,
         sortOrder: String? = null,
         limit: Int = 50

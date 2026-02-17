@@ -356,4 +356,59 @@ class SQLiteWorkItemRepositoryFilterTest {
         assertIs<Result.Success<List<WorkItem>>>(result)
         assertEquals(2, result.data.size)
     }
+
+    // =====================================================================
+    // roleChangedAfter / roleChangedBefore filter tests
+    // =====================================================================
+
+    @Test
+    fun `findByFilters with roleChangedAfter filters correctly`() = runBlocking {
+        val t1 = Instant.parse("2025-01-01T00:00:00Z")
+        val t2 = Instant.parse("2025-06-01T00:00:00Z")
+        val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+        repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+        repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
+
+        val result = repository.findByFilters(roleChangedAfter = t2)
+        assertIs<Result.Success<List<WorkItem>>>(result)
+        assertEquals(1, result.data.size)
+        assertEquals("Recent role change", result.data[0].title)
+    }
+
+    @Test
+    fun `findByFilters with roleChangedBefore filters correctly`() = runBlocking {
+        val t1 = Instant.parse("2025-01-01T00:00:00Z")
+        val t2 = Instant.parse("2025-06-01T00:00:00Z")
+        val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+        repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+        repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
+
+        val result = repository.findByFilters(roleChangedBefore = t2)
+        assertIs<Result.Success<List<WorkItem>>>(result)
+        assertEquals(1, result.data.size)
+        assertEquals("Old role change", result.data[0].title)
+    }
+
+    @Test
+    fun `findByFilters with roleChangedAfter and roleChangedBefore combined filters correctly`() = runBlocking {
+        val t1 = Instant.parse("2025-01-01T00:00:00Z")
+        val t2 = Instant.parse("2025-03-01T00:00:00Z")
+        val t3 = Instant.parse("2025-06-01T00:00:00Z")
+        val t4 = Instant.parse("2025-09-01T00:00:00Z")
+        val t5 = Instant.parse("2025-12-01T00:00:00Z")
+
+        repository.create(WorkItem(title = "Before range", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+        repository.create(WorkItem(title = "In range", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
+        repository.create(WorkItem(title = "After range", createdAt = t1, modifiedAt = t1, roleChangedAt = t5))
+
+        val result = repository.findByFilters(
+            roleChangedAfter = t2,
+            roleChangedBefore = t4
+        )
+        assertIs<Result.Success<List<WorkItem>>>(result)
+        assertEquals(1, result.data.size)
+        assertEquals("In range", result.data[0].title)
+    }
 }

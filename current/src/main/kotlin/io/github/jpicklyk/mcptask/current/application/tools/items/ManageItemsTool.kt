@@ -80,6 +80,10 @@ Unified write operations for WorkItems (create, update, delete).
                 put("type", JsonPrimitive("string"))
                 put("description", JsonPrimitive("Shared default parent ID for create"))
             })
+            put("requiresVerification", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("Whether this item requires explicit verification before completion"))
+            })
         },
         required = listOf("operation")
     )
@@ -167,7 +171,8 @@ Unified write operations for WorkItems (create, update, delete).
                 val roleStr = extractItemString(itemObj, "role")
                 val statusLabel = extractItemString(itemObj, "statusLabel")
                 val priorityStr = extractItemString(itemObj, "priority")
-                val complexity = extractItemInt(itemObj, "complexity") ?: 5
+                val complexity = extractItemInt(itemObj, "complexity")
+                val requiresVerification = itemObj["requiresVerification"]?.let { (it as? JsonPrimitive)?.booleanOrNull } ?: false
                 val metadata = extractItemString(itemObj, "metadata")
                 val tags = extractItemString(itemObj, "tags")
 
@@ -224,8 +229,8 @@ Unified write operations for WorkItems (create, update, delete).
                     Priority.MEDIUM
                 }
 
-                // Validate complexity range
-                if (complexity !in 1..10) {
+                // Validate complexity range if provided
+                if (complexity != null && complexity !in 1..10) {
                     throw ToolValidationException("Item at index $index: complexity must be between 1 and 10")
                 }
 
@@ -238,6 +243,7 @@ Unified write operations for WorkItems (create, update, delete).
                     statusLabel = statusLabel,
                     priority = priority,
                     complexity = complexity,
+                    requiresVerification = requiresVerification,
                     depth = depth,
                     metadata = metadata,
                     tags = tags
@@ -251,6 +257,7 @@ Unified write operations for WorkItems (create, update, delete).
                             put("depth", JsonPrimitive(result.data.depth))
                             put("role", JsonPrimitive(result.data.role.name.lowercase()))
                             put("priority", JsonPrimitive(result.data.priority.name.lowercase()))
+                            put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
                         })
                     }
                     is Result.Error -> {
@@ -327,6 +334,7 @@ Unified write operations for WorkItems (create, update, delete).
                 val newStatusLabel = extractItemStringAllowNull(itemObj, "statusLabel", existing.statusLabel)
                 val newPriorityStr = extractItemString(itemObj, "priority")
                 val newComplexity = extractItemInt(itemObj, "complexity")
+                val newRequiresVerification = itemObj["requiresVerification"]?.let { (it as? JsonPrimitive)?.booleanOrNull }
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
 
@@ -400,6 +408,7 @@ Unified write operations for WorkItems (create, update, delete).
                         statusLabel = newStatusLabel,
                         priority = newPriority ?: item.priority,
                         complexity = newComplexity ?: item.complexity,
+                        requiresVerification = newRequiresVerification ?: item.requiresVerification,
                         depth = newDepth,
                         metadata = newMetadata,
                         tags = newTags
@@ -411,6 +420,7 @@ Unified write operations for WorkItems (create, update, delete).
                         updatedItems.add(buildJsonObject {
                             put("id", JsonPrimitive(result.data.id.toString()))
                             put("modifiedAt", JsonPrimitive(result.data.modifiedAt.toString()))
+                            put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
                         })
                     }
                     is Result.Error -> {

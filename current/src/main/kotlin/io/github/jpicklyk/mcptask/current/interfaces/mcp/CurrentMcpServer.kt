@@ -10,7 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.RequestTransitionTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -65,7 +66,8 @@ class CurrentMcpServer(
 
         // Initialize repository provider and tool context
         val repositoryProvider = DefaultRepositoryProvider(databaseManager)
-        val toolContext = ToolExecutionContext(repositoryProvider)
+        val noteSchemaService = YamlNoteSchemaService()
+        val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService)
         logger.info("Repository provider and tool context initialized")
 
         // Configure MCP server
@@ -85,7 +87,7 @@ class CurrentMcpServer(
             ManageDependenciesTool(),
             QueryDependenciesTool(),
             // Phase 2: Workflow
-            RequestTransitionTool(),
+            AdvanceItemTool(),
             GetNextStatusTool(),
             GetNextItemTool(),
             GetBlockedItemsTool()
@@ -158,7 +160,7 @@ class CurrentMcpServer(
                     logging = JsonObject(emptyMap())
                 )
             ),
-            instructions = "Current (v3) MCP Task Orchestrator — 10 tools: manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, request_transition, get_next_status, get_next_item, get_blocked_items"
+            instructions = "Current (v3) MCP Task Orchestrator — 10 tools: manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, advance_item, get_next_status, get_next_item, get_blocked_items"
         )
     }
 }

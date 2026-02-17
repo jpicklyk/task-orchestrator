@@ -99,10 +99,14 @@ class RoleTransitionHandler {
     /**
      * Resolve a trigger to a target role with full WorkItem context.
      * Required for "resume" which restores the item's [WorkItem.previousRole].
+     *
+     * @param hasReviewPhase When false and the item is in WORK role, the "start" trigger
+     *   advances directly to TERMINAL instead of REVIEW. This allows schema-driven
+     *   workflows to skip the REVIEW phase when no review notes are defined.
      */
-    fun resolveTransition(item: WorkItem, trigger: String): TransitionResolution {
+    fun resolveTransition(item: WorkItem, trigger: String, hasReviewPhase: Boolean = true): TransitionResolution {
         return when (trigger.lowercase()) {
-            "start" -> resolveStart(item.role)
+            "start" -> resolveStart(item.role, hasReviewPhase)
             "complete" -> resolveComplete(item.role)
             "block", "hold" -> resolveBlock(item.role)
             "resume" -> resolveResume(item)
@@ -114,9 +118,13 @@ class RoleTransitionHandler {
         }
     }
 
-    private fun resolveStart(currentRole: Role): TransitionResolution = when (currentRole) {
+    private fun resolveStart(currentRole: Role, hasReviewPhase: Boolean = true): TransitionResolution = when (currentRole) {
         Role.QUEUE -> TransitionResolution(success = true, targetRole = Role.WORK)
-        Role.WORK -> TransitionResolution(success = true, targetRole = Role.REVIEW)
+        Role.WORK -> if (hasReviewPhase) {
+            TransitionResolution(success = true, targetRole = Role.REVIEW)
+        } else {
+            TransitionResolution(success = true, targetRole = Role.TERMINAL)
+        }
         Role.REVIEW -> TransitionResolution(success = true, targetRole = Role.TERMINAL)
         Role.TERMINAL -> TransitionResolution(
             success = false,

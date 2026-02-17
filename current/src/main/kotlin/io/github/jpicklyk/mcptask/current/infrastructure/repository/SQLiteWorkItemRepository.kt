@@ -58,6 +58,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                 it[previousRole] = item.previousRole?.name?.lowercase()
                 it[priority] = item.priority.name.lowercase()
                 it[complexity] = item.complexity
+                it[requiresVerification] = item.requiresVerification
                 it[depth] = item.depth
                 it[metadata] = item.metadata
                 it[tags] = item.tags
@@ -87,6 +88,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                 it[previousRole] = item.previousRole?.name?.lowercase()
                 it[priority] = item.priority.name.lowercase()
                 it[complexity] = item.complexity
+                it[requiresVerification] = item.requiresVerification
                 it[depth] = item.depth
                 it[metadata] = item.metadata
                 it[tags] = item.tags
@@ -212,6 +214,8 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         createdBefore: Instant?,
         modifiedAfter: Instant?,
         modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?,
         sortBy: String?,
         sortOrder: String?,
         limit: Int
@@ -234,6 +238,8 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
             modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
             modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
+            roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
+            roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
 
             val baseQuery = if (conditions.isEmpty()) {
                 WorkItemsTable.selectAll()
@@ -316,6 +322,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             previousRole = row[WorkItemsTable.previousRole]?.let { Role.fromString(it) },
             priority = Priority.fromString(row[WorkItemsTable.priority]) ?: Priority.MEDIUM,
             complexity = row[WorkItemsTable.complexity],
+            requiresVerification = row[WorkItemsTable.requiresVerification],
             depth = row[WorkItemsTable.depth],
             metadata = row[WorkItemsTable.metadata],
             tags = row[WorkItemsTable.tags],

@@ -18,10 +18,17 @@ import java.util.UUID
  * is processed independently: failures on one do not block others.
  *
  * Valid triggers: start, complete, block, hold, resume, cancel.
+ *
+ * NoteSchemaService integration:
+ * - If the item's tags match a schema, gate enforcement applies:
+ *   - "start": required notes for the CURRENT role must be filled before advancing
+ *   - "complete": all required notes across all phases must be filled
+ * - hasReviewPhase: if the schema has no "review" entries, start from WORK skips REVIEW
+ * - expectedNotes: the success result includes schema entries for the new role
  */
-class RequestTransitionTool : BaseToolDefinition() {
+class AdvanceItemTool : BaseToolDefinition() {
 
-    override val name = "request_transition"
+    override val name = "advance_item"
 
     override val description = """
 Trigger-based role transitions for WorkItems with validation, cascade detection, and unblock reporting.
@@ -31,11 +38,15 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 - Valid triggers: start, complete, block, hold, resume, cancel
 
 **Trigger effects:**
-- start: QUEUE->WORK, WORK->REVIEW, REVIEW->TERMINAL
+- start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
 - complete: any non-TERMINAL/BLOCKED -> TERMINAL
 - block/hold: any non-TERMINAL/BLOCKED -> BLOCKED (saves previousRole)
 - resume: BLOCKED -> previousRole
 - cancel: any non-TERMINAL -> TERMINAL (statusLabel = "cancelled")
+
+**Gate enforcement (when tags match a note schema):**
+- start: required notes for the current phase must be filled before advancing
+- complete: all required notes across all phases must be filled
 
 **Response:**
 ```json
@@ -48,7 +59,10 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       "trigger": "start",
       "applied": true,
       "cascadeEvents": [],
-      "unblockedItems": []
+      "unblockedItems": [],
+      "expectedNotes": [
+        { "key": "acceptance-criteria", "role": "work", "required": true, "description": "...", "exists": false }
+      ]
     }
   ],
   "summary": { "total": N, "succeeded": N, "failed": N },
@@ -107,6 +121,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
         val handler = RoleTransitionHandler()
         val cascadeDetector = CascadeDetector()
+        val noteSchemaService = context.noteSchemaService()
 
         val resultsList = mutableListOf<JsonObject>()
         val allUnblockedItems = mutableListOf<JsonObject>()
@@ -134,8 +149,12 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             val previousRole = item.role
 
-            // Phase 1: Resolve
-            val resolution = handler.resolveTransition(item, trigger)
+            // Parse item tags for schema lookup
+            val itemTags = item.tagList()
+
+            // Phase 1: Resolve — schema-driven review phase detection
+            val hasReviewPhase = noteSchemaService.hasReviewPhase(itemTags)
+            val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
             if (!resolution.success || resolution.targetRole == null) {
                 failCount++
                 resultsList.add(buildErrorResult(itemId, trigger, resolution.error ?: "Failed to resolve transition"))
@@ -144,7 +163,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             val targetRole = resolution.targetRole
 
-            // Phase 2: Validate
+            // Phase 2: Validate dependency constraints
             val validation = handler.validateTransition(
                 item, targetRole,
                 context.dependencyRepository(),
@@ -169,6 +188,53 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     )
                 )
                 continue
+            }
+
+            // Gate check: required notes for the CURRENT role must exist before advancing (start trigger)
+            if (trigger == "start") {
+                val schema = noteSchemaService.getSchemaForTags(itemTags)
+                if (schema != null) {
+                    val currentRoleStr = item.role.name.lowercase()
+                    val requiredForCurrentPhase = schema.filter { it.role == currentRoleStr && it.required }
+                    if (requiredForCurrentPhase.isNotEmpty()) {
+                        val notesResult = context.noteRepository().findByItemId(item.id)
+                        val existingNotes = when (notesResult) {
+                            is Result.Success -> notesResult.data
+                            is Result.Error -> emptyList()
+                        }
+                        val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+                        val missingKeys = requiredForCurrentPhase.filter { it.key !in filledKeys }.map { it.key }
+                        if (missingKeys.isNotEmpty()) {
+                            failCount++
+                            resultsList.add(buildErrorResult(itemId, trigger,
+                                "Gate check failed: required notes not filled for ${currentRoleStr} phase: ${missingKeys.joinToString()}"))
+                            continue
+                        }
+                    }
+                }
+            }
+
+            // Gate check: all required notes across all phases must be filled (complete trigger)
+            if (trigger == "complete") {
+                val schema = noteSchemaService.getSchemaForTags(itemTags)
+                if (schema != null) {
+                    val allRequired = schema.filter { it.required }
+                    if (allRequired.isNotEmpty()) {
+                        val notesResult = context.noteRepository().findByItemId(item.id)
+                        val existingNotes = when (notesResult) {
+                            is Result.Success -> notesResult.data
+                            is Result.Error -> emptyList()
+                        }
+                        val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+                        val missingKeys = allRequired.filter { it.key !in filledKeys }.map { it.key }
+                        if (missingKeys.isNotEmpty()) {
+                            failCount++
+                            resultsList.add(buildErrorResult(itemId, trigger,
+                                "Gate check failed: required notes not filled: ${missingKeys.joinToString()}"))
+                            continue
+                        }
+                    }
+                }
             }
 
             // Phase 3: Apply
@@ -245,6 +311,33 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 allUnblockedItems.add(unblockedJson)
             }
 
+            // Build expectedNotes: schema entries matching the new role
+            val expectedNotesJson: JsonArray = run {
+                val schema = noteSchemaService.getSchemaForTags(itemTags)
+                if (schema == null) {
+                    JsonArray(emptyList())
+                } else {
+                    val newRoleStr = targetRole.name.lowercase()
+                    val notesResult = context.noteRepository().findByItemId(item.id)
+                    val existingNotes = when (notesResult) {
+                        is Result.Success -> notesResult.data
+                        is Result.Error -> emptyList()
+                    }
+                    val existingKeys = existingNotes.map { it.key }.toSet()
+                    val forNewRole = schema.filter { it.role == newRoleStr }
+                    JsonArray(forNewRole.map { entry ->
+                        buildJsonObject {
+                            put("key", JsonPrimitive(entry.key))
+                            put("role", JsonPrimitive(entry.role))
+                            put("required", JsonPrimitive(entry.required))
+                            put("description", JsonPrimitive(entry.description))
+                            entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                            put("exists", JsonPrimitive(entry.key in existingKeys))
+                        }
+                    })
+                }
+            }
+
             // Build success result
             resultsList.add(buildJsonObject {
                 put("itemId", JsonPrimitive(itemId.toString()))
@@ -255,6 +348,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 if (summary != null) put("summary", JsonPrimitive(summary))
                 put("cascadeEvents", JsonArray(cascadeJsonList))
                 put("unblockedItems", JsonArray(unblockedJsonList))
+                put("expectedNotes", expectedNotesJson)
             })
         }
 
@@ -273,7 +367,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
     }
 
     override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        if (isError) return "request_transition failed"
+        if (isError) return "advance_item failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         val summary = data?.get("summary") as? JsonObject
         val total = summary?.get("total")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0

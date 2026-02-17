@@ -105,6 +105,14 @@ Operations: get, search, overview
                 put("type", JsonPrimitive("string"))
                 put("description", JsonPrimitive("ISO 8601 timestamp filter"))
             })
+            put("roleChangedAfter", buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put("description", JsonPrimitive("ISO 8601 timestamp — items whose role changed after this time"))
+            })
+            put("roleChangedBefore", buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put("description", JsonPrimitive("ISO 8601 timestamp — items whose role changed before this time"))
+            })
             put("sortBy", buildJsonObject {
                 put("type", JsonPrimitive("string"))
                 put("description", JsonPrimitive("Sort field: title, priority, complexity, createdAt, modifiedAt"))
@@ -222,6 +230,8 @@ Operations: get, search, overview
         val createdBefore = parseInstant(params, "createdBefore")
         val modifiedAfter = parseInstant(params, "modifiedAfter")
         val modifiedBefore = parseInstant(params, "modifiedBefore")
+        val roleChangedAfter = parseInstant(params, "roleChangedAfter")
+        val roleChangedBefore = parseInstant(params, "roleChangedBefore")
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
         val limit = optionalInt(params, "limit") ?: 50
@@ -252,6 +262,8 @@ Operations: get, search, overview
             createdBefore = createdBefore,
             modifiedAfter = modifiedAfter,
             modifiedBefore = modifiedBefore,
+            roleChangedAfter = roleChangedAfter,
+            roleChangedBefore = roleChangedBefore,
             sortBy = sortBy,
             sortOrder = sortOrder,
             limit = limit

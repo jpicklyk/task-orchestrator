@@ -22,7 +22,7 @@ import kotlin.test.*
 class WorkflowIntegrationTest {
 
     private lateinit var context: ToolExecutionContext
-    private lateinit var transitionTool: RequestTransitionTool
+    private lateinit var transitionTool: AdvanceItemTool
     private lateinit var nextItemTool: GetNextItemTool
     private lateinit var blockedItemsTool: GetBlockedItemsTool
     private lateinit var nextStatusTool: GetNextStatusTool
@@ -36,7 +36,7 @@ class WorkflowIntegrationTest {
         val repositoryProvider = DefaultRepositoryProvider(databaseManager)
         context = ToolExecutionContext(repositoryProvider)
 
-        transitionTool = RequestTransitionTool()
+        transitionTool = AdvanceItemTool()
         nextItemTool = GetNextItemTool()
         blockedItemsTool = GetBlockedItemsTool()
         nextStatusTool = GetNextStatusTool()
@@ -628,7 +628,9 @@ class WorkflowIntegrationTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `item progresses through QUEUE to WORK to REVIEW to TERMINAL via start`(): Unit = runBlocking {
+    fun `item progresses through QUEUE to WORK to TERMINAL via start in schema-free mode`(): Unit = runBlocking {
+        // In schema-free mode (NoOpNoteSchemaService), hasReviewPhase=false,
+        // so WORK + start advances directly to TERMINAL (no review phase).
         val item = createItem("Full Progression Item")
 
         // QUEUE -> WORK
@@ -639,28 +641,20 @@ class WorkflowIntegrationTest {
         assertEquals("work", extractResults(start1)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
         assertEquals(Role.WORK, getItem(item.id).role)
 
-        // WORK -> REVIEW
+        // WORK -> TERMINAL (schema-free: no review phase)
         val start2 = transitionTool.execute(
             buildTransitionParams(transitionObj(item.id, "start")),
             context
         )
-        assertEquals("review", extractResults(start2)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-        assertEquals(Role.REVIEW, getItem(item.id).role)
+        assertEquals("terminal", extractResults(start2)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
+        assertEquals(Role.TERMINAL, getItem(item.id).role)
 
-        // REVIEW -> TERMINAL
+        // TERMINAL -> start should fail
         val start3 = transitionTool.execute(
             buildTransitionParams(transitionObj(item.id, "start")),
             context
         )
-        assertEquals("terminal", extractResults(start3)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-        assertEquals(Role.TERMINAL, getItem(item.id).role)
-
-        // TERMINAL -> start should fail
-        val start4 = transitionTool.execute(
-            buildTransitionParams(transitionObj(item.id, "start")),
-            context
-        )
-        assertTransitionFailed(extractResults(start4)[0].jsonObject)
+        assertTransitionFailed(extractResults(start3)[0].jsonObject)
     }
 
     // ──────────────────────────────────────────────

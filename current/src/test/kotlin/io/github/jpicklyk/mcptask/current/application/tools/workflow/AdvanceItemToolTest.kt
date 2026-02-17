@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
@@ -19,9 +21,9 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
 
-class RequestTransitionToolTest {
+class AdvanceItemToolTest {
 
-    private lateinit var tool: RequestTransitionTool
+    private lateinit var tool: AdvanceItemTool
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyRepository
@@ -29,7 +31,7 @@ class RequestTransitionToolTest {
 
     @BeforeEach
     fun setUp() {
-        tool = RequestTransitionTool()
+        tool = AdvanceItemTool()
         workItemRepo = mockk()
         depRepo = mockk()
         roleTransitionRepo = mockk()
@@ -348,7 +350,9 @@ class RequestTransitionToolTest {
         assertTrue(results[1].jsonObject["applied"]!!.jsonPrimitive.boolean)
 
         assertEquals("work", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-        assertEquals("review", results[1].jsonObject["newRole"]!!.jsonPrimitive.content)
+        // With NoOpNoteSchemaService (schema-free mode), hasReviewPhase=false,
+        // so WORK + start advances directly to TERMINAL (no review phase).
+        assertEquals("terminal", results[1].jsonObject["newRole"]!!.jsonPrimitive.content)
 
         val summary = extractSummary(result)
         assertEquals(2, summary["total"]!!.jsonPrimitive.int)
@@ -673,6 +677,196 @@ class RequestTransitionToolTest {
             put("error", buildJsonObject { put("message", JsonPrimitive("fail")) })
         }
         val summary = tool.userSummary(buildJsonObject { }, errorResult, isError = true)
-        assertEquals("request_transition failed", summary)
+        assertEquals("advance_item failed", summary)
+    }
+
+    // ──────────────────────────────────────────────
+    // Gate enforcement tests
+    // ──────────────────────────────────────────────
+
+    /**
+     * Helper to create a NoteSchemaService that returns a fixed list of schema entries for any tags.
+     */
+    private fun schemaServiceWith(entries: List<NoteSchemaEntry>): NoteSchemaService {
+        return object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if (tags.isNotEmpty()) entries else null
+        }
+    }
+
+    /**
+     * Helper to create a ToolExecutionContext with a custom NoteSchemaService.
+     */
+    private fun contextWithSchema(
+        noteRepo: NoteRepository,
+        noteSchemaService: NoteSchemaService
+    ): ToolExecutionContext {
+        val repoProvider = mockk<RepositoryProvider>()
+        every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.dependencyRepository() } returns depRepo
+        every { repoProvider.noteRepository() } returns noteRepo
+        every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        return ToolExecutionContext(repoProvider, noteSchemaService)
+    }
+
+    @Test
+    fun `complete trigger with NoOp schema service succeeds without gate check`(): Unit = runBlocking {
+        // With NoOpNoteSchemaService (default), no gate enforcement applies
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        // Use the default context (NoOpNoteSchemaService) — no gate enforcement
+        val params = buildParams(transitionObj(itemId, "complete"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `complete trigger with schema and missing required notes fails with gate error`(): Unit = runBlocking {
+        // Item has a tag that matches a schema with required notes
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria"),
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true,
+                description = "Implementation notes")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // No notes exist for this item
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "complete"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["error"]!!.jsonPrimitive.content.contains("Gate check failed"),
+            "Expected gate check error but got: ${r["error"]!!.jsonPrimitive.content}")
+    }
+
+    @Test
+    fun `complete trigger with schema and all required notes filled succeeds`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // The required note exists and has content
+        val existingNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue",
+            body = "The feature must do X")
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(existingNote))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(existingNote))
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "complete"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `start trigger with schema and missing required notes for current phase fails gate check`(): Unit = runBlocking {
+        // Item is in QUEUE phase; schema requires "acceptance-criteria" for queue phase
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // No notes exist yet
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        val errorMsg = r["error"]!!.jsonPrimitive.content
+        assertTrue(errorMsg.contains("Gate check failed"),
+            "Expected gate check error but got: $errorMsg")
+        assertTrue(errorMsg.contains("acceptance-criteria"),
+            "Expected missing key 'acceptance-criteria' in error but got: $errorMsg")
+    }
+
+    @Test
+    fun `start trigger with schema and required notes filled succeeds`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        val existingNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue",
+            body = "The feature must do X")
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(existingNote))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(existingNote))
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
     }
 }

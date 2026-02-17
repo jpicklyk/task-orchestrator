@@ -36,7 +36,7 @@ data class UnblockedItem(
  *    state at each level. For multi-level cascades (parent -> grandparent), callers
  *    should use an iterative detect-apply loop: apply the first cascade event, then
  *    re-detect from the cascaded parent with fresh DB state. See
- *    [RequestTransitionTool] for the canonical usage pattern.
+ *    [AdvanceItemTool] for the canonical usage pattern.
  *
  * 2. **Unblock detection** -- when a WorkItem transitions, find any downstream items
  *    whose incoming blocking dependencies are now fully satisfied.

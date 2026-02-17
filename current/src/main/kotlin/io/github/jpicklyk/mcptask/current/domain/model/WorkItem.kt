@@ -14,7 +14,8 @@ data class WorkItem(
     val statusLabel: String? = null,
     val previousRole: Role? = null,
     val priority: Priority = Priority.MEDIUM,
-    val complexity: Int = 5,
+    val complexity: Int? = null,
+    val requiresVerification: Boolean = false,
     val depth: Int = 0,
     val metadata: String? = null,
     val tags: String? = null,
@@ -29,7 +30,7 @@ data class WorkItem(
 
     fun validate() {
         if (title.isBlank()) throw ValidationException("Title must not be blank")
-        if (complexity !in 1..10) throw ValidationException("Complexity must be between 1 and 10")
+        complexity?.let { if (it !in 1..10) throw ValidationException("complexity must be between 1 and 10 if provided") }
         if (summary.length > 500) throw ValidationException("Summary must not exceed 500 characters")
         if (depth < 0) throw ValidationException("Depth must be non-negative")
         if (parentId == null && depth != 0) throw ValidationException("Root items must have depth 0")
