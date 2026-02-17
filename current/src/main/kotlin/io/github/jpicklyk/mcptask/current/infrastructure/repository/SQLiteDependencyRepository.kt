@@ -13,6 +13,7 @@ import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.util.UUID
 
@@ -22,7 +23,15 @@ import java.util.UUID
  */
 class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) : DependencyRepository {
 
-    override fun create(dependency: Dependency): Dependency = transaction(databaseManager.getDatabase()) {
+    override fun create(dependency: Dependency): Dependency =
+        transaction(databaseManager.getDatabase()) { insertDependencyInTransaction(dependency) }
+
+    override suspend fun createSuspend(dependency: Dependency): Dependency =
+        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            insertDependencyInTransaction(dependency)
+        }
+
+    private fun insertDependencyInTransaction(dependency: Dependency): Dependency {
         // Check for cyclic dependencies before creating
         if (checkCyclicDependencyInternal(dependency.fromItemId, dependency.toItemId)) {
             throw ValidationException("Creating this dependency would result in a circular dependency")
@@ -47,7 +56,7 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             it[unblockAt] = dependency.unblockAt
             it[createdAt] = dependency.createdAt
         }
-        dependency
+        return dependency
     }
 
     override fun findById(id: UUID): Dependency? = transaction(databaseManager.getDatabase()) {

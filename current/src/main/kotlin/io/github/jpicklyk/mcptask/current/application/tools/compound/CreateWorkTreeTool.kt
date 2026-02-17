@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -297,15 +296,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             notes = notesList
         )
 
-        // ── 8. Execute atomically via WorkTreeService ───────────────────────────
-        val workTreeService = WorkTreeService(
-            workItemRepository = context.workItemRepository(),
-            dependencyRepository = context.dependencyRepository(),
-            noteRepository = context.noteRepository()
-        )
-
+        // ── 8. Execute atomically via WorkTreeExecutor ──────────────────────────
         val treeResult = try {
-            workTreeService.execute(input)
+            context.workTreeExecutor().execute(input)
         } catch (e: Exception) {
             return errorResponse(
                 "Work tree creation failed: ${e.message}",

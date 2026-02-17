@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
+import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -29,22 +29,22 @@ class CreateWorkTreeToolTest {
     private lateinit var tool: CreateWorkTreeTool
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var noteRepo: NoteRepository
+    private lateinit var mockExecutor: WorkTreeExecutor
     private lateinit var repoProvider: RepositoryProvider
 
     @BeforeEach
     fun setUp() {
         tool = CreateWorkTreeTool()
         workItemRepo = mockk()
-        depRepo = mockk()
-        noteRepo = mockk()
+        mockExecutor = mockk()
 
         repoProvider = mockk()
         every { repoProvider.workItemRepository() } returns workItemRepo
-        every { repoProvider.dependencyRepository() } returns depRepo
-        every { repoProvider.noteRepository() } returns noteRepo
+        every { repoProvider.dependencyRepository() } returns mockk()
+        every { repoProvider.noteRepository() } returns mockk()
         every { repoProvider.roleTransitionRepository() } returns mockk()
+        every { repoProvider.database() } returns null
+        every { repoProvider.workTreeExecutor() } returns mockExecutor
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -87,14 +87,32 @@ class CreateWorkTreeToolTest {
             put("type", JsonPrimitive(type))
         }
 
+    /**
+     * Returns a WorkTreeResult that mirrors the input: items and refToId from the input,
+     * plus the provided deps and notes. Used to simulate a successful executor that echoes
+     * back what the tool built.
+     */
+    private fun echoResult(input: WorkTreeInput, deps: List<Dependency> = emptyList()): WorkTreeResult {
+        val refToId = input.refToItem.mapValues { (_, item) -> item.id }
+        return WorkTreeResult(
+            items = input.items,
+            refToId = refToId,
+            deps = deps,
+            notes = input.notes
+        )
+    }
+
     // ──────────────────────────────────────────────
     // 1. Basic tree creation: root + 2 children
     // ──────────────────────────────────────────────
 
     @Test
     fun `basic tree creation returns distinct UUIDs for root and children`(): Unit = runBlocking {
-        // All create calls succeed and echo back the item
-        coEvery { workItemRepo.create(any()) } answers { Result.Success(firstArg()) }
+        // Mirror the input back as the result
+        coEvery { mockExecutor.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            echoResult(input)
+        }
 
         val children = buildJsonArray {
             add(makeChildSpec("c1", "Child One"))
@@ -133,8 +151,20 @@ class CreateWorkTreeToolTest {
 
     @Test
     fun `dependency wiring preserves fromRef and toRef in response`(): Unit = runBlocking {
-        coEvery { workItemRepo.create(any()) } answers { Result.Success(firstArg()) }
-        every { depRepo.create(any()) } answers { firstArg() }
+        coEvery { mockExecutor.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            val refToId = input.refToItem.mapValues { (_, item) -> item.id }
+            // Build deps from the spec input
+            val deps = input.deps.map { spec ->
+                Dependency(
+                    fromItemId = refToId[spec.fromRef]!!,
+                    toItemId = refToId[spec.toRef]!!,
+                    type = spec.type,
+                    unblockAt = spec.unblockAt
+                )
+            }
+            echoResult(input, deps)
+        }
 
         val children = buildJsonArray {
             add(makeChildSpec("c1", "Child One"))
@@ -176,14 +206,20 @@ class CreateWorkTreeToolTest {
         }
         // Rebuild context with custom NoteSchemaService
         val provider2 = mockk<RepositoryProvider>()
+        val mockExecutor2 = mockk<WorkTreeExecutor>()
         every { provider2.workItemRepository() } returns workItemRepo
-        every { provider2.dependencyRepository() } returns depRepo
-        every { provider2.noteRepository() } returns noteRepo
+        every { provider2.dependencyRepository() } returns mockk()
+        every { provider2.noteRepository() } returns mockk()
         every { provider2.roleTransitionRepository() } returns mockk()
+        every { provider2.database() } returns null
+        every { provider2.workTreeExecutor() } returns mockExecutor2
         val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
-        coEvery { workItemRepo.create(any()) } answers { Result.Success(firstArg()) }
-        coEvery { noteRepo.upsert(any()) } answers { Result.Success(firstArg()) }
+        // Echo back items + notes from the input
+        coEvery { mockExecutor2.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            echoResult(input)
+        }
 
         val children = buildJsonArray {
             add(buildJsonObject {
@@ -237,12 +273,12 @@ class CreateWorkTreeToolTest {
     }
 
     // ──────────────────────────────────────────────
-    // 5. Invalid dep ref → validation error from execute
+    // 5. Invalid dep ref → validation error returned before execute()
     // ──────────────────────────────────────────────
 
     @Test
     fun `invalid dep ref fails with error response`(): Unit = runBlocking {
-        coEvery { workItemRepo.create(any()) } answers { Result.Success(firstArg()) }
+        // The tool validates dep refs before calling the executor, so execute() is never called
 
         val children = buildJsonArray {
             add(makeChildSpec("c1", "Child One"))
@@ -333,7 +369,10 @@ class CreateWorkTreeToolTest {
 
     @Test
     fun `root-only tree succeeds with empty children and deps arrays`(): Unit = runBlocking {
-        coEvery { workItemRepo.create(any()) } answers { Result.Success(firstArg()) }
+        coEvery { mockExecutor.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            echoResult(input)
+        }
 
         val params = buildParams()
         val result = tool.execute(params, context)
@@ -371,8 +410,19 @@ class CreateWorkTreeToolTest {
 
     @Test
     fun `userSummary reflects root title and child count`(): Unit = runBlocking {
-        coEvery { workItemRepo.create(any()) } answers { Result.Success(firstArg()) }
-        every { depRepo.create(any()) } answers { firstArg() }
+        coEvery { mockExecutor.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            val refToId = input.refToItem.mapValues { (_, item) -> item.id }
+            val deps = input.deps.map { spec ->
+                Dependency(
+                    fromItemId = refToId[spec.fromRef]!!,
+                    toItemId = refToId[spec.toRef]!!,
+                    type = spec.type,
+                    unblockAt = spec.unblockAt
+                )
+            }
+            echoResult(input, deps)
+        }
 
         val children = buildJsonArray { add(makeChildSpec("c1", "Child One")) }
         val deps = buildJsonArray { add(makeDepSpec("root", "c1")) }

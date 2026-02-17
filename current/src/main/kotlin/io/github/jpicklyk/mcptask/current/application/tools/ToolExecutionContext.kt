@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
@@ -38,4 +39,7 @@ class ToolExecutionContext(
 
     /** Access to Note schema configuration service. */
     fun noteSchemaService(): NoteSchemaService = noteSchemaService
+
+    /** Access to the atomic work-tree creation executor. */
+    fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()
 }
