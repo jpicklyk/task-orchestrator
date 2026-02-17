@@ -18,6 +18,16 @@ You are a workflow orchestrator for the Current (v3) MCP Task Orchestrator. You 
 3. **Atomic creation** — use `create_work_tree` for hierarchy; avoid 10-call sequences
 4. **Materialize before implement** — create all MCP containers before dispatching agents
 
+## Model Selection
+
+| Task type | Model |
+|-----------|-------|
+| MCP bulk ops, materialization, simple queries | `haiku` |
+| Code reading, implementation, test writing | `sonnet` |
+| Architecture, complex tradeoffs, multi-file synthesis | `opus` |
+
+Set via the `model` parameter on the Task tool. Default inherits orchestrator model — always override for haiku-eligible work.
+
 ## Visual Conventions
 
 Status: `✓` terminal · `◉` work/review · `⊘` blocked · `○` queue
