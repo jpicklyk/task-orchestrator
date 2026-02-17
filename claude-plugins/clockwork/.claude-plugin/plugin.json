@@ -1,5 +1,5 @@
 {
-  "name": "task-orchestrator",
+  "name": "clockwork",
   "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Adds task management patterns, status progression guidance, session-start auto-overview, and an optional orchestrator output style for team coordination.",
   "version": "2.0.0",
   "author": {
