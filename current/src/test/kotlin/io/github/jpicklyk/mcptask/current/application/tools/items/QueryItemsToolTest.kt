@@ -110,6 +110,48 @@ class QueryItemsToolTest {
         assertNotNull(result["error"])
     }
 
+    @Test
+    fun `get nonexistent item error response contains requestedId as structured field`(): Unit = runBlocking {
+        val randomId = UUID.randomUUID()
+        val randomIdStr = randomId.toString()
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("get"),
+                "id" to JsonPrimitive(randomIdStr)
+            ),
+            context
+        ) as JsonObject
+
+        assertFalse(result["success"]!!.jsonPrimitive.boolean)
+        // The response data block must contain requestedId as a separate structured field
+        val data = result["data"] as? JsonObject
+        assertNotNull(data, "Error response should include a data block with requestedId")
+        val requestedId = data["requestedId"]?.jsonPrimitive?.content
+        assertEquals(randomIdStr, requestedId, "requestedId in response data must equal the attempted UUID")
+    }
+
+    @Test
+    fun `get nonexistent item error response requestedId differs from other nonexistent id`(): Unit = runBlocking {
+        val id1 = UUID.randomUUID()
+        val id2 = UUID.randomUUID()
+
+        val result1 = tool.execute(
+            params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(id1.toString())),
+            context
+        ) as JsonObject
+        val result2 = tool.execute(
+            params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(id2.toString())),
+            context
+        ) as JsonObject
+
+        val reqId1 = (result1["data"] as? JsonObject)?.get("requestedId")?.jsonPrimitive?.content
+        val reqId2 = (result2["data"] as? JsonObject)?.get("requestedId")?.jsonPrimitive?.content
+
+        assertEquals(id1.toString(), reqId1)
+        assertEquals(id2.toString(), reqId2)
+        assertNotEquals(reqId1, reqId2, "requestedId should reflect the specific UUID attempted")
+    }
+
     // ──────────────────────────────────────────────
     // Search operations
     // ──────────────────────────────────────────────
@@ -226,8 +268,59 @@ class QueryItemsToolTest {
 
         assertTrue(result["success"]!!.jsonPrimitive.boolean)
         val data = result["data"] as JsonObject
-        assertEquals(2, data["total"]!!.jsonPrimitive.int)
+        // total reflects full match count, returned reflects the page size
+        assertEquals(5, data["total"]!!.jsonPrimitive.int)
+        assertEquals(2, data["returned"]!!.jsonPrimitive.int)
         assertEquals(2, data["items"]!!.jsonArray.size)
+        assertEquals(2, data["limit"]!!.jsonPrimitive.int)
+        assertEquals(0, data["offset"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `search pagination with offset returns correct page`() = runBlocking {
+        for (i in 1..5) {
+            createItem("Item $i")
+        }
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("search"),
+                "limit" to JsonPrimitive(2),
+                "offset" to JsonPrimitive(2)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(5, data["total"]!!.jsonPrimitive.int)
+        assertEquals(2, data["returned"]!!.jsonPrimitive.int)
+        assertEquals(2, data["items"]!!.jsonArray.size)
+        assertEquals(2, data["limit"]!!.jsonPrimitive.int)
+        assertEquals(2, data["offset"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `search with limit larger than result set returns correct total and returned`() = runBlocking {
+        createItem("Alpha")
+        createItem("Beta")
+        createItem("Gamma")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("search"),
+                "limit" to JsonPrimitive(10)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(3, data["total"]!!.jsonPrimitive.int)
+        assertEquals(3, data["returned"]!!.jsonPrimitive.int)
+        assertEquals(3, data["items"]!!.jsonArray.size)
+        assertEquals(10, data["limit"]!!.jsonPrimitive.int)
+        assertEquals(0, data["offset"]!!.jsonPrimitive.int)
     }
 
     @Test

@@ -38,8 +38,28 @@ interface WorkItemRepository {
         roleChangedBefore: Instant? = null,
         sortBy: String? = null,
         sortOrder: String? = null,
-        limit: Int = 50
+        limit: Int = 50,
+        offset: Int = 0
     ): Result<List<WorkItem>>
+
+    /**
+     * Count work items matching multiple filter criteria (same filters as findByFilters, no pagination).
+     * Returns the total number of matching rows regardless of any limit/offset.
+     */
+    suspend fun countByFilters(
+        parentId: UUID? = null,
+        depth: Int? = null,
+        role: Role? = null,
+        priority: Priority? = null,
+        tags: List<String>? = null,
+        query: String? = null,
+        createdAfter: Instant? = null,
+        createdBefore: Instant? = null,
+        modifiedAfter: Instant? = null,
+        modifiedBefore: Instant? = null,
+        roleChangedAfter: Instant? = null,
+        roleChangedBefore: Instant? = null
+    ): Result<Int>
 
     /**
      * Count direct children of a work item grouped by their current role.

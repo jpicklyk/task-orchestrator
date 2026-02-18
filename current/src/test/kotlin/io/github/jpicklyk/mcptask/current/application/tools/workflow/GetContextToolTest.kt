@@ -12,8 +12,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -463,6 +465,89 @@ class GetContextToolTest {
         val blockedJsonArr = data["blockedItems"]!!.jsonArray
         assertEquals(1, blockedJsonArr.size)
         assertEquals(0, blockedJsonArr[0].jsonObject["ancestors"]!!.jsonArray.size)
+    }
+
+    // ──────────────────────────────────────────────
+    // Limit parameter tests for session-resume mode
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `session resume without limit uses default of 50`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val capturedLimit = slot<Int>()
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+
+        tool.execute(
+            params("since" to JsonPrimitive(since.toString())),
+            context
+        )
+
+        assertEquals(50, capturedLimit.captured, "Default limit should be 50 when not specified")
+    }
+
+    @Test
+    fun `session resume with limit=10 passes 10 to findSince`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val capturedLimit = slot<Int>()
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params(
+                "since" to JsonPrimitive(since.toString()),
+                "limit" to JsonPrimitive(10)
+            ),
+            context
+        )
+
+        assertEquals(10, capturedLimit.captured, "Should pass limit=10 to findSince")
+        val data = extractData(result)
+        assertEquals("session-resume", data["mode"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `session resume with limit clamped to max 200`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val capturedLimit = slot<Int>()
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+
+        tool.execute(
+            params(
+                "since" to JsonPrimitive(since.toString()),
+                "limit" to JsonPrimitive(999)
+            ),
+            context
+        )
+
+        assertEquals(200, capturedLimit.captured, "Limit above 200 should be clamped to 200")
+    }
+
+    @Test
+    fun `session resume with limit clamped to min 1`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val capturedLimit = slot<Int>()
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+
+        tool.execute(
+            params(
+                "since" to JsonPrimitive(since.toString()),
+                "limit" to JsonPrimitive(0)
+            ),
+            context
+        )
+
+        assertEquals(1, capturedLimit.captured, "Limit below 1 should be clamped to 1")
     }
 
     @Test

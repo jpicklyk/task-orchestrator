@@ -532,6 +532,59 @@ class CreateWorkTreeToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // userSummary error detail tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `userSummary on error result includes error message detail not generic string`(): Unit = runBlocking {
+        // Trigger a real error: parentId that does not exist
+        val missingId = UUID.randomUUID()
+        coEvery { workItemRepo.getById(missingId) } returns Result.Error(
+            RepositoryError.NotFound(missingId, "WorkItem not found: $missingId")
+        )
+
+        val params = buildParams(parentId = missingId.toString())
+        val result = tool.execute(params, context)
+
+        // Confirm it is an error result
+        val obj = result as JsonObject
+        assertFalse(obj["success"]!!.jsonPrimitive.boolean)
+
+        val summary = tool.userSummary(params, result, isError = true)
+        // Must contain more than the bare generic message
+        assertTrue(
+            summary.contains("not found") || summary.contains("WorkItem"),
+            "Expected error detail in summary but got: $summary"
+        )
+        assertFalse(
+            summary == "create_work_tree failed",
+            "userSummary should not be the bare generic message when error detail is available: $summary"
+        )
+    }
+
+    @Test
+    fun `userSummary on invalid dep ref error includes cause detail`(): Unit = runBlocking {
+        val children = buildJsonArray { add(makeChildSpec("c1", "Child One")) }
+        val deps = buildJsonArray { add(makeDepSpec("root", "bogus_ref")) }
+        val params = buildParams(children = children, deps = deps)
+        val result = tool.execute(params, context)
+
+        val obj = result as JsonObject
+        assertFalse(obj["success"]!!.jsonPrimitive.boolean)
+
+        val summary = tool.userSummary(params, result, isError = true)
+        // Must contain ref-related error detail, not just the generic string
+        assertTrue(
+            summary.contains("bogus_ref") || summary.contains("ref") || summary.contains("not defined"),
+            "Expected ref error detail in summary but got: $summary"
+        )
+        assertFalse(
+            summary == "create_work_tree failed",
+            "userSummary should include error cause, got: $summary"
+        )
+    }
+
+    // ──────────────────────────────────────────────
     // 12. userSummary reflects root title and child count
     // ──────────────────────────────────────────────
 

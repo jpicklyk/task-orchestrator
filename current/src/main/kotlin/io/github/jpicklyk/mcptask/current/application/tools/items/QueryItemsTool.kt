@@ -32,9 +32,12 @@ Operations: get, search, overview
 - includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
 
 **search** - Filter items with multiple criteria
-- Optional: parentId, depth, role, priority, tags, query, createdAfter/Before, modifiedAfter/Before, sortBy, sortOrder, limit
+- Optional: parentId, depth, role, priority, tags, query, createdAfter/Before, modifiedAfter/Before, sortBy, sortOrder, limit, offset
 - Returns minimal fields: id, parentId, title, role, priority, depth, tags
-- Wrapped in { items: [...], total: N }
+- Wrapped in { items: [...], total: N, returned: N, limit: N, offset: N }
+- total is the full count of all matching rows (regardless of limit/offset)
+- returned is the count of items in this response page
+- Use offset with limit for pagination (e.g., offset=50&limit=50 for page 2)
 - includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
 
 **overview** - Hierarchical summary view
@@ -127,6 +130,10 @@ Operations: get, search, overview
             put("limit", buildJsonObject {
                 put("type", JsonPrimitive("integer"))
                 put("description", JsonPrimitive("Max results (default: 50)"))
+            })
+            put("offset", buildJsonObject {
+                put("type", JsonPrimitive("integer"))
+                put("description", JsonPrimitive("Number of items to skip (for pagination). Use with limit. Default: 0."))
             })
             put("includeAncestors", buildJsonObject {
                 put("type", JsonPrimitive("boolean"))
@@ -221,8 +228,11 @@ Operations: get, search, overview
         val item = when (val result = context.workItemRepository().getById(id)) {
             is Result.Success -> result.data
             is Result.Error -> return errorResponse(
-                result.error.message,
-                ErrorCodes.RESOURCE_NOT_FOUND
+                "WorkItem not found",
+                ErrorCodes.RESOURCE_NOT_FOUND,
+                additionalData = buildJsonObject {
+                    put("requestedId", JsonPrimitive(id.toString()))
+                }
             )
         }
 
@@ -267,6 +277,7 @@ Operations: get, search, overview
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
         val limit = optionalInt(params, "limit") ?: 50
+        val offset = params.jsonObject["offset"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
         val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
         // Parse role
@@ -284,6 +295,25 @@ Operations: get, search, overview
         // Parse tags
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
 
+        // Get full match count (no limit/offset) for accurate pagination metadata
+        val totalCount = when (val countResult = context.workItemRepository().countByFilters(
+            parentId = parentId,
+            depth = depth,
+            role = role,
+            priority = priority,
+            tags = tags,
+            query = query,
+            createdAfter = createdAfter,
+            createdBefore = createdBefore,
+            modifiedAfter = modifiedAfter,
+            modifiedBefore = modifiedBefore,
+            roleChangedAfter = roleChangedAfter,
+            roleChangedBefore = roleChangedBefore
+        )) {
+            is Result.Success -> countResult.data
+            is Result.Error -> return errorResponse(countResult.error.message, ErrorCodes.DATABASE_ERROR)
+        }
+
         return when (val result = context.workItemRepository().findByFilters(
             parentId = parentId,
             depth = depth,
@@ -299,7 +329,8 @@ Operations: get, search, overview
             roleChangedBefore = roleChangedBefore,
             sortBy = sortBy,
             sortOrder = sortOrder,
-            limit = limit
+            limit = limit,
+            offset = offset
         )) {
             is Result.Success -> {
                 val items = result.data
@@ -330,7 +361,10 @@ Operations: get, search, overview
                             workItemToMinimalJson(item)
                         }
                     }))
-                    put("total", JsonPrimitive(items.size))
+                    put("total", JsonPrimitive(totalCount))
+                    put("returned", JsonPrimitive(items.size))
+                    put("limit", JsonPrimitive(limit))
+                    put("offset", JsonPrimitive(offset))
                 }
                 successResponse(data)
             }

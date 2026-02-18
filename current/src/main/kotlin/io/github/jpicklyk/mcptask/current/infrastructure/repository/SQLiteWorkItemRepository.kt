@@ -222,7 +222,8 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         roleChangedBefore: Instant?,
         sortBy: String?,
         sortOrder: String?,
-        limit: Int
+        limit: Int,
+        offset: Int
     ): Result<List<WorkItem>> = try {
         newSuspendedTransaction(db = databaseManager.getDatabase()) {
             val conditions = mutableListOf<Op<Boolean>>()
@@ -268,12 +269,61 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val items = baseQuery
                 .orderBy(sortColumn, order)
                 .limit(limit)
+                .offset(offset.toLong())
                 .map { mapRowToWorkItem(it) }
 
             Result.Success(items)
         }
     } catch (e: Exception) {
         Result.Error(RepositoryError.DatabaseError("Failed to find WorkItems by filters: ${e.message}", e))
+    }
+
+    override suspend fun countByFilters(
+        parentId: UUID?,
+        depth: Int?,
+        role: Role?,
+        priority: Priority?,
+        tags: List<String>?,
+        query: String?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?
+    ): Result<Int> = try {
+        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            val conditions = mutableListOf<Op<Boolean>>()
+
+            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+            depth?.let { conditions.add(WorkItemsTable.depth eq it) }
+            role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
+            priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
+            tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
+            query?.let {
+                val pattern = "%$it%"
+                conditions.add(
+                    (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
+                )
+            }
+            createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
+            createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
+            modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
+            modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
+            roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
+            roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
+
+            val count = if (conditions.isEmpty()) {
+                WorkItemsTable.selectAll().count()
+            } else {
+                val combined = conditions.reduce { acc, op -> acc and op }
+                WorkItemsTable.selectAll().where { combined }.count()
+            }
+
+            Result.Success(count.toInt())
+        }
+    } catch (e: Exception) {
+        Result.Error(RepositoryError.DatabaseError("Failed to count WorkItems by filters: ${e.message}", e))
     }
 
     override suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>> = try {

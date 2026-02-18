@@ -62,6 +62,10 @@ Parameters:
                 put("type", JsonPrimitive("boolean"))
                 put("description", JsonPrimitive("When true, each listed item includes an ancestors array ordered root-first (default: false)"))
             })
+            put("limit", buildJsonObject {
+                put("type", JsonPrimitive("integer"))
+                put("description", JsonPrimitive("Maximum number of role transitions to return in session-resume mode. Default 50, max 200."))
+            })
         },
         required = emptyList()
     )
@@ -77,10 +81,11 @@ Parameters:
         val itemId = extractUUID(params, "itemId", required = false)
         val sinceInstant = parseInstant(params, "since")
         val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val transitionLimit = params.jsonObject["limit"]?.jsonPrimitive?.intOrNull?.coerceIn(1, 200) ?: 50
 
         return when {
             itemId != null -> executeItemMode(itemId, context, includeAncestors)
-            sinceInstant != null -> executeSessionResumeMode(sinceInstant, context, includeAncestors)
+            sinceInstant != null -> executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit)
             else -> executeHealthCheckMode(context, includeAncestors)
         }
     }
@@ -181,7 +186,8 @@ Parameters:
     private suspend fun executeSessionResumeMode(
         since: java.time.Instant,
         context: ToolExecutionContext,
-        includeAncestors: Boolean
+        includeAncestors: Boolean,
+        transitionLimit: Int = 50
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
 
@@ -197,7 +203,7 @@ Parameters:
         val activeItems = (workItems + reviewItems)
 
         // Recent transitions since the given timestamp
-        val recentTransitions = when (val r = context.roleTransitionRepository().findSince(since, limit = 50)) {
+        val recentTransitions = when (val r = context.roleTransitionRepository().findSince(since, limit = transitionLimit)) {
             is Result.Success -> r.data
             is Result.Error -> emptyList()
         }

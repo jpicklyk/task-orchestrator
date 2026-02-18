@@ -369,7 +369,12 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
     }
 
     override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        if (isError) return "create_work_tree failed"
+        if (isError) {
+            val errorDetail = (result as? JsonObject)
+                ?.get("error")?.let { it as? JsonObject }
+                ?.get("message")?.let { (it as? JsonPrimitive)?.content }
+            return if (errorDetail != null) "create_work_tree failed: $errorDetail" else "create_work_tree failed"
+        }
         val data = (result as? JsonObject)?.get("data") as? JsonObject ?: return "create_work_tree completed"
         val rootTitle = (data["root"] as? JsonObject)
             ?.get("title")?.let { (it as? JsonPrimitive)?.content } ?: "?"
