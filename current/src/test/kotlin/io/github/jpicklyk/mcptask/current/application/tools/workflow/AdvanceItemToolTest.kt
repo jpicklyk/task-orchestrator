@@ -435,7 +435,44 @@ class AdvanceItemToolTest {
     }
 
     // ──────────────────────────────────────────────
-    // 11. Unblocked items reported
+    // 11. Start cascade fires when first child starts
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `start cascade fires when child starts and parent is in QUEUE`(): Unit = runBlocking {
+        val parentId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val parentItem = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
+        val childItem = makeItem(id = childId, role = Role.QUEUE, title = "Child", parentId = parentId)
+
+        // Child fetch (first call) returns QUEUE state, then returns WORK after update
+        val updatedChild = childItem.update { it.copy(role = Role.WORK) }
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(any()) } returns emptyList()
+        every { depRepo.findByFromItemId(any()) } returns emptyList()
+
+        val params = buildParams(transitionObj(childId, "start"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+
+        val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+        assertEquals(1, cascadeEvents.size)
+        val cascade = cascadeEvents[0].jsonObject
+        assertEquals(parentId.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+        assertEquals("queue", cascade["previousRole"]!!.jsonPrimitive.content)
+        assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
+        assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+    }
+
+    // ──────────────────────────────────────────────
+    // 12. (was 11) Unblocked items reported
     // ──────────────────────────────────────────────
 
     @Test

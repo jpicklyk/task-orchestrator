@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
@@ -24,12 +25,17 @@ class GetNextStatusToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyRepository
+    private lateinit var noteSchemaService: NoteSchemaService
 
     @BeforeEach
     fun setUp() {
         tool = GetNextStatusTool()
         workItemRepo = mockk()
         depRepo = mockk()
+        noteSchemaService = mockk()
+
+        // Default: treat all items as having a review phase so existing tests are unaffected
+        every { noteSchemaService.hasReviewPhase(any()) } returns true
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -37,7 +43,7 @@ class GetNextStatusToolTest {
         every { repoProvider.noteRepository() } returns mockk()
         every { repoProvider.roleTransitionRepository() } returns mockk()
 
-        context = ToolExecutionContext(repoProvider)
+        context = ToolExecutionContext(repoProvider, noteSchemaService)
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
@@ -328,5 +334,59 @@ class GetNextStatusToolTest {
         }
         val summary = tool.userSummary(params(), errorResult, isError = true)
         assertEquals("get_next_status failed", summary)
+    }
+
+    // ──────────────────────────────────────────────
+    // hasReviewPhase behaviour
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `WORK role with no schema tags skips REVIEW and returns nextRole terminal`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        // Item has no tags — NoOp schema returns hasReviewPhase=false
+        val item = makeItem(id = itemId, role = Role.WORK)
+
+        every { noteSchemaService.hasReviewPhase(emptyList()) } returns false
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            context
+        )
+
+        val data = extractData(result)
+        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+        assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
+        assertEquals("terminal", data["nextRole"]!!.jsonPrimitive.content)
+        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+        // Effective total is 3 (QUEUE/WORK/TERMINAL — no REVIEW step)
+        assertEquals("2/3", data["progressionPosition"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `WORK role with schema tags that include review phase returns nextRole review`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        // Item has a tag that matches a schema with a review note
+        val item = makeItem(id = itemId, role = Role.WORK).copy(tags = "feature")
+
+        every { noteSchemaService.hasReviewPhase(listOf("feature")) } returns true
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            context
+        )
+
+        val data = extractData(result)
+        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+        assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
+        assertEquals("review", data["nextRole"]!!.jsonPrimitive.content)
+        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+        // Effective total is 4 (QUEUE/WORK/REVIEW/TERMINAL)
+        assertEquals("2/4", data["progressionPosition"]!!.jsonPrimitive.content)
     }
 }

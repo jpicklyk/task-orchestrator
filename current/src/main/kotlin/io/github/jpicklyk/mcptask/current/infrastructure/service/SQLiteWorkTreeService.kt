@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.service
 
+import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
@@ -62,7 +64,11 @@ class SQLiteWorkTreeService(private val databaseManager: DatabaseManager) : Work
             }
 
             // 2. Insert dependencies using DependenciesTable directly
-            // (skip cyclic-dependency check — these are all new items with no pre-existing deps)
+            // Cycle check before insertion — new items CAN form cycles among themselves
+            val cycleError = detectInMemoryCycle(input.deps)
+            if (cycleError != null) {
+                throw IllegalStateException(cycleError)
+            }
             val createdDeps = mutableListOf<Dependency>()
             for (spec in input.deps) {
                 val fromId = refToId[spec.fromRef]
@@ -123,4 +129,39 @@ class SQLiteWorkTreeService(private val databaseManager: DatabaseManager) : Work
                 notes = createdNotes
             )
         }
+
+    /**
+     * Performs an in-memory DFS cycle detection on the given dependency specs.
+     * Returns an error message string if a cycle is found, or null if no cycle exists.
+     * RELATES_TO edges are excluded from cycle detection (they are bidirectional by nature).
+     */
+    private fun detectInMemoryCycle(deps: List<TreeDepSpec>): String? {
+        // Build adjacency map from fromRef -> list of toRefs (for BLOCKS and IS_BLOCKED_BY only)
+        val adj = mutableMapOf<String, MutableList<String>>()
+        for (dep in deps) {
+            if (dep.type == DependencyType.RELATES_TO) continue
+            adj.getOrPut(dep.fromRef) { mutableListOf() }.add(dep.toRef)
+        }
+
+        val visited = mutableSetOf<String>()
+        val inStack = mutableSetOf<String>()
+
+        fun dfs(node: String): String? {
+            if (node in inStack) return node  // cycle found
+            if (node in visited) return null  // already fully explored
+            visited.add(node)
+            inStack.add(node)
+            for (neighbor in adj[node] ?: emptyList()) {
+                dfs(neighbor)?.let { return it }
+            }
+            inStack.remove(node)
+            return null
+        }
+
+        // Check every node as a potential cycle start
+        for (ref in adj.keys) {
+            dfs(ref)?.let { return "Circular dependency detected involving ref '$it'" }
+        }
+        return null
+    }
 }

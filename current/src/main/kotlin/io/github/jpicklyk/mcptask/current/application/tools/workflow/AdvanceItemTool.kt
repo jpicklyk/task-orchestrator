@@ -295,6 +295,33 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 }
             }
 
+            // Phase 4b: Start cascade detection (only when reaching WORK)
+            // When the first child starts, auto-advance the parent from QUEUE to WORK.
+            if (targetRole == Role.WORK) {
+                val startCascadeEvents = cascadeDetector.detectStartCascades(applyResult.item!!, context.workItemRepository())
+                for (event in startCascadeEvents) {
+                    val parentResult = context.workItemRepository().getById(event.itemId)
+                    val parentItem = when (parentResult) {
+                        is Result.Success -> parentResult.data
+                        is Result.Error -> continue
+                    }
+
+                    val cascadeApply = handler.applyTransition(
+                        parentItem, event.targetRole, "cascade",
+                        "Auto-cascaded from child start", null,
+                        context.workItemRepository(),
+                        context.roleTransitionRepository()
+                    )
+
+                    cascadeJsonList.add(buildJsonObject {
+                        put("itemId", JsonPrimitive(event.itemId.toString()))
+                        put("previousRole", JsonPrimitive(event.currentRole.name.lowercase()))
+                        put("targetRole", JsonPrimitive(event.targetRole.name.lowercase()))
+                        put("applied", JsonPrimitive(cascadeApply.success))
+                    })
+                }
+            }
+
             // Phase 5: Unblock detection
             val unblockedJsonList = mutableListOf<JsonObject>()
             val unblockedItems = cascadeDetector.findUnblockedItems(

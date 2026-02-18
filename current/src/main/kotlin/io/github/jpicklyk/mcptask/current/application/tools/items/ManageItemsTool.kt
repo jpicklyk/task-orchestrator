@@ -373,6 +373,11 @@ Unified write operations for WorkItems (create, update, delete).
                     } catch (_: IllegalArgumentException) {
                         throw ToolValidationException("Item '$itemId': 'parentId' is not a valid UUID")
                     }
+                    // Guard 1: Self-parent check
+                    if (newParentId == id) {
+                        throw ToolValidationException("Item '$itemId': cannot be its own parent")
+                    }
+
                     val parentResult = repo.getById(newParentId)
                     when (parentResult) {
                         is Result.Success -> {
@@ -386,6 +391,23 @@ Unified write operations for WorkItems (create, update, delete).
                         is Result.Error -> throw ToolValidationException(
                             "Item '$itemId': new parent '$parentIdStr' not found"
                         )
+                    }
+
+                    // Guard 2: Ancestor cycle check — walk up from newParentId, ensure itemId is not an ancestor
+                    var cursor: UUID? = newParentId
+                    repeat(MAX_DEPTH + 1) {
+                        val cursorId = cursor ?: return@repeat
+                        val ancestorResult = repo.getById(cursorId)
+                        val ancestor = when (ancestorResult) {
+                            is Result.Success -> ancestorResult.data
+                            is Result.Error -> return@repeat
+                        }
+                        if (ancestor.id == id) {
+                            throw ToolValidationException(
+                                "Item '$itemId': reparenting to '$newParentId' would create a circular hierarchy"
+                            )
+                        }
+                        cursor = ancestor.parentId
                     }
                 } else if (itemObj.containsKey("parentId") && itemObj["parentId"] is JsonNull) {
                     // Explicitly set parentId to null (move to root)
@@ -487,7 +509,14 @@ Unified write operations for WorkItems (create, update, delete).
             }
 
             when (val result = repo.delete(id)) {
-                is Result.Success -> deletedIds.add(idStr)
+                is Result.Success -> if (result.data) {
+                    deletedIds.add(idStr)
+                } else {
+                    failures.add(buildJsonObject {
+                        put("id", JsonPrimitive(idStr))
+                        put("error", JsonPrimitive("Item '$idStr' not found"))
+                    })
+                }
                 is Result.Error -> {
                     failures.add(buildJsonObject {
                         put("id", JsonPrimitive(idStr))

@@ -92,8 +92,10 @@ Read-only status progression recommendation for a WorkItem.
             }
 
             Role.QUEUE, Role.WORK, Role.REVIEW -> {
-                // Resolve next role via "start" trigger
-                val resolution = handler.resolveTransition(item.role, "start")
+                // Resolve next role via "start" trigger, respecting schema-driven review phase
+                val itemTags = item.tagList()
+                val hasReviewPhase = context.noteSchemaService().hasReviewPhase(itemTags)
+                val resolution = handler.resolveTransition(item, "start", hasReviewPhase)
 
                 if (!resolution.success || resolution.targetRole == null) {
                     return errorResponse(
@@ -115,13 +117,13 @@ Read-only status progression recommendation for a WorkItem.
                 if (validation.valid) {
                     // Ready recommendation
                     val position = Role.PROGRESSION.indexOf(item.role)
-                    val total = Role.PROGRESSION.size
+                    val effectiveTotal = if (hasReviewPhase) Role.PROGRESSION.size else Role.PROGRESSION.size - 1
                     successResponse(buildJsonObject {
                         put("recommendation", JsonPrimitive("Ready"))
                         put("currentRole", JsonPrimitive(item.role.name.lowercase()))
                         put("nextRole", JsonPrimitive(targetRole.name.lowercase()))
                         put("trigger", JsonPrimitive("start"))
-                        put("progressionPosition", JsonPrimitive("${position + 1}/$total"))
+                        put("progressionPosition", JsonPrimitive("${position + 1}/$effectiveTotal"))
                     })
                 } else {
                     // Blocked by dependencies

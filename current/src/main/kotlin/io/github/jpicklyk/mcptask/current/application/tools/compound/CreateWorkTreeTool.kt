@@ -169,9 +169,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             when (parentResult) {
                 is Result.Success -> {
                     val computedDepth = parentResult.data.depth + 1
-                    if (computedDepth >= MAX_DEPTH) {
+                    if (computedDepth > MAX_DEPTH) {
                         return errorResponse(
-                            "Root item would be at depth $computedDepth which equals or exceeds the maximum depth of $MAX_DEPTH",
+                            "Root item would be at depth $computedDepth which exceeds the maximum depth of $MAX_DEPTH",
                             ErrorCodes.VALIDATION_ERROR
                         )
                     }
@@ -197,11 +197,11 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 
         // ── 4. Parse children ──────────────────────────────────────────────────
         val childDepth = rootDepth + 1
-        if (childDepth >= MAX_DEPTH) {
+        if (childDepth > MAX_DEPTH) {
             val childrenArray = paramsObj["children"] as? JsonArray
             if (childrenArray != null && childrenArray.isNotEmpty()) {
                 return errorResponse(
-                    "Children would be at depth $childDepth which equals or exceeds the maximum depth of $MAX_DEPTH",
+                    "Children would be at depth $childDepth which exceeds the maximum depth of $MAX_DEPTH",
                     ErrorCodes.VALIDATION_ERROR
                 )
             }

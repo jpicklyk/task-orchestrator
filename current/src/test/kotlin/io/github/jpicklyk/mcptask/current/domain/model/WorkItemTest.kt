@@ -95,16 +95,37 @@ class WorkItemTest {
     }
 
     @Test
-    fun `summary exceeding 500 chars throws ValidationException`() {
-        val longSummary = "a".repeat(501)
+    fun `title exceeding 500 chars throws ValidationException`() {
+        val longTitle = "a".repeat(501)
         val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", summary = longSummary)
+            WorkItem(title = longTitle)
         }
-        assertTrue(ex.message!!.contains("Summary must not exceed 500 characters"))
+        assertTrue(ex.message!!.contains("Title must not exceed 500 characters"))
     }
 
     @Test
-    fun `summary at exactly 500 chars is valid`() {
+    fun `title at exactly 500 chars is valid`() {
+        val title = "a".repeat(500)
+        WorkItem(title = title)
+    }
+
+    @Test
+    fun `summary exceeding 2000 chars throws ValidationException`() {
+        val longSummary = "a".repeat(2001)
+        val ex = assertFailsWith<ValidationException> {
+            WorkItem(title = "test", summary = longSummary)
+        }
+        assertTrue(ex.message!!.contains("Summary must not exceed 2000 characters"))
+    }
+
+    @Test
+    fun `summary at exactly 2000 chars is valid`() {
+        val summary = "a".repeat(2000)
+        WorkItem(title = "test", summary = summary)
+    }
+
+    @Test
+    fun `summary at 500 chars is still valid after limit increase`() {
         val summary = "a".repeat(500)
         WorkItem(title = "test", summary = summary)
     }

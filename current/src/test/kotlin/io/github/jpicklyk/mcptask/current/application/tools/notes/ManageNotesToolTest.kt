@@ -386,4 +386,26 @@ class ManageNotesToolTest {
             )
         }
     }
+
+    @Test
+    fun `delete non-existent note by id returns failure not success`() = runBlocking {
+        val nonExistentId = UUID.randomUUID().toString()
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("delete"),
+                "ids" to JsonArray(listOf(JsonPrimitive(nonExistentId)))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["deleted"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        val failure = failures[0] as JsonObject
+        assertEquals(nonExistentId, failure["id"]!!.jsonPrimitive.content)
+        assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"))
+    }
 }

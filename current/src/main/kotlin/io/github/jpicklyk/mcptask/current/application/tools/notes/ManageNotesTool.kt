@@ -251,7 +251,14 @@ Unified write operations for Notes (upsert, delete).
                 }
 
                 when (val result = noteRepo.delete(id)) {
-                    is Result.Success -> deletedCount++
+                    is Result.Success -> if (result.data) {
+                        deletedCount++
+                    } else {
+                        failures.add(buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put("error", JsonPrimitive("Note '$idStr' not found"))
+                        })
+                    }
                     is Result.Error -> {
                         failures.add(buildJsonObject {
                             put("id", JsonPrimitive(idStr))

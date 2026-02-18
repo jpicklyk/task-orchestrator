@@ -500,6 +500,93 @@ class ManageItemsToolTest {
     }
 
     @Test
+    fun `update item with self as parent is rejected`(): Unit = runBlocking {
+        // Create an item
+        val createResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("Self loop item")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Attempt to set parentId to own UUID
+        val updateResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("update"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(itemId))
+                        put("parentId", JsonPrimitive(itemId))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(updateResult["success"]!!.jsonPrimitive.boolean) // envelope success
+        val data = updateResult["data"] as JsonObject
+        assertEquals(0, data["updated"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+        val failure = data["failures"]!!.jsonArray[0] as JsonObject
+        assertTrue(failure["error"]!!.jsonPrimitive.content.contains("cannot be its own parent"))
+    }
+
+    @Test
+    fun `update item to descendant as parent is rejected`(): Unit = runBlocking {
+        // Create root item A
+        val rootResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("Root A")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val rootId = (rootResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Create child B under Root A
+        val childResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Child B"))
+                        put("parentId", JsonPrimitive(rootId))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val childId = (childResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Attempt to reparent Root A under Child B (would create A -> B -> A cycle)
+        val updateResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("update"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(rootId))
+                        put("parentId", JsonPrimitive(childId))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(updateResult["success"]!!.jsonPrimitive.boolean) // envelope success
+        val data = updateResult["data"] as JsonObject
+        assertEquals(0, data["updated"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+        val failure = data["failures"]!!.jsonArray[0] as JsonObject
+        assertTrue(failure["error"]!!.jsonPrimitive.content.contains("circular hierarchy"))
+    }
+
+    @Test
     fun `update nonexistent item fails`() = runBlocking {
         val randomId = UUID.randomUUID().toString()
         val result = tool.execute(
@@ -567,10 +654,13 @@ class ManageItemsToolTest {
 
         assertTrue(result["success"]!!.jsonPrimitive.boolean)
         val data = result["data"] as JsonObject
-        // Repository delete returns false for non-existent items, which is treated as no-op
-        // The tool implementation may or may not count this as a failure depending on repo behavior
-        val total = data["deleted"]!!.jsonPrimitive.int + data["failed"]!!.jsonPrimitive.int
-        assertEquals(1, total)
+        assertEquals(0, data["deleted"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        val failure = failures[0] as JsonObject
+        assertEquals(randomId, failure["id"]!!.jsonPrimitive.content)
+        assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"))
     }
 
     @Test

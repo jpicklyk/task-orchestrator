@@ -124,6 +124,44 @@ class CascadeDetector {
     }
 
     // -----------------------------------------------------------------------
+    // Start Cascade Detection
+    // -----------------------------------------------------------------------
+
+    /**
+     * Detect start cascade: if [item] just entered WORK and has a parent in QUEUE,
+     * the parent should auto-advance to WORK as well.
+     *
+     * Returns a single-element list with the CascadeEvent for the parent, or empty list
+     * if no cascade is warranted.
+     */
+    suspend fun detectStartCascades(
+        item: WorkItem,
+        workItemRepository: WorkItemRepository
+    ): List<CascadeEvent> {
+        // Only fires when the item is in WORK role
+        if (item.role != Role.WORK) return emptyList()
+
+        // Must have a parent
+        val parentId = item.parentId ?: return emptyList()
+
+        // Fetch parent
+        val parentResult = workItemRepository.getById(parentId)
+        val parent = when (parentResult) {
+            is Result.Success -> parentResult.data
+            is Result.Error -> return emptyList()
+        }
+
+        // Parent must be in QUEUE to cascade
+        if (parent.role != Role.QUEUE) return emptyList()
+
+        return listOf(CascadeEvent(
+            itemId = parent.id,
+            currentRole = parent.role,
+            targetRole = Role.WORK
+        ))
+    }
+
+    // -----------------------------------------------------------------------
     // Unblock Detection
     // -----------------------------------------------------------------------
 

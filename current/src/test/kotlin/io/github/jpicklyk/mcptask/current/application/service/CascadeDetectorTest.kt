@@ -204,6 +204,84 @@ class CascadeDetectorTest {
     }
 
     // -----------------------------------------------------------------------
+    // Start Cascade Detection Tests
+    // -----------------------------------------------------------------------
+
+    @Nested
+    inner class DetectStartCascades {
+
+        @Test
+        fun `child in WORK with parent in QUEUE returns cascade event`() = runBlocking {
+            val parentId = UUID.randomUUID()
+            val parent = workItem(id = parentId, role = Role.QUEUE)
+            val child = workItem(parentId = parentId, role = Role.WORK)
+
+            coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+            val result = detector.detectStartCascades(child, workItemRepository)
+            assertEquals(1, result.size)
+            assertEquals(parentId, result[0].itemId)
+            assertEquals(Role.QUEUE, result[0].currentRole)
+            assertEquals(Role.WORK, result[0].targetRole)
+            assertEquals("cascade", result[0].trigger)
+        }
+
+        @Test
+        fun `child in WORK with parent already in WORK returns empty`() = runBlocking {
+            val parentId = UUID.randomUUID()
+            val parent = workItem(id = parentId, role = Role.WORK)
+            val child = workItem(parentId = parentId, role = Role.WORK)
+
+            coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+            val result = detector.detectStartCascades(child, workItemRepository)
+            assertTrue(result.isEmpty())
+        }
+
+        @Test
+        fun `child not in WORK returns empty immediately`() = runBlocking {
+            val parentId = UUID.randomUUID()
+            val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+            val result = detector.detectStartCascades(child, workItemRepository)
+            assertTrue(result.isEmpty())
+        }
+
+        @Test
+        fun `child in WORK with no parent returns empty`() = runBlocking {
+            val child = workItem(role = Role.WORK)
+
+            val result = detector.detectStartCascades(child, workItemRepository)
+            assertTrue(result.isEmpty())
+        }
+
+        @Test
+        fun `child in WORK with parent in REVIEW returns empty`() = runBlocking {
+            val parentId = UUID.randomUUID()
+            val parent = workItem(id = parentId, role = Role.REVIEW)
+            val child = workItem(parentId = parentId, role = Role.WORK)
+
+            coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+            val result = detector.detectStartCascades(child, workItemRepository)
+            assertTrue(result.isEmpty())
+        }
+
+        @Test
+        fun `parent fetch error returns empty`() = runBlocking {
+            val parentId = UUID.randomUUID()
+            val child = workItem(parentId = parentId, role = Role.WORK)
+
+            coEvery { workItemRepository.getById(parentId) } returns Result.Error(
+                io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.DatabaseError("DB error")
+            )
+
+            val result = detector.detectStartCascades(child, workItemRepository)
+            assertTrue(result.isEmpty())
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Unblock Detection Tests
     // -----------------------------------------------------------------------
 
