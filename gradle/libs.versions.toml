@@ -5,7 +5,10 @@ kotlinCoroutines = "1.8.0"
 kotlinSerialization = "1.8.0"
 
 # MCP SDK
-mcpSdk = "0.8.3"
+mcpSdk = "0.8.4"
+
+# Ktor (version-aligned with MCP SDK's transitive dependency)
+ktor = "3.2.3"
 
 # Database
 sqlite = "3.45.1.0"
@@ -32,6 +35,10 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 
 # MCP SDK
 mcp-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcpSdk" }
+
+# Ktor
+ktor-bom        = { module = "io.ktor:ktor-bom",        version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
 
 # Database
 sqlite = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }

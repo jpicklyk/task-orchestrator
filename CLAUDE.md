@@ -9,7 +9,7 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 **Key Technologies:**
 - Kotlin 2.2.0 with Coroutines
 - Exposed ORM 1.0.0-beta-2 for SQLite database
-- MCP SDK 0.8.3 for protocol implementation
+- MCP SDK 0.8.4 for protocol implementation (with Ktor Streamable HTTP transport)
 - Flyway for database migrations
 - Gradle with Kotlin DSL
 - Docker for deployment
@@ -57,6 +57,15 @@ docker run --rm -i \
   -e AGENT_CONFIG_DIR=/project \
   -e LOG_LEVEL=DEBUG \
   task-orchestrator:dev
+
+# Run in HTTP transport mode (exposes port 3001, endpoint: http://localhost:3001/mcp)
+docker run --rm \
+  -v mcp-task-data-current:/app/data \
+  -v "$(pwd)":/project:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  -e MCP_TRANSPORT=http \
+  -p 3001:3001 \
+  task-orchestrator:current
 ```
 
 ## Architecture
@@ -298,6 +307,9 @@ Template UUIDs are random — agents must discover them at runtime via `query_te
 - `DATABASE_MAX_CONNECTIONS` - Connection pool size (default: `10`)
 - `DATABASE_SHOW_SQL` - Log SQL statements (default: `false`)
 - `MCP_SERVER_NAME` - Custom server name for MCP identity (default: `mcp-task-orchestrator`)
+- `MCP_TRANSPORT` - Transport protocol: `stdio` (default) or `http` (Streamable HTTP, MCP spec 2025-03-26)
+- `MCP_HTTP_HOST` - Bind host for HTTP transport (default: `0.0.0.0`)
+- `MCP_HTTP_PORT` - Port for HTTP transport (default: `3001`). Endpoint: `http://<host>:<port>/mcp`
 - `FLYWAY_REPAIR` - Run Flyway repair and exit (default: `false`)
 
 **Schema Management:**

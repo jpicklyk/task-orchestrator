@@ -38,6 +38,11 @@ dependencies {
     // YAML parsing
     implementation(libs.snakeyaml)
 
+    // Ktor BOM — version-aligns all ktor-* artifacts with the SDK's transitive Ktor
+    implementation(platform(libs.ktor.bom))
+    // CIO engine — not provided transitively by the MCP SDK, must be declared explicitly
+    implementation(libs.ktor.server.cio)
+
     // Testing
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)

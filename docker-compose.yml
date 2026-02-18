@@ -65,6 +65,42 @@ services:
     cpu_shares: 256
     stop_grace_period: 10s
 
+  mcp-task-orchestrator-current-http:
+    build:
+      context: .
+      target: runtime-current
+    container_name: mcp-task-orchestrator-current-http
+    profiles:
+      - current-http
+    user: "1001:1001"
+    labels:
+      mcp.client: claude-desktop
+    volumes:
+      - mcp-task-data-current:/app/data
+      - .:/project:ro
+    environment:
+      DATABASE_PATH: /app/data/current-tasks.db
+      MCP_TRANSPORT: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "3001"
+      LOG_LEVEL: INFO
+      USE_FLYWAY: "true"
+      AGENT_CONFIG_DIR: /project
+      MCP_SERVER_NAME: mcp-task-orchestrator
+    ports:
+      - "3001:3001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 1.0
+    cpu_shares: 256
+    stop_grace_period: 10s
+
 volumes:
   mcp-task-data:
   mcp-task-data-current:
