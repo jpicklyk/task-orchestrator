@@ -398,3 +398,58 @@ When making commits or PRs:
 - Database migrations require special attention
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+## Current (v3) MCP Tools — Graph-Aware Parameters
+
+The following parameters are available on v3 tools to eliminate sequential parent-walk call chains:
+
+### `query_items`
+- `includeAncestors` (boolean, default false) — applies to `get` and `search` operations. Each item includes an `ancestors` array: `[{id, title, depth}, ...]` ordered root → direct parent. Root items (depth=0) get `[]`. Eliminates sequential parent-walk calls for breadcrumb/location context.
+- `includeChildren` (boolean, default false) — applies to `overview` global mode only. Each root item includes a `children` array of its direct child items: `[{id, title, role, depth}]`.
+
+### `get_context`
+- `includeAncestors` (boolean, default false) — when true, each item in `activeItems`, `blockedItems`, and `stalledItems` includes an `ancestors` array. Recommended for work-summary dashboards.
+
+### `get_blocked_items`
+- `includeAncestors` (boolean, default false) — when true, each blocked item includes an `ancestors` array showing its location in the hierarchy.
+
+### `get_next_item`
+- `includeAncestors` (boolean, default false) — when true, each recommended item includes an `ancestors` array.
+
+### Pattern: 2-call work-summary
+```
+get_context(includeAncestors=true)    → active items with full ancestor chains
+query_items(operation="overview")      → root containers with child counts
+```
+Total: 2 calls. Zero follow-up traversal.
+
+## `manage_items` (create operation) Response Enrichment
+
+When creating items with `manage_items(create)`, the response includes two enrichment fields:
+
+- **`tags`** — The item's tag string (string or null). Always included in the create response.
+- **`expectedNotes`** — Array of note schema entries when the item's `tags` match a configured schema. Format: `[{key, role, required, description, exists}]` where `exists` is always `false` at creation time. **Omitted entirely when no schema matches the tags.** Agents should check this immediately after creation to know which queue-phase notes to fill before calling `advance_item(trigger="start")`.
+
+Example response with schema match:
+```json
+{
+  "id": "abc-123",
+  "title": "Authentication Handler",
+  "role": "queue",
+  "tags": "task-implementation,security-critical",
+  "expectedNotes": [
+    { "key": "requirements", "role": "queue", "required": true, "description": "Testable acceptance criteria", "exists": false },
+    { "key": "done-criteria", "role": "work", "required": true, "description": "Completion conditions", "exists": false }
+  ]
+}
+```
+
+Example response without schema match (no `expectedNotes` field):
+```json
+{
+  "id": "abc-124",
+  "title": "API Documentation",
+  "role": "queue",
+  "tags": null
+}
+```

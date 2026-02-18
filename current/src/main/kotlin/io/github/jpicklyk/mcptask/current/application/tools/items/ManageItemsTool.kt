@@ -40,7 +40,8 @@ Unified write operations for WorkItems (create, update, delete).
 - Shared `parentId` at top level serves as default for all items (per-item parentId overrides)
 - Depth auto-computed from parent (root=0, child=parent.depth+1, max=$MAX_DEPTH)
 - Defaults: role=queue, priority=medium, complexity=5
-- Response: `{ items: [{id, title, depth, role, priority}], created: N, failed: N, failures: [{index, error}] }`
+- Response: `{ items: [{id, title, depth, role, priority, requiresVerification, tags, expectedNotes?}], created: N, failed: N, failures: [{index, error}] }`
+- `tags` is always included (null if not set). `expectedNotes` is included only when the item's tags match a configured note schema — check it immediately after creation to know which notes to fill.
 
 **update** - Partial update from `items` array.
 - Each item: `{ id (required), title?, description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags? }`
@@ -251,6 +252,13 @@ Unified write operations for WorkItems (create, update, delete).
 
                 when (val result = repo.create(workItem)) {
                     is Result.Success -> {
+                        val createdTags = result.data.tags
+                        val tagList = createdTags
+                            ?.split(",")
+                            ?.map { it.trim() }
+                            ?.filter { it.isNotBlank() }
+                            ?: emptyList()
+                        val schemaEntries = context.noteSchemaService().getSchemaForTags(tagList)
                         createdItems.add(buildJsonObject {
                             put("id", JsonPrimitive(result.data.id.toString()))
                             put("title", JsonPrimitive(result.data.title))
@@ -258,6 +266,22 @@ Unified write operations for WorkItems (create, update, delete).
                             put("role", JsonPrimitive(result.data.role.name.lowercase()))
                             put("priority", JsonPrimitive(result.data.priority.name.lowercase()))
                             put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
+                            if (createdTags != null) {
+                                put("tags", JsonPrimitive(createdTags))
+                            } else {
+                                put("tags", JsonNull)
+                            }
+                            if (!schemaEntries.isNullOrEmpty()) {
+                                put("expectedNotes", JsonArray(schemaEntries.map { entry ->
+                                    buildJsonObject {
+                                        put("key", JsonPrimitive(entry.key))
+                                        put("role", JsonPrimitive(entry.role))
+                                        put("required", JsonPrimitive(entry.required))
+                                        put("description", JsonPrimitive(entry.description))
+                                        put("exists", JsonPrimitive(false))
+                                    }
+                                }))
+                            }
                         })
                     }
                     is Result.Error -> {

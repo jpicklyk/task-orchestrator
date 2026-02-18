@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -17,6 +19,7 @@ class ManageItemsToolTest {
 
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: ManageItemsTool
+    private lateinit var repositoryProvider: DefaultRepositoryProvider
 
     @BeforeEach
     fun setUp() {
@@ -24,10 +27,13 @@ class ManageItemsToolTest {
         val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         val databaseManager = DatabaseManager(database)
         DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = DefaultRepositoryProvider(databaseManager)
         context = ToolExecutionContext(repositoryProvider)
         tool = ManageItemsTool()
     }
+
+    private fun contextWithSchema(service: NoteSchemaService) =
+        ToolExecutionContext(repositoryProvider, service)
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
@@ -288,6 +294,110 @@ class ManageItemsToolTest {
         val data = result["data"] as JsonObject
         assertEquals(0, data["created"]!!.jsonPrimitive.int)
         assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `create item with tags matching schema includes tags and expectedNotes`(): Unit = runBlocking {
+        val mockSchema = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
+                return if (tags.contains("feature-plan")) {
+                    listOf(
+                        NoteSchemaEntry(key = "requirements", role = "queue", required = true, description = "Requirements for this item"),
+                        NoteSchemaEntry(key = "done-criteria", role = "work", required = true, description = "Definition of done")
+                    )
+                } else null
+            }
+        }
+        val schemaContext = contextWithSchema(mockSchema)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Planned feature"))
+                        put("tags", JsonPrimitive("feature-plan"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["created"]!!.jsonPrimitive.int)
+
+        val item = data["items"]!!.jsonArray[0] as JsonObject
+        assertEquals("feature-plan", item["tags"]!!.jsonPrimitive.content)
+
+        val expectedNotes = item["expectedNotes"]!!.jsonArray
+        assertEquals(2, expectedNotes.size)
+
+        val first = expectedNotes[0] as JsonObject
+        assertEquals("requirements", first["key"]!!.jsonPrimitive.content)
+        assertEquals("queue", first["role"]!!.jsonPrimitive.content)
+        assertTrue(first["required"]!!.jsonPrimitive.boolean)
+        assertEquals("Requirements for this item", first["description"]!!.jsonPrimitive.content)
+        assertFalse(first["exists"]!!.jsonPrimitive.boolean)
+
+        val second = expectedNotes[1] as JsonObject
+        assertEquals("done-criteria", second["key"]!!.jsonPrimitive.content)
+        assertEquals("work", second["role"]!!.jsonPrimitive.content)
+        assertTrue(second["required"]!!.jsonPrimitive.boolean)
+        assertFalse(second["exists"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `create item with no tags includes tags null and no expectedNotes`(): Unit = runBlocking {
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("No-tag item"))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["created"]!!.jsonPrimitive.int)
+
+        val item = data["items"]!!.jsonArray[0] as JsonObject
+        assertTrue(item.containsKey("tags"))
+        assertTrue(item["tags"] is JsonNull)
+        assertFalse(item.containsKey("expectedNotes"))
+    }
+
+    @Test
+    fun `create item with tags not matching any schema includes tags but no expectedNotes`(): Unit = runBlocking {
+        val mockSchema = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+        }
+        val schemaContext = contextWithSchema(mockSchema)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Unmatched tags item"))
+                        put("tags", JsonPrimitive("backend,api"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["created"]!!.jsonPrimitive.int)
+
+        val item = data["items"]!!.jsonArray[0] as JsonObject
+        assertEquals("backend,api", item["tags"]!!.jsonPrimitive.content)
+        assertFalse(item.containsKey("expectedNotes"))
     }
 
     // ──────────────────────────────────────────────
