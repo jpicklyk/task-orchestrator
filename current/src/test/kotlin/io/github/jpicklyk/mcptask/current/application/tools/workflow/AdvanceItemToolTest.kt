@@ -434,6 +434,66 @@ class AdvanceItemToolTest {
         assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
     }
 
+    @Test
+    fun `cascade event includes title of the cascaded parent`(): Unit = runBlocking {
+        val parentId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val parentItem = makeItem(id = parentId, role = Role.WORK, title = "My Parent Item")
+        val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(any()) } returns emptyList()
+        every { depRepo.findByFromItemId(any()) } returns emptyList()
+        coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(
+            mapOf(Role.TERMINAL to 1)
+        )
+
+        val params = buildParams(transitionObj(childId, "complete"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+        val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+        assertEquals(1, cascadeEvents.size)
+        val cascade = cascadeEvents[0].jsonObject
+        assertEquals("My Parent Item", cascade["title"]!!.jsonPrimitive.content,
+            "cascadeEvent must include the title of the cascaded parent item")
+    }
+
+    @Test
+    fun `start cascade event includes title of the cascaded parent`(): Unit = runBlocking {
+        val parentId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val parentItem = makeItem(id = parentId, role = Role.QUEUE, title = "My Parent Queue Item")
+        val childItem = makeItem(id = childId, role = Role.QUEUE, title = "Child", parentId = parentId)
+
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(any()) } returns emptyList()
+        every { depRepo.findByFromItemId(any()) } returns emptyList()
+
+        val params = buildParams(transitionObj(childId, "start"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+
+        val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+        assertEquals(1, cascadeEvents.size)
+        val cascade = cascadeEvents[0].jsonObject
+        assertEquals("My Parent Queue Item", cascade["title"]!!.jsonPrimitive.content,
+            "start cascadeEvent must include the title of the cascaded parent item")
+    }
+
     // ──────────────────────────────────────────────
     // 11. Start cascade fires when first child starts
     // ──────────────────────────────────────────────

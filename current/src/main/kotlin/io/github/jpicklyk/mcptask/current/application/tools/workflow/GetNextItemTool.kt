@@ -30,6 +30,8 @@ Parameters:
 - parentId (optional UUID): Scope to items under this parent
 - limit (optional int, default 1, max 20): Number of recommendations
 - includeDetails (optional boolean, default false): Include summary, tags, parentId
+- includeAncestors (optional boolean, default false): when true, each recommended item includes an
+  `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
     """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -55,6 +57,10 @@ Parameters:
                 put("type", JsonPrimitive("boolean"))
                 put("description", JsonPrimitive("Include summary, tags, parentId in response (default: false)"))
             })
+            put("includeAncestors", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("When true, each recommended item includes an ancestors array ordered root-first (default: false)"))
+            })
         },
         required = emptyList()
     )
@@ -72,6 +78,7 @@ Parameters:
         val parentId = extractUUID(params, "parentId", required = false)
         val limit = optionalInt(params, "limit") ?: 1
         val includeDetails = optionalBoolean(params, "includeDetails", defaultValue = false)
+        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
         val workItemRepo = context.workItemRepository()
         val dependencyRepo = context.dependencyRepository()
@@ -106,6 +113,15 @@ Parameters:
         // Step 4: Take top `limit`
         val recommendations = sorted.take(limit)
 
+        // Resolve ancestor chains once for all recommendations if requested
+        val ancestorChains: Map<java.util.UUID, List<WorkItem>> = if (includeAncestors && recommendations.isNotEmpty()) {
+            val allIds = recommendations.map { it.id }.toSet()
+            when (val r = workItemRepo.findAncestorChains(allIds)) {
+                is Result.Success -> r.data
+                is Result.Error -> emptyMap()
+            }
+        } else emptyMap()
+
         // Build response
         val data = buildJsonObject {
             put("recommendations", JsonArray(recommendations.map { item ->
@@ -119,6 +135,16 @@ Parameters:
                         put("summary", JsonPrimitive(item.summary))
                         item.tags?.let { put("tags", JsonPrimitive(it)) }
                         item.parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
+                    }
+                    if (includeAncestors) {
+                        val ancestors = ancestorChains[item.id] ?: emptyList()
+                        put("ancestors", JsonArray(ancestors.map { ancestor ->
+                            buildJsonObject {
+                                put("id", JsonPrimitive(ancestor.id.toString()))
+                                put("title", JsonPrimitive(ancestor.title))
+                                put("depth", JsonPrimitive(ancestor.depth))
+                            }
+                        }))
                     }
                 }
             }))

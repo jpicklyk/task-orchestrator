@@ -351,6 +351,200 @@ class QueryItemsToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // includeAncestors — get operation
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `get with includeAncestors true returns ancestors array for depth 2 item`(): Unit = runBlocking {
+        val rootId = createItem("Root Item")
+        val parentId = createItem("Parent Item", parentId = rootId)
+        val childId = createItem("Child Item", parentId = parentId)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("get"),
+                "id" to JsonPrimitive(childId),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(childId, data["id"]!!.jsonPrimitive.content)
+
+        val ancestors = data["ancestors"]!!.jsonArray
+        assertEquals(2, ancestors.size)
+
+        // Root first
+        val firstAncestor = ancestors[0].jsonObject
+        assertEquals(rootId, firstAncestor["id"]!!.jsonPrimitive.content)
+        assertEquals("Root Item", firstAncestor["title"]!!.jsonPrimitive.content)
+        assertEquals(0, firstAncestor["depth"]!!.jsonPrimitive.int)
+
+        // Direct parent last
+        val secondAncestor = ancestors[1].jsonObject
+        assertEquals(parentId, secondAncestor["id"]!!.jsonPrimitive.content)
+        assertEquals("Parent Item", secondAncestor["title"]!!.jsonPrimitive.content)
+        assertEquals(1, secondAncestor["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `get with includeAncestors false omits ancestors key`(): Unit = runBlocking {
+        val rootId = createItem("Root Item")
+        val childId = createItem("Child Item", parentId = rootId)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("get"),
+                "id" to JsonPrimitive(childId),
+                "includeAncestors" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertNull(data["ancestors"])
+    }
+
+    @Test
+    fun `get with includeAncestors true returns empty ancestors for root item`(): Unit = runBlocking {
+        val rootId = createItem("Root Item")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("get"),
+                "id" to JsonPrimitive(rootId),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val ancestors = data["ancestors"]!!.jsonArray
+        assertEquals(0, ancestors.size)
+    }
+
+    // ──────────────────────────────────────────────
+    // includeAncestors — search operation
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `search with includeAncestors true returns ancestors for each item`(): Unit = runBlocking {
+        val rootId = createItem("Root")
+        val parentId = createItem("Parent", parentId = rootId)
+        val child1Id = createItem("Child A", parentId = parentId)
+        val child2Id = createItem("Child B", parentId = parentId)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("search"),
+                "query" to JsonPrimitive("Child"),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(2, data["total"]!!.jsonPrimitive.int)
+
+        val items = data["items"]!!.jsonArray
+        items.forEach { itemElement ->
+            val item = itemElement.jsonObject
+            val ancestors = item["ancestors"]!!.jsonArray
+            assertEquals(2, ancestors.size)
+            assertEquals(rootId, ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+            assertEquals(parentId, ancestors[1].jsonObject["id"]!!.jsonPrimitive.content)
+        }
+    }
+
+    @Test
+    fun `search without includeAncestors omits ancestors key`(): Unit = runBlocking {
+        val rootId = createItem("Root")
+        createItem("Child", parentId = rootId)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("search"),
+                "query" to JsonPrimitive("Child")
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val items = data["items"]!!.jsonArray
+        assertEquals(1, items.size)
+        assertNull(items[0].jsonObject["ancestors"])
+    }
+
+    // ──────────────────────────────────────────────
+    // includeChildren — global overview operation
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `global overview with includeChildren true includes children array per root`(): Unit = runBlocking {
+        val rootId = createItem("Root With Children")
+        createItem("Child One", parentId = rootId, role = "queue")
+        createItem("Child Two", parentId = rootId, role = "work")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("overview"),
+                "includeChildren" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val items = data["items"]!!.jsonArray
+
+        val rootItem = items.first {
+            it.jsonObject["title"]!!.jsonPrimitive.content == "Root With Children"
+        }.jsonObject
+
+        val children = rootItem["children"]!!.jsonArray
+        assertEquals(2, children.size)
+
+        val childTitles = children.map { it.jsonObject["title"]!!.jsonPrimitive.content }.toSet()
+        assertTrue(childTitles.contains("Child One"))
+        assertTrue(childTitles.contains("Child Two"))
+
+        // Verify child structure: id, title, role, depth
+        val firstChild = children[0].jsonObject
+        assertNotNull(firstChild["id"])
+        assertNotNull(firstChild["title"])
+        assertNotNull(firstChild["role"])
+        assertNotNull(firstChild["depth"])
+        assertEquals(1, firstChild["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `global overview without includeChildren omits children key`(): Unit = runBlocking {
+        val rootId = createItem("Root No Children Param")
+        createItem("Child", parentId = rootId)
+
+        val result = tool.execute(
+            params("operation" to JsonPrimitive("overview")),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val items = data["items"]!!.jsonArray
+
+        val rootItem = items.first {
+            it.jsonObject["title"]!!.jsonPrimitive.content == "Root No Children Param"
+        }.jsonObject
+
+        assertNull(rootItem["children"])
+    }
+
+    // ──────────────────────────────────────────────
     // Validation
     // ──────────────────────────────────────────────
 

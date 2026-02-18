@@ -58,4 +58,16 @@ interface WorkItemRepository {
      * Does not include the item itself.
      */
     suspend fun findDescendants(id: UUID): Result<List<WorkItem>>
+
+    /**
+     * Fetch multiple items by ID in one query. Missing IDs are silently omitted.
+     */
+    suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>>
+
+    /**
+     * For each itemId, resolve its full ancestor chain (root -> direct parent).
+     * Returns Map<itemId, List<WorkItem>> ordered root-first, ancestors only (item itself excluded).
+     * Items with no parent (depth=0 root items) map to an empty list.
+     */
+    suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>>
 }

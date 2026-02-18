@@ -517,4 +517,93 @@ class GetBlockedItemsToolTest {
         val summary = tool.userSummary(params(), JsonObject(emptyMap()), true)
         assertEquals("get_blocked_items failed", summary)
     }
+
+    // ──────────────────────────────────────────────
+    // Test: includeAncestors
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `includeAncestors=true adds ancestors array to each blocked item`(): Unit = runBlocking {
+        // Create hierarchy: root (depth 0) -> parent (depth 1) -> blocked child (depth 2)
+        val rootId = createItem("Root Item", role = "queue")
+        val parentId = createItem("Parent Item", parentId = rootId, role = "queue")
+        val blockedId = createItem("Blocked Child", parentId = parentId, role = "queue")
+        val blockerId = createItem("Blocker", role = "queue")
+
+        createDep(blockerId, blockedId)
+
+        val result = tool.execute(
+            params("includeAncestors" to JsonPrimitive(true)),
+            context
+        ) as JsonObject
+
+        val items = extractBlockedItems(result)
+        val blockedItem = items.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == blockedId }
+        assertNotNull(blockedItem)
+
+        val ancestors = blockedItem.jsonObject["ancestors"]!!.jsonArray
+        assertEquals(2, ancestors.size, "Expected 2 ancestors (root + parent)")
+
+        // Ordered root-first
+        assertEquals(rootId, ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("Root Item", ancestors[0].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals(0, ancestors[0].jsonObject["depth"]!!.jsonPrimitive.int)
+
+        assertEquals(parentId, ancestors[1].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("Parent Item", ancestors[1].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals(1, ancestors[1].jsonObject["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `includeAncestors=true root blocked item has empty ancestors array`(): Unit = runBlocking {
+        val rootBlockedId = createBlockedItem("Root Blocked Item")
+
+        val result = tool.execute(
+            params("includeAncestors" to JsonPrimitive(true)),
+            context
+        ) as JsonObject
+
+        val items = extractBlockedItems(result)
+        val blockedItem = items.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == rootBlockedId.toString() }
+        assertNotNull(blockedItem)
+
+        val ancestors = blockedItem.jsonObject["ancestors"]!!.jsonArray
+        assertEquals(0, ancestors.size, "Root item should have empty ancestors array")
+    }
+
+    @Test
+    fun `includeAncestors=false default omits ancestors key`(): Unit = runBlocking {
+        val blockerId = createItem("Blocker", role = "queue")
+        val blockedId = createItem("Blocked", role = "queue")
+        createDep(blockerId, blockedId)
+
+        val result = tool.execute(params(), context) as JsonObject
+
+        val items = extractBlockedItems(result)
+        val blockedItem = items.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == blockedId }
+        assertNotNull(blockedItem)
+        assertNull(blockedItem.jsonObject["ancestors"], "ancestors should not be present when includeAncestors=false")
+    }
+
+    @Test
+    fun `includeAncestors=true with depth-1 item has one ancestor`(): Unit = runBlocking {
+        val parentId = createItem("Parent", role = "queue")
+        val blockedId = createItem("Blocked Child", parentId = parentId, role = "queue")
+        val blockerId = createItem("Blocker", role = "queue")
+
+        createDep(blockerId, blockedId)
+
+        val result = tool.execute(
+            params("includeAncestors" to JsonPrimitive(true)),
+            context
+        ) as JsonObject
+
+        val items = extractBlockedItems(result)
+        val blockedItem = items.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == blockedId }
+        assertNotNull(blockedItem)
+
+        val ancestors = blockedItem.jsonObject["ancestors"]!!.jsonArray
+        assertEquals(1, ancestors.size, "Depth-1 item should have exactly one ancestor")
+        assertEquals(parentId, ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+    }
 }

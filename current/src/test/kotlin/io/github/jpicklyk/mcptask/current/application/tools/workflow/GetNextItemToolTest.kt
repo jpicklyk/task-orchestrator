@@ -496,4 +496,97 @@ class GetNextItemToolTest {
         val summary = tool.userSummary(params(), errorResult, isError = true)
         assertEquals("No recommendations available", summary)
     }
+
+    // ──────────────────────────────────────────────
+    // includeAncestors tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `includeAncestors=true adds ancestors array to recommended items`(): Unit = runBlocking {
+        // Create hierarchy: root (depth 0) -> parent (depth 1) -> child (depth 2, QUEUE)
+        val root = createItem("Root", depth = 0)
+        val parent = createItem("Parent", parentId = root.id, depth = 1)
+        val child = createItem("Queue Child", parentId = parent.id, depth = 2)
+
+        val result = tool.execute(
+            params(
+                "limit" to JsonPrimitive(10),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        )
+
+        assertTrue(isSuccess(result))
+        val recs = extractRecommendations(result)
+
+        // Child should appear in recommendations (QUEUE, no blocking deps)
+        val childRec = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == child.id.toString() }
+        assertNotNull(childRec, "Child item should be recommended")
+
+        val ancestors = childRec.jsonObject["ancestors"]!!.jsonArray
+        assertEquals(2, ancestors.size, "Child at depth 2 should have 2 ancestors")
+
+        // Root-first ordering
+        assertEquals(root.id.toString(), ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("Root", ancestors[0].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals(0, ancestors[0].jsonObject["depth"]!!.jsonPrimitive.int)
+
+        assertEquals(parent.id.toString(), ancestors[1].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("Parent", ancestors[1].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals(1, ancestors[1].jsonObject["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `includeAncestors=true root QUEUE item has empty ancestors array`(): Unit = runBlocking {
+        createItem("Root Queue Item", depth = 0)
+
+        val result = tool.execute(
+            params("includeAncestors" to JsonPrimitive(true)),
+            context
+        )
+
+        assertTrue(isSuccess(result))
+        val recs = extractRecommendations(result)
+        assertEquals(1, recs.size)
+
+        val ancestors = recs[0].jsonObject["ancestors"]!!.jsonArray
+        assertEquals(0, ancestors.size, "Root item should have empty ancestors array")
+    }
+
+    @Test
+    fun `includeAncestors=false default omits ancestors key from recommendations`(): Unit = runBlocking {
+        createItem("Root Queue Item", depth = 0)
+
+        val result = tool.execute(params(), context)
+
+        assertTrue(isSuccess(result))
+        val recs = extractRecommendations(result)
+        assertEquals(1, recs.size)
+
+        assertNull(recs[0].jsonObject["ancestors"], "ancestors should not be present when includeAncestors=false")
+    }
+
+    @Test
+    fun `includeAncestors=true with depth-1 item has one ancestor`(): Unit = runBlocking {
+        val parent = createItem("Parent Root", depth = 0)
+        val child = createItem("Child Queue", parentId = parent.id, depth = 1)
+
+        val result = tool.execute(
+            params(
+                "parentId" to JsonPrimitive(parent.id.toString()),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        )
+
+        assertTrue(isSuccess(result))
+        val recs = extractRecommendations(result)
+        // Only child is a direct child of parent and in QUEUE (parent itself is also QUEUE but not a child here)
+        val childRec = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == child.id.toString() }
+        assertNotNull(childRec)
+
+        val ancestors = childRec.jsonObject["ancestors"]!!.jsonArray
+        assertEquals(1, ancestors.size, "Depth-1 item should have exactly one ancestor")
+        assertEquals(parent.id.toString(), ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+    }
 }

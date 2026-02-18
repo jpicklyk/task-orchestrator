@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "current",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "description": "Skills, hooks, and workflows for Current (v3) MCP Task Orchestrator. Schema-aware context, note-driven workflow, and thin session hooks.",
       "author": {
         "name": "Jeff Picklyk",

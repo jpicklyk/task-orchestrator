@@ -35,6 +35,8 @@ Returns all active items (work/review), blocked items, and stalled items.
 Parameters:
 - itemId (optional UUID): triggers item context mode
 - since (optional ISO 8601 string): triggers session resume mode
+- includeAncestors (optional boolean, default false): when true, each listed item includes an
+  `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
     """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -56,6 +58,10 @@ Parameters:
                 put("type", JsonPrimitive("string"))
                 put("description", JsonPrimitive("ISO 8601 timestamp for session resume mode (e.g. 2024-01-01T00:00:00Z)"))
             })
+            put("includeAncestors", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("When true, each listed item includes an ancestors array ordered root-first (default: false)"))
+            })
         },
         required = emptyList()
     )
@@ -70,11 +76,12 @@ Parameters:
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val itemId = extractUUID(params, "itemId", required = false)
         val sinceInstant = parseInstant(params, "since")
+        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
         return when {
-            itemId != null -> executeItemMode(itemId, context)
-            sinceInstant != null -> executeSessionResumeMode(sinceInstant, context)
-            else -> executeHealthCheckMode(context)
+            itemId != null -> executeItemMode(itemId, context, includeAncestors)
+            sinceInstant != null -> executeSessionResumeMode(sinceInstant, context, includeAncestors)
+            else -> executeHealthCheckMode(context, includeAncestors)
         }
     }
 
@@ -84,7 +91,8 @@ Parameters:
 
     private suspend fun executeItemMode(
         itemId: java.util.UUID,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        includeAncestors: Boolean
     ): JsonElement {
         val itemResult = context.workItemRepository().getById(itemId)
         val item = when (itemResult) {
@@ -129,6 +137,17 @@ Parameters:
 
         val guidancePointer = schema?.firstOrNull()?.guidance
 
+        // Resolve ancestors if requested
+        val ancestorsJson: JsonArray = if (includeAncestors) {
+            val chains = when (val r = context.workItemRepository().findAncestorChains(setOf(item.id))) {
+                is Result.Success -> r.data
+                is Result.Error -> emptyMap()
+            }
+            buildAncestorsArray(chains[item.id] ?: emptyList())
+        } else {
+            JsonArray(emptyList())
+        }
+
         val data = buildJsonObject {
             put("mode", JsonPrimitive("item"))
             put("item", buildJsonObject {
@@ -137,6 +156,7 @@ Parameters:
                 put("role", JsonPrimitive(item.role.name.lowercase()))
                 item.tags?.let { put("tags", JsonPrimitive(it)) }
                 put("depth", JsonPrimitive(item.depth))
+                if (includeAncestors) put("ancestors", ancestorsJson)
             })
             put("schema", JsonArray(schemaEntries))
             put("gateStatus", buildJsonObject {
@@ -160,7 +180,8 @@ Parameters:
 
     private suspend fun executeSessionResumeMode(
         since: java.time.Instant,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        includeAncestors: Boolean
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
 
@@ -184,6 +205,17 @@ Parameters:
         // Stalled items: active items with missing required notes
         val stalledItems = findStalledItems(activeItems, context)
 
+        // Resolve ancestor chains once for all items if requested
+        val ancestorChains: Map<java.util.UUID, List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>> = if (includeAncestors) {
+            val allIds = (activeItems.map { it.id } + stalledItems.map { (item, _) -> item.id }).toSet()
+            if (allIds.isNotEmpty()) {
+                when (val r = workItemRepo.findAncestorChains(allIds)) {
+                    is Result.Success -> r.data
+                    is Result.Error -> emptyMap()
+                }
+            } else emptyMap()
+        } else emptyMap()
+
         val data = buildJsonObject {
             put("mode", JsonPrimitive("session-resume"))
             put("since", JsonPrimitive(since.toString()))
@@ -193,6 +225,7 @@ Parameters:
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     item.tags?.let { put("tags", JsonPrimitive(it)) }
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
             put("recentTransitions", JsonArray(recentTransitions.map { t ->
@@ -210,6 +243,7 @@ Parameters:
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     put("missingNotes", JsonArray(missing.map { JsonPrimitive(it) }))
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
         }
@@ -221,7 +255,7 @@ Parameters:
     // Mode 3: Health check
     // ──────────────────────────────────────────────
 
-    private suspend fun executeHealthCheckMode(context: ToolExecutionContext): JsonElement {
+    private suspend fun executeHealthCheckMode(context: ToolExecutionContext, includeAncestors: Boolean): JsonElement {
         val workItemRepo = context.workItemRepository()
 
         val workItems = when (val r = workItemRepo.findByRole(Role.WORK, limit = 200)) {
@@ -240,6 +274,17 @@ Parameters:
         val activeItems = (workItems + reviewItems)
         val stalledItems = findStalledItems(activeItems, context)
 
+        // Resolve ancestor chains once for all items if requested
+        val ancestorChains: Map<java.util.UUID, List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>> = if (includeAncestors) {
+            val allIds = (activeItems.map { it.id } + blockedItems.map { it.id } + stalledItems.map { (item, _) -> item.id }).toSet()
+            if (allIds.isNotEmpty()) {
+                when (val r = workItemRepo.findAncestorChains(allIds)) {
+                    is Result.Success -> r.data
+                    is Result.Error -> emptyMap()
+                }
+            } else emptyMap()
+        } else emptyMap()
+
         val data = buildJsonObject {
             put("mode", JsonPrimitive("health-check"))
             put("activeItems", JsonArray(activeItems.map { item ->
@@ -248,6 +293,7 @@ Parameters:
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     item.tags?.let { put("tags", JsonPrimitive(it)) }
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
             put("blockedItems", JsonArray(blockedItems.map { item ->
@@ -255,6 +301,7 @@ Parameters:
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
             put("stalledItems", JsonArray(stalledItems.map { (item, missing) ->
@@ -263,6 +310,7 @@ Parameters:
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     put("missingNotes", JsonArray(missing.map { JsonPrimitive(it) }))
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
         }
@@ -273,6 +321,20 @@ Parameters:
     // ──────────────────────────────────────────────
     // Shared helpers
     // ──────────────────────────────────────────────
+
+    /**
+     * Converts an ordered list of ancestor WorkItems (root-first) into a JSON array with
+     * id, title, and depth fields.
+     */
+    private fun buildAncestorsArray(ancestors: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>): JsonArray {
+        return JsonArray(ancestors.map { ancestor ->
+            buildJsonObject {
+                put("id", JsonPrimitive(ancestor.id.toString()))
+                put("title", JsonPrimitive(ancestor.title))
+                put("depth", JsonPrimitive(ancestor.depth))
+            }
+        })
+    }
 
     /**
      * For each active item, determine which required notes for its current phase are missing.

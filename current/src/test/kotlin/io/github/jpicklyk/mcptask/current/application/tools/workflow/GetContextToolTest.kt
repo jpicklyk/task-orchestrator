@@ -22,6 +22,12 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
+// ──────────────────────────────────────────────
+// Note: includeAncestors tests use a real DB instead of mocks because
+// findAncestorChains requires actual parent-child relationships in the DB.
+// Those tests live in GetContextToolAncestorsTest.kt using a real H2 in-memory DB.
+// ──────────────────────────────────────────────
+
 class GetContextToolTest {
 
     private lateinit var tool: GetContextTool
@@ -60,9 +66,11 @@ class GetContextToolTest {
         title: String = "Test Item",
         role: Role = Role.WORK,
         tags: String? = null,
-        depth: Int = 0
+        depth: Int = 0,
+        parentId: UUID? = null
     ): WorkItem = WorkItem(
         id = id,
+        parentId = parentId,
         title = title,
         role = role,
         tags = tags,
@@ -326,5 +334,172 @@ class GetContextToolTest {
         val data = extractData(result)
         val activeItems = data["activeItems"]!!.jsonArray
         assertEquals(2, activeItems.size)
+    }
+
+    // ──────────────────────────────────────────────
+    // includeAncestors tests (mock-based)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode includeAncestors=true adds ancestors array to item`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+
+        val rootItem = makeItem(id = rootId, title = "Root Item", depth = 0)
+        val childItem = makeItem(id = childId, title = "Child Item", depth = 1, parentId = rootId)
+
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+        coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns Result.Success(
+            mapOf(childId to listOf(rootItem))
+        )
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(childId.toString()),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        )
+
+        val data = extractData(result)
+        val itemObj = data["item"]!!.jsonObject
+        val ancestors = itemObj["ancestors"]!!.jsonArray
+        assertEquals(1, ancestors.size)
+        val ancestor = ancestors[0].jsonObject
+        assertEquals(rootId.toString(), ancestor["id"]!!.jsonPrimitive.content)
+        assertEquals("Root Item", ancestor["title"]!!.jsonPrimitive.content)
+        assertEquals(0, ancestor["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `item mode includeAncestors=false does not add ancestors array`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, depth = 0)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            context
+        )
+
+        val data = extractData(result)
+        val itemObj = data["item"]!!.jsonObject
+        assertNull(itemObj["ancestors"], "ancestors should not be present when includeAncestors=false")
+    }
+
+    @Test
+    fun `item mode root item includeAncestors=true has empty ancestors array`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val rootItem = makeItem(id = rootId, title = "Root", depth = 0)
+
+        coEvery { workItemRepo.getById(rootId) } returns Result.Success(rootItem)
+        coEvery { noteRepo.findByItemId(rootId) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findAncestorChains(setOf(rootId)) } returns Result.Success(
+            mapOf(rootId to emptyList())
+        )
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(rootId.toString()),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        )
+
+        val data = extractData(result)
+        val itemObj = data["item"]!!.jsonObject
+        val ancestors = itemObj["ancestors"]!!.jsonArray
+        assertEquals(0, ancestors.size, "Root item should have empty ancestors array")
+    }
+
+    @Test
+    fun `health check includeAncestors=true adds ancestors to active and blocked items`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val blockedId = UUID.randomUUID()
+
+        val rootItem = makeItem(id = rootId, title = "Root", role = Role.WORK, depth = 0)
+        val childItem = makeItem(id = childId, title = "Child Work", role = Role.WORK, depth = 1, parentId = rootId)
+        val blockedItem = makeItem(id = blockedId, title = "Blocked Item", role = Role.BLOCKED, depth = 0)
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(rootItem, childItem))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(listOf(blockedItem))
+
+        // findAncestorChains is called once with all 3 item IDs
+        coEvery { workItemRepo.findAncestorChains(setOf(rootId, childId, blockedId)) } returns Result.Success(
+            mapOf(
+                rootId to emptyList(),
+                childId to listOf(rootItem),
+                blockedId to emptyList()
+            )
+        )
+
+        val result = tool.execute(
+            params("includeAncestors" to JsonPrimitive(true)),
+            context
+        )
+
+        val data = extractData(result)
+        assertEquals("health-check", data["mode"]!!.jsonPrimitive.content)
+
+        val activeItems = data["activeItems"]!!.jsonArray
+        assertEquals(2, activeItems.size)
+
+        // Root item should have empty ancestors
+        val rootJson = activeItems.find { it.jsonObject["id"]!!.jsonPrimitive.content == rootId.toString() }!!.jsonObject
+        assertEquals(0, rootJson["ancestors"]!!.jsonArray.size)
+
+        // Child item should have one ancestor (the root)
+        val childJson = activeItems.find { it.jsonObject["id"]!!.jsonPrimitive.content == childId.toString() }!!.jsonObject
+        val childAncestors = childJson["ancestors"]!!.jsonArray
+        assertEquals(1, childAncestors.size)
+        assertEquals(rootId.toString(), childAncestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+
+        // Blocked item should have empty ancestors
+        val blockedJsonArr = data["blockedItems"]!!.jsonArray
+        assertEquals(1, blockedJsonArr.size)
+        assertEquals(0, blockedJsonArr[0].jsonObject["ancestors"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `session resume includeAncestors=true adds ancestors to active items`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val rootItem = makeItem(id = rootId, title = "Root", role = Role.WORK, depth = 0)
+        val childItem = makeItem(id = childId, title = "Child Work", role = Role.WORK, depth = 1, parentId = rootId)
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(rootItem, childItem))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findAncestorChains(setOf(rootId, childId)) } returns Result.Success(
+            mapOf(
+                rootId to emptyList(),
+                childId to listOf(rootItem)
+            )
+        )
+
+        val result = tool.execute(
+            params(
+                "since" to JsonPrimitive(since.toString()),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        )
+
+        val data = extractData(result)
+        assertEquals("session-resume", data["mode"]!!.jsonPrimitive.content)
+
+        val activeItems = data["activeItems"]!!.jsonArray
+        assertEquals(2, activeItems.size)
+
+        val childJson = activeItems.find { it.jsonObject["id"]!!.jsonPrimitive.content == childId.toString() }!!.jsonObject
+        val childAncestors = childJson["ancestors"]!!.jsonArray
+        assertEquals(1, childAncestors.size)
+        assertEquals("Root", childAncestors[0].jsonObject["title"]!!.jsonPrimitive.content)
     }
 }

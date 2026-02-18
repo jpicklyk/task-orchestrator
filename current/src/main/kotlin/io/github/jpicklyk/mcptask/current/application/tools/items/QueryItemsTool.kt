@@ -29,16 +29,19 @@ Operations: get, search, overview
 **get** - Retrieve a single item by ID
 - Required: id (UUID)
 - Returns full item JSON
+- includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
 
 **search** - Filter items with multiple criteria
 - Optional: parentId, depth, role, priority, tags, query, createdAfter/Before, modifiedAfter/Before, sortBy, sortOrder, limit
 - Returns minimal fields: id, parentId, title, role, priority, depth, tags
 - Wrapped in { items: [...], total: N }
+- includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
 
 **overview** - Hierarchical summary view
 - With itemId: Item metadata + child counts by role + direct children list
 - Without itemId: Global overview of all root items with per-root child counts
 - Default limit: 20 root items
+- includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
     """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -125,6 +128,14 @@ Operations: get, search, overview
                 put("type", JsonPrimitive("integer"))
                 put("description", JsonPrimitive("Max results (default: 50)"))
             })
+            put("includeAncestors", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("When true, each item in search/get results includes an `ancestors` array (get and search operations only)"))
+            })
+            put("includeChildren", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("When true, each root item in global overview includes a `children` array of direct child items (overview operation, global mode only)"))
+            })
         },
         required = listOf("operation")
     )
@@ -205,13 +216,34 @@ Operations: get, search, overview
 
     private suspend fun executeGet(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val id = extractUUID(params, "id", required = true)!!
+        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
-        return when (val result = context.workItemRepository().getById(id)) {
-            is Result.Success -> successResponse(workItemToJson(result.data))
-            is Result.Error -> errorResponse(
+        val item = when (val result = context.workItemRepository().getById(id)) {
+            is Result.Success -> result.data
+            is Result.Error -> return errorResponse(
                 result.error.message,
                 ErrorCodes.RESOURCE_NOT_FOUND
             )
+        }
+
+        val itemJson = workItemToJson(item)
+
+        return if (includeAncestors) {
+            val chains = context.workItemRepository().findAncestorChains(setOf(item.id))
+            val ancestors = (chains as? Result.Success)?.data?.get(item.id) ?: emptyList()
+            val enriched = buildJsonObject {
+                itemJson.forEach { (k, v) -> put(k, v) }
+                put("ancestors", JsonArray(ancestors.map { ancestor ->
+                    buildJsonObject {
+                        put("id", JsonPrimitive(ancestor.id.toString()))
+                        put("title", JsonPrimitive(ancestor.title))
+                        put("depth", JsonPrimitive(ancestor.depth))
+                    }
+                }))
+            }
+            successResponse(enriched)
+        } else {
+            successResponse(itemJson)
         }
     }
 
@@ -235,6 +267,7 @@ Operations: get, search, overview
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
         val limit = optionalInt(params, "limit") ?: 50
+        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
         // Parse role
         val role = roleStr?.let {
@@ -270,8 +303,33 @@ Operations: get, search, overview
         )) {
             is Result.Success -> {
                 val items = result.data
+
+                val chains: Map<java.util.UUID, List<WorkItem>> = if (includeAncestors && items.isNotEmpty()) {
+                    val chainResult = context.workItemRepository().findAncestorChains(items.map { it.id }.toSet())
+                    (chainResult as? Result.Success)?.data ?: emptyMap()
+                } else {
+                    emptyMap()
+                }
+
                 val data = buildJsonObject {
-                    put("items", JsonArray(items.map { workItemToMinimalJson(it) }))
+                    put("items", JsonArray(items.map { item ->
+                        if (includeAncestors) {
+                            val ancestors = chains[item.id] ?: emptyList()
+                            val minimalJson = workItemToMinimalJson(item)
+                            buildJsonObject {
+                                minimalJson.forEach { (k, v) -> put(k, v) }
+                                put("ancestors", JsonArray(ancestors.map { ancestor ->
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(ancestor.id.toString()))
+                                        put("title", JsonPrimitive(ancestor.title))
+                                        put("depth", JsonPrimitive(ancestor.depth))
+                                    }
+                                }))
+                            }
+                        } else {
+                            workItemToMinimalJson(item)
+                        }
+                    }))
                     put("total", JsonPrimitive(items.size))
                 }
                 successResponse(data)
@@ -336,6 +394,7 @@ Operations: get, search, overview
 
     private suspend fun executeGlobalOverview(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val limit = optionalInt(params, "limit") ?: 20
+        val includeChildren = params.jsonObject["includeChildren"]?.jsonPrimitive?.booleanOrNull ?: false
 
         // Fetch root items
         val rootItems = when (val result = context.workItemRepository().findRootItems(limit)) {
@@ -346,7 +405,7 @@ Operations: get, search, overview
             )
         }
 
-        // For each root item, get child counts by role
+        // For each root item, get child counts by role and optionally children
         val itemsWithCounts = rootItems.map { item ->
             val childCounts = when (val result = context.workItemRepository().countChildrenByRole(item.id)) {
                 is Result.Success -> result.data
@@ -359,6 +418,20 @@ Operations: get, search, overview
                 put("role", JsonPrimitive(item.role.name.lowercase()))
                 put("priority", JsonPrimitive(item.priority.name.lowercase()))
                 put("childCounts", roleCounToJson(childCounts))
+                if (includeChildren) {
+                    val children = when (val result = context.workItemRepository().findChildren(item.id)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> emptyList()
+                    }
+                    put("children", JsonArray(children.map { child ->
+                        buildJsonObject {
+                            put("id", JsonPrimitive(child.id.toString()))
+                            put("title", JsonPrimitive(child.title))
+                            put("role", JsonPrimitive(child.role.name.lowercase()))
+                            put("depth", JsonPrimitive(child.depth))
+                        }
+                    }))
+                }
             }
         }
 

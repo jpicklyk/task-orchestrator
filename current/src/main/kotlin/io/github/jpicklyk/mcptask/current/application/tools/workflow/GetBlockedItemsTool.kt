@@ -33,6 +33,8 @@ Identifies WorkItems blocked by dependencies or explicitly in BLOCKED role.
 **Parameters:**
 - `parentId` (optional UUID): scope results to items under this parent
 - `includeItemDetails` (optional boolean, default false): include summary and tags for each blocked item
+- `includeAncestors` (optional boolean, default false): when true, each blocked item includes an
+  `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
 
 **What counts as blocked:**
 1. Items explicitly in BLOCKED role (blockType = "explicit")
@@ -88,6 +90,10 @@ Items in TERMINAL role are never included.
                 put("type", JsonPrimitive("boolean"))
                 put("description", JsonPrimitive("Include summary and tags for each blocked item (default: false)"))
             })
+            put("includeAncestors", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("When true, each blocked item includes an ancestors array ordered root-first (default: false)"))
+            })
         },
         required = emptyList()
     )
@@ -95,6 +101,7 @@ Items in TERMINAL role are never included.
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val parentId = extractUUID(params, "parentId", required = false)
         val includeDetails = optionalBoolean(params, "includeItemDetails", false)
+        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
         val workItemRepo = context.workItemRepository()
         val depRepo = context.dependencyRepository()
@@ -128,7 +135,7 @@ Items in TERMINAL role are never included.
         val candidateMap = allCandidates.associateBy { it.id }
 
         // Process each candidate to determine if it is truly blocked
-        val blockedItems = mutableListOf<JsonObject>()
+        val blockedItemsList = mutableListOf<Pair<WorkItem, JsonObject>>()
 
         for ((_, item) in candidateMap) {
             // Get all deps where this item is the target (BLOCKS deps pointing at this item)
@@ -168,7 +175,7 @@ Items in TERMINAL role are never included.
             // For items explicitly in BLOCKED role, always include them
             if (item.role == Role.BLOCKED) {
                 val blockedByArray = resolveBlockerDetails(blockerInfos, workItemRepo)
-                blockedItems.add(buildBlockedItemJson(item, "explicit", blockedByArray, includeDetails))
+                blockedItemsList.add(item to buildBlockedItemJson(item, "explicit", blockedByArray, includeDetails))
                 continue
             }
 
@@ -179,8 +186,8 @@ Items in TERMINAL role are never included.
             val unsatisfiedCount = countUnsatisfied(blockedByArray)
 
             if (unsatisfiedCount > 0) {
-                blockedItems.add(
-                    buildBlockedItemJson(
+                blockedItemsList.add(
+                    item to buildBlockedItemJson(
                         item, "dependency",
                         blockedByArray, includeDetails,
                         blockerCount = unsatisfiedCount
@@ -189,9 +196,35 @@ Items in TERMINAL role are never included.
             }
         }
 
+        // Resolve ancestor chains once for all blocked items if requested
+        val ancestorChains: Map<UUID, List<WorkItem>> = if (includeAncestors && blockedItemsList.isNotEmpty()) {
+            val allIds = blockedItemsList.map { (item, _) -> item.id }.toSet()
+            when (val r = workItemRepo.findAncestorChains(allIds)) {
+                is Result.Success -> r.data
+                is Result.Error -> emptyMap()
+            }
+        } else emptyMap()
+
+        // Build final blocked items JSON, appending ancestors if needed
+        val blockedItemsJson = blockedItemsList.map { (item, json) ->
+            if (includeAncestors) {
+                val ancestors = ancestorChains[item.id] ?: emptyList()
+                val ancestorsArray = JsonArray(ancestors.map { ancestor ->
+                    buildJsonObject {
+                        put("id", JsonPrimitive(ancestor.id.toString()))
+                        put("title", JsonPrimitive(ancestor.title))
+                        put("depth", JsonPrimitive(ancestor.depth))
+                    }
+                })
+                JsonObject(json.toMap() + ("ancestors" to ancestorsArray))
+            } else {
+                json
+            }
+        }
+
         val data = buildJsonObject {
-            put("blockedItems", JsonArray(blockedItems))
-            put("total", JsonPrimitive(blockedItems.size))
+            put("blockedItems", JsonArray(blockedItemsJson))
+            put("total", JsonPrimitive(blockedItemsJson.size))
         }
 
         return successResponse(data)

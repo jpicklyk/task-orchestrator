@@ -58,7 +58,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       "newRole": "work",
       "trigger": "start",
       "applied": true,
-      "cascadeEvents": [],
+      "cascadeEvents": [
+        { "itemId": "uuid", "title": "Parent Item Title", "previousRole": "work", "targetRole": "terminal", "applied": true }
+      ],
       "unblockedItems": [],
       "expectedNotes": [
         { "key": "acceptance-criteria", "role": "work", "required": true, "description": "...", "exists": false }
@@ -282,6 +284,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
                     cascadeJsonList.add(buildJsonObject {
                         put("itemId", JsonPrimitive(event.itemId.toString()))
+                        put("title", JsonPrimitive(parentItem.title))
                         put("previousRole", JsonPrimitive(event.currentRole.name.lowercase()))
                         put("targetRole", JsonPrimitive(event.targetRole.name.lowercase()))
                         put("applied", JsonPrimitive(cascadeApply.success))
@@ -315,6 +318,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
                     cascadeJsonList.add(buildJsonObject {
                         put("itemId", JsonPrimitive(event.itemId.toString()))
+                        put("title", JsonPrimitive(parentItem.title))
                         put("previousRole", JsonPrimitive(event.currentRole.name.lowercase()))
                         put("targetRole", JsonPrimitive(event.targetRole.name.lowercase()))
                         put("applied", JsonPrimitive(cascadeApply.success))

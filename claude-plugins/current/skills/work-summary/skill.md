@@ -10,12 +10,8 @@ Generate an activity-first dashboard. Lead with what's in flight, group containe
 ## Steps
 
 1. Call `query_items(operation="overview")` — gets all root items with child counts by role
-2. Call `get_context()` — surfaces active, stalled, and blocked items
-3. For each active item from get_context, build its breadcrumb path:
-   - Call `query_items(operation="get", id=<item-id>)` to retrieve `parentId` and `depth`
-   - Repeat for each parent until reaching a root item (`depth=0` or no `parentId`)
-   - Assemble the path as `Container › Parent › ... › Item` using › as separator
-4. Format the dashboard using the Activity-First layout below
+2. Call `get_context(includeAncestors=true)` — surfaces active, stalled, and blocked items; each item includes an `ancestors` array with the full parent chain
+3. Format the dashboard using the Activity-First layout below — ancestor data is available directly on each item from Step 2, no follow-up traversal needed
 
 ## Activity-First Layout
 
@@ -41,8 +37,10 @@ Generate an activity-first dashboard. Lead with what's in flight, group containe
 
 **In Progress section:**
 - Include any item with role=work or role=review
-- Path column shows the full breadcrumb from root container down to the item's parent (not the item itself)
-- If the item is a root item (depth=0), Path column shows `—`
+- Each active item from `get_context(includeAncestors=true)` includes an `ancestors` array: `[{id, title, depth}, ...]` ordered root → direct parent
+- Build the breadcrumb path by joining ancestor titles with ` › ` separator
+- Example: if item has `ancestors: [{title:"Features"}, {title:"Auth System"}]`, path = `Features › Auth System`
+- If ancestors is empty (root item), path = `—`
 - If nothing is in progress, show: `_Nothing in progress._`
 
 **Pending Work section:**

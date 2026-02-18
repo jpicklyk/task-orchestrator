@@ -17,12 +17,14 @@ import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
+import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
 
@@ -30,6 +32,8 @@ import java.util.UUID
  * SQLite implementation of WorkItemRepository.
  */
 class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : WorkItemRepository {
+
+    private val logger = LoggerFactory.getLogger(SQLiteWorkItemRepository::class.java)
 
     override suspend fun getById(id: UUID): Result<WorkItem> = try {
         newSuspendedTransaction(db = databaseManager.getDatabase()) {
@@ -315,6 +319,68 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         }
     } catch (e: Exception) {
         Result.Error(RepositoryError.DatabaseError("Failed to find descendants: ${e.message}", e))
+    }
+
+    override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> {
+        if (ids.isEmpty()) return Result.Success(emptyList())
+        return try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                val entityIds = ids.map { EntityID(it, WorkItemsTable) }
+                Result.Success(
+                    WorkItemsTable.selectAll()
+                        .where { WorkItemsTable.id inList entityIds }
+                        .map { mapRowToWorkItem(it) }
+                )
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to find items by IDs", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to find items by IDs: ${e.message}"))
+        }
+    }
+
+    override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
+        if (itemIds.isEmpty()) return Result.Success(emptyMap())
+        return try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // Cache all fetched items by UUID string
+                val cache = mutableMapOf<String, WorkItem>()
+
+                // Fetch the input items themselves first
+                val inputEntityIds = itemIds.map { EntityID(it, WorkItemsTable) }
+                val inputItems = WorkItemsTable.selectAll()
+                    .where { WorkItemsTable.id inList inputEntityIds }
+                    .map { mapRowToWorkItem(it) }
+                inputItems.forEach { cache[it.id.toString()] = it }
+
+                // BFS upward: collect all parentIds that need fetching
+                var toFetch = inputItems.mapNotNull { it.parentId }.map { it.toString() }.toSet() - cache.keys
+                while (toFetch.isNotEmpty()) {
+                    val fetchEntityIds = toFetch.map { EntityID(UUID.fromString(it), WorkItemsTable) }
+                    val fetched = WorkItemsTable.selectAll()
+                        .where { WorkItemsTable.id inList fetchEntityIds }
+                        .map { mapRowToWorkItem(it) }
+                    fetched.forEach { cache[it.id.toString()] = it }
+                    toFetch = fetched.mapNotNull { it.parentId }.map { it.toString() }.toSet() - cache.keys
+                }
+
+                // Build ancestor chains for each input itemId
+                val result = itemIds.associateWith { itemId ->
+                    val chain = mutableListOf<WorkItem>()
+                    var current = cache[itemId.toString()]
+                    var parentIdStr = current?.parentId?.toString()
+                    while (parentIdStr != null) {
+                        val ancestor = cache[parentIdStr] ?: break
+                        chain.add(0, ancestor) // prepend so order is root -> direct parent
+                        parentIdStr = ancestor.parentId?.toString()
+                    }
+                    chain as List<WorkItem>
+                }
+                Result.Success(result)
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to find ancestor chains", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to find ancestor chains: ${e.message}"))
+        }
     }
 
     /**
