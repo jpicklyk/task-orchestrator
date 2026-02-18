@@ -259,11 +259,13 @@ missing, that item fails and its downstream dependents within the set are skippe
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `rootId` | string (UUID) | Conditionally | Complete all descendants of this item. Mutually exclusive with `itemIds`. |
+| `rootId` | string (UUID) | Conditionally | Complete all **descendants** of this item. The root item itself is NOT completed — only its descendants are processed. Mutually exclusive with `itemIds`. |
 | `itemIds` | array | Conditionally | Explicit list of item UUIDs to complete. Mutually exclusive with `rootId`. |
-| `trigger` | string | No | `complete` (default) or `cancel` |
+| `trigger` | string | No | `complete` (default) or `cancel`. See gate enforcement note below. |
 
 Exactly one of `rootId` or `itemIds` must be provided.
+
+**Gate enforcement and `trigger`:** When `trigger="complete"`, gate enforcement applies — items whose tags match a note schema must have all required notes filled before completing; items that fail gating are recorded as `gateErrors` and their dependents within the set are skipped. When `trigger="cancel"`, gate enforcement is bypassed — all items in the set are cancelled regardless of note state.
 
 **Example.**
 

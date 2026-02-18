@@ -45,7 +45,7 @@ All role transitions use `advance_item(trigger=...)`. There is no direct role as
 | `start`    | `queue`                   | `work`                   | Queue-phase required notes must be filled.         |
 | `start`    | `work`                    | `review` or `terminal`   | Work-phase required notes must be filled.          |
 | `start`    | `review`                  | `terminal`               | Review-phase required notes must be filled.        |
-| `complete` | Any non-terminal          | `terminal`               | Bypasses phase gates. Use to force-close an item.  |
+| `complete` | Any non-terminal          | `terminal`               | Enforces gates: all required notes across ALL phases must be filled. |
 | `block`    | Any non-terminal          | `blocked`                | Saves `previousRole` for resume.                   |
 | `hold`     | Any non-terminal          | `blocked`                | Alias for `block`.                                 |
 | `resume`   | `blocked`                 | Previous role            | Restores role saved at block time.                 |
@@ -203,14 +203,14 @@ Response includes:
   "item": { "id": "abc-123", "title": "...", "role": "queue" },
   "gateStatus": {
     "canAdvance": false,
-    "missing": [
-      { "key": "design", "role": "queue", "required": true, "exists": false }
-    ],
-    "guidancePointer": "Describe chosen approach and alternatives considered."
+    "phase": "queue",
+    "missing": ["design"]
   },
-  "notes": [
-    { "key": "requirements", "role": "queue", "required": true, "exists": true }
-  ]
+  "schema": [
+    { "key": "requirements", "role": "queue", "required": true, "description": "...", "exists": true, "filled": true },
+    { "key": "design", "role": "queue", "required": true, "description": "...", "exists": false, "filled": false }
+  ],
+  "guidancePointer": "Describe chosen approach and alternatives considered."
 }
 ```
 
