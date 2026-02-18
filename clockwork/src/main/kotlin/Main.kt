@@ -57,6 +57,12 @@ fun main(args: Array<String>) {
             coordinator.awaitCompletion(5000)
         })
 
+        // Deprecation warning — Clockwork (v2) is archived
+        logger.warn("╔══════════════════════════════════════════════════════════════╗")
+        logger.warn("║  WARNING: Clockwork (v2) is deprecated and archived.         ║")
+        logger.warn("║  Please migrate to Current (v3): task-orchestrator:current   ║")
+        logger.warn("╚══════════════════════════════════════════════════════════════╝")
+
         // Create and run the MCP server (blocks until server closes)
         val mcpServer = McpServer(VersionInfo.VERSION, coordinator)
         mcpServer.run()

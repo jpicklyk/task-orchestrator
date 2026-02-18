@@ -7,7 +7,7 @@ FROM eclipse-temurin:23-jdk AS builder
 
 WORKDIR /app
 
-# Git is needed at Gradle configuration time (build.gradle.kts calculates version from git rev-list)
+# Git is needed at Gradle configuration time (clockwork/build.gradle.kts calculates version from git rev-list)
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 COPY .git .git
@@ -17,18 +17,20 @@ COPY gradlew gradlew.bat ./
 COPY gradle gradle
 COPY build.gradle.kts settings.gradle.kts ./
 COPY current/build.gradle.kts current/
+COPY clockwork/build.gradle.kts clockwork/
 RUN chmod +x gradlew
 
 # Download dependencies (cached until build files change)
 RUN ./gradlew dependencies --no-daemon
 
 # Source code and runtime docs (change frequently, placed last for cache)
-COPY src src
+COPY clockwork/src clockwork/src
 COPY current/src current/src
 COPY docs docs
 
-# Build fat JARs for both v2 and current modules (tests run in CI, skipped here)
-RUN ./gradlew jar :current:jar --no-daemon -x test
+# Builds only the active v3 (Current) module.
+# To also build the deprecated Clockwork v2 JAR, add :clockwork:jar to the command.
+RUN ./gradlew :current:jar --no-daemon -x test
 
 # --- Runtime base stage (shared configuration for all runtime targets) ---
 FROM amazoncorretto:25-al2023-headless AS runtime-base
@@ -76,12 +78,14 @@ STOPSIGNAL SIGTERM
 # --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+
 CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]
 
-# --- runtime-v2 target (v2 orchestrator JAR) ---
-# The [0-9]* glob prevents matching the -current- JAR name
+# --- runtime-v2 target (Clockwork v2 — DEPRECATED) ---
+# Not built by default. Requires :clockwork:jar in the builder stage above.
+# To build manually: add :clockwork:jar to the RUN ./gradlew command above, then:
+#   docker build --target runtime-v2 -t task-orchestrator:v2 .
 FROM runtime-base AS runtime-v2
-COPY --from=builder --chown=appuser:appgroup /app/build/libs/mcp-task-orchestrator-[0-9]*.jar /app/orchestrator.jar
+COPY --from=builder --chown=appuser:appgroup /app/clockwork/build/libs/mcp-task-orchestrator-[0-9]*.jar /app/orchestrator.jar
 
-# --- runtime-current target (current module JAR) ---
+# --- runtime-current target (v3 Current — active) ---
 FROM runtime-base AS runtime-current
 COPY --from=builder --chown=appuser:appgroup /app/current/build/libs/mcp-task-orchestrator-current-*.jar /app/orchestrator.jar
 ENV DATABASE_PATH=data/current-tasks.db
