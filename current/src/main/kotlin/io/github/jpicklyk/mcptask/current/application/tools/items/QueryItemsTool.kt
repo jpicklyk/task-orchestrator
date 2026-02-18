@@ -170,7 +170,12 @@ Operations: get, search, overview
     }
 
     override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        if (isError) return "Query failed"
+        if (isError) {
+            val msg = (result as? JsonObject)?.get("error")
+                ?.let { (it as? JsonObject)?.get("message") }
+                ?.let { (it as? JsonPrimitive)?.content }
+            return if (msg != null) "Query failed: $msg" else "Query failed"
+        }
 
         val paramsObj = params as? JsonObject
         val operation = paramsObj?.get("operation")?.let {

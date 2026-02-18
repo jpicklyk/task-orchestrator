@@ -216,7 +216,12 @@ Unified write operations for WorkItem dependencies (create, delete).
         } ?: "unknown"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         return when {
-            isError -> "manage_dependencies($op) failed"
+            isError -> {
+                val msg = (result as? JsonObject)?.get("error")
+                    ?.let { (it as? JsonObject)?.get("message") }
+                    ?.let { (it as? JsonPrimitive)?.content }
+                if (msg != null) "manage_dependencies($op) failed: $msg" else "manage_dependencies($op) failed"
+            }
             op == "create" -> {
                 val count = data?.get("created")?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() } ?: 0
                 "Created $count dependency(ies)"

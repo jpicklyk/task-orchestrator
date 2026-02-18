@@ -32,7 +32,7 @@ class SetupVersionSyncTest {
     // ---- helpers ----
 
     private fun readVersionFromMjs(): String {
-        val file = File(projectRoot, "claude-plugins/task-orchestrator/scripts/session-setup-check.mjs")
+        val file = File(projectRoot, "claude-plugins/clockwork/scripts/session-setup-check.mjs")
         if (!file.exists()) {
             fail("Hook script not found at ${file.absolutePath}")
         }
@@ -43,7 +43,7 @@ class SetupVersionSyncTest {
     }
 
     private fun readVersionFromSkillMd(): String {
-        val file = File(projectRoot, "claude-plugins/task-orchestrator/skills/setup-instructions/SKILL.md")
+        val file = File(projectRoot, "claude-plugins/clockwork/skills/setup-instructions/SKILL.md")
         if (!file.exists()) {
             fail("Skill template not found at ${file.absolutePath}")
         }
