@@ -63,6 +63,12 @@ class DatabaseManager(
                 setupConnection = { connection ->
                     // Enable foreign key constraints - critical for data integrity
                     connection.createStatement().execute("PRAGMA foreign_keys = ON")
+                    // WAL mode allows concurrent reads + write without full file locking.
+                    // Safe to set on every connection — no-op if already in WAL mode.
+                    connection.createStatement().execute("PRAGMA journal_mode=WAL")
+                    // Avoid indefinite blocking when another process holds a write lock on the DB.
+                    // With WAL mode this is rarely needed but is a safety net for burst writes.
+                    connection.createStatement().execute("PRAGMA busy_timeout = 5000")
                 }
             )
             TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
