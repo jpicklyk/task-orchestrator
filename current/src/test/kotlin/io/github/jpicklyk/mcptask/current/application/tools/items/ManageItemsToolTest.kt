@@ -805,6 +805,145 @@ class ManageItemsToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // Recursive delete operations
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `recursive delete removes parent and all descendants`(): Unit = runBlocking {
+        // Create root (depth 0)
+        val rootResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("Root")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val rootId = (rootResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Create child (depth 1)
+        val childResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Child"))
+                        put("parentId", JsonPrimitive(rootId))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val childId = (childResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Create grandchild (depth 2)
+        tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Grandchild"))
+                        put("parentId", JsonPrimitive(childId))
+                    }
+                ))
+            ),
+            context
+        )
+
+        // Recursive delete of root
+        val deleteResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("delete"),
+                "ids" to JsonArray(listOf(JsonPrimitive(rootId))),
+                "recursive" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertFalse(deleteResult["isError"]?.jsonPrimitive?.booleanOrNull ?: false)
+        assertTrue(deleteResult["success"]!!.jsonPrimitive.boolean)
+        val data = deleteResult["data"] as JsonObject
+        assertEquals(3, data["deleted"]!!.jsonPrimitive.int)
+        assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+        val ids = data["ids"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(ids.contains(rootId))
+    }
+
+    @Test
+    fun `non-recursive delete of parent with children fails gracefully`(): Unit = runBlocking {
+        // Create parent (depth 0)
+        val parentResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("Parent")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val parentId = (parentResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Create child (depth 1)
+        tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Child"))
+                        put("parentId", JsonPrimitive(parentId))
+                    }
+                ))
+            ),
+            context
+        )
+
+        // Non-recursive delete of parent — should fail due to FK constraint
+        val deleteResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("delete"),
+                "ids" to JsonArray(listOf(JsonPrimitive(parentId)))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(deleteResult["success"]!!.jsonPrimitive.boolean)
+        val data = deleteResult["data"] as JsonObject
+        assertEquals(0, data["deleted"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `recursive delete of leaf item with no children succeeds`(): Unit = runBlocking {
+        // Create single leaf item
+        val createResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("Leaf")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val leafId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Recursive delete of leaf
+        val deleteResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("delete"),
+                "ids" to JsonArray(listOf(JsonPrimitive(leafId))),
+                "recursive" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(deleteResult["success"]!!.jsonPrimitive.boolean)
+        val data = deleteResult["data"] as JsonObject
+        assertEquals(1, data["deleted"]!!.jsonPrimitive.int)
+        assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
     // Validation
     // ──────────────────────────────────────────────
 

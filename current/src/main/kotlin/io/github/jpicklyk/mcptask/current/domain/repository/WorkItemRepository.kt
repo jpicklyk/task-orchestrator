@@ -85,6 +85,11 @@ interface WorkItemRepository {
     suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>>
 
     /**
+     * Delete multiple items by ID in one query. Returns the number of rows deleted.
+     */
+    suspend fun deleteAll(ids: Set<UUID>): Result<Int>
+
+    /**
      * For each itemId, resolve its full ancestor chain (root -> direct parent).
      * Returns Map<itemId, List<WorkItem>> ordered root-first, ancestors only (item itself excluded).
      * Items with no parent (depth=0 root items) map to an empty list.

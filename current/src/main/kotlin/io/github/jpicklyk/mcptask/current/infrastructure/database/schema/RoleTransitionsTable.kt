@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.ReferenceOption
 import org.jetbrains.exposed.v1.core.dao.id.UUIDTable
 import org.jetbrains.exposed.v1.javatime.timestamp
 
@@ -14,7 +15,7 @@ object RoleTransitionsTable : UUIDTable("role_transitions") {
     val transitionedAt = timestamp("transitioned_at")
 
     init {
-        foreignKey(itemId to WorkItemsTable.id)
+        foreignKey(itemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
         index(isUnique = false, itemId)
         index(isUnique = false, transitionedAt)
     }

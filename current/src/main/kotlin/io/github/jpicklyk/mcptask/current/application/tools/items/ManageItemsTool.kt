@@ -51,6 +51,8 @@ Unified write operations for WorkItems (create, update, delete).
 
 **delete** - Delete by `ids` array.
 - Response: `{ ids: [...], deleted: N, failed: N, failures: [{id, error}] }`
+- Use `recursive: true` to recursively delete all descendant items before deleting the specified items.
+  Without this flag, deleting an item with children will fail with a constraint error.
 """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -76,6 +78,13 @@ Unified write operations for WorkItems (create, update, delete).
             put("ids", buildJsonObject {
                 put("type", JsonPrimitive("array"))
                 put("description", JsonPrimitive("Array of item UUIDs for delete"))
+            })
+            put("recursive", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive(
+                    "When true, recursively deletes all descendant items before deleting the specified items. " +
+                    "Default false — without this flag, deleting an item with children will fail with a constraint error."
+                ))
             })
             put("parentId", buildJsonObject {
                 put("type", JsonPrimitive("string"))
@@ -507,9 +516,11 @@ Unified write operations for WorkItems (create, update, delete).
 
     private suspend fun executeDelete(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val idsArray = requireJsonArray(params, "ids")
+        val recursive = params.jsonObject["recursive"]?.jsonPrimitive?.booleanOrNull ?: false
         val repo = context.workItemRepository()
 
         val deletedIds = mutableListOf<String>()
+        var descendantsDeleted = 0
         val failures = mutableListOf<JsonObject>()
 
         for (element in idsArray) {
@@ -532,6 +543,60 @@ Unified write operations for WorkItems (create, update, delete).
                 continue
             }
 
+            if (recursive) {
+                // Find all descendants, delete leaves-first, then the root
+                val descendantsResult = repo.findDescendants(id)
+                if (descendantsResult is Result.Error) {
+                    failures.add(buildJsonObject {
+                        put("id", JsonPrimitive(idStr))
+                        put("error", JsonPrimitive("Failed to find descendants: ${descendantsResult.error.message}"))
+                    })
+                    continue
+                }
+                val descendants = (descendantsResult as Result.Success).data
+                if (descendants.isNotEmpty()) {
+                    // Sort leaves-first (deepest depth first) so FK constraints are satisfied.
+                    // Delete individually to ensure each row is removed before referencing parents
+                    // are removed (batch DELETE can trigger FK violations mid-statement).
+                    val sortedDescendants = descendants.sortedByDescending { it.depth }
+                    var descendantDeleteFailed = false
+                    for (descendant in sortedDescendants) {
+                        when (val delResult = repo.delete(descendant.id)) {
+                            is Result.Success -> if (delResult.data) descendantsDeleted++
+                            is Result.Error -> {
+                                failures.add(buildJsonObject {
+                                    put("id", JsonPrimitive(idStr))
+                                    put("error", JsonPrimitive("Failed to delete descendant ${descendant.id}: ${delResult.error.message}"))
+                                })
+                                descendantDeleteFailed = true
+                                break
+                            }
+                        }
+                    }
+                    if (descendantDeleteFailed) continue
+                }
+            } else {
+                // Non-recursive: guard against FK constraint violation by checking for children first
+                val childrenResult = repo.findChildren(id)
+                if (childrenResult is Result.Success && childrenResult.data.isNotEmpty()) {
+                    failures.add(buildJsonObject {
+                        put("id", JsonPrimitive(idStr))
+                        put("error", JsonPrimitive(
+                            "Item '$idStr' has ${childrenResult.data.size} child item(s). " +
+                            "Use recursive=true to delete the item and all its descendants."
+                        ))
+                    })
+                    continue
+                }
+                if (childrenResult is Result.Error) {
+                    failures.add(buildJsonObject {
+                        put("id", JsonPrimitive(idStr))
+                        put("error", JsonPrimitive("Failed to check children: ${childrenResult.error.message}"))
+                    })
+                    continue
+                }
+            }
+
             when (val result = repo.delete(id)) {
                 is Result.Success -> if (result.data) {
                     deletedIds.add(idStr)
@@ -552,8 +617,11 @@ Unified write operations for WorkItems (create, update, delete).
 
         val data = buildJsonObject {
             put("ids", JsonArray(deletedIds.map { JsonPrimitive(it) }))
-            put("deleted", JsonPrimitive(deletedIds.size))
+            put("deleted", JsonPrimitive(deletedIds.size + descendantsDeleted))
             put("failed", JsonPrimitive(failures.size))
+            if (descendantsDeleted > 0) {
+                put("descendantsDeleted", JsonPrimitive(descendantsDeleted))
+            }
             if (failures.isNotEmpty()) {
                 put("failures", JsonArray(failures))
             }

@@ -14,6 +14,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
+import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.and
@@ -385,6 +386,19 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         } catch (e: Exception) {
             logger.error("Failed to find items by IDs", e)
             Result.Error(RepositoryError.DatabaseError("Failed to find items by IDs: ${e.message}"))
+        }
+    }
+
+    override suspend fun deleteAll(ids: Set<UUID>): Result<Int> {
+        if (ids.isEmpty()) return Result.Success(0)
+        return try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                val entityIds = ids.map { EntityID(it, WorkItemsTable) }
+                val count = WorkItemsTable.deleteWhere { WorkItemsTable.id inList entityIds }
+                Result.Success(count)
+            }
+        } catch (e: Exception) {
+            Result.Error(RepositoryError.DatabaseError("Failed to bulk-delete WorkItems: ${e.message}", e))
         }
     }
 
