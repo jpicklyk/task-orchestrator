@@ -262,9 +262,11 @@ Unified write operations for WorkItem dependencies (create, delete).
                 generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt)
             }
         } catch (e: ToolValidationException) {
-            return errorResponse(e.message ?: "Validation failed", ErrorCodes.VALIDATION_ERROR)
+            val failedCount = depsArray?.size ?: 1
+            return successResponse(buildValidationFailureResponse(e.message ?: "Validation failed", failedCount))
         } catch (e: ValidationException) {
-            return errorResponse(e.message ?: "Domain validation failed", ErrorCodes.VALIDATION_ERROR)
+            val failedCount = depsArray?.size ?: 1
+            return successResponse(buildValidationFailureResponse(e.message ?: "Domain validation failed", failedCount))
         }
 
         val repo = context.dependencyRepository()
@@ -287,7 +289,7 @@ Unified write operations for WorkItem dependencies (create, delete).
             }
             successResponse(data)
         } catch (e: ValidationException) {
-            errorResponse(e.message ?: "Dependency creation failed", ErrorCodes.CONFLICT_ERROR)
+            successResponse(buildValidationFailureResponse(e.message ?: "Dependency creation failed", dependencies.size))
         } catch (e: Exception) {
             errorResponse(e.message ?: "Unexpected error creating dependencies", ErrorCodes.INTERNAL_ERROR)
         }
@@ -331,12 +333,11 @@ Unified write operations for WorkItem dependencies (create, delete).
             val unblockAt = extractItemString(depObj, "unblockAt") ?: sharedUnblockAt
 
             // Dependency constructor validates (self-reference, RELATES_TO+unblockAt, valid thresholds)
-            Dependency(
-                fromItemId = fromItemId,
-                toItemId = toItemId,
-                type = type,
-                unblockAt = unblockAt
-            )
+            try {
+                Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type, unblockAt = unblockAt)
+            } catch (e: ValidationException) {
+                throw ToolValidationException("Dependency at index $index: ${e.message}")
+            }
         }
     }
 
@@ -492,4 +493,15 @@ Unified write operations for WorkItem dependencies (create, delete).
         val content = value.content
         return if (content.isBlank()) null else content
     }
+
+    private fun buildValidationFailureResponse(error: String, failedCount: Int): JsonObject =
+        buildJsonObject {
+            put("dependencies", JsonArray(emptyList()))
+            put("created", JsonPrimitive(0))
+            put("failed", JsonPrimitive(failedCount))
+            put("failures", JsonArray(listOf(buildJsonObject {
+                put("index", JsonPrimitive(0))
+                put("error", JsonPrimitive(error))
+            })))
+        }
 }

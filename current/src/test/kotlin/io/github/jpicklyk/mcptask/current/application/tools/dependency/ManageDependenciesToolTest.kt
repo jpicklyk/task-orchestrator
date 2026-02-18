@@ -354,9 +354,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("circular", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("circular", ignoreCase = true))
     }
 
     @Test
@@ -389,9 +393,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("already exists", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("already exists", ignoreCase = true))
     }
 
     @Test
@@ -409,9 +417,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("UUID", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("UUID", ignoreCase = true))
     }
 
     @Test
@@ -429,9 +441,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("same item", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("same item", ignoreCase = true))
     }
 
     @Test
@@ -451,9 +467,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("RELATES_TO", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("RELATES_TO", ignoreCase = true))
     }
 
     @Test
@@ -472,9 +492,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("invalid type", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("invalid type", ignoreCase = true))
     }
 
     @Test
@@ -497,9 +521,13 @@ class ManageDependenciesToolTest {
             context
         ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        val error = result["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("circular", ignoreCase = true))
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["created"]!!.jsonPrimitive.int)
+        assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
+        val failures = data["failures"]!!.jsonArray
+        assertEquals(1, failures.size)
+        assertTrue(failures[0].jsonObject["error"]!!.jsonPrimitive.content.contains("circular", ignoreCase = true))
 
         // Verify nothing was created (atomic)
         val deps = context.dependencyRepository().findByItemId(itemA)

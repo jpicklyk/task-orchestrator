@@ -464,6 +464,19 @@ spans the entire batch).
 }
 ```
 
+**Validation Failure Response** (self-dependency or circular dependency detected):
+
+```json
+{
+  "dependencies": [],
+  "created": 0,
+  "failed": 1,
+  "failures": [{ "index": 0, "error": "A dependency cannot reference the same item on both sides" }]
+}
+```
+
+Note: atomicity is preserved — either all dependencies are created or none. On validation failure, `created` is always 0 and `failures` contains a single entry describing the rejection reason.
+
 ---
 
 ### query_dependencies
