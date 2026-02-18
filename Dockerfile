@@ -26,7 +26,6 @@ RUN ./gradlew dependencies --no-daemon
 # Source code and runtime docs (change frequently, placed last for cache)
 COPY clockwork/src clockwork/src
 COPY current/src current/src
-COPY docs docs
 
 # Builds only the active v3 (Current) module.
 # To also build the deprecated Clockwork v2 JAR, add :clockwork:jar to the command.
@@ -55,8 +54,6 @@ RUN dnf install -y shadow-utils \
     && useradd -r -u 1001 -g appgroup -d /app -s /sbin/nologin appuser \
     && mkdir -p /app/data /app/logs \
     && chown -R appuser:appgroup /app
-
-COPY --from=builder --chown=appuser:appgroup /app/docs /app/docs
 
 # Volume for SQLite database persistence
 VOLUME /app/data

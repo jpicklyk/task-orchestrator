@@ -258,9 +258,9 @@ query_templates(targetEntityType="TASK", isEnabled=true)
 1. Create tool class extending `BaseToolDefinition` in `application/tools/`
 2. Implement `validateParams()` and `execute()` methods
 3. Register in `McpServer.createTools()` — pass required services from context
-4. Add tool documentation in `docs/tools/{tool-name}.md`
-5. Register documentation resource in `ToolDocumentationResources.kt`
-6. Update `docs/api-reference.md` with parameter tables and examples
+4. Add tool documentation in `current/docs/api-reference.md` (v3) or `clockwork/docs/tools/{tool-name}.md` (v2)
+5. Register documentation resource in `ToolDocumentationResources.kt` (clockwork only — v3 does not have runtime doc loading)
+6. Update the relevant `api-reference.md` with parameter tables and examples
 7. Update setup instructions in `TaskOrchestratorResources.kt` if the tool affects agent workflows
 8. Update plugin skills that reference tool workflows (see scoped CLAUDE.md cross-reference table)
 9. Add tests in `src/test/kotlin/application/tools/`
@@ -271,7 +271,7 @@ query_templates(targetEntityType="TASK", isEnabled=true)
 
 **Direct (Development):** Update schema in `infrastructure/database/schema/` and `DirectDatabaseSchemaManager.kt`. New tables must be inserted in foreign-key dependency order in the manager's table list.
 
-See [database-migrations.md](docs/developer-guides/database-migrations.md) for patterns and examples.
+See [database-migrations.md](clockwork/docs/developer-guides/database-migrations.md) for patterns and examples (v2/Clockwork). v3 uses a different migration strategy.
 
 ### Adding a New Template
 
@@ -377,16 +377,19 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 
 ## Documentation
 
-**Developer Guides:** `docs/developer-guides/`
-- [architecture.md](docs/developer-guides/architecture.md) - Comprehensive architecture guide
-- [database-migrations.md](docs/developer-guides/database-migrations.md) - Migration management
+**Active (v3 Current) User Documentation:** `current/docs/`
+- [quick-start.md](current/docs/quick-start.md) - Getting started with v3
+- [api-reference.md](current/docs/api-reference.md) - All 13 MCP tools
+- [workflow-guide.md](current/docs/workflow-guide.md) - Note schemas, phase gates, lifecycle
 
-**User Documentation:** `docs/`
-- [quick-start.md](docs/quick-start.md) - Getting started
-- [ai-guidelines.md](docs/ai-guidelines.md) - How AI uses Task Orchestrator
-- [api-reference.md](docs/api-reference.md) - Complete MCP tools documentation
-- [status-progression.md](docs/status-progression.md) - Status workflow guide with examples
-- [templates.md](docs/templates.md) - Template system guide
+**Archived (v2 Clockwork) Documentation:** `clockwork/docs/`
+- [quick-start.md](clockwork/docs/quick-start.md) - v2 getting started
+- [ai-guidelines.md](clockwork/docs/ai-guidelines.md) - v2 AI usage guide
+- [api-reference.md](clockwork/docs/api-reference.md) - v2 tool reference (14 tools)
+- [status-progression.md](clockwork/docs/status-progression.md) - v2 status workflow
+- [templates.md](clockwork/docs/templates.md) - v2 template system
+- [developer-guides/architecture.md](clockwork/docs/developer-guides/architecture.md) - v2 architecture
+- [developer-guides/database-migrations.md](clockwork/docs/developer-guides/database-migrations.md) - v2 migration guide
 
 ## Git Workflow
 

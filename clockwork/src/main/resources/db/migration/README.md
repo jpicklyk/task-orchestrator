@@ -85,7 +85,7 @@ CREATE INDEX idx_your_table_name ON your_table(name);
 
 ## 📚 Full Documentation
 
-See [docs/developer-guides/database-migrations.md](../../../docs/developer-guides/database-migrations.md) for complete migration guide.
+See [clockwork/docs/developer-guides/database-migrations.md](../../../../../clockwork/docs/developer-guides/database-migrations.md) for complete migration guide.
 
 ## Current Tables
 

@@ -55,7 +55,7 @@ object ToolDocumentationResources {
      */
     private fun loadDocumentation(fileName: String): String {
         return try {
-            val file = File("docs/tools/$fileName")
+            val file = File("clockwork/docs/tools/$fileName")
             if (file.exists()) {
                 file.readText()
             } else {
