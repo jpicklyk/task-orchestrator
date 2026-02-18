@@ -1,6 +1,6 @@
 {
   "name": "current-task-orchestrator",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Claude Code integration for Current (v3) MCP Task Orchestrator — thin hooks, schema-aware context, note-driven workflow",
   "skills": "./skills",
   "hooks": "./hooks/hooks-config.json",

@@ -21,32 +21,30 @@ Generate an activity-first dashboard. Lead with what's in flight, group containe
 ### ◉ In Progress
 | Item | Path | Role |
 |------|------|------|
-| Add jokes.json | Features › Joke Telling Service | work |
+| Auth System | Features | work |
 
 ### ○ Pending Work
 | Container | ○ | ◉ | ✓ |
 |-----------|---|---|---|
-| `97050f82` Features | 1 | 1 | — |
-| `b27fe02a` Observations | 1 | — | — |
+| `97050f82` Features | 3 | 1 | 2 |
 
 **Empty:** Bugs · Tech Debt · Action Items
-**Done (2):** v3 Smoke Test · V3 Cascade Refactor
+**Done (10):** v3 Smoke Test · V3 Cascade Refactor (+8 standalone)
 ```
 
 ## Formatting Rules
 
 **In Progress section:**
-- Include any item with role=work or role=review
-- Each active item from `get_context(includeAncestors=true)` includes an `ancestors` array: `[{id, title, depth}, ...]` ordered root → direct parent
-- Build the breadcrumb path by joining ancestor titles with ` › ` separator
-- Example: if item has `ancestors: [{title:"Features"}, {title:"Auth System"}]`, path = `Features › Auth System`
-- If ancestors is empty (root item), path = `—`
-- If nothing is in progress, show: `_Nothing in progress._`
+- Include any item with role=work or role=review from `activeItems`
+- **Collapse children of active parents:** if an item's `ancestors` array contains the ID of any other item also in `activeItems`, omit that child from the table — the parent's entry implies it has active descendants
+- Each shown item's path = join its `ancestors` titles with ` › `. If ancestors is empty, path = `—`
+- If nothing is in progress after collapse, show: `_Nothing in progress._`
 
 **Pending Work section:**
-- Only include root containers that have at least one child (any role)
+- Only include root containers that have at least one **non-terminal** child: `childCounts.queue > 0 OR childCounts.work > 0 OR childCounts.review > 0`
+- Containers whose children are all terminal are done — exclude them from this section
 - Sort: containers with active (work/review) children first, then queue-only
-- Omit this section entirely if all containers are empty
+- Omit this section entirely if no containers qualify
 
 **Stalled section** (only if stalledItems is non-empty):
 ```
@@ -57,6 +55,7 @@ Generate an activity-first dashboard. Lead with what's in flight, group containe
 ```
 
 **Blocked section** (only if blockedItems is non-empty):
+- Apply the same parent-collapse rule as In Progress: if a blocked item's `ancestors` contains the ID of any item in `activeItems` or `blockedItems`, omit that child
 ```
 ### ⊘ Blocked
 | Item | Path |
@@ -65,8 +64,17 @@ Generate an activity-first dashboard. Lead with what's in flight, group containe
 ```
 
 **Footer lines:**
-- `**Empty:**` — comma/dot separated list of root containers with zero children; omit line if none
-- `**Done (N):**` — comma/dot separated list of root items in terminal role; omit line if none
+
+`**Empty:**` — root items with zero children of any role; omit line if none
+
+`**Done:**` — two tiers on one line:
+- **Named containers** = terminal root items with ≥1 child: list by title separated by ` · `
+- **Standalone items** = terminal root items with 0 children: collapse to `(+N standalone)`
+- Format examples:
+  - Named only: `**Done (3):** v3 Smoke Test · V3 Cascade Refactor · Observations`
+  - Both: `**Done (10):** v3 Smoke Test · V3 Cascade Refactor (+8 standalone)`
+  - Standalone only: `**Done (8):** (+8 standalone)`
+- N = total count of all terminal root items; omit line entirely if none
 
 **General:**
 - Use `—` (em dash) for zero counts in tables, not `0`
