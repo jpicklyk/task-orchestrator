@@ -5,7 +5,10 @@ kotlinCoroutines = "1.8.0"
 kotlinSerialization = "1.8.0"
 
 # MCP SDK
-mcpSdk = "0.7.4"
+mcpSdk = "0.8.4"
+
+# Ktor (version-aligned with MCP SDK's transitive dependency)
+ktor = "3.2.3"
 
 # Database
 sqlite = "3.45.1.0"
@@ -14,9 +17,8 @@ flyway = "10.22.0"
 
 # Logging
 slf4j = "2.0.17"
-slf4jNop = "2.0.13"
 
-logback = "1.5.13"
+logback = "1.5.28"
 
 # Testing
 mockk = "1.14.2"
@@ -34,20 +36,21 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 # MCP SDK
 mcp-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcpSdk" }
 
+# Ktor
+ktor-bom        = { module = "io.ktor:ktor-bom",        version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+
 # Database
 sqlite = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
 exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
 exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposed" }
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposed-java-time = { module = "org.jetbrains.exposed:exposed-java-time", version.ref = "exposed" }
-exposed-migration = { module = "org.jetbrains.exposed:exposed-migration", version.ref = "exposed" }
-
 # Flyway
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 
 # Logging
 slf4j = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
-slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4jNop" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
 # YAML

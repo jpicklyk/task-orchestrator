@@ -1,0 +1,1534 @@
+package io.github.jpicklyk.mcptask.application.service.progression
+
+import io.github.jpicklyk.mcptask.application.service.StatusValidator
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * Unit tests for StatusProgressionServiceImpl
+ *
+ * Tests cover:
+ * - Config loading with caching (60-second timeout)
+ * - Flow determination based on tags with priority ordering
+ * - Next status calculation in workflow sequences
+ * - Terminal status detection
+ * - Readiness checking with StatusValidator integration
+ * - Emergency transition handling
+ * - Edge cases (missing config, empty flows, invalid statuses)
+ */
+class StatusProgressionServiceImplTest {
+
+    private lateinit var statusValidator: StatusValidator
+    private lateinit var service: StatusProgressionServiceImpl
+
+    @TempDir
+    lateinit var tempDir: Path
+
+    private val validConfigYaml = """
+        status_progression:
+          tasks:
+            default_flow:
+              - backlog
+              - pending
+              - in-progress
+              - testing
+              - completed
+
+            bug_fix_flow:
+              - reported
+              - triaged
+              - in-progress
+              - testing
+              - verified
+              - closed
+
+            documentation_flow:
+              - draft
+              - review
+              - approved
+              - published
+
+            terminal_statuses:
+              - completed
+              - cancelled
+              - deferred
+              - closed
+
+            emergency_transitions:
+              - blocked
+              - cancelled
+              - archived
+
+            flow_mappings:
+              - tags: [bug, fix, hotfix]
+                flow: bug_fix_flow
+              - tags: [documentation, docs]
+                flow: documentation_flow
+
+            status_roles:
+              backlog: queue
+              pending: queue
+              in-progress: work
+              testing: review
+              changes-requested: work
+              ready-for-qa: review
+              investigating: work
+              blocked: blocked
+              completed: terminal
+              cancelled: terminal
+              deferred: terminal
+              closed: terminal
+
+          features:
+            default_flow:
+              - planning
+              - in-development
+              - testing
+              - completed
+
+            terminal_statuses:
+              - completed
+              - cancelled
+
+            emergency_transitions:
+              - blocked
+              - archived
+
+            status_roles:
+              planning: queue
+              in-development: work
+              testing: review
+              pending-review: review
+              on-hold: blocked
+              blocked: blocked
+              completed: terminal
+              cancelled: terminal
+
+          projects:
+            default_flow:
+              - planning
+              - active
+              - completed
+
+            terminal_statuses:
+              - completed
+              - archived
+
+            emergency_transitions:
+              - archived
+
+            status_roles:
+              planning: queue
+              active: work
+              deployed: terminal
+              completed: terminal
+              archived: terminal
+    """.trimIndent()
+
+    @BeforeEach
+    fun setUp() {
+        statusValidator = mockk<StatusValidator>()
+        service = StatusProgressionServiceImpl(statusValidator)
+
+        // Set user.dir to temp directory for testing
+        System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+    }
+
+    private fun createConfigFile(content: String = validConfigYaml) {
+        val configDir = tempDir.resolve(".taskorchestrator").toFile()
+        configDir.mkdirs()
+        val configFile = configDir.resolve("config.yaml")
+        configFile.writeText(content)
+    }
+
+    @Nested
+    inner class GetNextStatus {
+
+        @Test
+        fun `should return next status in default flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "pending",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("in-progress", result.recommendedStatus)
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(listOf("backlog", "pending", "in-progress", "testing", "completed"), result.flowSequence)
+            assertEquals(1, result.currentPosition) // "pending" is at index 1
+            assertTrue(result.matchedTags.isEmpty())
+            assertTrue(result.reason.contains("Next status"))
+        }
+
+        @Test
+        fun `should use bug_fix_flow when task has bug tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "reported",
+                    newStatus = "triaged",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = listOf("bug", "backend")
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "reported",
+                containerType = "task",
+                tags = listOf("bug", "backend"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("triaged", result.recommendedStatus)
+            assertEquals("bug_fix_flow", result.activeFlow)
+            assertEquals(listOf("reported", "triaged", "in-progress", "testing", "verified", "closed"), result.flowSequence)
+            assertEquals(0, result.currentPosition) // "reported" is at index 0
+            assertTrue(result.matchedTags.contains("bug"))
+        }
+
+        @Test
+        fun `should use documentation_flow when task has docs tag`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "draft",
+                    newStatus = "review",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = listOf("documentation")
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "draft",
+                containerType = "task",
+                tags = listOf("documentation"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("review", result.recommendedStatus)
+            assertEquals("documentation_flow", result.activeFlow)
+            assertEquals(listOf("draft", "review", "approved", "published"), result.flowSequence)
+            assertEquals(0, result.currentPosition)
+            assertTrue(result.matchedTags.contains("documentation"))
+        }
+
+        @Test
+        fun `should return Terminal when at terminal status`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "completed",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Terminal>(result)
+            assertEquals("completed", result.terminalStatus)
+            assertEquals("default_flow", result.activeFlow)
+            assertTrue(result.reason.contains("terminal"))
+        }
+
+        @Test
+        fun `should return Terminal when at end of flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "completed",
+                containerType = "task",
+                tags = listOf("bug"),
+                containerId = null
+            )
+
+            // Assert - "closed" is terminal in bug_fix_flow
+            assertIs<NextStatusRecommendation.Terminal>(result)
+        }
+
+        @Test
+        fun `should return Blocked when transition validation fails`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            val taskId = UUID.randomUUID() // Need ID for validation to run
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Invalid(
+                reason = "Summary required",
+                suggestions = listOf("Add summary to task")
+            )
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "pending",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId // Pass ID to trigger validation
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Blocked>(result)
+            assertEquals("pending", result.currentStatus)
+            assertEquals(1, result.blockers.size)
+            assertTrue(result.blockers[0].contains("Summary required"))
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(1, result.currentPosition)
+        }
+
+        @Test
+        fun `should return Terminal when status not found in flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "invalid-status",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Terminal>(result)
+            assertTrue(result.reason.contains("not found in workflow"))
+        }
+
+        @Test
+        fun `should normalize status for comparison`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "IN_PROGRESS",
+                    newStatus = "testing",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act - uppercase with underscores should match "in-progress"
+            val result = service.getNextStatus(
+                currentStatus = "IN_PROGRESS",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("testing", result.recommendedStatus)
+            assertEquals(2, result.currentPosition) // "in-progress" is at index 2
+        }
+
+        @Test
+        fun `should use default config when user config not present`() = runBlocking {
+            // Arrange - no config file created, falls back to bundled default-config.yaml
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "pending",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert - should use default_flow from bundled default-config.yaml
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("in-progress", result.recommendedStatus)
+            assertEquals("default_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should work with features`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "planning",
+                    newStatus = "in-development",
+                    containerType = "feature",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "planning",
+                containerType = "feature",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("in-development", result.recommendedStatus)
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(listOf("planning", "in-development", "testing", "completed"), result.flowSequence)
+        }
+
+        @Test
+        fun `should work with projects`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "planning",
+                    newStatus = "active",
+                    containerType = "project",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "planning",
+                containerType = "project",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("active", result.recommendedStatus)
+            assertEquals("default_flow", result.activeFlow)
+        }
+    }
+
+    @Nested
+    inner class GetFlowPath {
+
+        @Test
+        fun `should return complete flow path for default flow`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = emptyList(),
+                currentStatus = "pending"
+            )
+
+            // Assert
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(listOf("backlog", "pending", "in-progress", "testing", "completed"), result.flowSequence)
+            assertEquals(1, result.currentPosition) // "pending" is at index 1
+            assertTrue(result.matchedTags.isEmpty())
+            assertEquals(listOf("completed", "cancelled", "deferred", "closed"), result.terminalStatuses)
+            assertEquals(listOf("blocked", "cancelled", "archived"), result.emergencyTransitions)
+        }
+
+        @Test
+        fun `should return bug_fix_flow path when bug tag present`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = listOf("bug"),
+                currentStatus = "triaged"
+            )
+
+            // Assert
+            assertEquals("bug_fix_flow", result.activeFlow)
+            assertEquals(listOf("reported", "triaged", "in-progress", "testing", "verified", "closed"), result.flowSequence)
+            assertEquals(1, result.currentPosition)
+            assertTrue(result.matchedTags.contains("bug"))
+        }
+
+        @Test
+        fun `should handle null currentStatus`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = emptyList(),
+                currentStatus = null
+            )
+
+            // Assert
+            assertEquals("default_flow", result.activeFlow)
+            assertNull(result.currentPosition)
+            assertEquals(listOf("backlog", "pending", "in-progress", "testing", "completed"), result.flowSequence)
+        }
+
+        @Test
+        fun `should handle status not in flow`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = emptyList(),
+                currentStatus = "invalid-status"
+            )
+
+            // Assert
+            assertEquals("default_flow", result.activeFlow)
+            assertNull(result.currentPosition) // Status not found, so null
+        }
+
+        @Test
+        fun `should use default config flow when user config not present`() {
+            // Arrange - no config file, falls back to bundled default-config.yaml
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = emptyList(),
+                currentStatus = "pending"
+            )
+
+            // Assert - should use default_flow from bundled default-config.yaml (4-element flow after config change)
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(listOf("backlog", "pending", "in-progress", "completed"), result.flowSequence)
+            assertEquals(1, result.currentPosition) // "pending" is at index 1
+            assertEquals(listOf("completed", "cancelled", "deferred"), result.terminalStatuses)
+            assertEquals(listOf("blocked", "on-hold", "cancelled", "deferred"), result.emergencyTransitions)
+        }
+
+        @Test
+        fun `should work with features`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "feature",
+                tags = emptyList(),
+                currentStatus = "planning"
+            )
+
+            // Assert
+            assertEquals("default_flow", result.activeFlow)
+            assertEquals(listOf("planning", "in-development", "testing", "completed"), result.flowSequence)
+            assertEquals(0, result.currentPosition)
+            assertEquals(listOf("completed", "cancelled"), result.terminalStatuses)
+            assertEquals(listOf("blocked", "archived"), result.emergencyTransitions)
+        }
+    }
+
+    @Nested
+    inner class CheckReadiness {
+
+        @Test
+        fun `should return Ready when transition is valid`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            val taskId = UUID.randomUUID()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.checkReadiness(
+                currentStatus = "pending",
+                targetStatus = "in-progress",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId
+            )
+
+            // Assert
+            assertIs<ReadinessResult.Ready>(result)
+            assertTrue(result.isValid)
+            assertTrue(result.reason.contains("valid"))
+        }
+
+        @Test
+        fun `should return Ready with advisory when transition has advisory`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            val taskId = UUID.randomUUID()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.ValidWithAdvisory("Consider adding environment tag")
+
+            // Act
+            val result = service.checkReadiness(
+                currentStatus = "pending",
+                targetStatus = "in-progress",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId
+            )
+
+            // Assert
+            assertIs<ReadinessResult.Ready>(result)
+            assertTrue(result.reason.contains("Advisory"))
+        }
+
+        @Test
+        fun `should return NotReady when validation fails`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            val taskId = UUID.randomUUID()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "completed",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Invalid(
+                reason = "Summary required",
+                suggestions = listOf("Add summary (at most 500 chars)")
+            )
+
+            // Act
+            val result = service.checkReadiness(
+                currentStatus = "pending",
+                targetStatus = "completed",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId
+            )
+
+            // Assert
+            assertIs<ReadinessResult.NotReady>(result)
+            assertEquals(1, result.blockers.size)
+            assertTrue(result.blockers[0].contains("Summary required"))
+            assertEquals(1, result.suggestions.size)
+        }
+
+        @Test
+        fun `should return Invalid when target status not in flow`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            val taskId = UUID.randomUUID()
+
+            // Act
+            val result = service.checkReadiness(
+                currentStatus = "pending",
+                targetStatus = "invalid-status",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId
+            )
+
+            // Assert
+            assertIs<ReadinessResult.Invalid>(result)
+            assertTrue(result.reason.contains("not valid in active workflow"))
+            assertEquals(listOf("backlog", "pending", "in-progress", "testing", "completed"), result.allowedStatuses)
+        }
+
+        @Test
+        fun `should return Invalid when current status is terminal`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            val taskId = UUID.randomUUID()
+
+            // Act
+            val result = service.checkReadiness(
+                currentStatus = "completed",
+                targetStatus = "in-progress",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId
+            )
+
+            // Assert
+            assertIs<ReadinessResult.Invalid>(result)
+            assertTrue(result.reason.contains("Cannot transition from terminal status"))
+            assertTrue(result.allowedStatuses.isEmpty())
+        }
+
+        @Test
+        fun `should use default config for readiness when user config not present`() = runBlocking {
+            // Arrange - no config file, falls back to bundled default-config.yaml
+            val taskId = UUID.randomUUID()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "pending",
+                    newStatus = "in-progress",
+                    containerType = "task",
+                    containerId = taskId,
+                    context = null,
+                    tags = emptyList()
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.checkReadiness(
+                currentStatus = "pending",
+                targetStatus = "in-progress",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = taskId
+            )
+
+            // Assert - should use default_flow from bundled default-config.yaml
+            assertIs<ReadinessResult.Ready>(result)
+        }
+    }
+
+    @Nested
+    inner class GetRoleForStatus {
+
+        @Test
+        fun `getRoleForStatus returns queue for pending task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("queue", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns work for in-progress status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "in-progress",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns terminal for completed status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "completed",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("terminal", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns blocked for blocked status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "blocked",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("blocked", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns null for unknown status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "nonexistent",
+                containerType = "task"
+            )
+
+            // Assert
+            assertNull(role)
+        }
+
+        @Test
+        fun `getRoleForStatus normalizes status input`() {
+            // Arrange
+            createConfigFile()
+
+            // Act - "In Progress" should normalize: lowercase → "in progress", but note
+            // normalizeStatus replaces '_' with '-', not spaces. "IN_PROGRESS" → "in-progress"
+            val roleFromUnderscore = service.getRoleForStatus(
+                status = "IN_PROGRESS",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", roleFromUnderscore)
+        }
+
+        @Test
+        fun `getRoleForStatus works for feature container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "planning",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals("queue", role)
+        }
+
+        @Test
+        fun `getRoleForStatus works for project container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "active",
+                containerType = "project"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns null for invalid container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending",
+                containerType = "invalid"
+            )
+
+            // Assert
+            assertNull(role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns null when config is unavailable`() {
+            // Arrange - no config file, AND override user.dir to a non-existent path
+            // to prevent bundled default from loading. Actually the bundled default will
+            // still load from classpath. Let's just test with a malformed config.
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending",
+                containerType = "task"
+            )
+
+            // Assert
+            assertNull(role)
+        }
+
+        @Test
+        fun `getRoleForStatus infers roles when status_roles not defined`() {
+            // Arrange - config without explicit status_roles section
+            val configWithoutRoles = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                      - cancelled
+                    emergency_transitions:
+                      - blocked
+            """.trimIndent()
+            createConfigFile(configWithoutRoles)
+
+            // Act - terminal statuses should be inferred as "terminal"
+            val completedRole = service.getRoleForStatus(
+                status = "completed",
+                containerType = "task"
+            )
+            val blockedRole = service.getRoleForStatus(
+                status = "blocked",
+                containerType = "task"
+            )
+            val pendingRole = service.getRoleForStatus(
+                status = "pending",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("terminal", completedRole)
+            assertEquals("blocked", blockedRole)
+            assertNull(pendingRole) // Not in terminal or emergency, so not inferred
+        }
+
+        @Test
+        fun `getRoleForStatus returns work for changes-requested task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "changes-requested",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns review for ready-for-qa task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "ready-for-qa",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("review", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns work for investigating task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "investigating",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("work", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns terminal for deferred task status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "deferred",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("terminal", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns blocked for on-hold feature status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "on-hold",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals("blocked", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns review for pending-review feature status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "pending-review",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals("review", role)
+        }
+
+        @Test
+        fun `getRoleForStatus returns terminal for deployed project status`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "deployed",
+                containerType = "project"
+            )
+
+            // Assert
+            assertEquals("terminal", role)
+        }
+
+        @Test
+        fun `getRoleForStatus with custom role mapping overrides default`() {
+            // Arrange - create config with custom role mapping where in-progress is mapped to review
+            val customConfigYaml = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                    emergency_transitions:
+                      - blocked
+                    status_roles:
+                      backlog: queue
+                      pending: queue
+                      in-progress: review
+                      completed: terminal
+                      blocked: blocked
+            """.trimIndent()
+            createConfigFile(customConfigYaml)
+
+            // Act
+            val role = service.getRoleForStatus(
+                status = "in-progress",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals("review", role)
+        }
+    }
+
+    @Nested
+    inner class GetStatusesForRole {
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to work role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("in-progress", "changes-requested", "investigating"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to terminal role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+
+            // Assert - should include completed, cancelled, deferred, and closed
+            assertTrue(statuses.contains("completed"))
+            assertTrue(statuses.contains("cancelled"))
+            assertTrue(statuses.contains("deferred"))
+            assertTrue(statuses.contains("closed"))
+            assertEquals(4, statuses.size)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to queue role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "queue",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("backlog", "pending"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to review role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "review",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("testing", "ready-for-qa"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns statuses mapped to blocked role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "blocked",
+                containerType = "task"
+            )
+
+            // Assert
+            assertEquals(setOf("blocked"), statuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns empty set for unknown role`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "nonexistent",
+                containerType = "task"
+            )
+
+            // Assert
+            assertTrue(statuses.isEmpty())
+        }
+
+        @Test
+        fun `getStatusesForRole returns empty set when no config`() {
+            // Arrange - malformed config
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+
+            // Assert
+            assertTrue(statuses.isEmpty())
+        }
+
+        @Test
+        fun `getStatusesForRole is case insensitive for role name`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statusesLowercase = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+            val statusesUppercase = service.getStatusesForRole(
+                role = "WORK",
+                containerType = "task"
+            )
+            val statusesMixedCase = service.getStatusesForRole(
+                role = "WoRk",
+                containerType = "task"
+            )
+
+            // Assert - all should return same results
+            assertEquals(statusesLowercase, statusesUppercase)
+            assertEquals(statusesLowercase, statusesMixedCase)
+            assertEquals(setOf("in-progress", "changes-requested", "investigating"), statusesLowercase)
+        }
+
+        @Test
+        fun `getStatusesForRole works with feature container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val queueStatuses = service.getStatusesForRole(
+                role = "queue",
+                containerType = "feature"
+            )
+            val workStatuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "feature"
+            )
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals(setOf("planning"), queueStatuses)
+            assertEquals(setOf("in-development"), workStatuses)
+            assertEquals(setOf("completed", "cancelled"), terminalStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole works with project container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val queueStatuses = service.getStatusesForRole(
+                role = "queue",
+                containerType = "project"
+            )
+            val workStatuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "project"
+            )
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "project"
+            )
+
+            // Assert
+            assertEquals(setOf("planning"), queueStatuses)
+            assertEquals(setOf("active"), workStatuses)
+            assertEquals(setOf("deployed", "completed", "archived"), terminalStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns empty set for invalid container type`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val statuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "invalid"
+            )
+
+            // Assert
+            assertTrue(statuses.isEmpty())
+        }
+
+        @Test
+        fun `getStatusesForRole uses bundled default config when user config not present`() {
+            // Arrange - no config file, falls back to bundled default-config.yaml
+
+            // Act
+            val workStatuses = service.getStatusesForRole(
+                role = "work",
+                containerType = "task"
+            )
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+
+            // Assert - should use status_roles from bundled default-config.yaml
+            assertEquals(setOf("in-progress", "changes-requested", "investigating"), workStatuses)
+            assertEquals(setOf("completed", "cancelled", "deferred"), terminalStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole handles multiple statuses per role correctly`() {
+            // Arrange
+            createConfigFile()
+
+            // Act
+            val reviewStatuses = service.getStatusesForRole(
+                role = "review",
+                containerType = "feature"
+            )
+
+            // Assert
+            assertEquals(setOf("testing", "pending-review"), reviewStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole infers roles when status_roles not defined`() {
+            // Arrange - config without explicit status_roles section
+            val configWithoutRoles = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                      - cancelled
+                    emergency_transitions:
+                      - blocked
+            """.trimIndent()
+            createConfigFile(configWithoutRoles)
+
+            // Act
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+            val blockedStatuses = service.getStatusesForRole(
+                role = "blocked",
+                containerType = "task"
+            )
+
+            // Assert - should infer terminal and blocked roles from config structure
+            assertEquals(setOf("completed", "cancelled"), terminalStatuses)
+            assertEquals(setOf("blocked"), blockedStatuses)
+        }
+
+        @Test
+        fun `getStatusesForRole returns unique statuses only once`() {
+            // Arrange - create config where same status might appear in multiple places
+            val configYaml = """
+                status_progression:
+                  tasks:
+                    default_flow:
+                      - backlog
+                      - pending
+                      - in-progress
+                      - completed
+                    terminal_statuses:
+                      - completed
+                      - cancelled
+                    emergency_transitions:
+                      - blocked
+                    status_roles:
+                      completed: terminal
+                      cancelled: terminal
+                      blocked: blocked
+            """.trimIndent()
+            createConfigFile(configYaml)
+
+            // Act
+            val terminalStatuses = service.getStatusesForRole(
+                role = "terminal",
+                containerType = "task"
+            )
+
+            // Assert - should return each status only once
+            assertEquals(setOf("completed", "cancelled"), terminalStatuses)
+        }
+    }
+
+    @Nested
+    inner class ConfigFallback {
+
+        @Test
+        fun `should not fallback to default when user config is malformed`() {
+            // Arrange - create a config file with invalid YAML
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val result = service.getFlowPath(
+                containerType = "task",
+                tags = emptyList(),
+                currentStatus = "pending"
+            )
+
+            // Assert - should NOT use default config; malformed user config is an error
+            assertEquals("unknown", result.activeFlow)
+            assertTrue(result.flowSequence.isEmpty())
+        }
+    }
+
+    @Nested
+    inner class ConfigCaching {
+
+        @Test
+        fun `should cache config and not reload within timeout`() = runBlocking {
+            // Arrange
+            createConfigFile()
+
+            // Act - Load config twice
+            val result1 = service.getFlowPath("task", emptyList(), null)
+
+            // Modify config file (should not affect result due to caching)
+            val configFile = tempDir.resolve(".taskorchestrator/config.yaml").toFile()
+            configFile.writeText("status_progression: {}")
+
+            val result2 = service.getFlowPath("task", emptyList(), null)
+
+            // Assert - Both should return same flow (cached)
+            assertEquals(result1.flowSequence, result2.flowSequence)
+            assertEquals(result1.activeFlow, result2.activeFlow)
+        }
+
+        @Test
+        fun `should handle malformed YAML gracefully`() {
+            // Arrange
+            createConfigFile("invalid: yaml: content: [[[[")
+
+            // Act
+            val result = service.getFlowPath("task", emptyList(), null)
+
+            // Assert
+            assertEquals("unknown", result.activeFlow)
+            assertTrue(result.flowSequence.isEmpty())
+        }
+    }
+
+    @Nested
+    inner class EdgeCases {
+
+        @Test
+        fun `should handle empty flow sequence`() = runBlocking {
+            // Arrange
+            val configWithEmptyFlow = """
+                status_progression:
+                  tasks:
+                    default_flow: []
+                    terminal_statuses: []
+                    emergency_transitions: []
+            """.trimIndent()
+            createConfigFile(configWithEmptyFlow)
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "pending",
+                containerType = "task",
+                tags = emptyList(),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Terminal>(result)
+            assertTrue(result.reason.contains("empty"))
+        }
+
+        @Test
+        fun `should handle case-insensitive tag matching`() = runBlocking {
+            // Arrange
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "reported",
+                    newStatus = "triaged",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = listOf("BUG", "BACKEND")
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act - uppercase tags should match
+            val result = service.getNextStatus(
+                currentStatus = "reported",
+                containerType = "task",
+                tags = listOf("BUG", "BACKEND"),
+                containerId = null
+            )
+
+            // Assert
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("bug_fix_flow", result.activeFlow)
+        }
+
+        @Test
+        fun `should handle first match wins for flow mappings`() = runBlocking {
+            // Arrange - config has bug before docs in flow_mappings
+            createConfigFile()
+            coEvery {
+                statusValidator.validateTransition(
+                    currentStatus = "reported",
+                    newStatus = "triaged",
+                    containerType = "task",
+                    containerId = null,
+                    context = null,
+                    tags = listOf("bug", "documentation") // Has both
+                )
+            } returns StatusValidator.ValidationResult.Valid
+
+            // Act
+            val result = service.getNextStatus(
+                currentStatus = "reported",
+                containerType = "task",
+                tags = listOf("bug", "documentation"), // Has both tags
+                containerId = null
+            )
+
+            // Assert - Should use bug_fix_flow (first match in mappings)
+            assertIs<NextStatusRecommendation.Ready>(result)
+            assertEquals("bug_fix_flow", result.activeFlow)
+        }
+    }
+}

@@ -2,428 +2,358 @@
 
 **Stop losing context. Start building faster.**
 
-An orchestration framework for AI coding assistants that solves context pollution and token exhaustion - enabling your AI to work on complex projects without running out of memory.
+An orchestration framework for AI coding assistants that solves context pollution and token exhaustion — enabling your AI to work on complex projects without running out of memory.
 
-[![Version](https://img.shields.io/github/v/release/jpicklyk/task-orchestrator?include_prereleases)](https://github.com/jpicklyk/task-orchestrator/releases)
+[![Version](https://img.shields.io/github/v/tag/jpicklyk/task-orchestrator?sort=semver)](https://github.com/jpicklyk/task-orchestrator/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-purple)](https://modelcontextprotocol.io)
 
 ---
 
-## The Problem
+## Why This Exists
 
-AI assistants suffer from **context pollution** - a well-documented challenge where model accuracy degrades as token count increases. This "context rot" stems from transformer architecture's quadratic attention mechanism, where each token must maintain pairwise relationships with all others.
-
-**The Impact**: As your AI works on complex features, it accumulates conversation history, tool outputs, and code examples. By task 10-15, the context window fills with 200k+ tokens. The model loses focus, forgets earlier decisions, and eventually fails. You're forced to restart sessions and spend 30-60 minutes rebuilding context just to continue.
-
-**Industry Validation**: Anthropic's research on [context management](https://www.anthropic.com/news/context-management) confirms production AI agents "exhaust their effective context windows" on long-running tasks, requiring active intervention to prevent failure.
-
-Traditional approaches treat context windows like unlimited memory. Task Orchestrator recognizes they're a finite resource that must be managed proactively.
-
-## The Solution
-
-Task Orchestrator implements **industry-recommended patterns** from Anthropic's [context engineering research](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents): persistent external memory, summary-based context passing, and sub-agent architectures with clean contexts.
-
-**How it works**:
-- **Persistent memory** (SQLite) stores project state outside context windows
-- **Summary-based passing** - Tasks create 300-500 token summaries instead of passing 5-10k full contexts
-- **Sub-agent isolation** - Specialists work with clean contexts, return condensed results
-- **Just-in-time loading** - Fetch only what's needed for current work
-
-**Result**: Scale to 50+ tasks without hitting context limits. Up to 90% token reduction (matching Anthropic's 84% benchmark). Zero time wasted rebuilding context.
+AI agents [exhaust their effective context windows](https://www.anthropic.com/news/context-management) on long-running tasks — conversation history, tool outputs, and code examples accumulate until the model loses focus and fails. Task Orchestrator implements [industry-recommended patterns](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) to prevent this: persistent external memory, summary-based phase handoffs, and sub-agent isolation with clean contexts. Work scales to 50+ tasks with up to 90% token reduction and zero time rebuilding context after session restarts.
 
 ---
 
 ## Key Features
 
-- ✅ **Persistent Memory** - AI remembers project state, completed work, and decisions across sessions
-- ✅ **Token Efficiency** - Up to 90% reduction via summary-based context passing
-- ✅ **Hierarchical Tasks** - Projects → Features → Tasks with dependency tracking
-- ✅ **Template System** - 9 built-in workflow templates with decision frameworks and quality gates
-- ✅ **Event-Driven Workflows** - Automatic status progression based on your config
-- ✅ **Sub-Agent Orchestration** - Specialist routing for complex work (Claude Code)
-- ✅ **Skills & Hooks** - Lightweight coordination and workflow automation (Claude Code)
-- ✅ **MCP Protocol Support** - Core persistence and task management work with any MCP client
-
-> **📖 Deep dive**: See [Agent Architecture Guide](docs/agent-architecture.md) for token efficiency comparison and [Developer Architecture](docs/developer-guides/architecture.md) for technical details.
+- ✅ **Persistent Memory** — AI remembers project state, completed work, and decisions across sessions
+- ✅ **Token Efficiency** — Up to 90% reduction via just-in-time context loading and note-based handoffs
+- ✅ **Hierarchical WorkItems** — Flexible depth hierarchy (up to 4 levels) with any nesting structure you need
+- ✅ **Note Schemas** — Per-item documentation requirements that gate phase transitions; enforced by the server
+- ✅ **Role-Based Workflow** — `queue → work → review → terminal` with named triggers and automatic dependency enforcement
+- ✅ **Dependency Graph** — Typed BLOCKS edges with pattern shortcuts (linear chains, fan-out, fan-in) and BFS traversal
+- ✅ **Sub-Agent Orchestration** — Delegated execution for complex work (Claude Code)
+- ✅ **Skills & Hooks** — Workflow coordination skills and event-driven automation (Claude Code plugin)
+- ✅ **MCP Protocol Support** — Core persistence and task management work with any MCP client
 
 ---
 
 ## Quick Start
 
-### Option A: Plugin Installation (Recommended for Claude Code)
+**Prerequisite**: [Docker](https://www.docker.com/products/docker-desktop/) must be installed and running.
 
-**Easiest way** - Install everything (MCP server, skills, subagents, hooks) in one step:
+### Step 1: Pull the image
 
-1. **Clone this repository:**
-   ```bash
-   git clone https://github.com/jpicklyk/task-orchestrator.git
-   cd task-orchestrator
-   ```
+```bash
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+```
 
-2. **Add the local marketplace:**
-   ```
-   /plugin marketplace add ./
-   ```
+This is a one-time step — Docker caches the image locally. Pulling first ensures your MCP client connects instantly rather than waiting silently on first launch.
 
-3. **Install the plugin:**
-   ```
-   /plugin install task-orchestrator@task-orchestrator-marketplace
-   ```
+### Step 2: Register with your MCP client
 
-4. **Restart Claude Code**
+Choose the option that matches your setup:
 
-5. **Initialize your project:**
-   ```
-   setup_project
-   ```
+#### Option A: Claude Code (CLI — recommended)
 
-**Note**: Once this repository is published on GitHub, you'll be able to use:
+Register the server once from your terminal:
+
+```bash
+claude mcp add-json mcp-task-orchestrator '{
+  "command": "docker",
+  "args": [
+    "run", "--rm", "-i",
+    "-v", "mcp-task-data:/app/data",
+    "ghcr.io/jpicklyk/task-orchestrator:latest"
+  ]
+}'
+```
+
+Restart Claude Code, then run `/mcp` to confirm `mcp-task-orchestrator` is connected.
+
+#### Option B: Project `.mcp.json`
+
+Add to `.mcp.json` in your project root (checked into source control so teammates get it automatically):
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "mcp-task-data:/app/data",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
+}
+```
+
+The `mcp-task-data` Docker volume persists the SQLite database across container restarts. The server auto-initializes its schema on first run — no additional setup required.
+
+#### Option C: Other MCP Clients
+
+Configure your client with the same JSON as Option A above. STDIO transport works with any MCP-compatible client.
+
+### Advanced: Per-Project Note Schemas
+
+By default the server runs in schema-free mode — all 13 tools work with no additional configuration. If you want to define custom note schemas that gate role transitions (e.g., require an acceptance-criteria note before a work item can advance), you can point the server at your project's `.taskorchestrator/config.yaml`.
+
+Add the config mount to your **Option B** `.mcp.json` only (not the global Option A registration — a globally-registered server should not have its schema config vary per project):
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "mcp-task-data:/app/data",
+        "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
+        "-e", "AGENT_CONFIG_DIR=/project",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
+}
+```
+
+> **Security note:** Only the `.taskorchestrator/` folder is mounted — the server has no access to the rest of your project. The container's `/project` path contains nothing else.
+
+See [Workflow Guide](current/docs/workflow-guide.md) for the `.taskorchestrator/config.yaml` schema format and examples.
+
+### Step 3: Claude Code Plugin (optional)
+
+Install the plugin for workflow skills, session-start hooks, and an orchestrator output style:
+
 ```
 /plugin marketplace add jpicklyk/task-orchestrator
 /plugin install task-orchestrator
 ```
 
-See [Plugin Installation Guide](docs/plugin-installation.md) for detailed instructions and troubleshooting.
-
-### Option B: Manual MCP Installation
-
-**For other MCP clients or custom setup:**
-
-1. **Install via Docker:**
-   ```bash
-   docker pull ghcr.io/jpicklyk/task-orchestrator:latest
-   ```
-
-2. **Configure your AI platform:**
-
-   **Claude Code:**
-   ```bash
-   claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
-   ```
-
-   This single command works across all platforms (macOS, Linux, Windows).
-
-   **Other MCP clients**: Task Orchestrator's core MCP protocol (persistent memory, task management) works with any MCP client, but advanced features (skills, subagents, hooks) are Claude Code-specific. See [Installation Guide](docs/installation-guide.md) for configuration.
-
-### 3. Initialize AI & Project
-
-**First time setup** - Initialize your AI with Task Orchestrator patterns:
-```
-"Run the initialize_task_orchestrator workflow"
-```
-This writes Task Orchestrator patterns to your AI's permanent memory (CLAUDE.md, .cursorrules, etc.)
-
-**Project setup** - Initialize your project with configuration:
-```
-"Run setup_project to initialize Task Orchestrator"
-```
-
-**Quick reference** - View essential patterns anytime:
-```
-"Show me the getting_started guide"
-```
-
-**That's it!** Your AI can now create and manage tasks with persistent memory.
-
-> **🚀 Complete setup**: [Quick Start Guide](docs/quick-start.md) - Includes sub-agent setup, templates, and first feature walkthrough.
-
----
-
-## Use Cases
-
-### 📂 Persistent Context Across Sessions
-Your AI remembers project state, completed work, and technical decisions - even after restarting. No more re-explaining your codebase every morning.
-
-### 🏗️ Large Feature Implementation
-Build features with 10+ tasks without hitting context limits. Traditional approaches fail at 12-15 tasks. Task Orchestrator scales to 50+ tasks effortlessly.
-
-### 🔄 Cross-Domain Coordination
-Database → Backend → Frontend → Testing workflows with automatic context passing. Each specialist sees only what they need, not everything.
-
-### 👥 Multi-Agent Workflows
-Multiple AI agents work in parallel without conflicts. Built-in concurrency protection and dependency management.
-
-### 🐛 Bug Tracking During Development
-Capture bugs and improvements as you find them. Organize work without losing track of what needs fixing.
+> **Contributing?** See [Contributing Guidelines](CONTRIBUTING.md) for developer setup.
 
 ---
 
 ## How It Works
 
-**1. Hierarchical Task Management**
+### 1. Unified WorkItem Graph
+
+Everything is a **WorkItem** — there are no separate "Project", "Feature", or "Task" types. Items nest by `parentId` up to 4 levels deep. The hierarchy is whatever your workflow needs:
+
 ```
-Project: E-Commerce Platform
-  └── Feature: User Authentication
-      ├── Task: Database schema [COMPLETED]
-      ├── Task: Login API [IN-PROGRESS]
-      ├── Task: Password reset [PENDING]
-      └── Task: API docs [PENDING] [BLOCKED BY: Login API]
-```
-
-**2. Summary-Based Context Passing**
-
-Instead of passing 5,000 tokens of full task details, specialists create 300-500 token summaries:
-
-```markdown
-### Completed
-Created Users table with authentication fields (id, email, password_hash).
-Added indexes for email lookup.
-
-### Files Changed
-- db/migration/V5__create_users.sql
-- src/model/User.kt
-
-### Next Steps
-API endpoints can use this schema for authentication
+WorkItem (depth 0): "E-Commerce Platform"
+  └── WorkItem (depth 1): "User Authentication"
+      ├── WorkItem (depth 2): "Database schema" [terminal]
+      ├── WorkItem (depth 2): "Login API" [work]
+      └── WorkItem (depth 2): "Integration tests" [blocked by: Login API]
 ```
 
-**Result**: Up to 92% token reduction per dependency. This implements Anthropic's "compaction" pattern - preserving critical information while discarding redundant details.
+Create an entire subtree atomically with `create_work_tree`:
 
-**3. Event-Driven Workflows**
+```
+create_work_tree(
+  root={ "title": "User Authentication", "priority": "high" },
+  children=[
+    { "ref": "schema", "title": "Database schema" },
+    { "ref": "api",    "title": "Login API" },
+    { "ref": "tests",  "title": "Integration tests" }
+  ],
+  deps=[
+    { "from": "schema", "to": "api" },
+    { "from": "api",    "to": "tests" }
+  ]
+)
+```
 
-Tasks progress automatically based on workflow events:
-- `work_started` → Task moves to in-progress
-- `implementation_complete` → Task moves to testing
-- `tests_passed` → Task completes
-- `all_tasks_complete` → Feature moves to testing
+### 2. Notes as Persistent Documentation
 
-All status transitions validated by your config in `.taskorchestrator/config.yaml`.
+Notes are keyed text documents attached to WorkItems. They serve as the persistent memory layer — capturing requirements, decisions, test results, and handoff context that survives session restarts.
 
-> **📘 Learn more**: [Status Progression Guide](docs/status-progression.md) and [Workflow Prompts](docs/workflow-prompts.md)
+Instead of re-reading conversation history, each item carries structured phase-specific notes:
+
+```
+manage_notes(operation="upsert", notes=[{
+  "itemId": "<uuid>",
+  "key": "done-criteria",
+  "role": "work",
+  "body": "All 42 tests passing. Schema migration verified on staging. No regressions."
+}])
+```
+
+Reading a 200-token note instead of 5k+ tokens of conversation history implements Anthropic's "compaction" pattern — preserving critical information while discarding redundant details.
+
+### 3. Role-Based Workflow
+
+Every WorkItem moves through lifecycle phases called **roles**:
+
+```
+queue  →  work  →  review  →  terminal
+              ↘                    ↗
+               ← skip review if no review-phase notes defined ←
+
+Any non-terminal role can transition to:
+  blocked  (hold/block trigger)  →  resume  →  previous role
+```
+
+Transitions use named triggers — no raw status assignments:
+
+| Trigger   | Effect |
+|-----------|--------|
+| `start`   | queue→work, work→review (or terminal if no review notes), review→terminal |
+| `complete`| Force-close to terminal, bypassing phase gates |
+| `block`   | Pause to blocked, saving previous role for resume |
+| `resume`  | Restore blocked item to its previous role |
+| `cancel`  | Close to terminal with cancelled status label |
+
+**Dependency enforcement**: `advance_item(trigger="start")` checks that all blocking items have reached their `unblockAt` threshold before allowing a transition. Blocked items appear in `get_blocked_items()` and `get_context()`.
 
 ---
 
-## Core Workflow Pattern
+## Note Schemas
 
-Task Orchestrator follows a **Plan → Orchestrate → Execute** pattern that prevents context pollution:
+Note schemas are the key feature that makes phase transitions meaningful. When an item's `tags` match a configured schema, required notes must be filled before `advance_item` allows progression to the next phase.
 
-### 1. Plan Your Work
+Define schemas in `.taskorchestrator/config.yaml` in your project root:
 
-Start with either:
-- **Plan file**: Create a markdown/text file with your feature description, requirements, and context
-- **Conversation context**: Describe your feature directly in conversation
-
-**Example**:
-```markdown
-# User Authentication Feature
-Build complete authentication system with login, signup, and password reset.
-
-Requirements:
-- JWT-based authentication
-- Password hashing with bcrypt
-- Email verification
-- Rate limiting on login attempts
+```yaml
+note_schemas:
+  task-implementation:
+    - key: requirements
+      role: queue
+      required: true
+      description: "Testable acceptance criteria before starting"
+    - key: done-criteria
+      role: work
+      required: true
+      description: "What does done look like? How was it verified?"
 ```
 
-### 2. Orchestrate Into Structure
+Items tagged `task-implementation` are now gated:
 
-Use the `coordinate_feature_development` workflow (Claude Code):
+- `advance_item(trigger="start")` from **queue** requires `requirements` to be filled
+- `advance_item(trigger="start")` from **work** requires `done-criteria` to be filled
+
+Use `get_context(itemId=...)` to inspect gate status before attempting a transition — it returns `canAdvance`, `missing`, and `guidancePointer` for the first unfilled required note.
+
+After adding or editing `config.yaml`, reconnect the MCP server:
+
 ```
-"Run coordinate_feature_development with my plan file"
+/mcp  (disconnect and reconnect mcp-task-orchestrator)
 ```
 
-**What happens**:
-1. **Feature Architect** (Opus) analyzes your plan → Creates feature with rich context
-2. **Planning Specialist** (Sonnet) breaks down feature → Creates dependency-aware tasks
-3. Returns structured feature ready for execution
+> **Full schema reference**: [Workflow Guide](current/docs/workflow-guide.md)
 
-**Result**: Feature with 5-15 tasks, proper templates, clear dependencies, appropriate specialist tags.
+---
 
-### 3. Execute Based on Dependencies
+## MCP Tools
 
-AI automatically:
-- Routes tasks to specialists (**Implementation Specialist** (Haiku) by default, **Senior Engineer** (Sonnet) for complex issues)
-- Respects dependency chains (database → API → frontend)
-- Passes 300-500 token summaries between tasks (not 5k+ full contexts)
-- Triggers status events as work progresses
+v3 exposes **13 tools** organized around the WorkItem graph:
 
-**Default Specialists:**
-- **Implementation Specialist** (Haiku) - General implementation tasks (fast, cost-efficient)
-- **Senior Engineer** (Sonnet) - Complex debugging, architecture, unblocking
+### Hierarchy & CRUD
 
-**Custom Specialists** (optional via `.taskorchestrator/agent-mapping.yaml`):
-- Backend Engineer, Frontend Developer, Database Engineer, Test Engineer, Technical Writer
-- See [Agent Architecture Guide](docs/agent-architecture.md) for configuration
+| Tool | Description |
+|------|-------------|
+| `manage_items` | Create, update, or delete WorkItems (batch operations) |
+| `query_items` | Get by ID, search with filters and pagination, or hierarchical overview |
+| `create_work_tree` | Atomically create root + children + dependency edges + notes in one call |
+| `complete_tree` | Batch-complete all descendants in topological order with gate checking |
 
-**Your role**: Just say "What's next?" and the AI handles routing, dependencies, and coordination.
+### Notes
 
-> **💡 Pro Tip**: The Task Orchestrator communication style plugin is automatically active in Claude Code for clearer coordination (uses phase labels, status indicators ✅⚠️❌🔄, and concise progress updates) when installed via the plugin marketplace.
+| Tool | Description |
+|------|-------------|
+| `manage_notes` | Upsert or delete notes on WorkItems |
+| `query_notes` | Get a single note or list notes for an item; use `includeBody=false` for token-efficient metadata checks |
 
-### Status Events Drive Progression
+### Dependencies
 
-Task Orchestrator uses **event-driven status progression** mapped to your workflow:
+| Tool | Description |
+|------|-------------|
+| `manage_dependencies` | Create or delete edges; supports `linear`, `fan-out`, `fan-in` pattern shortcuts |
+| `query_dependencies` | Query edges with direction filtering; `neighborsOnly=false` for full BFS graph traversal |
 
-- **Default statuses**: PENDING → IN_PROGRESS → COMPLETED (customizable in `.taskorchestrator/config.yaml`)
-- **Event triggers**: Work completion, test passing, review approval automatically progress status
-- **Workflow types**: Default, bug_fix, documentation flows with different status sequences
-- **Cascade effects**: Task completion can trigger feature status changes
+### Workflow
 
-**Configuration**: `.taskorchestrator/config.yaml` defines:
-- Valid status transitions for each entity type (task, feature, project)
-- Workflow flows (default, bug_fix, documentation)
-- Event mappings (which events trigger which status changes)
-- Prerequisites for status progression (e.g., "can't complete until all tasks done")
+| Tool | Description |
+|------|-------------|
+| `advance_item` | Trigger-based role transitions with gate enforcement, dependency checking, and unblock reporting |
+| `get_next_status` | Read-only progression recommendation before transitioning |
+| `get_context` | Context snapshot: item gate check, session resume, or health check |
+| `get_next_item` | Priority-ranked recommendation of next actionable, unblocked item |
+| `get_blocked_items` | All items blocked by unsatisfied dependencies or explicit block trigger |
 
-> **📘 Deep dive**: [Status Progression Guide](docs/status-progression.md) for complete configuration reference and workflow examples.
+> **Full reference**: [API Reference](current/docs/api-reference.md)
+
+### Token-Efficient Query Patterns
+
+`get_context(includeAncestors=true)` + `query_items(operation="overview")` gives a complete work-summary dashboard in **2 calls** — active items with full ancestor chains, blocked items, and container-level counts. No sequential parent-walk needed.
 
 ---
 
 ## Documentation
 
-### Getting Started
-- 🚀 **[Quick Start Guide](docs/quick-start.md)** - Complete setup walkthrough
-- 🔧 **[Installation Guide](docs/installation-guide.md)** - Platform-specific configuration
-- 🤖 **[AI Guidelines](docs/ai-guidelines.md)** - How AI uses Task Orchestrator autonomously
-
-### Using Task Orchestrator
-- 🤖 **[Agent Architecture](docs/agent-architecture.md)** - 4-tier hybrid system: Direct Tools, Skills, Hooks, Subagents
-- 🎯 **[Skills Guide](docs/skills-guide.md)** - Lightweight coordination (60-82% token savings)
-- 🪝 **[Hooks Guide](docs/hooks-guide.md)** - Workflow automation and event-driven integration
-- 📝 **[Templates](docs/templates.md)** - 9 built-in workflow templates (instructions, frameworks, quality gates)
-- 📋 **[Workflow Prompts](docs/workflow-prompts.md)** - Automated workflow guidance
-
-### Reference
-- 🔧 **[API Reference](docs/api-reference.md)** - Complete MCP tools documentation
-- 🏗️ **[Architecture](docs/developer-guides/architecture.md)** - Technical deep-dive
-- 🆘 **[Troubleshooting](docs/troubleshooting.md)** - Solutions to common issues
-
-### For Developers
-- 👨‍💻 **[Contributing Guidelines](docs/developer-guides/index.md#contributing)** - Development setup
-- 🗃️ **[Database Migrations](docs/developer-guides/database-migrations.md)** - Schema management
-- 💬 **[Community Wiki](../../wiki)** - Examples, tips, and guides
-
----
-
-## Platform Compatibility
-
-| Feature | Claude Code | Other MCP Clients |
-|---------|-------------|-------------------|
-| **Persistent Memory** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Template System** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Task Management** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Sub-Agent Orchestration** | ✅ Tested & Supported | ❌ Claude Code-specific |
-| **Skills (Lightweight Coordination)** | ✅ Tested & Supported | ❌ Claude Code-specific |
-| **Hooks (Workflow Automation)** | ✅ Tested & Supported | ❌ Claude Code-specific |
-| **Status Event System** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-
-**Primary Platform**: Claude Code is the primary tested and supported platform with full feature access including skills, subagents, and hooks.
-
-**Other MCP Clients**: The core MCP protocol (persistent memory, task management, templates, status events) works with any MCP client, but we cannot verify functionality on untested platforms. Advanced orchestration features (skills, subagents, hooks) require Claude Code's `.claude/` directory structure.
+- **[Quick Start Guide](current/docs/quick-start.md)** — Setup walkthrough and first work item
+- **[API Reference](current/docs/api-reference.md)** — All 13 MCP tools, parameters, and response shapes
+- **[Workflow Guide](current/docs/workflow-guide.md)** — Note schemas, phase gates, dependency patterns, and lifecycle examples
+- **[Changelog](CHANGELOG.md)** — Release history
+- **[Contributing Guidelines](CONTRIBUTING.md)** — Development setup and contribution process
 
 ---
 
 ## Example: From Session Start to Feature Complete
 
-**Claude Code (Full Orchestration)**:
-
 ```
-You: "I have a plan for user authentication in plan.md"
-AI: "Loading Feature Orchestration Skill..."
-    "Launching Feature Architect (Opus) with plan file..."
-    → Feature created with 8 tasks
-    "Launching Planning Specialist (Sonnet)..."
-    → Tasks broken down with dependencies
+You: "I want to build user authentication"
+AI: → create_work_tree("User Auth", children=[schema, login-api, tests], deps=[schema→api→tests])
+   → 3 WorkItems created with linear dependency chain
+   → Note schema gates applied to items tagged task-implementation
 
 You: "What's next?"
-AI: "Task 1: Database schema [PENDING]. No blockers."
-    Launches Implementation Specialist → Implements schema → Creates 400-token summary
+AI: → get_next_item() → "Database schema" [queue, no blockers, high priority]
+   → advance_item(trigger="start") → schema moves to work
+   → [implements schema]
+   → manage_notes(key="done-criteria"): "Migration V5 applied. Users table with email index."
+   → advance_item(trigger="start") → schema moves to terminal
+   → Response: unblockedItems = ["Login API"] ← dependency satisfied
 
 You: "What's next?"
-AI: "Task 2: Authentication API [PENDING]. Dependencies satisfied."
-    Reads 400-token summary (not 5k full context)
-    Launches Implementation Specialist → Implements API → Creates summary
-
-You: "What's next?"
-AI: "Task 3: Login UI [PENDING]. Backend ready."
-    Launches Implementation Specialist → Implements UI → Feature progresses
+AI: → get_next_item() → "Login API" [queue, schema is terminal]
+   → Reads 200-token done-criteria note (not 5k conversation history)
+   → Implements API, fills notes, advances to terminal
 
 [Next morning - new session]
 You: "What's next?"
-AI: "Task 4: Integration tests [PENDING]. 3 tasks completed yesterday."
-    No context rebuilding - AI remembers everything from persistent memory
+AI: → get_context(includeAncestors=true) → sees active/blocked items with full context instantly
+   → "Integration tests" was blocked; Login API is now terminal → tests unblocked
+   → advance_item(trigger="start") → tests move to work
 ```
 
-**Key Benefits**:
-- **Zero manual routing**: `coordinate_feature_development` handles specialist selection
-- **Automatic dependency tracking**: AI only suggests tasks with satisfied dependencies
-- **Persistent memory**: New sessions start instantly with full context
-- **Token efficiency**: 400-token summaries instead of 5k+ full contexts
+**No context rebuilding.** Persistent WorkItem graph + notes = instant session resume with full state.
 
 ---
 
 ## Troubleshooting
 
 **Quick Fixes**:
-- **AI can't find tools**: Restart your AI client
+- **AI can't find tools**: Restart your AI client or run `/mcp reconnect mcp-task-orchestrator`
 - **Docker not running**: Start Docker Desktop, verify with `docker version`
-- **Connection problems**: Enable `MCP_DEBUG=true` in Docker config
-- **Skills/Sub-agents not available**: Install via plugin marketplace (requires Claude Code)
-- **coordinate_feature_development not found**: Install plugin via marketplace for full orchestration features
+- **Server shows failed**: Enable `LOG_LEVEL=DEBUG` in your Docker config to inspect startup logs
+- **Note gates blocking unexpectedly**: Run `get_context(itemId=...)` to see exactly which notes are missing
+- **Skills not available**: Install via plugin marketplace (requires Claude Code)
 
 **Get Help**:
-- 📖 [Troubleshooting Guide](docs/troubleshooting.md) - Comprehensive solutions
-- 💬 [Discussions](../../discussions) - Ask questions and share ideas
-- 🐛 [Issues](../../issues) - Bug reports and feature requests
+- [Discussions](../../discussions) — Ask questions and share ideas
+- [Issues](../../issues) — Bug reports and feature requests
 
 ---
 
 ## Technical Stack
 
-Built with modern, reliable technologies:
 - **Kotlin 2.2.0** with Coroutines for concurrent operations
 - **SQLite + Exposed ORM** for fast, zero-config database (persistent memory system)
 - **Flyway Migrations** for versioned schema management
-- **MCP SDK 0.7.2** for standards-compliant protocol
+- **MCP SDK 0.8.4** for standards-compliant protocol (STDIO and HTTP transport)
 - **Docker** for one-command deployment
 
-**Architecture Validation**: Task Orchestrator implements patterns recommended in Anthropic's context engineering research: sub-agent architectures, compaction through summarization, just-in-time context loading, and persistent external memory. Our approach prevents context accumulation rather than managing it after the fact.
-
-> **🏗️ Architecture details**: See [Developer Guides](docs/developer-guides/architecture.md)
-
----
-
-## Contributing
-
-We welcome contributions! Task Orchestrator follows Clean Architecture with 4 distinct layers (Domain → Application → Infrastructure → Interface).
-
-**To contribute**:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes with tests
-4. Submit a pull request
-
-See [Contributing Guidelines](docs/developer-guides/index.md#contributing) for detailed development setup.
-
----
-
-## Release Information
-
-- 🔔 [Watch releases](../../releases) - Get notified of new versions
-- 📋 [View changelog](CHANGELOG.md) - See what's changed
-
-**Version format**: `{major}.{minor}.{patch}.{git-commit-count}-{qualifier}`
-
-Current versioning defined in [build.gradle.kts](build.gradle.kts).
+Clean Architecture (Domain → Application → Infrastructure → Interface) with 1,600+ tests.
 
 ---
 
 ## License
 
-[MIT License](LICENSE) - Free for personal and commercial use
+[MIT License](LICENSE) — Free for personal and commercial use
 
----
-
-## Keywords
-
-AI coding tools, AI pair programming, Model Context Protocol, MCP server, Claude Code, Claude Desktop, AI task management, context persistence, AI memory, token optimization, RAG, AI workflow automation, persistent AI assistant, context pollution solution, AI orchestration, sub-agent coordination
-
----
-
-**Ready to build complex features without context limits?**
-
-```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:latest
-```
-
-Then follow the [Quick Start Guide](docs/quick-start.md) to configure your AI platform. 🚀

@@ -2,14 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Project: MCP Task Orchestrator (`cee5e258-f759-489d-8a7e-d7b2a5f56880`)
 
-MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that provides comprehensive task management capabilities for AI assistants. It implements a hierarchical task management system (Projects → Features → Tasks) with dependency tracking, templates, and workflow automation.
+MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that provides comprehensive task management capabilities for AI assistants. It implements a hierarchical task management system (Projects -> Features -> Tasks) with dependency tracking, templates, and workflow automation.
 
 **Key Technologies:**
 - Kotlin 2.2.0 with Coroutines
-- Exposed ORM v1 for SQLite database
-- MCP SDK 0.7.2 for protocol implementation
+- Exposed ORM 1.0.0-beta-2 for SQLite database
+- MCP SDK 0.8.4 for protocol implementation (with Ktor Streamable HTTP transport)
 - Flyway for database migrations
 - Gradle with Kotlin DSL
 - Docker for deployment
@@ -21,15 +21,6 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 # Build the project (creates fat JAR)
 ./gradlew build
 
-# Run tests
-./gradlew test
-
-# Run specific test
-./gradlew test --tests "ClassName"
-
-# Run all migration tests
-./gradlew test --tests "*migration*"
-
 # Clean build
 ./gradlew clean build
 
@@ -37,34 +28,44 @@ MCP Task Orchestrator is a Kotlin-based Model Context Protocol (MCP) server that
 java -jar build/libs/mcp-task-orchestrator-*.jar
 
 # Run with environment variables
-DATABASE_PATH=data/tasks.db USE_FLYWAY=true MCP_DEBUG=true java -jar build/libs/mcp-task-orchestrator-*.jar
+DATABASE_PATH=data/tasks.db USE_FLYWAY=true LOG_LEVEL=DEBUG java -jar build/libs/mcp-task-orchestrator-*.jar
 ```
 
 ### Docker Development
 ```bash
 # Build Docker image (from project root)
-docker build -t mcp-task-orchestrator:dev .
+docker build -t task-orchestrator:dev .
+
+# Or use the build scripts
+./scripts/docker-build.sh                          # Linux/macOS/Git Bash
+scripts\docker-build.bat                           # Windows CMD
 
 # Run Docker container (basic - database only)
-docker run --rm -i -v mcp-task-data:/app/data mcp-task-orchestrator:dev
+docker run --rm -i -v mcp-task-data:/app/data task-orchestrator:dev
 
-# Run with project mount (recommended - enables config reading)
+# Run with config mount (enables custom note schemas)
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
-  mcp-task-orchestrator:dev
-
-# Clean and rebuild Docker
-./scripts/docker-clean-and-build.bat
+  task-orchestrator:dev
 
 # Debug with logs
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
-  -e MCP_DEBUG=true \
-  mcp-task-orchestrator:dev
+  -e LOG_LEVEL=DEBUG \
+  task-orchestrator:dev
+
+# Run in HTTP transport mode (exposes port 3001, endpoint: http://localhost:3001/mcp)
+docker run --rm \
+  -v mcp-task-data-current:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  -e MCP_TRANSPORT=http \
+  -p 3001:3001 \
+  task-orchestrator:current
 ```
 
 ## Architecture
@@ -80,14 +81,17 @@ The codebase follows **Clean Architecture** with four distinct layers:
 ### 2. Application Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/application/`)
 - **Business logic orchestration and use cases**
 - `tools/` - MCP tool implementations organized by category:
-  - `task/` - Task management
-  - `feature/` - Feature management
-  - `project/` - Project management
-  - `template/` - Template management
-  - `section/` - Section management
-  - `dependency/` - Dependency management
-- `service/` - Services like TemplateInitializer
-- `service/templates/` - 9 built-in template creators
+  - `task/` - Task workflow tools (get_next_task, get_blocked_tasks)
+  - `status/` - Status progression tools (get_next_status, request_transition)
+  - `template/` - Template management tools
+  - `section/` - Section management tools
+  - `dependency/` - Dependency management tools
+  - `base/` - BaseToolDefinition, SimpleLockAwareToolDefinition
+  - `utils/` - Shared tool utilities
+- Container tools (`ManageContainerTool`, `QueryContainerTool`) live in the `tools/` root directory
+- `service/` - Services like TemplateInitializer, StatusValidator
+- `service/progression/` - Status progression service
+- `service/templates/` - Built-in template creators
 
 ### 3. Infrastructure Layer (`src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/`)
 - **External concerns and framework implementations**
@@ -103,7 +107,7 @@ The codebase follows **Clean Architecture** with four distinct layers:
 - `McpToolAdapter.kt` - Bridges tools to MCP protocol
 - `McpServerAiGuidance.kt` - AI guidance configuration
 - `TaskOrchestratorResources.kt` - MCP Resources for AI
-- `WorkflowPromptsGuidance.kt` - Workflow automation prompts
+- `ToolDocumentationResources.kt` - Tool documentation as MCP resources
 
 **Entry Point:** `src/main/kotlin/Main.kt`
 
@@ -116,17 +120,67 @@ The codebase follows **Clean Architecture** with four distinct layers:
 5. **Template Method** - BaseToolDefinition provides structure for all tools
 6. **Result Pattern** - Type-safe error handling with `Result<T>` sealed class
 
+## Tight Coupling Areas
+
+When modifying these areas, changes in one location require synchronized updates in others.
+
+### Adding a New Status Enum Value
+
+Four locations must stay in sync:
+
+1. **Domain enum** — Add value to `TaskStatus`, `FeatureStatus`, or `ProjectStatus` in `domain/model/`
+2. **Flyway migration** — New `V{N}__*.sql` recreating the table with updated `CHECK (status IN (...))` constraint (SQLite has no `ALTER TYPE`)
+3. **Workflow config** — Add status to relevant flows and `status_roles` in `src/main/resources/configuration/default-config.yaml`
+4. **Role mapping** — Ensure the new status maps to a role (queue/work/review/terminal) in the config's `status_roles` section
+
+There is **no compile-time validation** between SQL CHECK constraints and Kotlin enum values. A mismatch causes runtime failures on insert.
+
+**Status normalization**: YAML uses `lowercase-with-hyphens` (e.g., `in-progress`). Domain enums use `UPPERCASE_UNDERSCORES` (e.g., `IN_PROGRESS`). The conversion is `status.uppercase().replace('-', '_')` in tools. Mismatches fail silently at transition time.
+
+### Service Dependency Graph
+
+```
+RequestTransitionTool
+├── StatusProgressionService  (resolves trigger → target status, role lookups)
+├── StatusValidator           (validates transitions, checks prerequisites)
+├── CascadeService            (detects & applies cascades, finds unblocked tasks)
+│   ├── StatusProgressionService  (cascade target resolution)
+│   └── StatusValidator           (cascade validation)
+└── RoleTransitionRepository  (records role change audit trail)
+```
+
+`StatusValidator` and `StatusProgressionService` each maintain **independent config caches** (60s TTL). Both read from `.taskorchestrator/config.yaml` but do not share state. `CascadeService` depends on both.
+
+### DirectDatabaseSchemaManager Table Ordering
+
+`DirectDatabaseSchemaManager` maintains a **manually-ordered list** of table objects. Tables must appear in foreign-key dependency order (e.g., `ProjectsTable` before `FeaturesTable` before `TaskTable`). Adding a new table requires inserting it at the correct position — the Kotlin compiler cannot detect incorrect ordering.
+
+### Template Initializer Registration
+
+Adding a built-in template requires three changes in `TemplateInitializerImpl.kt`:
+1. Add template name to the `templateNames` list
+2. Add a `when` branch mapping the name to a creator method
+3. Add the private creator method calling the template creator object
+
+Additionally, `ApplyTemplateTool` has a hardcoded check for the **"Verification"** section title — if a template includes a section named "Verification", the tool auto-sets `requiresVerification=true` on the target entity.
+
+### ToolExecutionContext
+
+All tools receive a shared `ToolExecutionContext` constructed in `McpServer.kt`:
+```kotlin
+ToolExecutionContext(repositoryProvider, statusProgressionService, cascadeService)
+```
+- `repositoryProvider` — access to all repositories (task, feature, project, section, template, dependency, roleTransition)
+- `statusProgressionService` — optional, for role-aware status operations
+- `cascadeService` — optional, for cascade detection and application
+
+Adding a new service dependency requires updating both the context class and the `McpServer` construction site.
+
 ## Configuration Directory (AGENT_CONFIG_DIR)
 
 **CRITICAL:** All services that read configuration files from `.taskorchestrator/` MUST support the `AGENT_CONFIG_DIR` environment variable for Docker compatibility.
 
-### Why This Matters
-
-The MCP server runs in Docker with working directory `/app`, but configuration files (`.taskorchestrator/config.yaml`, `.taskorchestrator/agent-mapping.yaml`) are in the user's project directory. Without `AGENT_CONFIG_DIR`, services will look for config in `/app/.taskorchestrator/` (which doesn't exist) instead of the mounted volume.
-
 ### Standard Pattern for Config Loading
-
-**DO THIS** (follows AgentDirectoryManager pattern):
 
 ```kotlin
 private fun getConfigPath(): Path {
@@ -134,14 +188,6 @@ private fun getConfigPath(): Path {
         System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
     )
     return projectRoot.resolve(".taskorchestrator/config.yaml")
-}
-```
-
-**DON'T DO THIS** (will fail in Docker):
-
-```kotlin
-private fun getConfigPath(): Path {
-    return Paths.get(System.getProperty("user.dir"), ".taskorchestrator", "config.yaml")
 }
 ```
 
@@ -154,35 +200,64 @@ private fun getConfigPath(): Path {
 
 ### Which Services Need This
 
-✅ **Services that read `.taskorchestrator/` files:**
-- `AgentDirectoryManager` - Reads `.taskorchestrator/agent-mapping.yaml` ✅ Already implemented
-- `StatusProgressionServiceImpl` - Reads `.taskorchestrator/config.yaml` ✅ Fixed in v2.0
+- `StatusProgressionServiceImpl` - Reads `.taskorchestrator/config.yaml`
 - Any future services accessing `.taskorchestrator/` configuration
 
-❌ **Services that DON'T need this:**
-- Database services (use `DATABASE_PATH` env var instead)
-- Template services (embedded resources)
-- Repository implementations (infrastructure layer)
+## MCP Tools
 
-### Testing Checklist
+The server exposes MCP tools organized into categories:
 
-When creating a new service that reads from `.taskorchestrator/`:
+### Container Management (unified CRUD for Projects/Features/Tasks)
+- **`manage_container`** - Write operations: create, update, delete (all use array parameters)
+- **`query_container`** - Read operations: get, search, export, overview. Supports `role` parameter for semantic phase filtering (queue, work, review, blocked, terminal).
 
-1. ✅ Use `AGENT_CONFIG_DIR` env var with fallback to `user.dir`
-2. ✅ Test locally (no env var set, should use working directory)
-3. ✅ Test in Docker (env var points to mounted volume)
-4. ✅ Add KDoc with configuration section (see `StatusProgressionServiceImpl` for example)
-5. ✅ Cache invalidation should check for directory changes (if caching)
+### Section Management
+- **`manage_sections`** - Write operations: add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete
+- **`query_sections`** - Read operations with filtering
 
-### Docker Configuration Example
+### Template Management
+- **`query_templates`** - Browse and search templates
+- **`manage_template`** - Create, update, delete templates
+- **`apply_template`** - Apply template to entity
 
-```bash
-# Mount project directory and set AGENT_CONFIG_DIR
-docker run --rm -i \
-  -v /host/project:/project \
-  -e AGENT_CONFIG_DIR=/project \
-  -e DATABASE_PATH=/app/data/tasks.db \
-  mcp-task-orchestrator:latest
+### Dependency Management
+- **`query_dependencies`** - Query task dependencies. Use `neighborsOnly=false` for full BFS graph traversal returning a topologically-ordered chain and max depth.
+- **`manage_dependencies`** - Create and delete dependencies with batch support. Accepts a `dependencies` array for explicit edges or `pattern` shortcuts (`linear`, `fan-out`, `fan-in`) for common topologies. Use `fromItemId`/`toItemId` for delete-by-relationship.
+
+### Workflow Optimization
+- **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
+- **`get_blocked_tasks`** - Dependency blocking analysis
+
+### Status Progression
+- **`get_next_status`** - Read-only status progression recommendations based on workflow configuration. Returns role annotations (queue, work, review, blocked, terminal) for semantic context.
+- **`request_transition`** - Trigger-based status transitions with validation. Use named triggers (start, complete, cancel, block, hold, resume, back) instead of raw status values. Supports batch transitions via `transitions` array parameter. Responses include flow context (activeFlow, flowSequence, flowPosition). Cascade events detected after transitions are automatically applied by default (task completion -> feature advancement -> project advancement). Configure via `auto_cascade` section in `.taskorchestrator/config.yaml`. Responses include `cascadeEvents` with `applied: true/false` and nested `childCascades`.
+- **`query_role_transitions`** - Query role transition history for a task, feature, or project. Returns an audit trail of role changes (e.g., queue to work, work to review) with timestamps, triggers, and status details.
+
+### Status Management Workflow
+
+For status changes, use `request_transition` with named triggers:
+```
+request_transition(containerId="uuid", containerType="task", trigger="start")
+
+# Batch transitions (multiple entities in one call)
+request_transition(transitions=[{containerId: "uuid1", containerType: "task", trigger: "complete"}, ...])
+```
+
+For read-only recommendations before changing status (optional, recommended for previewing):
+```
+get_next_status(containerId="uuid", containerType="task")
+```
+
+### Scoped Overview Pattern
+
+Use `query_container(operation="overview")` for token-efficient hierarchical views:
+- Feature overview: metadata + tasks list + counts (NO section content)
+- Project overview: metadata + standalone tasks list + features list + task counts
+- Global overview: array of all entities with minimal fields
+
+### Template Discovery (always do this before creating entities)
+```
+query_templates(targetEntityType="TASK", isEnabled=true)
 ```
 
 ## Adding New Components
@@ -191,23 +266,30 @@ docker run --rm -i \
 
 1. Create tool class extending `BaseToolDefinition` in `application/tools/`
 2. Implement `validateParams()` and `execute()` methods
-3. Register in `McpServer.createTools()`
-4. Add tests in `src/test/kotlin/application/tools/`
-
-See existing tools for patterns.
+3. Register in `McpServer.createTools()` — pass required services from context
+4. Add tool documentation in `current/docs/api-reference.md` (v3) or `clockwork/docs/tools/{tool-name}.md` (v2)
+5. Register documentation resource in `ToolDocumentationResources.kt` (clockwork only — v3 does not have runtime doc loading)
+6. Update the relevant `api-reference.md` with parameter tables and examples
+7. Update setup instructions in `TaskOrchestratorResources.kt` if the tool affects agent workflows
+8. Update plugin skills that reference tool workflows (see scoped CLAUDE.md cross-reference table)
+9. Add tests in `src/test/kotlin/application/tools/`
 
 ### Adding a Database Migration
 
-**Flyway (Production):** Create `src/main/resources/db/migration/V{N}__{Description}.sql` with sequential numbering. Server auto-applies on restart.
+**Flyway (Production):** Create `src/main/resources/db/migration/V{N}__{Description}.sql` with sequential numbering. Server auto-applies on restart. For status enum changes, SQLite requires table recreation with updated `CHECK` constraints — see "Tight Coupling Areas" above.
 
-**Direct (Development):** Update schema in `infrastructure/database/schema/` and `DirectDatabaseSchemaManager.kt`
+**Direct (Development):** Update schema in `infrastructure/database/schema/` and `DirectDatabaseSchemaManager.kt`. New tables must be inserted in foreign-key dependency order in the manager's table list.
 
-See [database-migrations.md](docs/developer-guides/database-migrations.md) for patterns and examples.
+See [database-migrations.md](clockwork/docs/developer-guides/database-migrations.md) for patterns and examples (v2/Clockwork). v3 uses a different migration strategy.
 
 ### Adding a New Template
 
 1. Create template creator in `application/service/templates/` following existing patterns
-2. Register in `TemplateInitializerImpl.kt` (add to when statement and initialization list)
+2. Register in `TemplateInitializerImpl.kt` (add name to list, `when` branch, and creator method)
+3. Tag all sections with `role:` prefixes (`role:queue`, `role:work`, `role:review`, `role:terminal`) for workflow phase filtering
+4. If template includes a section titled "Verification", `ApplyTemplateTool` will auto-set `requiresVerification=true`
+
+Template UUIDs are random — agents must discover them at runtime via `query_templates`. Never hardcode template UUIDs.
 
 ### Adding a Repository Method
 
@@ -220,10 +302,15 @@ See [database-migrations.md](docs/developer-guides/database-migrations.md) for p
 **Environment Variables:**
 - `DATABASE_PATH` - SQLite database file path (default: `data/tasks.db`)
 - `USE_FLYWAY` - Enable Flyway migrations (default: `true` in Docker)
-- `MCP_DEBUG` - Enable debug logging
+- `LOG_LEVEL` - Logging verbosity: DEBUG, INFO, WARN, ERROR (default: `INFO`)
 - `AGENT_CONFIG_DIR` - Directory containing `.taskorchestrator/` config folder (default: current working directory)
-  - **Required in Docker** for config file reading (agent-mapping.yaml, config.yaml)
-  - Set to project mount point (e.g., `-e AGENT_CONFIG_DIR=/project`)
+- `DATABASE_MAX_CONNECTIONS` - Connection pool size (default: `10`)
+- `DATABASE_SHOW_SQL` - Log SQL statements (default: `false`)
+- `MCP_SERVER_NAME` - Custom server name for MCP identity (default: `mcp-task-orchestrator`)
+- `MCP_TRANSPORT` - Transport protocol: `stdio` (default) or `http` (Streamable HTTP, MCP spec 2025-03-26)
+- `MCP_HTTP_HOST` - Bind host for HTTP transport (default: `0.0.0.0`)
+- `MCP_HTTP_PORT` - Port for HTTP transport (default: `3001`). Endpoint: `http://<host>:<port>/mcp`
+- `FLYWAY_REPAIR` - Run Flyway repair and exit (default: `false`)
 
 **Schema Management:**
 - **Flyway** (Production) - Versioned SQL migrations with history tracking
@@ -269,56 +356,15 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Database schema:** `src/main/kotlin/io/github/jpicklyk/mcptask/infrastructure/database/schema/`
 - **Migrations:** `src/main/resources/db/migration/`
 - **Templates:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/templates/`
+- **Status progression:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/progression/`
+- **Cascade service:** `src/main/kotlin/io/github/jpicklyk/mcptask/application/service/cascade/`
+- **Workflow config:** `src/main/resources/configuration/default-config.yaml`
+- **Docker:** `Dockerfile`, `.dockerignore`, `docker-compose.yml`
+- **Build scripts:** `scripts/docker-build.sh`, `scripts/docker-build.bat`
+- **CI/CD:** `.github/workflows/docker-publish.yml`
+- **Plugin:** `claude-plugins/task-orchestrator/` (skills, hooks, output styles)
+- **Scoped CLAUDE.md:** `src/main/kotlin/io/github/jpicklyk/mcptask/CLAUDE.md` (tool API formatting rules)
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
-- **Claude Code Integration:**
-  - **Plugin (source):** `src/main/resources/claude-plugin/task-orchestrator/`
-  - **Plugin (installed):** `.claude/plugins/task-orchestrator/` (installed by `setup_claude_orchestration`)
-  - **Skills:** `.claude/skills/` (installed by `setup_claude_orchestration`)
-  - **Subagents:** `.claude/agents/task-orchestrator/` (installed by `setup_claude_orchestration`)
-
-## ⚠️ CRITICAL: Source vs Installed Files
-
-**The Rule**: ALWAYS modify SOURCE files in `src/main/resources/`, NEVER modify installed files in `.claude/` unless otherwise stated by the user
-
-### File Locations
-
-**SOURCE files** (single source of truth - modify these):
-- Agents: `src/main/resources/agents/claude/task-orchestrator/*.md`
-- Skills: `src/main/resources/skills/*/SKILL.md`
-- Plugin: `src/main/resources/claude-plugin/task-orchestrator/`
-- Config: `src/main/resources/orchestration/default-config.yaml`
-
-**INSTALLED files** (copies created by setup_claude_orchestration - DO NOT modify):
-- Agents: `.claude/agents/task-orchestrator/*.md`
-- Skills: `.claude/skills/*/SKILL.md`
-- Plugin: `.claude/plugins/task-orchestrator/`
-- Config: `.taskorchestrator/config.yaml`
-
-### How It Works
-
-1. **setup_claude_orchestration** copies from `src/main/resources/` → `.claude/` and `.taskorchestrator/`
-2. Claude Code discovers files in `.claude/` at runtime
-3. Users can customize their local `.claude/` files (not committed)
-4. Source files in `src/main/resources/` are committed and versioned
-
-### Why This Matters
-
-- ✅ Source files are versioned in git
-- ✅ Source files are the template for all installations
-- ✅ Changes to source files affect all future `setup_claude_orchestration` runs
-- ❌ Changes to `.claude/` files are local-only and will be overwritten
-- ❌ Changes to `.claude/` files won't be committed (in .gitignore)
-
-### For AI Specialists
-
-**When updating agents, skills, plugin, or config (default behavior)**:
-1. Write to `src/main/resources/agents/claude/task-orchestrator/[filename].md`
-2. Write to `src/main/resources/skills/[skill-name]/SKILL.md`
-3. Write to `src/main/resources/claude-plugin/task-orchestrator/[filename]`
-4. DO NOT write to `.claude/` directory unless user explicitly requests it
-5. After updating source files, users run `setup_claude_orchestration` to propagate changes
-
-**Exception**: If user explicitly says "update my local .claude/ files" or "customize my installation", then write to `.claude/` instead (these changes won't be committed).
 
 ## Tool Development Guidelines
 
@@ -334,178 +380,28 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 9. Document in tool description for AI agents
 
 **Tool Categories:**
-- TASK_MANAGEMENT - Task CRUD operations
+- TASK_MANAGEMENT - Task CRUD and workflow operations
 - FEATURE_MANAGEMENT - Feature CRUD operations
 - PROJECT_MANAGEMENT - Project CRUD operations
 - TEMPLATE_MANAGEMENT - Template operations
 - SECTION_MANAGEMENT - Section content operations
 - DEPENDENCY_MANAGEMENT - Task dependency operations
 
-**Consolidated Tools (v2.0+):**
-
-Task Orchestrator v2.0 introduces **unified container-based tools** that reduce token overhead by 68%:
-
-- **`manage_container`** - Unified write operations for projects, features, and tasks
-  - Operations: create, update, delete, setStatus, bulkUpdate
-  - Usage: `{"operation": "create", "containerType": "task", "title": "...", ...}`
-  - Replaces: 13 individual CRUD tools (create_task, get_task, update_task, delete_task, create_feature, get_feature, update_feature, delete_feature, create_project, get_project, update_project, delete_project, set_status)
-
-- **`query_container`** - Unified read operations for projects, features, and tasks
-  - Operations: get, search, export, overview
-  - Usage: `{"operation": "search", "containerType": "task", "status": "pending", ...}`
-  - Replaces: 9 individual query tools (search_tasks, search_features, search_projects, get_task, get_feature, get_project, task_to_markdown, feature_to_markdown, project_to_markdown)
-
-- **`manage_sections`** - Unified section operations
-  - Operations: add, update, updateText, updateMetadata, delete, reorder, bulkCreate, bulkUpdate, bulkDelete
-  - Replaces: 7 individual section tools
-
-- **`query_sections`** - Unified section queries with filtering
-  - Replaces: get_sections tool
-
-- **Workflow Optimization Tools** (unchanged, NOT consolidated):
-  - **`get_next_task`** - Intelligent task recommendation with dependency checking and priority sorting
-  - **`get_blocked_tasks`** - Dependency blocking analysis
-  - **`get_next_status`** - Read-only status progression recommendations based on workflow configuration
-  - These tools contain complex recommendation logic that cannot be replaced by simple query_container filters
-
-**Token Savings:** ~84k → ~36k characters (68% reduction) across all 56 → 18 tools
-
-**Migration:** v1 tools were removed in v2.0. See [migration guide](docs/migration/v2.0-migration-guide.md).
-
-**IMPORTANT:** Always use `operation` and `containerType` parameters with v2 consolidated tools.
-
-### Scoped Overview Pattern (v2.0+)
-
-**Overview operations provide hierarchical views without section content**, optimizing for token efficiency in detail queries.
-
-**When to Use:**
-- User asks: "Show me details on [specific entity]"
-- User asks: "What's the status of [entity]?"
-- User asks: "What tasks are in [feature]?"
-- Need hierarchical view without section content
-
-**How to Use:**
-
-```javascript
-// For "Show me Feature X details"
-query_container(
-  operation="overview",
-  containerType="feature",
-  id="feature-uuid"
-)
-// Returns: feature metadata + tasks list + task counts (NO sections)
-// Token efficient: ~1,200 tokens vs ~18,500 with sections
-
-// For "What's in Project Y?"
-query_container(
-  operation="overview",
-  containerType="project",
-  id="project-uuid"
-)
-// Returns: project metadata + features list + task counts
-
-// For "List all features" (global overview)
-query_container(
-  operation="overview",
-  containerType="feature"
-)
-// Returns: array of all features with minimal fields (NO child entities)
-```
-
-**Critical Efficiency Rule:**
-- ❌ DON'T: Use `get` with `includeSections=true` for "show details" queries
-- ✅ DO: Use scoped `overview` for hierarchical view without sections
-- ✅ ONLY use `get` with sections when user specifically asks for documentation/section content
-
-**Token Savings:**
-- Feature with 10 sections + 20 tasks: 18.5k → 1.2k tokens (93% reduction)
-- Project with 3 features: 30k+ → 1.5k tokens (95% reduction)
-
-**Tool Selection Decision Tree:**
-
-**User Intent: "Show me details/status/overview of X"**
-1. Extract entity type (project, feature, task) and ID
-2. Use scoped overview:
-   ```
-   query_container(operation="overview", containerType="...", id="...")
-   ```
-3. DO NOT use `get` with `includeSections=true` unless user explicitly wants documentation
-
-**User Intent: "List all features/projects/tasks"**
-1. Use global overview:
-   ```
-   query_container(operation="overview", containerType="...")
-   ```
-2. No id parameter needed
-
-**User Intent: "Show me the full documentation for Feature X"**
-1. NOW use get with sections:
-   ```
-   query_container(operation="get", containerType="feature", id="...", includeSections=true)
-   ```
-
-### Status Progression Pattern (v2.0+)
-
-**get_next_status provides read-only workflow recommendations** for intelligent status transitions based on configuration-driven workflows.
-
-**When to Use:**
-- User asks: "What's next?" / "Can I complete this task?"
-- User asks: "What status should this be?"
-- Before applying status changes (validation)
-- Status Progression Skill uses this for recommendations
-
-**How It Works:**
-```javascript
-// Get recommendation
-recommendation = get_next_status(
-  containerId="task-uuid",
-  containerType="task"
-)
-// Returns: Ready, Blocked, or Terminal with flow context
-
-// If Ready, apply the recommended status
-manage_container(
-  operation="setStatus",
-  containerType="task",
-  id="task-uuid",
-  status=recommendation.recommendedStatus
-)
-```
-
-**Key Features:**
-- **Read-only**: Only suggests, never changes status
-- **Flow-aware**: Analyzes tags to determine workflow (bug_fix_flow, documentation_flow, default_flow)
-- **Prerequisite checking**: Validates completion requirements (summary length, task completion, dependencies)
-- **Terminal detection**: Recognizes when entity cannot progress further
-- **What-if analysis**: Optional currentStatus and tags parameters enable scenario testing
-
-**Recommendation Types:**
-- **Ready**: Entity can progress → includes recommendedStatus
-- **Blocked**: Prerequisites not met → includes list of blockers
-- **Terminal**: At final status (completed, cancelled) → no further progression
-
-**Integration with Status Progression Skill:**
-The Status Progression Skill calls get_next_status to:
-1. Check if entity is ready for status change
-2. Identify blocking prerequisites
-3. Suggest next status in configured workflow
-4. Interpret config and provide actionable guidance
-
-See: [status-progression.md](docs/status-progression.md) for comprehensive examples
-
 ## Documentation
 
-**Developer Guides:** `docs/developer-guides/`
-- [architecture.md](docs/developer-guides/architecture.md) - Comprehensive architecture guide
-- [database-migrations.md](docs/developer-guides/database-migrations.md) - Migration management
+**Active (v3 Current) User Documentation:** `current/docs/`
+- [quick-start.md](current/docs/quick-start.md) - Getting started with v3
+- [api-reference.md](current/docs/api-reference.md) - All 13 MCP tools
+- [workflow-guide.md](current/docs/workflow-guide.md) - Note schemas, phase gates, lifecycle
 
-**User Documentation:** `docs/`
-- [quick-start.md](docs/quick-start.md) - Getting started
-- [ai-guidelines.md](docs/ai-guidelines.md) - How AI uses Task Orchestrator
-- [api-reference.md](docs/api-reference.md) - Complete MCP tools documentation
-- [status-progression.md](docs/status-progression.md) - Status workflow guide with examples
-- [templates.md](docs/templates.md) - Template system guide
-- [workflow-prompts.md](docs/workflow-prompts.md) - Workflow automation
+**Archived (v2 Clockwork) Documentation:** `clockwork/docs/`
+- [quick-start.md](clockwork/docs/quick-start.md) - v2 getting started
+- [ai-guidelines.md](clockwork/docs/ai-guidelines.md) - v2 AI usage guide
+- [api-reference.md](clockwork/docs/api-reference.md) - v2 tool reference (14 tools)
+- [status-progression.md](clockwork/docs/status-progression.md) - v2 status workflow
+- [templates.md](clockwork/docs/templates.md) - v2 template system
+- [developer-guides/architecture.md](clockwork/docs/developer-guides/architecture.md) - v2 architecture
+- [developer-guides/database-migrations.md](clockwork/docs/developer-guides/database-migrations.md) - v2 migration guide
 
 ## Git Workflow
 
@@ -518,217 +414,57 @@ When making commits or PRs:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
-## Orchestration Mode Integration (Optional)
+## Current (v3) MCP Tools — Graph-Aware Parameters
 
-**This section is ONLY relevant when Task Orchestrator output style is active.**
+The following parameters are available on v3 tools to eliminate sequential parent-walk call chains:
 
-When operating as workflow coordinator:
-- Detailed orchestration workflows: `.taskorchestrator/orchestration/`
-- Use progressive disclosure - read files only when needed
-- Don't load all files at once - context management critical
+### `query_items`
+- `includeAncestors` (boolean, default false) — applies to `get` and `search` operations. Each item includes an `ancestors` array: `[{id, title, depth}, ...]` ordered root → direct parent. Root items (depth=0) get `[]`. Eliminates sequential parent-walk calls for breadcrumb/location context.
+- `includeChildren` (boolean, default false) — applies to `overview` global mode only. Each root item includes a `children` array of its direct child items: `[{id, title, role, depth}]`.
 
-**Quick reference for orchestration files:**
-- Decision trees: `.taskorchestrator/orchestration/decision-trees.md`
-- Workflows: `.taskorchestrator/orchestration/workflows.md`
-- Examples: `.taskorchestrator/orchestration/examples.md`
-- Optimizations: `.taskorchestrator/orchestration/optimizations.md`
-- Error handling: `.taskorchestrator/orchestration/error-handling.md`
+### `get_context`
+- `includeAncestors` (boolean, default false) — when true, each item in `activeItems`, `blockedItems`, and `stalledItems` includes an `ancestors` array. Recommended for work-summary dashboards.
 
-**Remember**: You are a coordinator when this output style is active.
+### `get_blocked_items`
+- `includeAncestors` (boolean, default false) — when true, each blocked item includes an `ancestors` array showing its location in the hierarchy.
 
----
+### `get_next_item`
+- `includeAncestors` (boolean, default false) — when true, each recommended item includes an `ancestors` array.
 
-## AI Workflow Systems
-
-Task Orchestrator supports three coordination approaches for AI assistants:
-
-### 1. Templates + Workflow Prompts (Universal - All AI Clients)
-
-**What**: Database-driven templates structure work; MCP workflow prompts guide execution
-**Setup**: None required (always available)
-**Use for**: Any MCP client (Claude Desktop, Claude Code, Cursor, Windsurf, etc.)
-
-**Template Discovery (CRITICAL - never skip)**:
+### Pattern: 2-call work-summary
 ```
-1. list_templates(targetEntityType="TASK" or "FEATURE", isEnabled=true)
-2. Review available templates
-3. Apply via templateIds parameter during creation
+get_context(includeAncestors=true)    → active items with full ancestor chains
+query_items(operation="overview")      → root containers with child counts
 ```
+Total: 2 calls. Zero follow-up traversal.
 
-**Key Workflows**:
-- `initialize_task_orchestrator` - One-time AI setup
-- `coordinate_feature_development` - v2.0 end-to-end orchestration (requires Claude Code + Skills)
-- `project_setup_workflow` - Project configuration
-- `update_project_config` - Config management
+## `manage_items` (create operation) Response Enrichment
 
-**Note**: v1.0 workflows (`create_feature_workflow`, `task_breakdown_workflow`, `implementation_workflow`) removed in v2.0. Use `coordinate_feature_development` or direct tool calls.
+When creating items with `manage_items(create)`, the response includes two enrichment fields:
 
-See: [workflow-prompts.md](docs/workflow-prompts.md), [templates.md](docs/templates.md)
+- **`tags`** — The item's tag string (string or null). Always included in the create response.
+- **`expectedNotes`** — Array of note schema entries when the item's `tags` match a configured schema. Format: `[{key, role, required, description, exists}]` where `exists` is always `false` at creation time. **Omitted entirely when no schema matches the tags.** Agents should check this immediately after creation to know which queue-phase notes to fill before calling `advance_item(trigger="start")`.
 
-### 2. Skills (Claude Code Only - Lightweight Coordination)
-
-**What**: Auto-activating lightweight coordination (2-5 tool calls, 60-82% token savings vs subagents)
-**Setup**: Run `setup_claude_orchestration` once
-**Use for**: Status checks, progress tracking, completing tasks/features
-
-**Installation Paths**:
-- Skills: `.claude/skills/` (auto-discovered by Claude Code)
-- Subagents: `.claude/agents/task-orchestrator/` (auto-discovered by Claude Code)
-- Plugin: `.claude/plugins/task-orchestrator/` (auto-discovered by Claude Code)
-
-**Skills Available**:
-- Feature Management - "What's next?", "Complete feature" (~300-600 tokens)
-- Task Management - "Complete task", "Update status" (~300 tokens)
-- Dependency Analysis - "What's blocking?", "Show dependencies" (~400 tokens)
-- Task Orchestrator Hooks Builder - Create custom hooks interactively with cascade event support
-- Skill Builder - Create custom Skills
-
-Skills auto-activate from natural language. See: [.claude/skills/README.md](.claude/skills/README.md), [skills-guide.md](docs/skills-guide.md)
-
-### 3. Subagents (Claude Code Only - Complex Implementation)
-
-**What**: Specialist agents for complex work requiring reasoning and code implementation
-**Setup**: Run `setup_claude_orchestration` once
-**Use for**: Code implementation, test writing, documentation, architecture design
-
-**Specialist Lifecycle Pattern (Self-Service)**:
-1. Specialist reads task context directly via `query_container(operation="get", ...)`
-2. Specialist performs work (writes code, tests, documentation)
-3. Specialist updates task sections with results via `manage_sections(...)`
-4. Specialist uses Status Progression Skill to mark task complete (validates prerequisites)
-5. Specialist returns brief summary (50-100 tokens) to orchestrator
-
-**Standardized Specialist Structure**:
-All specialist agents follow a consistent template structure:
-- **Workflow Section**: 5-step process (read task, do work, update sections, mark complete, return summary)
-- **Critical Patterns**: Clear directive that specialists manage their own task lifecycle
-- **Blocking Scenarios**: How to handle blockers and report them
-- **Domain Expertise**: Specialist-specific technical guidance
-- **Quality Standards**: Role-specific validation requirements (e.g., tests for engineers, clarity for writers)
-- **Output Format**: Brief summaries (50-100 tokens), detailed work in sections/files
-
-This standardization ensures:
-- Consistent behavior across all specialists
-- Self-service pattern (specialists manage full lifecycle autonomously)
-- Predictable token usage (minimal summaries, not full code/docs)
-- Proper blocker reporting when work cannot be completed
-
-**Routing**: Use `recommend_agent(taskId)` to find appropriate specialist based on task tags
-**Available Specialists**:
-- **Implementation**: Backend Engineer (Sonnet), Frontend Developer (Sonnet), Database Engineer (Sonnet), Test Engineer (Sonnet), Technical Writer (Sonnet)
-- **Architecture**: Feature Architect (Opus), Planning Specialist (Sonnet)
-- **Triage**: Bug Triage Specialist (Sonnet)
-
-**Token Efficiency**: Specialists return minimal summaries (50-100 tokens), detailed work goes in task sections and code files, not in responses.
-
-Templates work with both direct execution AND subagent execution.
-
-See: [agent-orchestration.md](docs/agent-orchestration.md), [hybrid-architecture.md](docs/hybrid-architecture.md)
-
-### Quick Decision Guide
-
-**Coordination** (status, progress, blockers) → **Skills**
-**Implementation** (code, tests, docs, design) → **Subagents** (via `recommend_agent`)
-**Always**: Run `list_templates` before creating tasks/features
-
----
-
-## Decision Gates (Claude Code)
-
-**Quick routing for Skills vs Subagents:**
-
-### When User Asks About Progress/Status/Coordination
-→ **Use Skills** (60-82% token savings):
-- "What's next?" → Feature Management Skill
-- "Complete feature/task" → Feature/Task Management Skill
-- "What's blocking?" → Dependency Analysis Skill
-
-### When User Requests Implementation Work
-→ **Use Subagents** (direct specialist routing):
-- "Create feature for X" / rich context (3+ paragraphs) → Feature Architect (Opus)
-- "Implement X" / task with code → `recommend_agent(taskId)` routes to specialist (Backend/Frontend/Database/Test/Technical Writer)
-- "Fix bug X" / "broken"/"error" → Bug Triage Specialist (Sonnet)
-- "Break down X" → Planning Specialist (Sonnet)
-
-### Specialist Routing with recommend_agent
-
-**Purpose**: Automatically route tasks to appropriate specialists based on task tags and requirements.
-
-**Usage**:
-```javascript
-recommend_agent(taskId="task-uuid")
+Example response with schema match:
+```json
+{
+  "id": "abc-123",
+  "title": "Authentication Handler",
+  "role": "queue",
+  "tags": "task-implementation,security-critical",
+  "expectedNotes": [
+    { "key": "requirements", "role": "queue", "required": true, "description": "Testable acceptance criteria", "exists": false },
+    { "key": "done-criteria", "role": "work", "required": true, "description": "Completion conditions", "exists": false }
+  ]
+}
 ```
 
-**Returns**: Recommended specialist agent name based on task analysis:
-- Tags contain `backend`, `api`, `service` → Backend Engineer
-- Tags contain `frontend`, `ui`, `component` → Frontend Developer
-- Tags contain `database`, `migration`, `schema` → Database Engineer
-- Tags contain `test`, `testing` → Test Engineer
-- Tags contain `documentation`, `docs` → Technical Writer
-- Tags contain `bug`, `fix`, `error` → Bug Triage Specialist
-- Feature-level tasks or complex architecture → Feature Architect
-- Task breakdown or planning → Planning Specialist
-
-**Workflow Pattern**:
-1. User: "Implement task X"
-2. You: `recommend_agent(taskId)` → returns "Backend Engineer"
-3. You: Launch Backend Engineer subagent with task ID
-4. Backend Engineer: Reads task, implements code, updates sections, uses Status Progression Skill to mark complete, returns summary
-5. You: Verify completion and inform user
-
-### Critical Patterns
-- **Always** run `list_templates` before creating tasks/features
-- Feature Architect (Opus) creates feature → Planning Specialist (Sonnet) breaks into tasks → Specialists implement
-- **Token optimization**: Specialists return minimal summaries (50-100 tokens), full work goes in sections/files
-- **Self-service**: Specialists read task context directly, no manager intermediary needed
-- Use `recommend_agent(taskId)` for automatic specialist routing based on task tags
-
-**Complete guide**: See [hybrid-architecture.md](docs/hybrid-architecture.md) for detailed decision matrices and examples.
-
----
-
-## Task Orchestrator - AI Initialization
-
-**Last initialized:** 2025-10-18 | **Version:** 1.1.0-beta | **Features:** skills,subagents
-
-### Critical Patterns
-
-**Session Start Routine**:
-1. Run get_overview() first to understand current state
-2. Check for in-progress tasks before starting new work
-3. Review priorities and dependencies
-
-**Intent Recognition** (Skills, Subagents, or Direct Tools):
-- "What's next?" / "What should I work on?" → Feature Management Skill (coordination)
-- "Complete feature" / "Mark feature done" → Feature Management Skill (coordination)
-- "Complete task" / "Mark task done" → Task Management Skill (coordination)
-- "What's blocking?" / "Show dependencies" → Dependency Analysis Skill (coordination)
-- "Create feature for X" → Feature Architect subagent (complex design) + template discovery
-- "Implement X" → Use `recommend_agent(taskId)` to route to appropriate specialist + templates
-- "Fix bug X" → Bug Triage Specialist subagent + Bug Investigation template
-- "Break down X" → Planning Specialist subagent (task decomposition)
-- "Set up project" → Project setup workflow
-
-**Specialist Workflow** (Self-Service Pattern):
-1. Specialist reads task via `query_container(operation="get", containerType="task", id="...", includeSections=true)`
-2. Specialist performs implementation work (code, tests, documentation)
-3. Specialist updates task sections via `manage_sections(operation="add|updateText", ...)`
-4. Specialist uses Status Progression Skill to mark task complete (validates prerequisites)
-5. Specialist returns brief summary (50-100 tokens) - NOT full implementation details
-
-**Template Discovery** (ALWAYS required, regardless of using sub-agents):
-- Always: list_templates(targetEntityType, isEnabled=true)
-- Never: Assume templates exist
-- Apply: Use templateIds parameter during creation
-- Templates work with both direct execution AND sub-agent execution
-
-**Git Integration**:
-- Auto-detect .git directory presence
-- Suggest git workflow templates when detected
-- Ask about PR workflows (don't assume)
-
-**Quality Standards**:
-- Write descriptive titles and summaries
-- Use appropriate complexity ratings (1-10)
-- Apply consistent tagging conventions
-- Include acceptance criteria in summaries
+Example response without schema match (no `expectedNotes` field):
+```json
+{
+  "id": "abc-124",
+  "title": "API Documentation",
+  "role": "queue",
+  "tags": null
+}
+```

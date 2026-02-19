@@ -1,0 +1,16 @@
+{
+  "enabledPlugins": {},
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-version-bump.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

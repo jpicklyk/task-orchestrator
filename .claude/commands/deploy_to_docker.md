@@ -1,154 +1,124 @@
+---
+description: Build Docker image and optionally start a container for the MCP Task Orchestrator
+---
+
 # Deploy to Docker
 
-Build and deploy the MCP Task Orchestrator Docker image with the specified tag.
+Build the MCP Task Orchestrator Docker image. The Dockerfile handles its own Gradle build internally, so no local build step is needed.
 
-**Usage:** `/deploy_to_docker [image-tag]`
+**Usage:** `/deploy_to_docker [image-tag] [--clockwork] [--run]`
+
+**Arguments:**
+- `image-tag` (optional): Docker image tag. Default: `task-orchestrator:current`. A bare name like `dev` expands to `task-orchestrator:dev`.
+- `--clockwork` (optional): Build the deprecated v2 (Clockwork) architecture instead. Default tag becomes `task-orchestrator:clockwork`. Uses `mcp-task-data` volume. Note: builder stage must also include `:clockwork:jar` — see Dockerfile notes.
+- `--run` (optional): Start a container after building. Prompts for run configuration.
 
 **Examples:**
-- `/deploy_to_docker` (will prompt for tag, default: task-orchestrator:dev)
-- `/deploy_to_docker task-orchestrator:local-test` (use specific tag)
+- `/deploy_to_docker` — Build `task-orchestrator:current`, no container
+- `/deploy_to_docker --run` — Build v3 and prompt for container config
+- `/deploy_to_docker myfeature` — Build with tag `task-orchestrator:myfeature`
+- `/deploy_to_docker --clockwork` — Build deprecated v2 as `task-orchestrator:clockwork`
+- `/deploy_to_docker --clockwork --run` — Build v2 and prompt for container config
 
 ---
 
-## Deployment Workflow
+## Workflow
 
-Execute the following steps to build and deploy the Docker image:
+### Step 1: Resolve Image Tag
 
-### Step 0: Determine Image Tag (If Not Provided)
-
-**If the user did not provide an image tag** (e.g., just `/deploy_to_docker` without arguments), ask them using AskUserQuestion:
-
-```
-AskUserQuestion(
-  questions: [{
-    question: "Which Docker image tag would you like to use?",
-    header: "Image Tag",
-    multiSelect: false,
-    options: [
-      {
-        label: "task-orchestrator:dev",
-        description: "Default development tag (recommended)"
-      }
-    ]
-  }]
-)
-```
-
-**Note:** The AskUserQuestion tool automatically provides an "Other" option where users can type a custom tag name (e.g., `task-orchestrator:local-test`, `task-orchestrator:v2.0`, etc.).
-
-**Based on user choice:**
-- **"task-orchestrator:dev"**: Use the default tag
-- **"Other" with custom input**: Use the custom tag provided by the user
-
-Store the selected tag and use it for the rest of the workflow as `<image-tag>`.
-
-**If the user DID provide a tag** (e.g., `/deploy_to_docker task-orchestrator:local-test`), skip this step and use the provided tag.
-
-### Step 1: Clean Build (Optional but Recommended)
-
-Run a clean build first to ensure all changes are compiled:
-
-```bash
-./gradlew clean build
-```
-
-Wait for confirmation that all tests pass before proceeding.
+Parse the arguments to determine the image tag and build target:
+- Check for `--clockwork` flag in arguments:
+  - If `--clockwork` is present: set `TARGET=runtime-v2`, default tag = `task-orchestrator:clockwork`, data volume = `mcp-task-data`
+  - Otherwise: set `TARGET=runtime-current`, default tag = `task-orchestrator:current`, data volume = `mcp-task-data-current`
+- If a tag argument is provided (not starting with `--`), use it as-is
+- If the tag has no `:`, prepend `task-orchestrator:` (e.g., `dev` becomes `task-orchestrator:dev`)
+- If no tag argument, use the default tag determined above
 
 ### Step 2: Build Docker Image
 
-Build the Docker image with the determined tag (from Step 0 if prompted, or from command arguments).
-
-**Command:**
 ```bash
-docker build -t <image-tag> .
+docker build --target <TARGET> -t <image-tag> .
 ```
 
-Where `<image-tag>` is the tag from Step 0 or provided by the user (e.g., `task-orchestrator:dev`, `task-orchestrator:local-test`).
+Where `<TARGET>` is `runtime-current` (default) or `runtime-v2` (when `--clockwork` is specified).
 
-### Step 3: Verify Image Built Successfully
+The Dockerfile's multi-stage build compiles the project from source — no prior `./gradlew build` required.
 
-After build completes, verify the image exists:
+> **Note for `--clockwork`:** The Dockerfile builder stage only runs `:current:jar` by default.
+> To build the Clockwork v2 JAR, you must temporarily add `:clockwork:jar` to the Gradle command
+> in the Dockerfile builder stage. See `clockwork/DEPRECATED.md` for instructions.
+
+### Step 3: Verify Image
 
 ```bash
-docker images | grep <image-name>
+docker images | grep task-orchestrator
 ```
 
-Where `<image-name>` is the base name from the tag (e.g., `task-orchestrator`).
+Report the image ID and size.
 
-### Step 4: Run Docker Container
+### Step 4: Start Container (only if `--run` was specified)
 
-**Ask the user about container status** (use AskUserQuestion):
+**If `--run` was NOT specified:** Skip to summary. This is the default path.
+
+**If `--run` was specified**, first ask the user which transport mode to use:
 
 ```
 AskUserQuestion(
   questions: [{
-    question: "Do you want to start a new container with the deployed image?",
-    header: "Container",
+    question: "Which transport mode?",
+    header: "Transport",
     multiSelect: false,
     options: [
       {
-        label: "Start New Container",
-        description: "Run a new container with the deployed image"
+        label: "STDIO (Recommended)",
+        description: "Connect via stdin/stdout — standard MCP transport, no port needed"
       },
       {
-        label: "Container Already Running",
-        description: "Skip container startup, proceed to testing"
-      },
-      {
-        label: "Skip Container Startup",
-        description: "Just build the image, don't start a container"
+        label: "HTTP",
+        description: "Expose port 3001 — runs detached as a long-lived daemon; requires MCP SDK with 2025-11-25 protocol support"
       }
     ]
   }]
 )
 ```
-
-**Based on user choice:**
-
-- **"Start New Container"**: Continue to ask about run options below
-- **"Container Already Running"**: Skip to Step 5 (testing)
-- **"Skip Container Startup"**: End deployment workflow
 
 ---
 
-**If starting new container**, ask which run option to use (use AskUserQuestion):
+#### If STDIO transport selected
+
+Ask which run configuration to use:
 
 ```
 AskUserQuestion(
   questions: [{
-    question: "Which Docker run configuration would you like to use?",
-    header: "Run Mode",
+    question: "Which container configuration?",
+    header: "Run mode",
     multiSelect: false,
     options: [
       {
-        label: "Basic Run",
-        description: "Database only (no config file access)"
-      },
-      {
-        label: "With Project Mount",
-        description: "Recommended - Enables config reading (.taskorchestrator/)"
+        label: "With Project Mount (Recommended)",
+        description: "Database volume + project mount for config reading"
       },
       {
         label: "With Debug Logging",
-        description: "Project mount + MCP_DEBUG=true for detailed logs"
+        description: "Project mount + LOG_LEVEL=DEBUG + DATABASE_SHOW_SQL=true"
+      },
+      {
+        label: "Basic",
+        description: "Database volume only, no config file access"
       }
     ]
   }]
 )
 ```
 
-**Based on user choice, run the appropriate command:**
+Use `<DATA_VOLUME>` as the data volume name: `mcp-task-data-current` for v3 (default) or `mcp-task-data` for v2 (`--clockwork`).
 
-**"Basic Run" (Database Only)**
-```bash
-docker run --rm -i -v mcp-task-data:/app/data <image-tag>
-```
-
-**"With Project Mount" (Recommended)**
+**"With Config Mount"**
 ```bash
 docker run --rm -i \
-  -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project \
+  -v <DATA_VOLUME>:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   <image-tag>
 ```
@@ -156,83 +126,136 @@ docker run --rm -i \
 **"With Debug Logging"**
 ```bash
 docker run --rm -i \
-  -v mcp-task-data:/app/data \
-  -v D:/Projects/task-orchestrator:/project \
+  -v <DATA_VOLUME>:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
-  -e MCP_DEBUG=true \
+  -e LOG_LEVEL=DEBUG \
+  -e DATABASE_SHOW_SQL=true \
   <image-tag>
 ```
 
-### Step 5: Test the Deployment
-
-After the container is running, suggest testing basic functionality:
-
-1. Verify server starts without errors
-2. Test a simple MCP tool (e.g., `list_templates`)
-3. Verify configuration files are accessible (if using Option 2)
+**"Basic"**
+```bash
+docker run --rm -i -v <DATA_VOLUME>:/app/data <image-tag>
+```
 
 ---
 
-## Important Notes
+#### If HTTP transport selected
 
-- **Database Persistence:** The volume `mcp-task-data` persists database between container runs
-- **Config Access:** Option 2 is required for reading `.taskorchestrator/config.yaml` and `agent-mapping.yaml`
-- **Port Mapping:** MCP servers use stdin/stdout, no port mapping needed
-- **Cleanup:** Use `--rm` flag to auto-remove container after stopping
-- **Hot Reload:** If container is already running, rebuild with same tag and restart container to load new image
+> **Note:** HTTP transport requires the MCP Kotlin SDK to support protocol version `2025-11-25`.
+> As of SDK 0.8.4, only `2025-06-18` is supported — Claude Code will show the server as failed.
+> Use HTTP mode for testing or when the SDK is updated.
+
+Ask which run configuration to use:
+
+```
+AskUserQuestion(
+  questions: [{
+    question: "Which HTTP container configuration?",
+    header: "Run mode",
+    multiSelect: false,
+    options: [
+      {
+        label: "With Config Mount (Recommended)",
+        description: "Database volume + .taskorchestrator config mount + port 3001"
+      },
+      {
+        label: "With Debug Logging",
+        description: "Project mount + port 3001 + LOG_LEVEL=DEBUG + DATABASE_SHOW_SQL=true"
+      }
+    ]
+  }]
+)
+```
+
+Use `<DATA_VOLUME>` as the data volume name: `mcp-task-data-current` for v3 (default) or `mcp-task-data` for v2 (`--clockwork`).
+The container name will be `mcp-task-orchestrator-http`.
+
+Stop any existing container with that name first:
+```bash
+docker stop mcp-task-orchestrator-http 2>/dev/null || true
+docker rm mcp-task-orchestrator-http 2>/dev/null || true
+```
+
+**"With Config Mount (Recommended)"**
+```bash
+docker run -d \
+  --name mcp-task-orchestrator-http \
+  -v <DATA_VOLUME>:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  -e MCP_TRANSPORT=http \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e MCP_HTTP_PORT=3001 \
+  -p 3001:3001 \
+  <image-tag>
+```
+
+**"With Debug Logging"**
+```bash
+docker run -d \
+  --name mcp-task-orchestrator-http \
+  -v <DATA_VOLUME>:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  -e MCP_TRANSPORT=http \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e MCP_HTTP_PORT=3001 \
+  -e LOG_LEVEL=DEBUG \
+  -e DATABASE_SHOW_SQL=true \
+  -p 3001:3001 \
+  <image-tag>
+```
+
+After starting, verify the container is running:
+```bash
+docker ps --filter name=mcp-task-orchestrator-http --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+Then remind the user to add the server to `.mcp.json` if not already present:
+```json
+"mcp-task-orchestrator-http": {
+  "type": "http",
+  "url": "http://localhost:3001/mcp"
+}
+```
+
+### Step 5: Summary
+
+Report:
+- Image tag and ID
+- Build target used (`runtime-current` or `runtime-v2`)
+- Whether a container was started (transport mode + run config)
+- **STDIO:** Remind user to reconnect MCP: `/mcp reconnect mcp-task-orchestrator`
+- **HTTP:** Remind user to verify `.mcp.json` has the HTTP entry and run `/mcp` to check connection status
+
+---
+
+## Notes
+
+- **No local build needed:** The Dockerfile runs `./gradlew :current:jar` in a builder stage
+- **Database persistence:** Volume `mcp-task-data-current` (v3) or `mcp-task-data` (v2) persists across container runs
+- **Config access:** Project mount modes mount the project for `.taskorchestrator/config.yaml` access
+- **STDIO transport:** Uses stdin/stdout, no port mapping needed; started with `-i` flag
+- **HTTP transport:** Runs detached (`-d`), exposes port 3001, named `mcp-task-orchestrator-http`; requires SDK protocol `2025-11-25` support (SDK 0.8.4 = `2025-06-18` only)
+- **v2 is deprecated:** Use `--clockwork` only for legacy reference. Active development is in v3 (Current).
 
 ## Troubleshooting
 
-**If build fails:**
-- Check that `./gradlew build` completed successfully
+**Docker build fails:**
 - Verify Dockerfile exists in project root
-- Check for sufficient disk space
+- Check disk space
 
-**If container fails to start:**
-- Check logs with `docker logs <container-id>`
-- Verify volume paths are correct (Windows uses forward slashes in Docker)
-- Try Option 3 (debug mode) for detailed logging
+**Container fails to start:**
+- Try debug logging mode for detailed output
+- Check `docker logs <container-id>`
 
-**If config files not found:**
-- Ensure using Option 2 with AGENT_CONFIG_DIR set
-- Verify project path is correct: `D:/Projects/task-orchestrator`
-- Check that `.taskorchestrator/` directory exists in project
-
----
-
-## Post-Deployment
-
-After successful deployment:
-1. ✅ Confirm container is running (or already was running)
-2. ✅ Verify MCP tools are accessible
-3. ✅ Test configuration file loading (if applicable)
-4. ✅ Inform user of deployment success
-
-Return a summary of what was deployed and how to stop/restart the container:
-
-**Stop container:**
+**Database permission errors:**
 ```bash
-docker stop <container-id>
+docker run --rm -v mcp-task-data-current:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data
 ```
 
-**Restart container with new image:**
-```bash
-# Stop existing container first
-docker stop <container-id>
-# Then run with same command as Step 4
-```
-
-Or simply press Ctrl+C if running in foreground with `-i` flag.
-
----
-
-## Final Step: Reconnect MCP Server
-
-**After deployment is complete, reconnect the MCP server to load the new image:**
-
-Use the slash command:
-```
-/mcp reconnect task-orchestrator
-```
-
-This ensures Claude Code is using the newly deployed Docker image with all the latest changes.
+**Config files not found:**
+- Use project mount mode (not basic)
+- Verify `.taskorchestrator/` directory exists in project root
