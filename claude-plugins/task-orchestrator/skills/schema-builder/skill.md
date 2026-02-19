@@ -148,7 +148,7 @@ After writing, remind the user: **MCP reconnect required** (`/mcp`) for the sche
 
 ## Step 4 — Generate Companion Skill (if requested)
 
-Write to `.claude/skills/<schema-name>.md`. This is a project-local skill available immediately as `/<schema-name>` — no plugin version bump required.
+Write to `.claude/skills/<schema-name>/SKILL.md`. Create the directory if it doesn't exist. This is a project-local skill available immediately as `/<schema-name>` — no plugin version bump required.
 
 **Companion skill template:**
 

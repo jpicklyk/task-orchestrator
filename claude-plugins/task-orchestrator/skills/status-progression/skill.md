@@ -18,7 +18,7 @@ Guide role transitions for a WorkItem.
    - Fill missing notes with `manage_notes(operation="upsert", notes=[{itemId, key, role, body}])`
    - Re-call `get_context(itemId=<id>)` to verify gate is now open
 
-3. Advance: `advance_item(itemId=<id>, trigger="start")` — or `"complete"` to jump to terminal
+3. Advance: `advance_item(transitions=[{ itemId: "<id>", trigger: "start" }])` — or `trigger: "complete"` to jump to terminal
 
 ## Trigger Reference
 

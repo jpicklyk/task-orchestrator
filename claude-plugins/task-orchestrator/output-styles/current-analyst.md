@@ -76,7 +76,7 @@ Set via the `model` parameter on the Task tool. Default inherits orchestrator mo
 
 ## Action Items
 
-**Use `/current-task-orchestrator:create-item`** when logging any persistent work item during a session — it handles container anchoring, tag inference, and note pre-population automatically. Invoke proactively when the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking.
+**Use `/task-orchestrator:create-item`** when logging any persistent work item during a session — it handles container anchoring, tag inference, and note pre-population automatically. Invoke proactively when the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking.
 
 **Cross-session → MCP items.** All persistent tracking belongs in MCP (not CC tasks):
 - Feature work: child items under the active parent feature

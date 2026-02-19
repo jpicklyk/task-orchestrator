@@ -9,9 +9,9 @@
   },
   "plugins": [
     {
-      "name": "current",
-      "version": "1.0.14",
-      "description": "Skills, hooks, and workflows for Current (v3) MCP Task Orchestrator. Schema-aware context, note-driven workflow, and thin session hooks.",
+      "name": "task-orchestrator",
+      "version": "1.1.1",
+      "description": "Skills, hooks, and workflows for MCP Task Orchestrator (v3). Schema-aware context, note-driven workflow, and thin session hooks.",
       "author": {
         "name": "Jeff Picklyk",
         "url": "https://github.com/jpicklyk"
@@ -21,25 +21,8 @@
       "license": "MIT",
       "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
       "category": "productivity",
-      "tags": ["tasks", "features", "projects", "dependencies", "workflows", "v3", "current"],
-      "source": "./claude-plugins/current",
-      "strict": true
-    },
-    {
-      "name": "clockwork",
-      "version": "2.0.0",
-      "description": "Skills, hooks, and workflows for Clockwork (v2) MCP Task Orchestrator. Legacy plugin — use current-task-orchestrator for new projects.",
-      "author": {
-        "name": "Jeff Picklyk",
-        "url": "https://github.com/jpicklyk"
-      },
-      "homepage": "https://github.com/jpicklyk/task-orchestrator",
-      "repository": "https://github.com/jpicklyk/task-orchestrator",
-      "license": "MIT",
-      "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
-      "category": "productivity",
-      "tags": ["tasks", "features", "projects", "dependencies", "templates", "workflows", "v2", "clockwork"],
-      "source": "./claude-plugins/clockwork",
+      "tags": ["tasks", "features", "projects", "dependencies", "workflows", "v3"],
+      "source": "./claude-plugins/task-orchestrator",
       "strict": true
     }
   ]
