@@ -40,9 +40,9 @@ claude mcp add-json mcp-task-orchestrator '{
 
 This registers the server at the user level. The `mcp-task-data` Docker volume persists the SQLite database across container restarts.
 
-### Option B: Project settings file
+### Option B: Project `.mcp.json`
 
-Add this to `.claude/settings.json` in your project root (checked into source control so teammates get it automatically):
+Add to `.mcp.json` in your project root (checked into source control so teammates get it automatically):
 
 ```json
 {
@@ -58,6 +58,12 @@ Add this to `.claude/settings.json` in your project root (checked into source co
   }
 }
 ```
+
+The `mcp-task-data` Docker volume persists the SQLite database across container restarts. The server auto-initializes its schema on first run — no additional setup required.
+
+### Option C: Other MCP clients
+
+Configure your client using the same JSON structure as Option B above. STDIO transport works with any MCP-compatible client.
 
 ---
 
@@ -146,6 +152,44 @@ get_context()
 
 ---
 
+## Step 5: Claude Code plugin (optional)
+
+The plugin adds workflow skills, automation hooks, and an orchestrator output style to Claude Code. It requires the MCP server to already be connected (Steps 1–3).
+
+### Install
+
+```
+/plugin marketplace add https://github.com/jpicklyk/task-orchestrator
+/plugin install task-orchestrator@task-orchestrator-marketplace
+```
+
+After installing, restart Claude Code and run `/plugin list` to confirm `task-orchestrator` is enabled.
+
+### Skills
+
+Skills are invoked as slash commands in any Claude Code session:
+
+| Command | Description |
+|---------|-------------|
+| `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
+| `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
+| `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
+| `/task-orchestrator:schema-builder` | Interactively design a note schema for a new work item type |
+
+### Hooks
+
+Hooks run automatically — no invocation required:
+
+- **Session start** — injects current work context at the beginning of each Claude Code session so you never have to re-orient
+- **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
+- **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
+
+### Output style
+
+The plugin includes a **Workflow Analyst** output style. When active, Claude Code acts as a project management orchestrator — it plans, delegates implementation to subagents, and tracks progress in the WorkItem graph without writing code directly. Useful for complex multi-step features. Select it from the output style menu (`/output-style`) after installing the plugin.
+
+---
+
 ## Note schemas (optional)
 
 Note schemas let you enforce per-phase documentation requirements. When an item's `tags` match a schema, `advance_item` will gate progression until the required notes are filled.
@@ -174,10 +218,22 @@ After adding or editing this file, reconnect the MCP server:
 
 Items tagged `task-implementation` will now require a `requirements` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
 
-> **Docker:** To read this config file, mount only the `.taskorchestrator/` folder into the container. Add this to your project-level `.mcp.json` (not the global CLI registration):
+> **Docker:** To read this config file, mount the `.taskorchestrator/` folder into the container. Add this to your project-level `.mcp.json` (not the global CLI registration — a globally-registered server should not have its schema config vary per project):
 > ```json
-> "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
-> "-e", "AGENT_CONFIG_DIR=/project"
+> {
+>   "mcpServers": {
+>     "mcp-task-orchestrator": {
+>       "command": "docker",
+>       "args": [
+>         "run", "--rm", "-i",
+>         "-v", "mcp-task-data:/app/data",
+>         "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
+>         "-e", "AGENT_CONFIG_DIR=/project",
+>         "ghcr.io/jpicklyk/task-orchestrator:latest"
+>       ]
+>     }
+>   }
+> }
 > ```
 > Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
 

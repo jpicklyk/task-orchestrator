@@ -117,12 +117,33 @@ See [Workflow Guide](current/docs/workflow-guide.md) for the `.taskorchestrator/
 
 ### Step 3: Claude Code Plugin (optional)
 
-Install the plugin for workflow skills, session-start hooks, and an orchestrator output style:
+The plugin adds workflow skills, automation hooks, and an orchestrator output style to Claude Code. The MCP server (Step 2) must be connected first.
+
+**Install:**
 
 ```
-/plugin marketplace add jpicklyk/task-orchestrator
-/plugin install task-orchestrator
+/plugin marketplace add https://github.com/jpicklyk/task-orchestrator
+/plugin install task-orchestrator@task-orchestrator-marketplace
 ```
+
+After installing, restart Claude Code and verify with `/plugin list` — you should see `task-orchestrator` enabled.
+
+**Skills** — invoke as slash commands in any Claude Code session:
+
+| Command | Description |
+|---------|-------------|
+| `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
+| `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
+| `/task-orchestrator:status-progression` | Navigate role transitions; shows gate status and the correct trigger |
+| `/task-orchestrator:schema-builder` | Interactively design a note schema for a new work item type |
+
+**Hooks** — automatic, no invocation needed:
+
+- **Session start** — loads current work context at the beginning of each Claude Code session
+- **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync
+- **Subagent start** — injects task context into spawned subagents so they start with full awareness
+
+**Output style** — The plugin includes a **Workflow Analyst** output style that turns Claude Code into a project management orchestrator: it plans, delegates to subagents, and tracks progress without writing code directly. Select it from the output style menu (`/output-style`) or enable it in your Claude Code settings.
 
 > **Contributing?** See [Contributing Guidelines](CONTRIBUTING.md) for developer setup.
 
