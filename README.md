@@ -10,27 +10,9 @@ An orchestration framework for AI coding assistants that solves context pollutio
 
 ---
 
-## The Problem
+## Why This Exists
 
-AI assistants suffer from **context pollution** - a well-documented challenge where model accuracy degrades as token count increases. This "context rot" stems from transformer architecture's quadratic attention mechanism, where each token must maintain pairwise relationships with all others.
-
-**The Impact**: As your AI works on complex features, it accumulates conversation history, tool outputs, and code examples. By task 10-15, the context window fills with 200k+ tokens. The model loses focus, forgets earlier decisions, and eventually fails. You're forced to restart sessions and spend 30-60 minutes rebuilding context just to continue.
-
-**Industry Validation**: Anthropic's research on [context management](https://www.anthropic.com/news/context-management) confirms production AI agents "exhaust their effective context windows" on long-running tasks, requiring active intervention to prevent failure.
-
-Traditional approaches treat context windows like unlimited memory. Task Orchestrator recognizes they're a finite resource that must be managed proactively.
-
-## The Solution
-
-Task Orchestrator implements **industry-recommended patterns** from Anthropic's [context engineering research](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents): persistent external memory, summary-based context passing, and sub-agent architectures with clean contexts.
-
-**How it works**:
-- **Persistent memory** (SQLite) stores project state outside context windows
-- **Summary-based handoffs** — agents write structured notes per phase (requirements, decisions, results) instead of passing full conversation history; downstream agents read the 200-token note, not 5k+ of prior context
-- **Sub-agent isolation** — delegated agents work with clean contexts, return condensed results
-- **Just-in-time loading** — fetch only what's needed for current work via `get_context` and `get_next_item`
-
-**Result**: Scale to 50+ tasks without hitting context limits. Up to 90% token reduction. Zero time wasted rebuilding context after session restarts.
+AI agents [exhaust their effective context windows](https://www.anthropic.com/news/context-management) on long-running tasks — conversation history, tool outputs, and code examples accumulate until the model loses focus and fails. Task Orchestrator implements [industry-recommended patterns](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) to prevent this: persistent external memory, summary-based phase handoffs, and sub-agent isolation with clean contexts. Work scales to 50+ tasks with up to 90% token reduction and zero time rebuilding context after session restarts.
 
 ---
 
@@ -143,25 +125,6 @@ Install the plugin for workflow skills, session-start hooks, and an orchestrator
 ```
 
 > **Contributing?** See [Contributing Guidelines](CONTRIBUTING.md) for developer setup.
-
----
-
-## Use Cases
-
-### 📂 Persistent Context Across Sessions
-Your AI remembers project state, completed work, and technical decisions — even after restarting. No more re-explaining your codebase every morning.
-
-### 🏗️ Large Feature Implementation
-Build features with 10+ tasks without hitting context limits. Traditional approaches fail at 12-15 tasks. Task Orchestrator scales to 50+ tasks via structured note handoffs.
-
-### 🔄 Cross-Domain Coordination
-Database → Backend → Frontend → Testing workflows with dependency enforcement. Each downstream task is automatically blocked until upstream work is verified complete.
-
-### 👥 Multi-Agent Workflows
-Multiple AI agents work in parallel without conflicts. Built-in dependency tracking ensures agents work only on unblocked items.
-
-### 🐛 Bug Tracking During Development
-Capture bugs and improvements as you find them. Organize work without losing track of what needs fixing.
 
 ---
 
@@ -323,33 +286,11 @@ v3 exposes **13 tools** organized around the WorkItem graph:
 
 ## Documentation
 
-### Getting Started
 - **[Quick Start Guide](current/docs/quick-start.md)** — Setup walkthrough and first work item
 - **[API Reference](current/docs/api-reference.md)** — All 13 MCP tools, parameters, and response shapes
 - **[Workflow Guide](current/docs/workflow-guide.md)** — Note schemas, phase gates, dependency patterns, and lifecycle examples
-
-### For Developers
-- **[Contributing Guidelines](CONTRIBUTING.md)** — Development setup and contribution process
 - **[Changelog](CHANGELOG.md)** — Release history
-
----
-
-## Platform Compatibility
-
-| Feature | Claude Code | Other MCP Clients |
-|---------|-------------|-------------------|
-| **Persistent Memory** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **WorkItem Hierarchy** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Note Schemas & Gates** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Role-Based Workflow** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Dependency Graph** | ✅ Tested & Supported | ✅ MCP Protocol Support |
-| **Sub-Agent Orchestration** | ✅ Tested & Supported | ❌ Claude Code-specific |
-| **Skills (Coordination)** | ✅ Tested & Supported | ❌ Claude Code-specific |
-| **Hooks (Automation)** | ✅ Tested & Supported | ❌ Claude Code-specific |
-
-**Primary Platform**: Claude Code is the primary tested and supported platform with full feature access including skills, subagents, and hooks.
-
-**Other MCP Clients**: The core MCP protocol (persistent memory, WorkItem management, note schemas, workflow transitions) works with any MCP client, but we cannot verify functionality on untested platforms. Advanced orchestration features (skills, subagents, hooks) require Claude Code's `.claude/` directory structure.
+- **[Contributing Guidelines](CONTRIBUTING.md)** — Development setup and contribution process
 
 ---
 
@@ -402,39 +343,13 @@ AI: → get_context(includeAncestors=true) → sees active/blocked items with fu
 
 ## Technical Stack
 
-Built with modern, reliable technologies:
 - **Kotlin 2.2.0** with Coroutines for concurrent operations
 - **SQLite + Exposed ORM** for fast, zero-config database (persistent memory system)
 - **Flyway Migrations** for versioned schema management
-- **MCP SDK 0.8.4** for standards-compliant protocol (STDIO transport)
+- **MCP SDK 0.8.4** for standards-compliant protocol (STDIO and HTTP transport)
 - **Docker** for one-command deployment
 
-Clean Architecture (Domain → Application → Infrastructure → Interface) with 1,200+ tests.
-
-**Architecture Validation**: Task Orchestrator implements patterns recommended in Anthropic's context engineering research: sub-agent architectures, compaction through summarization, just-in-time context loading, and persistent external memory. Our approach prevents context accumulation rather than managing it after the fact.
-
----
-
-## Contributing
-
-We welcome contributions! Task Orchestrator follows Clean Architecture with 4 distinct layers (Domain → Application → Infrastructure → Interface).
-
-**To contribute**:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes with tests
-4. Submit a pull request
-
-See [Contributing Guidelines](CONTRIBUTING.md) for detailed development setup.
-
----
-
-## Release Information
-
-- [Watch releases](../../releases) — Get notified of new versions
-- [View changelog](CHANGELOG.md) — See what's changed
-
-**Version format**: `{major}.{minor}.{patch}` — managed via `version.properties`; bumped manually before merge using `/bump-version`
+Clean Architecture (Domain → Application → Infrastructure → Interface) with 1,600+ tests.
 
 ---
 
@@ -442,18 +357,3 @@ See [Contributing Guidelines](CONTRIBUTING.md) for detailed development setup.
 
 [MIT License](LICENSE) — Free for personal and commercial use
 
----
-
-## Keywords
-
-AI coding tools, AI pair programming, Model Context Protocol, MCP server, Claude Code, Claude Desktop, AI task management, context persistence, AI memory, token optimization, AI workflow automation, persistent AI assistant, context pollution solution, AI orchestration, sub-agent coordination
-
----
-
-**Ready to build complex features without context limits?**
-
-```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:latest
-```
-
-Then follow the [Quick Start Guide](current/docs/quick-start.md) to configure your AI platform.
