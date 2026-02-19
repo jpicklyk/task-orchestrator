@@ -1,8 +1,7 @@
 name: Build, Publish, and Release
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
