@@ -46,7 +46,7 @@ is computed automatically from the parent; the maximum nesting depth is 3.
 | `ids` | array | Yes (delete) | Array of item UUIDs to delete |
 | `parentId` | string (UUID) | No | Shared default parent for all created items; per-item `parentId` overrides this |
 | `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
-| `requiresVerification` | boolean | No | Whether the item requires explicit verification before completion |
+| `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
 
 **Item object fields (create):**
 
@@ -58,7 +58,7 @@ is computed automatically from the parent; the maximum nesting depth is 3.
 | `role` | string | No | `queue` |
 | `statusLabel` | string | No | null |
 | `priority` | string | No | `medium` |
-| `complexity` | integer (1–10) | No | null |
+| `complexity` | integer (1–10) | No | null (not set) |
 | `parentId` | string (UUID) | No | shared `parentId` or null |
 | `tags` | string | No | null |
 | `metadata` | string | No | null |
@@ -67,6 +67,18 @@ is computed automatically from the parent; the maximum nesting depth is 3.
 **Item object fields (update):** Same fields as create plus required `id` (UUID). Only provided
 fields are changed; omitted fields retain existing values. Setting `parentId` to JSON null moves
 the item to root.
+
+**Response (update).**
+
+```json
+{
+  "items": [
+    { "id": "uuid", "modifiedAt": "2025-01-01T00:00:00Z", "requiresVerification": false }
+  ],
+  "updated": 1,
+  "failed": 0
+}
+```
 
 **Examples.**
 
@@ -96,6 +108,19 @@ the item to root.
   "recursive": true
 }
 ```
+
+**Response (delete).**
+
+```json
+{
+  "ids": ["550e8400-e29b-41d4-a716-446655440000"],
+  "deleted": 5,
+  "failed": 0,
+  "descendantsDeleted": 4
+}
+```
+
+`descendantsDeleted` is only present when `recursive: true` and descendants were actually deleted; it counts the number of descendant items removed (not including the root items listed in `ids`). The `deleted` count includes both the root items and their descendants. Without `recursive: true`, deleting an item with children fails proactively (via a child-count check, not a DB constraint) with an error message listing the child count.
 
 **Response (create).**
 
@@ -189,6 +214,20 @@ Search returns minimal fields (`id`, `parentId`, `title`, `role`, `priority`, `d
 Use `get` for full item JSON including `description`, `summary`, `statusLabel`, timestamps, and
 `roleChangedAt`.
 
+**Response (overview — scoped mode, with `itemId`).**
+
+```json
+{
+  "item": { "id": "uuid", "title": "Auth Feature", "role": "work", "priority": "high", "depth": 1, ... },
+  "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
+  "children": [
+    { "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "terminal", "priority": "high", "depth": 2, "tags": null }
+  ]
+}
+```
+
+Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children`. The global overview (no `itemId`) returns a flat `items` array of root items each with `id`, `title`, `role`, `priority`, and `childCounts`. In global mode `total` reflects the count of root items returned (not a total-in-DB count).
+
 ---
 
 ### create_work_tree
@@ -209,7 +248,7 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its tag schema (default: false) |
 
-Depth cap: root must be at depth < 3. Children are always root.depth + 1.
+Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Children are always root.depth + 1, so children can reach depth 3 (when root is at depth 2).
 
 **Example.**
 
@@ -235,8 +274,8 @@ Depth cap: root must be at depth < 3. Children are always root.depth + 1.
 {
   "root": { "id": "uuid", "title": "Authentication Feature", "role": "queue", "depth": 0, "tags": "feature" },
   "children": [
-    { "ref": "t1", "id": "uuid", "title": "Design login flow", "role": "queue", "depth": 1 },
-    { "ref": "t2", "id": "uuid", "title": "Implement JWT handler", "role": "queue", "depth": 1 }
+    { "ref": "t1", "id": "uuid", "title": "Design login flow", "role": "queue", "depth": 1, "tags": null },
+    { "ref": "t2", "id": "uuid", "title": "Implement JWT handler", "role": "queue", "depth": 1, "tags": null }
   ],
   "dependencies": [
     { "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS" }
@@ -244,6 +283,17 @@ Depth cap: root must be at depth < 3. Children are always root.depth + 1.
   "notes": []
 }
 ```
+
+`tags` is included on both `root` and each child when it was set; when not set, the field is omitted (not null). When `createNotes=true` and items have tags matching a schema, the `notes` array is populated with created note entries:
+
+```json
+"notes": [
+  { "itemRef": "t1", "key": "acceptance-criteria", "role": "queue", "id": "uuid" },
+  { "itemRef": "t1", "key": "done-criteria", "role": "work", "id": "uuid" }
+]
+```
+
+When `createNotes=false` (default) or no items match a schema, `notes` is `[]`.
 
 ---
 
@@ -286,6 +336,12 @@ Exactly one of `rootId` or `itemIds` must be provided.
 }
 ```
 
+**`skippedReason` values:** Items can be skipped for two reasons:
+- `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
+- `"Cannot transition"` (or a specific error message) — the item itself could not be resolved for transition (e.g., it is already terminal or the role is incompatible with the trigger).
+
+**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures or items already terminal. `gateFailures` = items that failed gate checks (missing required notes); their downstream dependents are counted in `skipped`.
+
 ---
 
 ## Category: Notes
@@ -306,6 +362,8 @@ delete by IDs, by item, or by item and key.
 | `ids` | array | No (delete) | Array of note UUIDs to delete |
 | `itemId` | string (UUID) | No (delete) | Delete all notes for this WorkItem (or specific note with `key`) |
 | `key` | string | No (delete) | With `itemId`: delete the single note matching this key |
+
+When both `ids` and `itemId` are provided, the delete is **additive**: notes matched by `ids` are deleted first, then notes matched by `itemId` (optionally scoped by `key`) are deleted. Both deletions contribute to the final `deleted` count. Deleting a non-existent note by `(itemId, key)` is a silent no-op (returns success with that note not counted in `deleted`).
 
 **Note object fields (upsert):**
 
@@ -466,7 +524,9 @@ spans the entire batch).
 }
 ```
 
-**Validation Failure Response** (self-dependency or circular dependency detected):
+`unblockAt` is only included in the response when it was explicitly set. When `unblockAt` is null (the default), it is omitted from each dependency object in the response. All pattern shortcuts (`linear`, `fan-out`, `fan-in`) return the same `dependencies` array response shape as the explicit array create.
+
+**Validation Failure Response** (any validation error: self-dependency, cycle, RELATES_TO+unblockAt, invalid threshold, etc.):
 
 ```json
 {
@@ -477,7 +537,30 @@ spans the entire batch).
 }
 ```
 
-Note: atomicity is preserved — either all dependencies are created or none. On validation failure, `created` is always 0 and `failures` contains a single entry describing the rejection reason.
+Note: atomicity is preserved — either all dependencies are created or none. On any validation failure, `created` is always 0 and `failures` contains a single entry describing the rejection reason. The `failures[].index` field is 0-based (the first item is index 0).
+
+**Constraint: `RELATES_TO` and `unblockAt`.** Specifying `unblockAt` on a `RELATES_TO` dependency is a validation error. `RELATES_TO` dependencies have no blocking semantics and do not support an unblock threshold; providing one will return a validation failure response.
+
+**Response (delete by relationship).**
+
+```json
+{
+  "fromItemId": "uuid-a",
+  "toItemId": "uuid-b",
+  "deleted": 1
+}
+```
+
+**Response (delete all by item).**
+
+```json
+{
+  "itemId": "uuid-a",
+  "deleted": 3
+}
+```
+
+When `deleteAll=true`, provide either `fromItemId` or `toItemId` (not both required). All dependencies attached to that item (in either direction) are deleted, and the response contains the `itemId` and `deleted` count.
 
 ---
 
@@ -565,6 +648,10 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 - `start`: required notes for the current phase must exist and be filled.
 - `complete`: all required notes across all phases must be filled.
 
+**Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE (same cascade logic applies up the ancestor chain). This appears in `cascadeEvents` in the response with `trigger="cascade"`.
+
+**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. Both cascade types are recorded in `cascadeEvents`.
+
 **Examples.**
 
 ```json
@@ -580,7 +667,7 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 }
 ```
 
-**Response.**
+**Response (success).**
 
 ```json
 {
@@ -605,6 +692,30 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 }
 ```
 
+`unblockedItems` and `allUnblockedItems` are always present (as `[]` when empty). `cascadeEvents` is always present (as `[]` when no cascades occurred). `expectedNotes` is always present (as `[]` when no schema matches the item's tags).
+
+**Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
+
+```json
+{
+  "results": [
+    {
+      "itemId": "uuid",
+      "trigger": "start",
+      "applied": false,
+      "error": "Gate check failed: required notes not filled for queue phase: requirements",
+      "blockers": [
+        { "fromItemId": "uuid-blocker", "currentRole": "queue", "requiredRole": "terminal" }
+      ]
+    }
+  ],
+  "summary": { "total": 1, "succeeded": 0, "failed": 1 },
+  "allUnblockedItems": []
+}
+```
+
+`blockers` is only present when the transition failed due to dependency constraints. `error` contains a human-readable description of why the transition was rejected. Note that `previousRole`, `newRole`, and `expectedNotes` are absent from failed results.
+
 ---
 
 ### get_next_status
@@ -624,10 +735,12 @@ the item is Ready to advance, Blocked, or Terminal, without making any changes.
 { "itemId": "550e8400-e29b-41d4-a716-446655440001" }
 ```
 
+**`recommendation` values:** `"Ready"`, `"Blocked"`, or `"Terminal"`.
+
 **Response.**
 
 ```json
-// Ready
+// Ready — item can advance
 {
   "recommendation": "Ready",
   "currentRole": "queue",
@@ -645,9 +758,18 @@ the item is Ready to advance, Blocked, or Terminal, without making any changes.
   ]
 }
 
+// Blocked — item is explicitly in BLOCKED role (set via block/hold trigger)
+{
+  "recommendation": "Blocked",
+  "currentRole": "blocked",
+  "suggestion": "Use 'resume' trigger to return to previous role"
+}
+
 // Terminal
 { "recommendation": "Terminal", "currentRole": "terminal", "reason": "Item is already terminal and cannot progress further" }
 ```
+
+When the item is in BLOCKED role, the response includes a `suggestion` field instead of `blockers`. When the item is blocked by unsatisfied dependencies, the response includes `blockers` but no `suggestion`.
 
 ---
 
@@ -805,5 +927,10 @@ dependency edges). Terminal items are never included.
 }
 ```
 
-`blockType` is `"explicit"` for items in the BLOCKED role, `"dependency"` for items blocked by
-unsatisfied dependency edges. `satisfied` is true when the blocker has reached its `effectiveUnblockRole`.
+`blockType` values:
+- `"explicit"` — item is in the BLOCKED role (set via a `block` or `hold` trigger). `blockedBy` lists any associated dependency blockers but the item is included regardless.
+- `"dependency"` — item is in QUEUE, WORK, or REVIEW with one or more unsatisfied blocking dependency edges.
+
+`satisfied` is true when the blocker has reached its `effectiveUnblockRole`.
+
+`blockerCount` reflects only the number of **unsatisfied** blockers (not total blockers). For `"explicit"` items with no dependency blockers, `blockerCount` is 0.

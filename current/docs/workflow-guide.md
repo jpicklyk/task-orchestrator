@@ -386,6 +386,24 @@ Returns items blocked by unsatisfied dependencies and items explicitly in `block
 get_blocked_items(parentId="feature-uuid", includeAncestors=true)
 ```
 
+### Cascade Behavior in `advance_item`
+
+`advance_item` automatically cascades role transitions up the hierarchy in two situations:
+
+**Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This cascade continues up the ancestor chain.
+
+**Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain.
+
+Both cascade types appear in `cascadeEvents` in the response:
+
+```json
+{
+  "cascadeEvents": [
+    { "itemId": "feat-uuid", "title": "Auth Feature", "previousRole": "queue", "targetRole": "work", "applied": true }
+  ]
+}
+```
+
 ### Unblock Reporting in `advance_item`
 
 When completing a blocking item, the response includes `unblockedItems`:
