@@ -74,8 +74,6 @@ claude mcp add-json mcp-task-orchestrator '{
   "args": [
     "run", "--rm", "-i",
     "-v", "mcp-task-data:/app/data",
-    "-v", "${workspaceFolder}:/project:ro",
-    "-e", "AGENT_CONFIG_DIR=/project",
     "ghcr.io/jpicklyk/task-orchestrator:latest"
   ]
 }'
@@ -95,8 +93,6 @@ Add to `.mcp.json` in your project root (checked into source control so teammate
       "args": [
         "run", "--rm", "-i",
         "-v", "mcp-task-data:/app/data",
-        "-v", "${workspaceFolder}:/project:ro",
-        "-e", "AGENT_CONFIG_DIR=/project",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
@@ -109,6 +105,31 @@ The `mcp-task-data` Docker volume persists the SQLite database across container 
 #### Option C: Other MCP Clients
 
 Configure your client with the same JSON as Option A above. STDIO transport works with any MCP-compatible client.
+
+### Advanced: Per-Project Note Schemas
+
+By default the server runs in schema-free mode — all 13 tools work with no additional configuration. If you want to define custom note schemas that gate role transitions (e.g., require an acceptance-criteria note before a work item can advance), you can point the server at your project's `.taskorchestrator/config.yaml`.
+
+Add the project mount to your **Option B** `.mcp.json` only (not the global Option A registration — a globally-registered server should not have its schema config vary per project):
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "mcp-task-data:/app/data",
+        "-v", "${workspaceFolder}:/project:ro",
+        "-e", "AGENT_CONFIG_DIR=/project",
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    }
+  }
+}
+```
+
+See [Workflow Guide](current/docs/workflow-guide.md) for the `.taskorchestrator/config.yaml` schema format and examples.
 
 ### Step 3: Claude Code Plugin (optional)
 
