@@ -1,10 +1,7 @@
-name: Build and Push Docker Image
+name: Build, Publish, and Release
 
 on:
   push:
-    branches:
-      - '**'   # all branches
-  pull_request:
     branches: [ main ]
 
 env:
@@ -12,39 +9,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up JDK 23
-      uses: actions/setup-java@v4
-      with:
-        java-version: '23'
-        distribution: 'temurin'
-
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-
-    - name: Make gradlew executable
-      run: chmod +x gradlew
-
-    - name: Run tests
-      run: ./gradlew :current:test --no-daemon
-
-    - name: Publish Test Report
-      uses: mikepenz/action-junit-report@v4
-      if: always()
-      with:
-        report_paths: '**/build/test-results/test/TEST-*.xml'
-        check_name: 'Test Results'
-
   build:
-    needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
 
     permissions:
       contents: write
@@ -81,18 +47,14 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    # --- Main branch only: resolve and guard version ---
-
     - name: Get version
       id: version
-      if: github.ref == 'refs/heads/main'
       run: |
         VERSION=$(./gradlew -q :current:printTagVersion)
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
         echo "Building version: ${VERSION}"
 
     - name: Check version tag does not exist
-      if: github.ref == 'refs/heads/main'
       run: |
         VERSION=${{ steps.version.outputs.version }}
         if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q "v${VERSION}"; then
@@ -101,7 +63,6 @@ jobs:
         fi
 
     - name: Create and push version tag
-      if: github.ref == 'refs/heads/main'
       run: |
         VERSION=${{ steps.version.outputs.version }}
         git config user.name "github-actions[bot]"
@@ -109,11 +70,8 @@ jobs:
         git tag "v${VERSION}"
         git push origin "v${VERSION}"
 
-    # --- Main branch: semver Docker metadata ---
-
-    - name: Extract metadata (main)
-      id: meta-main
-      if: github.ref == 'refs/heads/main'
+    - name: Extract Docker metadata
+      id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -122,53 +80,28 @@ jobs:
           type=raw,value=${{ steps.version.outputs.version }}
           type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
 
-    # --- Non-main branches: branch-name Docker metadata ---
-
-    - name: Extract metadata (branch)
-      id: meta-branch
-      if: github.ref != 'refs/heads/main'
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-
-    # --- Build and push (main) ---
-
-    - name: Build and push Docker image (main)
-      if: github.ref == 'refs/heads/main'
+    - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         target: runtime-current
         push: true
         platforms: linux/amd64,linux/arm64
-        tags: ${{ steps.meta-main.outputs.tags }}
-        labels: ${{ steps.meta-main.outputs.labels }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    # --- Build and push (non-main) ---
-
-    - name: Build and push Docker image (branch)
-      if: github.ref != 'refs/heads/main'
+    - name: Create GitHub Release
       env:
-        CI_BUILD_NUMBER: ${{ github.run_number }}
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        target: runtime-current
-        push: true
-        platforms: linux/amd64,linux/arm64
-        tags: ${{ steps.meta-branch.outputs.tags }}
-        labels: ${{ steps.meta-branch.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    # --- Trivy: main only ---
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "v${{ steps.version.outputs.version }}" \
+          --title "v${{ steps.version.outputs.version }}" \
+          --generate-notes \
+          --verify-tag
 
     - name: Run Trivy vulnerability scanner
-      if: github.ref == 'refs/heads/main'
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}

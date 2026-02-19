@@ -1,9 +1,9 @@
 name: Run Tests
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
+    branches: ['**']
+  pull_request:
     branches: [ main ]
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
       run: chmod +x gradlew
 
     - name: Run tests
-      run: ./gradlew test --no-daemon --tests '*' --tests '!DescriptionFieldMigrationTest'
+      run: ./gradlew :current:test --no-daemon
 
     - name: Publish Test Report
       uses: mikepenz/action-junit-report@v4
