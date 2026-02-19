@@ -37,7 +37,7 @@ Use semantic versioning (`major.minor.patch`):
 
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `1.1.0` |
+| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `1.1.1` |
 
 > Update this table when versions change.
 

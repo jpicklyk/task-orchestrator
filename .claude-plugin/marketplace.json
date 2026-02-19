@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "task-orchestrator",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "description": "Skills, hooks, and workflows for MCP Task Orchestrator (v3). Schema-aware context, note-driven workflow, and thin session hooks.",
       "author": {
         "name": "Jeff Picklyk",
