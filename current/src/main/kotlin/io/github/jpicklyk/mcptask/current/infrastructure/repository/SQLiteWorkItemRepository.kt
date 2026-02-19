@@ -431,9 +431,15 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                 // Build ancestor chains for each input itemId
                 val result = itemIds.associateWith { itemId ->
                     val chain = mutableListOf<WorkItem>()
+                    val visited = mutableSetOf<String>()
                     var current = cache[itemId.toString()]
                     var parentIdStr = current?.parentId?.toString()
                     while (parentIdStr != null) {
+                        if (parentIdStr in visited) {
+                            logger.warn("Cycle detected in ancestor chain for item $itemId at parent $parentIdStr — breaking")
+                            break
+                        }
+                        visited.add(parentIdStr)
                         val ancestor = cache[parentIdStr] ?: break
                         chain.add(0, ancestor) // prepend so order is root -> direct parent
                         parentIdStr = ancestor.parentId?.toString()
