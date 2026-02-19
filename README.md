@@ -52,7 +52,19 @@ Task Orchestrator implements **industry-recommended patterns** from Anthropic's 
 
 **Prerequisite**: [Docker](https://www.docker.com/products/docker-desktop/) must be installed and running.
 
-### Option A: Claude Code (CLI — recommended)
+### Step 1: Pull the image
+
+```bash
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+```
+
+This is a one-time step — Docker caches the image locally. Pulling first ensures your MCP client connects instantly rather than waiting silently on first launch.
+
+### Step 2: Register with your MCP client
+
+Choose the option that matches your setup:
+
+#### Option A: Claude Code (CLI — recommended)
 
 Register the server once from your terminal:
 
@@ -71,7 +83,7 @@ claude mcp add-json mcp-task-orchestrator '{
 
 Restart Claude Code, then run `/mcp` to confirm `mcp-task-orchestrator` is connected.
 
-### Option B: Project `.mcp.json`
+#### Option B: Project `.mcp.json`
 
 Add to `.mcp.json` in your project root (checked into source control so teammates get it automatically):
 
@@ -94,15 +106,11 @@ Add to `.mcp.json` in your project root (checked into source control so teammate
 
 The `mcp-task-data` Docker volume persists the SQLite database across container restarts. The server auto-initializes its schema on first run — no additional setup required.
 
-### Option C: Other MCP Clients
+#### Option C: Other MCP Clients
 
-```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:latest
-```
+Configure your client with the same JSON as Option A above. STDIO transport works with any MCP-compatible client.
 
-Configure your client with the same JSON above. STDIO transport works with any MCP-compatible client.
-
-### Claude Code Plugin (optional)
+### Step 3: Claude Code Plugin (optional)
 
 Install the plugin for workflow skills, session-start hooks, and an orchestrator output style:
 
