@@ -16,6 +16,7 @@ COPY .git .git
 COPY gradlew gradlew.bat ./
 COPY gradle gradle
 COPY build.gradle.kts settings.gradle.kts ./
+COPY version.properties ./
 COPY current/build.gradle.kts current/
 COPY clockwork/build.gradle.kts clockwork/
 RUN chmod +x gradlew
