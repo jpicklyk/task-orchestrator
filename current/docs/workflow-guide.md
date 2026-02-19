@@ -554,7 +554,7 @@ note_schemas:
 - Docker override: set `AGENT_CONFIG_DIR` environment variable to the directory containing `.taskorchestrator/`.
 
 ```bash
-docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)":/project:ro task-orchestrator:dev
+docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro task-orchestrator:dev
 ```
 
 ---

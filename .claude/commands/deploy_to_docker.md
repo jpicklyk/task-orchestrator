@@ -114,11 +114,11 @@ AskUserQuestion(
 
 Use `<DATA_VOLUME>` as the data volume name: `mcp-task-data-current` for v3 (default) or `mcp-task-data` for v2 (`--clockwork`).
 
-**"With Project Mount"**
+**"With Config Mount"**
 ```bash
 docker run --rm -i \
   -v <DATA_VOLUME>:/app/data \
-  -v D:/Projects/task-orchestrator:/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   <image-tag>
 ```
@@ -127,7 +127,7 @@ docker run --rm -i \
 ```bash
 docker run --rm -i \
   -v <DATA_VOLUME>:/app/data \
-  -v D:/Projects/task-orchestrator:/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e LOG_LEVEL=DEBUG \
   -e DATABASE_SHOW_SQL=true \
@@ -157,8 +157,8 @@ AskUserQuestion(
     multiSelect: false,
     options: [
       {
-        label: "With Project Mount (Recommended)",
-        description: "Database volume + project mount + port 3001"
+        label: "With Config Mount (Recommended)",
+        description: "Database volume + .taskorchestrator config mount + port 3001"
       },
       {
         label: "With Debug Logging",
@@ -178,12 +178,12 @@ docker stop mcp-task-orchestrator-http 2>/dev/null || true
 docker rm mcp-task-orchestrator-http 2>/dev/null || true
 ```
 
-**"With Project Mount"**
+**"With Config Mount (Recommended)"**
 ```bash
 docker run -d \
   --name mcp-task-orchestrator-http \
   -v <DATA_VOLUME>:/app/data \
-  -v D:/Projects/task-orchestrator:/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e MCP_TRANSPORT=http \
   -e MCP_HTTP_HOST=0.0.0.0 \
@@ -197,7 +197,7 @@ docker run -d \
 docker run -d \
   --name mcp-task-orchestrator-http \
   -v <DATA_VOLUME>:/app/data \
-  -v D:/Projects/task-orchestrator:/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e MCP_TRANSPORT=http \
   -e MCP_HTTP_HOST=0.0.0.0 \

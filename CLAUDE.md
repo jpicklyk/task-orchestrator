@@ -43,17 +43,17 @@ scripts\docker-build.bat                           # Windows CMD
 # Run Docker container (basic - database only)
 docker run --rm -i -v mcp-task-data:/app/data task-orchestrator:dev
 
-# Run with project mount (recommended - enables config reading)
+# Run with config mount (enables custom note schemas)
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v "$(pwd)":/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   task-orchestrator:dev
 
 # Debug with logs
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v "$(pwd)":/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e LOG_LEVEL=DEBUG \
   task-orchestrator:dev
@@ -61,7 +61,7 @@ docker run --rm -i \
 # Run in HTTP transport mode (exposes port 3001, endpoint: http://localhost:3001/mcp)
 docker run --rm \
   -v mcp-task-data-current:/app/data \
-  -v "$(pwd)":/project:ro \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e MCP_TRANSPORT=http \
   -p 3001:3001 \

@@ -14,10 +14,10 @@ MCP Task Orchestrator gives AI agents persistent, structured task tracking that 
 ## Step 1: Pull the Docker image
 
 ```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:main
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-The image is built from the `current` module (`runtime-current` target) and published to GitHub Container Registry. The `main` tag tracks the latest build from the main branch.
+The image is built from the `current` module (`runtime-current` target) and published to GitHub Container Registry. The `latest` tag always points to the most recent release from the main branch.
 
 ---
 
@@ -33,9 +33,7 @@ claude mcp add-json mcp-task-orchestrator '{
   "args": [
     "run", "--rm", "-i",
     "-v", "mcp-task-data:/app/data",
-    "-v", "${workspaceFolder}:/project:ro",
-    "-e", "AGENT_CONFIG_DIR=/project",
-    "ghcr.io/jpicklyk/task-orchestrator:main"
+    "ghcr.io/jpicklyk/task-orchestrator:latest"
   ]
 }'
 ```
@@ -54,9 +52,7 @@ Add this to `.claude/settings.json` in your project root (checked into source co
       "args": [
         "run", "--rm", "-i",
         "-v", "mcp-task-data:/app/data",
-        "-v", "${workspaceFolder}:/project:ro",
-        "-e", "AGENT_CONFIG_DIR=/project",
-        "ghcr.io/jpicklyk/task-orchestrator:main"
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
   }
@@ -178,6 +174,13 @@ After adding or editing this file, reconnect the MCP server:
 
 Items tagged `task-implementation` will now require a `requirements` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
 
+> **Docker:** To read this config file, mount only the `.taskorchestrator/` folder into the container. Add this to your project-level `.mcp.json` (not the global CLI registration):
+> ```json
+> "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
+> "-e", "AGENT_CONFIG_DIR=/project"
+> ```
+> Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
+
 ---
 
 ## Key concepts
@@ -198,7 +201,7 @@ Items tagged `task-implementation` will now require a `requirements` note before
 |----------|---------|-------------|
 | `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
 | `USE_FLYWAY` | `true` | Apply database migrations on startup |
-| `AGENT_CONFIG_DIR` | `/project` | Directory containing `.taskorchestrator/config.yaml` |
+| `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
 ---

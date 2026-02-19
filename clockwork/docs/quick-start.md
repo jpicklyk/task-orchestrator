@@ -61,7 +61,7 @@ Choose your AI platform and configure accordingly:
 Use the universal MCP configuration command from your project directory (works on macOS, Linux, Windows):
 
 ```bash
-claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v",".:/project","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
+claude mcp add-json task-orchestrator '{"type":"stdio","command":"docker","args":["run","--rm","-i","-v","mcp-task-data:/app/data","-v","./.taskorchestrator:/project/.taskorchestrator","-e","AGENT_CONFIG_DIR=/project","ghcr.io/jpicklyk/task-orchestrator:latest"]}'
 ```
 
 This single command works across all platforms. Claude Code will automatically configure and connect to the MCP server.
@@ -103,7 +103,7 @@ All these platforms use similar JSON configuration. Find your configuration file
         "--volume",
         "mcp-task-data:/app/data",
         "--volume",
-        "/absolute/path/to/your/project:/project",
+        "/absolute/path/to/your/project/.taskorchestrator:/project/.taskorchestrator",
         "--env",
         "AGENT_CONFIG_DIR=/project",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
