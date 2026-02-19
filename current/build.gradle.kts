@@ -1,9 +1,27 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
 }
 
-version = "2.0.0"
+// Load version from centralized version.properties
+val versionProps = Properties()
+file("../version.properties").inputStream().use { versionProps.load(it) }
+val vMajor = versionProps.getProperty("VERSION_MAJOR", "2")
+val vMinor = versionProps.getProperty("VERSION_MINOR", "0")
+val vPatch = versionProps.getProperty("VERSION_PATCH", "0")
+val baseVersion = "$vMajor.$vMinor.$vPatch"
+
+// On non-main CI builds, append run number as build portion (e.g. 2.0.0.142)
+val ciBuildNumber = System.getenv("CI_BUILD_NUMBER")?.takeIf { it.isNotEmpty() }
+version = if (ciBuildNumber != null) "$baseVersion.$ciBuildNumber" else baseVersion
+
+// For git tag validation — always the clean semver, never with build suffix
+tasks.register("printTagVersion") {
+    doLast { println(baseVersion) }
+}
+
 group = "io.github.jpicklyk"
 
 repositories {

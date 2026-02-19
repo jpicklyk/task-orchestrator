@@ -55,10 +55,9 @@ bin/
 /doc_research/
 
 ### Claude Code configuration files ###
-# .claude/ directory contains user-customizable installed files
-# Source files in src/main/resources/ are tracked separately
+# Plugin cache and user-local configs are gitignored (live in ~/.claude/ at user level)
+# Project-level .claude/skills/, .claude/hooks/, .claude/commands/ ARE tracked (shared with team)
 /.claude/plugins/
-/.claude/skills/
 /.claude/agents/
 CLAUDE.local.md
 
