@@ -362,7 +362,7 @@ Edit version in `build.gradle.kts` (majorVersion, minorVersion, patchVersion, qu
 - **Docker:** `Dockerfile`, `.dockerignore`, `docker-compose.yml`
 - **Build scripts:** `scripts/docker-build.sh`, `scripts/docker-build.bat`
 - **CI/CD:** `.github/workflows/docker-publish.yml`
-- **Plugin:** `claude-plugins/current/` (skills, hooks, output styles)
+- **Plugin:** `claude-plugins/task-orchestrator/` (skills, hooks, output styles)
 - **Scoped CLAUDE.md:** `src/main/kotlin/io/github/jpicklyk/mcptask/CLAUDE.md` (tool API formatting rules)
 - **Tests:** `src/test/kotlin/` (mirrors main structure)
 
@@ -379,27 +379,27 @@ Files placed in `.claude/skills/` are **auto-discovered by Claude Code** with no
 
 No `enabledPlugins` entry or marketplace registration needed.
 
-### Plugin Skills (`claude-plugins/current/skills/`)
+### Plugin Skills (`claude-plugins/task-orchestrator/skills/`)
 
-The `current-task-orchestrator` plugin provides namespaced skills (`current-task-orchestrator:work-summary`, etc.) distributed via the local marketplace at `.claude-plugin/marketplace.json`. These **require explicit activation**.
+The `task-orchestrator` plugin provides namespaced skills (`task-orchestrator:work-summary`, etc.) distributed via the local marketplace at `.claude-plugin/marketplace.json`. These **require explicit activation**.
 
 **Pre-activation is configured in `.claude/settings.json`:**
 
 ```json
 {
   "enabledPlugins": {
-    "current@task-orchestrator-marketplace": true
+    "task-orchestrator@task-orchestrator-marketplace": true
   }
 }
 ```
 
 - Marketplace name: `task-orchestrator-marketplace` (from `.claude-plugin/marketplace.json` → `name`)
-- Plugin entry name: `current` (from the `plugins[].name` field in that same file)
+- Plugin entry name: `task-orchestrator` (from the `plugins[].name` field in that same file)
 - Key format: `"plugin-name@marketplace-name"`
 
-If the plugin stops loading after a restart, verify `.claude/settings.json` has the entry above. As a fallback, run `/plugin marketplace add .claude-plugin` then `/plugin enable current@task-orchestrator-marketplace`.
+If the plugin stops loading after a restart, verify `.claude/settings.json` has the entry above. As a fallback, run `/plugin marketplace add .claude-plugin` then `/plugin enable task-orchestrator@task-orchestrator-marketplace`.
 
-**Plugin cache note:** Plugin hook script content is cached by Claude Code. After editing any file inside `claude-plugins/current/`, remove and re-add the marketplace to pick up the changes.
+**Plugin cache note:** Plugin hook script content is cached by Claude Code. After editing any file inside `claude-plugins/task-orchestrator/`, remove and re-add the marketplace to pick up the changes.
 
 ## Tool Development Guidelines
 

@@ -1,5 +1,5 @@
 {
   "enabledPlugins": {
-    "current@task-orchestrator-marketplace": true
+    "task-orchestrator@task-orchestrator-marketplace": true
   }
 }
