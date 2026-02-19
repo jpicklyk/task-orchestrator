@@ -211,7 +211,39 @@ block instead of executing it.
 
 ---
 
-## Step 8 — Print Summary
+## Step 8 — Pre-PR Checklist
+
+Before printing the summary, verify these items in the README and fix any that are stale. Do NOT stage extra files — if fixes are needed, include them in the same staged set before the PR is created.
+
+**README checks (run grep to verify):**
+
+```bash
+grep -n "ghcr.io/jpicklyk/task-orchestrator" README.md
+```
+
+Every Docker image reference must use `:latest` — never a branch name (`:main`, `:overhaul`, etc.) or a hardcoded version tag. The CI workflow publishes `:latest` on every merge to `main`; pinned semver tags (e.g., `:2.0.1`) are also published but should not appear in the Quick Start instructions.
+
+**Version badge** (line ~7 in README):
+
+The badge must use the `shields.io/github/v/tag/` endpoint (not `/release/`) because the CI workflow creates git tags, not GitHub Releases:
+
+```
+[![Version](https://img.shields.io/github/v/tag/jpicklyk/task-orchestrator?sort=semver)](...)
+```
+
+The badge auto-updates when CI pushes the `vX.Y.Z` tag after merge — no manual update needed.
+
+**If fixes are required**, make the edits, then:
+
+```bash
+git add README.md version.properties CHANGELOG.md
+```
+
+and re-confirm `git status` shows only those three files staged.
+
+---
+
+## Step 9 — Print Summary
 
 Output a brief summary:
 

@@ -4,7 +4,7 @@
 
 An orchestration framework for AI coding assistants that solves context pollution and token exhaustion — enabling your AI to work on complex projects without running out of memory.
 
-[![Version](https://img.shields.io/github/v/release/jpicklyk/task-orchestrator?include_prereleases)](https://github.com/jpicklyk/task-orchestrator/releases)
+[![Version](https://img.shields.io/github/v/tag/jpicklyk/task-orchestrator?sort=semver)](https://github.com/jpicklyk/task-orchestrator/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-purple)](https://modelcontextprotocol.io)
 
@@ -64,7 +64,7 @@ claude mcp add-json mcp-task-orchestrator '{
     "-v", "mcp-task-data:/app/data",
     "-v", "${workspaceFolder}:/project:ro",
     "-e", "AGENT_CONFIG_DIR=/project",
-    "ghcr.io/jpicklyk/task-orchestrator:main"
+    "ghcr.io/jpicklyk/task-orchestrator:latest"
   ]
 }'
 ```
@@ -85,7 +85,7 @@ Add to `.mcp.json` in your project root (checked into source control so teammate
         "-v", "mcp-task-data:/app/data",
         "-v", "${workspaceFolder}:/project:ro",
         "-e", "AGENT_CONFIG_DIR=/project",
-        "ghcr.io/jpicklyk/task-orchestrator:main"
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
     }
   }
@@ -97,7 +97,7 @@ The `mcp-task-data` Docker volume persists the SQLite database across container 
 ### Option C: Other MCP Clients
 
 ```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:main
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
 Configure your client with the same JSON above. STDIO transport works with any MCP-compatible client.
@@ -403,7 +403,7 @@ See [Contributing Guidelines](CONTRIBUTING.md) for detailed development setup.
 - [Watch releases](../../releases) — Get notified of new versions
 - [View changelog](CHANGELOG.md) — See what's changed
 
-**Version format**: `{major}.{minor}.{patch}.{git-commit-count}-{qualifier}`
+**Version format**: `{major}.{minor}.{patch}` — managed via `version.properties`; bumped manually before merge using `/bump-version`
 
 ---
 
@@ -422,7 +422,7 @@ AI coding tools, AI pair programming, Model Context Protocol, MCP server, Claude
 **Ready to build complex features without context limits?**
 
 ```bash
-docker pull ghcr.io/jpicklyk/task-orchestrator:main
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
 Then follow the [Quick Start Guide](current/docs/quick-start.md) to configure your AI platform.
