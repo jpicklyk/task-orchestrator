@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.managem
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.SchemaManagerFactory
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.sql.Connection
@@ -111,6 +112,7 @@ class DatabaseManager(
 
             if (result) {
                 logger.info("Database schema updated successfully")
+                checkParentCycleIntegrity()
             } else {
                 logger.error("Failed to update database schema")
             }
@@ -119,6 +121,53 @@ class DatabaseManager(
         } catch (e: Exception) {
             logger.error("Error updating database schema: ${e.message}", e)
             return false
+        }
+    }
+
+    /**
+     * Runs lightweight SQL queries to detect self-loop and 2-hop mutual cycles in the
+     * work_items parent hierarchy. Logs a WARNING for each corrupt item found but does NOT
+     * fail startup or delete data — remediation is a data decision, not an infra decision.
+     *
+     * Called once after schema migrations complete.
+     */
+    private fun checkParentCycleIntegrity() {
+        try {
+            transaction(db = getDatabase()) {
+                exec("SELECT id FROM work_items WHERE id = parent_id") { rs ->
+                    var selfLoopCount = 0
+                    while (rs.next()) {
+                        val id = rs.getString("id")
+                        logger.warn("Data integrity issue: work item '$id' is its own parent (self-loop)")
+                        selfLoopCount++
+                    }
+                    if (selfLoopCount > 0) {
+                        logger.warn("Found $selfLoopCount self-loop(s) in work_items. These items have parent_id = id.")
+                    }
+                }
+
+                exec(
+                    """
+                    SELECT a.id AS a_id, b.id AS b_id
+                    FROM work_items a
+                    JOIN work_items b ON a.parent_id = b.id AND b.parent_id = a.id
+                    WHERE a.id < b.id
+                    """.trimIndent()
+                ) { rs ->
+                    var mutualCycleCount = 0
+                    while (rs.next()) {
+                        val aId = rs.getString("a_id")
+                        val bId = rs.getString("b_id")
+                        logger.warn("Data integrity issue: mutual parent cycle between work items '$aId' and '$bId'")
+                        mutualCycleCount++
+                    }
+                    if (mutualCycleCount > 0) {
+                        logger.warn("Found $mutualCycleCount mutual 2-hop cycle(s) in work_items.")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("Could not run parent-cycle integrity check: ${e.message}")
         }
     }
 

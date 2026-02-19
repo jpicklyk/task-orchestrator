@@ -186,6 +186,9 @@ Unified write operations for WorkItems (create, update, delete).
                 val metadata = extractItemString(itemObj, "metadata")
                 val tags = extractItemString(itemObj, "tags")
 
+                // Pre-generate the UUID so we can guard against self-parent before construction
+                val itemId = UUID.randomUUID()
+
                 // Resolve parentId: per-item overrides shared default
                 val itemParentIdStr = extractItemString(itemObj, "parentId")
                 val parentId = if (itemParentIdStr != null) {
@@ -196,6 +199,30 @@ Unified write operations for WorkItems (create, update, delete).
                     }
                 } else {
                     sharedParentId
+                }
+
+                // Guard: self-parent check
+                if (parentId != null && parentId == itemId) {
+                    throw ToolValidationException("Item at index $index: cannot be its own parent")
+                }
+
+                // Guard: ancestor cycle check — walk up from parentId, ensure itemId is not an ancestor
+                if (parentId != null) {
+                    var cursor: UUID? = parentId
+                    repeat(MAX_DEPTH + 1) {
+                        val cursorId = cursor ?: return@repeat
+                        val ancestorResult = repo.getById(cursorId)
+                        val ancestor = when (ancestorResult) {
+                            is Result.Success -> ancestorResult.data
+                            is Result.Error -> return@repeat
+                        }
+                        if (ancestor.id == itemId) {
+                            throw ToolValidationException(
+                                "Item at index $index: reparenting to '$parentId' would create a circular hierarchy"
+                            )
+                        }
+                        cursor = ancestor.parentId
+                    }
                 }
 
                 // Compute depth from parent
@@ -245,6 +272,7 @@ Unified write operations for WorkItems (create, update, delete).
                 }
 
                 val workItem = WorkItem(
+                    id = itemId,
                     parentId = parentId,
                     title = title,
                     description = description,
