@@ -286,6 +286,7 @@ v3 exposes **13 tools** organized around the WorkItem graph:
 
 ## Documentation
 
+- **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** — Full documentation hub
 - **[Quick Start Guide](current/docs/quick-start.md)** — Setup walkthrough and first work item
 - **[API Reference](current/docs/api-reference.md)** — All 13 MCP tools, parameters, and response shapes
 - **[Workflow Guide](current/docs/workflow-guide.md)** — Note schemas, phase gates, dependency patterns, and lifecycle examples
