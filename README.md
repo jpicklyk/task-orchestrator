@@ -110,7 +110,7 @@ Configure your client with the same JSON as Option A above. STDIO transport work
 
 By default the server runs in schema-free mode — all 13 tools work with no additional configuration. If you want to define custom note schemas that gate role transitions (e.g., require an acceptance-criteria note before a work item can advance), you can point the server at your project's `.taskorchestrator/config.yaml`.
 
-Add the project mount to your **Option B** `.mcp.json` only (not the global Option A registration — a globally-registered server should not have its schema config vary per project):
+Add the config mount to your **Option B** `.mcp.json` only (not the global Option A registration — a globally-registered server should not have its schema config vary per project):
 
 ```json
 {
@@ -120,7 +120,7 @@ Add the project mount to your **Option B** `.mcp.json` only (not the global Opti
       "args": [
         "run", "--rm", "-i",
         "-v", "mcp-task-data:/app/data",
-        "-v", "${workspaceFolder}:/project:ro",
+        "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
         "-e", "AGENT_CONFIG_DIR=/project",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
@@ -128,6 +128,8 @@ Add the project mount to your **Option B** `.mcp.json` only (not the global Opti
   }
 }
 ```
+
+> **Security note:** Only the `.taskorchestrator/` folder is mounted — the server has no access to the rest of your project. The container's `/project` path contains nothing else.
 
 See [Workflow Guide](current/docs/workflow-guide.md) for the `.taskorchestrator/config.yaml` schema format and examples.
 
