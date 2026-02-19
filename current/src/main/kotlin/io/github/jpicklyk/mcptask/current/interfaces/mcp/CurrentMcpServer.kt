@@ -27,6 +27,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
 import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import java.io.InputStream
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
@@ -132,8 +133,20 @@ class CurrentMcpServer(
     private suspend fun runStdioTransport(server: Server, serverName: String, toolCount: Int) {
         logger.info("Starting MCP server with stdio transport...")
 
+        // Workaround for MCP SDK 0.8.4 bug: StdioServerTransport's read loop does not
+        // suspend when InputStream.read() returns 0, causing a 100% CPU busy-spin.
+        // Wrapping System.in ensures read() always blocks until data is available.
+        // See: https://github.com/modelcontextprotocol/kotlin-sdk/issues/549
+        val blockingStdin = object : InputStream() {
+            override fun read(): Int = System.`in`.read()
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                var n = 0
+                while (n == 0) n = System.`in`.read(b, off, len)
+                return n
+            }
+        }
         val transport = StdioServerTransport(
-            inputStream = System.`in`.asSource().buffered(),
+            inputStream = blockingStdin.asSource().buffered(),
             outputStream = System.out.asSink().buffered()
         )
 
