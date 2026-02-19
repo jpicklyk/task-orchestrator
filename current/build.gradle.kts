@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-version = "0.1.0-alpha-01"
+version = "2.0.0"
 group = "io.github.jpicklyk"
 
 repositories {
