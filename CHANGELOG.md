@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-02-19
+
+### Added
+- Added Claude Code plugin installation instructions to README and quick-start guide — covers skills, hooks, output style, and correct install commands
+- Added automatic GitHub Wiki sync — documentation in `current/docs/` now auto-publishes to the GitHub Wiki on every merge to `main`
+- Added `/prepare-release` skill for streamlined release preparation with changelog drafting and PR creation
+
+### Changed
+- Renamed Claude Code plugin from `current` to `task-orchestrator` — install via `/plugin marketplace add https://github.com/jpicklyk/task-orchestrator` then `/plugin install task-orchestrator@task-orchestrator-marketplace`
+- Removed legacy `clockwork` plugin (superseded by `task-orchestrator`)
+- Fixed quick-start guide Step 2 Option B to use `.mcp.json` (was incorrectly referencing `.claude/settings.json`); added Option C for other MCP clients; corrected note schemas Docker config block to show full config
+
+---
+
 ## [2.0.2] - 2026-02-19
 
 ### Fixed
