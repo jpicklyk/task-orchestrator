@@ -1,5 +1,6 @@
 ---
-description: Prepare a versioned release from main — reads commits since last tag, infers semver bump, drafts changelog, creates release branch and PR, then provides the trigger command for Docker publish and GitHub release.
+description: Prepare a versioned release — reads commits since last tag, infers semver bump, drafts changelog, creates release branch and PR, then provides the Docker publish trigger command.
+disable-model-invocation: true
 ---
 
 # Prepare Release
