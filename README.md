@@ -115,6 +115,16 @@ Add the config mount to your **Option B** `.mcp.json` only (not the global Optio
 
 See [Workflow Guide](current/docs/workflow-guide.md) for the `.taskorchestrator/config.yaml` schema format and examples.
 
+### Advanced: Per-Project Data Isolation
+
+By default, all projects share the `mcp-task-data` Docker volume — a single SQLite database for everything. To give a project its own isolated task store, change the volume name in the `-v` flag to something project-specific:
+
+```json
+"-v", "my-project-data:/app/data",
+```
+
+Docker creates the volume automatically on first run. Each named volume is a completely separate database — work items, notes, and dependencies from one project never appear in another. Combine this with the per-project `.mcp.json` (Option B) so the scoped volume and config schema travel together with the project.
+
 ### Step 3: Claude Code Plugin (optional)
 
 The plugin adds workflow skills, automation hooks, and an orchestrator output style to Claude Code. The MCP server (Step 2) must be connected first.
