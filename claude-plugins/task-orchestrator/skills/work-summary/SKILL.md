@@ -1,11 +1,28 @@
 ---
 name: work-summary
-description: Intelligent project dashboard — active work, blockers, next actions, and agent analysis of project health
+description: Generate an insight-driven project dashboard showing active work, blockers, stalled items, and next actions. Use when a user says "project status", "what's active", "show me the dashboard", "work summary", "what should I work on", "project health", "what's blocked", or "where did I leave off".
+argument-hint: "[optional: container UUID or title to scope the summary]"
 ---
 
 # Work Summary — Current (v3)
 
 Generate an insight-driven project dashboard. The goal is not to display data — it is to **interpret** it. Surface patterns, anomalies, and actionable signals that a plain table cannot. Think like a project manager reading between the lines.
+
+---
+
+## Step 0 — Scope Check
+
+If `$ARGUMENTS` is provided:
+- If it looks like a UUID, use it directly as `parentId` for all queries below
+- If it's text, search: `query_items(operation="search", query="<text>")` — pick the best-matching root or container item and use its UUID as `parentId`
+- If multiple matches, pick the closest title match; if ambiguous, use `AskUserQuestion` to clarify
+
+When scoped to a `parentId`, modify the three data collection calls:
+1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview of that subtree
+2. `get_context(includeAncestors=true)` — still global (filters applied in analysis phase)
+3. `get_next_item(limit=3, includeAncestors=true, parentId="<parentId>")` — scoped recommendations
+
+If no `$ARGUMENTS`, proceed with the global (unscoped) data collection as written below.
 
 ## Data Collection (3 calls, run in parallel)
 

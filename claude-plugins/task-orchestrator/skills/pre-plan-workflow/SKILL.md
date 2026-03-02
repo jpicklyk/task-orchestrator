@@ -1,0 +1,58 @@
+---
+name: pre-plan-workflow
+description: Internal workflow for plan mode — checks MCP for existing work, note schemas, and gate requirements to set the definition floor before planning begins.
+user-invocable: false
+---
+
+# Pre-Plan Workflow — Definition Floor
+
+When entering plan mode, use the MCP to set the **definition floor** before writing your plan. The definition floor is the baseline of existing work, documentation requirements, and gate constraints that the plan must account for.
+
+## Step 1: Check Existing MCP State
+
+Call the health check to see what's already tracked:
+
+```
+get_context()
+```
+
+**If active or stalled items exist:**
+- Identify items related to the current request — avoid planning work that duplicates what's already tracked
+- For each relevant active item, call `get_context(itemId=...)` to inspect:
+  - **Note schema** — which notes are expected for this item's tags
+  - **Gate status** — which required notes are filled vs. missing, and whether the item can advance
+  - **Guidance pointer** — authoring guidance for the first unfilled required note
+
+**If no items exist (clean slate):**
+- The definition floor is simply "no existing MCP state to account for"
+- Proceed with planning, but still check Step 2 for schema awareness
+
+## Step 2: Discover Note Schema Requirements
+
+Read `.taskorchestrator/config.yaml` in the project root (this is a file read, not an MCP call):
+
+- If the file exists, list the discovered schemas and their required notes per phase
+- Each schema key (e.g., `feature-implementation`, `bug-fix`) is a tag that items can carry to activate gate enforcement
+- Required queue-phase notes define what documentation must exist before work starts
+- Required work-phase notes define what must be captured during implementation
+- Use `guidancePointer` values from `get_context(itemId=...)` on existing items to understand how to author each note
+
+If no config file exists, the project has no note schemas — items will be schema-free with no gate enforcement. Proceed with planning normally.
+
+**Use schemas to inform the plan:** When a schema applies, each planned task should:
+- Note which schema tag will be applied at materialization (e.g., `tags: "feature-implementation"`)
+- Account for required notes — plan sections should naturally produce content that maps to required note keys
+- Respect dependency ordering — which tasks block others (these become `BLOCKS` edges)
+
+## Step 3: Plan with MCP Awareness
+
+Structure the plan knowing it will be materialized into MCP items after approval:
+
+- Each planned task should map to **one work item** with clear boundaries — a single unit of work a subagent can own
+- Account for **dependency ordering** — which tasks block others (these become `BLOCKS` edges)
+- If note schemas apply, plan sections should produce the content needed to fill required notes
+- Consider the **hierarchy** — a root container item with child task items is the standard pattern
+
+## After Plan Approval
+
+Once the plan is approved, the post-plan hook will guide you through materialization and implementation dispatch. Do not materialize before approval.

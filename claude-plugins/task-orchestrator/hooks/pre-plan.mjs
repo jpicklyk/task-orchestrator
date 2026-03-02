@@ -1,22 +1,11 @@
 #!/usr/bin/env node
-// PreToolUse EnterPlanMode — injects planning workflow guidance
+// PreToolUse EnterPlanMode — triggers the pre-plan-workflow skill
 const output = {
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
-    additionalContext: `## Planning Mode — Current (v3) Workflow
+    additionalContext: `## Planning Mode — MCP Task Orchestrator
 
-Before implementing, call \`get_context(itemId=<activeItemId>)\` to:
-- See the note schema for this item's tags
-- Check gate status (which required notes must be filled)
-- Get the guidance pointer for authoring notes
-
-**Planning workflow:**
-1. Create items with \`manage_items\` or \`create_work_tree\`
-2. Check \`get_context\` for expected notes per item
-3. Fill required notes with \`manage_notes\`
-4. Advance with \`advance_item(trigger="start")\` — gate enforcement will verify notes
-
-**After plan approval:** Materialize containers, then dispatch implementation agents with MCP item UUIDs.`
+Invoke the \`task-orchestrator:pre-plan-workflow\` skill for the full planning workflow. It will guide you through checking existing MCP state to set the definition floor before writing your plan.`
   }
 };
 process.stdout.write(JSON.stringify(output));

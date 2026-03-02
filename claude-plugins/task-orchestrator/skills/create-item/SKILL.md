@@ -1,6 +1,6 @@
 ---
 name: create-item
-description: Create an MCP work item from conversation context. Scans existing containers to anchor the item in the right place (Bugs, Features, Tech Debt, Observations, etc.), infers type and priority, creates single items or work trees, and pre-fills required notes. Use this whenever the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking persistently.
+description: Create an MCP work item from conversation context. Scans existing containers to anchor the item in the right place (Bugs, Features, Tech Debt, Observations, etc.), infers type and priority, creates single items or work trees, and pre-fills required notes. Use this whenever the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking persistently. Also use when user says "track this", "log this bug", "create a task for", or "add this to the backlog".
 argument-hint: "[optional: brief description of what to create]"
 ---
 
@@ -71,16 +71,26 @@ Empty (no project root exists):
 
 ---
 
-## Step 4 — Apply tags
+## Step 4 — Apply tags via schema discovery
 
-| Item type | Tags to apply |
-|-----------|--------------|
-| Feature / new capability | `feature-implementation` |
-| Observation: friction / confusing API | `agent-observation,friction` |
-| Observation: token waste / redundant call | `agent-observation,optimization` |
-| Observation: tool defect | `agent-observation,bug` |
-| Observation: gap in tool surface | `agent-observation,missing-capability` |
-| Bug, tech debt, action item, general task | *(no tags)* |
+Read `.taskorchestrator/config.yaml` to discover available note schemas. Each schema key is a tag that activates gate enforcement when applied to an item.
+
+**Infer the best schema match from context:**
+
+| Context signal | Schema to apply |
+|----------------|-----------------|
+| Feature, enhancement, new capability | `feature-implementation` (if it exists in config) |
+| Bug, error, crash, unexpected behavior | `bug-fix` (if it exists in config) |
+| Observation, friction, optimization, missing capability | `agent-observation` (if it exists in config) |
+
+If the inferred schema key exists in the config, apply it as the item's `tags` value. If the key does not exist in the config (e.g., no `bug-fix` schema defined), leave tags empty — do not apply a tag that has no matching schema.
+
+**When no confident match can be inferred:**
+- If a schema named `default` exists in the config, apply it as the fallback — this lets users control what happens to unclassified items
+- Otherwise, ask the user which schema to apply via `AskUserQuestion`, listing the available schema keys from the config
+- Include a "No schema" option for items that should be schema-free
+
+**If no config file exists**, skip tagging entirely — all items will be schema-free.
 
 ---
 
@@ -132,3 +142,23 @@ If a new category container was created, add one line:
 ```
   ↳ Created new container: [category name] under [parent]
 ```
+
+---
+
+## Troubleshooting
+
+**No containers found in overview**
+- Cause: Fresh workspace with no existing structure
+- Solution: The skill handles this automatically — it will offer to create a project root and category containers via `AskUserQuestion`
+
+**Wrong container chosen for the item**
+- Cause: Item type was ambiguous or the category mapping didn't match intent
+- Solution: Move the item after creation with `manage_items(operation="update", items=[{id: "<uuid>", parentId: "<correct-container-uuid>"}])`
+
+**Tags not matching a schema — `expectedNotes` is empty**
+- Cause: The tag string doesn't match any key in `.taskorchestrator/config.yaml`, or the config hasn't been loaded
+- Solution: Verify the tag matches a `note_schemas:` key exactly. If the config was recently changed, run `/mcp` to reconnect the server
+
+**Expected notes not returned after item creation**
+- Cause: MCP server caches schemas on first access — config changes require reconnect
+- Solution: Run `/mcp` in Claude Code to reconnect the server, then retry the create operation
