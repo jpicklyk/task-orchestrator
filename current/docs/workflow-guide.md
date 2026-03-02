@@ -80,6 +80,8 @@ A note schema is a named set of note definitions attached to an item via a **tag
 
 Schemas are defined in `.taskorchestrator/config.yaml` in the project root.
 
+> **Schemas vs notes:** Schemas and notes are independent systems. A schema is a set of rules defined in your project config that specifies what documentation an item must carry — it is never stored in the database. A note is actual content written by agents during implementation — it is stored in the database and carries no reference to any schema. The two meet only at gate-check time: `advance_item` fetches the item's notes from the database and checks them against the schema's requirements. Items with no matching schema tag advance freely with no gate enforcement.
+
 ### How They Gate Transitions
 
 - `advance_item(trigger="start")` checks required notes for the **current phase** before advancing.

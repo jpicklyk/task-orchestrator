@@ -97,7 +97,7 @@ Then offer three options via `AskUserQuestion`:
 ```
 ◆ Some items have unfilled required notes and will be skipped by the gate.
   What would you like to do?
-  1. Fill notes first — use /note-viewer to fill each item's notes, then return here
+  1. Fill notes first — use manage_notes(operation="upsert") to fill each item's required notes, then return here
   2. Use cancel trigger — bypasses all gates, marks items as "cancelled"
   3. Proceed anyway — gated items will be skipped, others will complete
 ```
@@ -197,7 +197,7 @@ Report what was deleted:
 
 Cause: The item has required notes that have not been filled. Gate enforcement runs before each transition and blocks completion.
 
-Solution: Use `/status-progression` to fill the missing notes for each blocked item, then rerun `complete_tree`. Alternatively, switch to `trigger="cancel"` to bypass all gates and force-close the items.
+Solution: Fill each item's missing required notes with `manage_notes(operation="upsert")`, then rerun `complete_tree`. Alternatively, switch to `trigger="cancel"` to bypass all gates and force-close the items.
 
 ---
 
@@ -311,4 +311,4 @@ Result:
   Summary: 3/5 completed | 1 gate failure | 1 dependency skip
 ```
 
-Follow up: use `/note-viewer` on "Implement login" to fill `implementation-notes`, then rerun `complete_tree`. The two remaining items will be processed on the next run.
+Follow up: fill `implementation-notes` on "Implement login" with `manage_notes(operation="upsert")`, then rerun `complete_tree`. The two remaining items will be processed on the next run.

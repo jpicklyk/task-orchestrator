@@ -30,6 +30,7 @@ Explain the core concept (4 sentences max):
 - When you ask Claude to build something non-trivial, it enters **plan mode** — exploring the codebase and writing a plan saved as a **persistent markdown file**
 - The MCP Task Orchestrator **complements** the plan file by tracking **execution state** — what's been started, what's blocked, what's done, and what's next
 - Think of it this way: the **plan file** is your design document (the *what* and *how*), while the **MCP** is your project board (the *progress* and *status*)
+- The MCP also helps **during planning** — when Claude enters plan mode, the pre-plan hook tells it to check for existing tracked work and note schema requirements, setting a **definition floor** so the plan accounts for documentation gates and doesn't duplicate what's already in progress
 - Together, they give you full continuity across sessions — the plan tells you the approach, the MCP tells you where you left off
 
 ---
@@ -44,7 +45,7 @@ You describe what you want
         ▼
   EnterPlanMode              ← Claude explores the codebase
         │
-  pre-plan hook fires        ← Plugin tells Claude to check MCP for existing work
+  pre-plan hook fires        ← Plugin sets the definition floor: existing work, schemas, gate requirements
         │
         ▼
   Plan written to disk       ← Persistent markdown file — your design document
@@ -67,6 +68,7 @@ You describe what you want
 - The **plan file** and **MCP items** are not duplicates — they serve different roles
 - The plan file captures your design decisions, architectural reasoning, and approach — it's a reference document
 - MCP items track individual units of work through a lifecycle: who's working on what, what's blocked, and what's done
+- The pre-plan hook sets the **definition floor** — Claude checks what's already tracked and what documentation gates exist, so the plan is written with full MCP awareness rather than in a vacuum
 - The plugin hooks (`pre-plan`, `post-plan`) inject guidance automatically so Claude follows this pipeline — you don't need to ask for it
 
 ---
@@ -175,7 +177,7 @@ Briefly mention that MCP items can have **required notes** that act as documenta
 - A `.taskorchestrator/config.yaml` file defines note schemas — which notes must be filled before an item can advance
 - Example: a `feature-implementation` schema might require `requirements` and `design` notes before work can start
 - This enforces documentation discipline — Claude must fill the notes before `advance_item` allows progression
-- Run `/schema-builder` to set one up interactively, or `/feature-implementation` to see it in action
+- Run `/manage-schemas` to set one up interactively, or `/feature-implementation` to see the full lifecycle in action
 
 ---
 
@@ -187,7 +189,7 @@ Present this capabilities table:
 |---|---|---|
 | Track a feature with documentation gates | `/feature-implementation` | Full lifecycle with required notes at each phase |
 | Create items from conversation context | `/create-item` | Infers type, priority, and container placement |
-| Build custom workflow schemas | `/schema-builder` | Define note requirements for your own item types |
+| Build custom workflow schemas | `/manage-schemas` | Create, view, edit, delete, and validate note schemas |
 | See project health dashboard | `/work-summary` | Active work, blockers, next actions at a glance |
 | Advance an item through gates | `/status-progression` | Shows current role, gate status, correct trigger |
 

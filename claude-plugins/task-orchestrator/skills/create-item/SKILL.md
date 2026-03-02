@@ -71,16 +71,26 @@ Empty (no project root exists):
 
 ---
 
-## Step 4 — Apply tags
+## Step 4 — Apply tags via schema discovery
 
-| Item type | Tags to apply |
-|-----------|--------------|
-| Feature / new capability | `feature-implementation` |
-| Observation: friction / confusing API | `agent-observation,friction` |
-| Observation: token waste / redundant call | `agent-observation,optimization` |
-| Observation: tool defect | `agent-observation,bug` |
-| Observation: gap in tool surface | `agent-observation,missing-capability` |
-| Bug, tech debt, action item, general task | *(no tags)* |
+Read `.taskorchestrator/config.yaml` to discover available note schemas. Each schema key is a tag that activates gate enforcement when applied to an item.
+
+**Infer the best schema match from context:**
+
+| Context signal | Schema to apply |
+|----------------|-----------------|
+| Feature, enhancement, new capability | `feature-implementation` (if it exists in config) |
+| Bug, error, crash, unexpected behavior | `bug-fix` (if it exists in config) |
+| Observation, friction, optimization, missing capability | `agent-observation` (if it exists in config) |
+
+If the inferred schema key exists in the config, apply it as the item's `tags` value. If the key does not exist in the config (e.g., no `bug-fix` schema defined), leave tags empty — do not apply a tag that has no matching schema.
+
+**When no confident match can be inferred:**
+- If a schema named `default` exists in the config, apply it as the fallback — this lets users control what happens to unclassified items
+- Otherwise, ask the user which schema to apply via `AskUserQuestion`, listing the available schema keys from the config
+- Include a "No schema" option for items that should be schema-free
+
+**If no config file exists**, skip tagging entirely — all items will be schema-free.
 
 ---
 

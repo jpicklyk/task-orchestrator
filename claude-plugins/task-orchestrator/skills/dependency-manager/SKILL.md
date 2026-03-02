@@ -237,7 +237,7 @@ If any blocker is itself blocked, offer to recurse: "The blocker is also blocked
 
 After the diagnosis, link to the resolution path:
 - To advance the blocking item: use `/status-progression` with its UUID
-- To fill missing notes on the blocker first: use `/note-viewer` with its UUID
+- To fill missing notes on the blocker first: use `manage_notes(operation="upsert")` to fill required notes
 
 ---
 

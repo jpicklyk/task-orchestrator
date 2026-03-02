@@ -144,8 +144,11 @@ After installing, restart Claude Code and verify with `/plugin list` — you sho
 |---------|-------------|
 | `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
 | `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
+| `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
+| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows gate status and the correct trigger |
-| `/task-orchestrator:schema-builder` | Interactively design a note schema for a new work item type |
+| `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependencies between work items |
+| `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
 
 **Hooks** — automatic, no invocation needed:
 

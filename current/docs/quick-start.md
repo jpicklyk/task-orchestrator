@@ -107,7 +107,6 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
 | `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
-| `/task-orchestrator:manage-notes` | Read, fill, edit, or delete notes on work items; check gate status |
 | `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependencies between work items |
@@ -137,7 +136,7 @@ You describe what you want
         ▼
   EnterPlanMode              ← Claude explores the codebase
         │
-  pre-plan hook fires        ← Plugin tells Claude to check MCP for existing work
+  pre-plan hook fires        ← Plugin sets the definition floor: existing work, schemas, gate requirements
         │
         ▼
   Plan written to disk       ← Persistent markdown file — your design document
@@ -160,6 +159,8 @@ The plan file and the MCP items are not duplicates — they serve different role
 
 - **Plan file** = design document. It captures the what and how: decisions, rationale, scope. It is a readable artifact you can review and share.
 - **MCP items** = project board. They track progress and status: what is in flight, what is blocked, what is done. They survive across sessions without any re-explaining.
+
+The MCP also shapes the plan itself. When Claude enters plan mode, the pre-plan hook tells it to check for existing tracked work and note schema requirements — setting a **definition floor**. This means the plan is written with awareness of what documentation gates must be satisfied and what items are already in progress, rather than starting from scratch.
 
 The plugin hooks automate the handoff between these two artifacts. You describe what you want, approve the plan, and the hooks prompt Claude to materialize MCP items before implementation begins. From there, subagents self-report their progress through role transitions.
 
@@ -262,6 +263,8 @@ This calls `get_context()` and `get_blocked_items()` and presents a structured v
 ---
 
 ## Step 8: Note schemas
+
+> **Schemas vs notes:** Schemas are user-configured rules in `.taskorchestrator/config.yaml` — they define what documentation agents must provide at each workflow phase. Notes are the actual content agents write as they work on items. Schemas live in your project config; notes live in the MCP database. Schemas define the gates; agents fill the notes to pass them.
 
 Note schemas enforce per-phase documentation requirements. When an item's `tags` match a schema, `advance_item` gates progression until the required notes are filled.
 
