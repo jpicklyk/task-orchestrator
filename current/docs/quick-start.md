@@ -1,6 +1,6 @@
-# Quick Start: MCP Task Orchestrator v3
+# Quick Start: MCP Task Orchestrator
 
-MCP Task Orchestrator gives AI agents persistent, structured task tracking that survives across sessions. Instead of loading your entire project state into context on every prompt, agents read and write a shared graph of `WorkItem` entities — keeping context lean and work visible. v3 is a ground-up rewrite built around a unified `WorkItem` graph with `Note` attachments and `Dependency` edges.
+MCP Task Orchestrator gives AI agents persistent, structured task tracking that survives across sessions. Instead of loading your entire project state into context on every prompt, agents read and write a shared graph of `WorkItem` entities — keeping context lean and work visible.
 
 ---
 
@@ -17,7 +17,7 @@ MCP Task Orchestrator gives AI agents persistent, structured task tracking that 
 docker pull ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-The image is built from the `current` module (`runtime-current` target) and published to GitHub Container Registry. The `latest` tag always points to the most recent release from the main branch.
+The image is published to GitHub Container Registry. The `latest` tag always points to the most recent release from the main branch.
 
 ---
 
@@ -59,7 +59,7 @@ Add to `.mcp.json` in your project root (checked into source control so teammate
 }
 ```
 
-The `mcp-task-data` Docker volume persists the SQLite database across container restarts. The server auto-initializes its schema on first run — no additional setup required.
+The server auto-initializes its schema on first run — no additional setup required.
 
 ### Option C: Other MCP clients
 
@@ -85,78 +85,9 @@ docker images ghcr.io/jpicklyk/task-orchestrator
 
 ---
 
-## Step 4: Your first work item
+## Step 4: Install the plugin
 
-Once connected, you can use the tools directly in a Claude Code session. Here is a minimal workflow:
-
-```
-# Create a top-level work item
-manage_items(operation="create", items=[{title: "Build login feature", priority: "high", tags: "feature"}])
-
-# View the item tree
-query_items(operation="overview")
-
-# Advance the item from queue to work phase
-advance_item(transitions=[{itemId: "<uuid from create response>", trigger: "start"}])
-```
-
-The `manage_items` create response includes the item's `id` (full UUID). Use that UUID in subsequent calls.
-
-### Adding context with notes
-
-Notes attach phase-specific documentation to items:
-
-```
-# Add a requirements note (queue phase)
-manage_notes(operation="upsert", notes=[{
-  itemId: "<uuid>",
-  key: "requirements",
-  role: "queue",
-  body: "User must be able to log in with email and password. Session persists for 30 days."
-}])
-
-# Read notes for an item
-query_notes(operation="list", itemId: "<uuid>")
-```
-
-### Building a subtree
-
-For structured work with dependencies, `create_work_tree` creates a root item, children, and dependency edges in one call:
-
-```
-create_work_tree(
-  root={title: "Authentication system", priority: "high"},
-  children=[
-    {ref: "api", title: "Auth API endpoints"},
-    {ref: "ui", title: "Login UI"},
-    {ref: "tests", title: "Integration tests"}
-  ],
-  deps=[
-    {from: "tests", to: "api"},
-    {from: "tests", to: "ui"}
-  ]
-)
-```
-
-This creates `api` and `ui` as siblings that must complete before `tests` can be started.
-
-### Checking what to work on next
-
-```
-# Get the highest-priority unblocked item
-get_next_item()
-
-# See everything active and blocked
-get_context()
-```
-
----
-
-## Step 5: Claude Code plugin (optional)
-
-The plugin adds workflow skills, automation hooks, and an orchestrator output style to Claude Code. It requires the MCP server to already be connected (Steps 1–3).
-
-### Install
+The plugin adds workflow skills, automation hooks, and an orchestrator output style to Claude Code. It is the recommended experience layer for Claude Code users — the sections below describe a workflow shaped by what the plugin provides.
 
 ```
 /plugin marketplace add https://github.com/jpicklyk/task-orchestrator
@@ -164,6 +95,8 @@ The plugin adds workflow skills, automation hooks, and an orchestrator output st
 ```
 
 After installing, restart Claude Code and run `/plugin list` to confirm `task-orchestrator` is enabled.
+
+> The plugin is optional if you are using a non-Claude-Code MCP client, but for Claude Code it provides the guided workflow experience described below.
 
 ### Skills
 
@@ -173,8 +106,12 @@ Skills are invoked as slash commands in any Claude Code session:
 |---------|-------------|
 | `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
 | `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
+| `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
+| `/task-orchestrator:manage-notes` | Read, fill, edit, or delete notes on work items; check gate status |
+| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
-| `/task-orchestrator:schema-builder` | Interactively design a note schema for a new work item type |
+| `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependencies between work items |
+| `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
 
 ### Hooks
 
@@ -190,33 +127,168 @@ The plugin includes a **Workflow Analyst** output style. When active, Claude Cod
 
 ---
 
-## Note schemas (optional)
+## Step 5: How it works — the plan-mode pipeline
 
-Note schemas let you enforce per-phase documentation requirements. When an item's `tags` match a schema, `advance_item` will gate progression until the required notes are filled.
+When you describe a feature or task, the plugin hooks automate a structured pipeline that keeps your design document and your project board in sync:
+
+```
+You describe what you want
+        │
+        ▼
+  EnterPlanMode              ← Claude explores the codebase
+        │
+  pre-plan hook fires        ← Plugin tells Claude to check MCP for existing work
+        │
+        ▼
+  Plan written to disk       ← Persistent markdown file — your design document
+        │
+  Plan approved (ExitPlanMode)
+        │
+  post-plan hook fires       ← Plugin tells Claude to materialize before implementing
+        │
+        ▼
+  Materialize                ← Claude creates MCP items from the plan
+        │                       Items, dependencies, notes — execution tracking
+        ▼
+  Implement                  ← Subagents work, each transitioning their MCP item
+        │                       advance_item(start) → work → advance_item(complete)
+        ▼
+  Health check               ← get_context() shows what completed and what didn't
+```
+
+The plan file and the MCP items are not duplicates — they serve different roles:
+
+- **Plan file** = design document. It captures the what and how: decisions, rationale, scope. It is a readable artifact you can review and share.
+- **MCP items** = project board. They track progress and status: what is in flight, what is blocked, what is done. They survive across sessions without any re-explaining.
+
+The plugin hooks automate the handoff between these two artifacts. You describe what you want, approve the plan, and the hooks prompt Claude to materialize MCP items before implementation begins. From there, subagents self-report their progress through role transitions.
+
+---
+
+## Step 6: Your first work item
+
+The easiest way to get started is to just tell Claude what you want to build.
+
+**Creating structured work:**
+
+```
+You: "I want to build user authentication with a database schema,
+      API endpoints, and a login UI."
+
+Claude: → Calls create_work_tree to create a root item and three child items
+        → Wires dependency edges so the UI and API must complete before integration tests
+        → Shows the structure and which items are immediately actionable
+```
+
+**Navigating what to do next:**
+
+```
+You: "What should I work on next?"
+
+Claude: → Calls get_next_item() to find the highest-priority unblocked item
+        → Reports: "Database schema is ready — no blockers, high priority"
+        → Starts working on it, filling notes as it goes
+        → Calls advance_item(trigger="complete") when done
+```
+
+**Checking overall status:**
+
+```
+You: "Where do we stand on the authentication work?"
+
+Claude: → Calls get_context() for a health snapshot
+        → Reports: 2 items complete, 1 in progress, 1 blocked on the in-progress item
+```
+
+**Under the hood**
+
+The conversational examples above translate to these tool calls:
+
+```
+# Build a work tree with children and dependencies in one call
+create_work_tree(
+  root={title: "Authentication system", priority: "high"},
+  children=[
+    {ref: "schema", title: "Database schema"},
+    {ref: "api",    title: "Auth API endpoints"},
+    {ref: "ui",     title: "Login UI"},
+    {ref: "tests",  title: "Integration tests"}
+  ],
+  deps=[
+    {from: "tests", to: "api"},
+    {from: "tests", to: "ui"}
+  ]
+)
+
+# Find the next thing to work on
+get_next_item()
+
+# Transition an item through its lifecycle
+advance_item(transitions=[{itemId: "<uuid>", trigger: "start"}])
+advance_item(transitions=[{itemId: "<uuid>", trigger: "complete"}])
+
+# Health snapshot across all active work
+get_context()
+```
+
+See [api-reference.md](api-reference.md) for full parameter documentation on all 13 tools.
+
+---
+
+## Step 7: Session resume
+
+When you start a new Claude Code session, the plugin's session-start hook fires automatically. It injects your current work context so Claude knows what is in flight before you say anything.
+
+```
+[New session starts]
+
+Session-start hook fires → injects active items, blockers, and recent transitions
+
+You: "Let's keep going."
+
+Claude: → Already knows: 2 items in progress, 1 blocked, last completed 4 hours ago
+        → Picks up exactly where the previous session left off
+        → No re-explaining required
+```
+
+You can also trigger the dashboard manually at any time:
+
+```
+/task-orchestrator:work-summary
+```
+
+This calls `get_context()` and `get_blocked_items()` and presents a structured view of active work, blockers, and recommended next actions — useful at the start of a session or after a long implementation run.
+
+---
+
+## Step 8: Note schemas
+
+Note schemas enforce per-phase documentation requirements. When an item's `tags` match a schema, `advance_item` gates progression until the required notes are filled.
 
 Create `.taskorchestrator/config.yaml` in your project root:
 
 ```yaml
 note_schemas:
-  - tags: "task-implementation"
-    notes:
-      - key: "requirements"
-        role: "queue"
-        required: true
-        description: "Testable acceptance criteria before starting"
-      - key: "done-criteria"
-        role: "work"
-        required: true
-        description: "Conditions that must be true before marking complete"
+  task-implementation:
+    - key: acceptance-criteria
+      role: queue
+      required: true
+      description: "Testable acceptance criteria for this task."
+    - key: done-criteria
+      role: work
+      required: true
+      description: "What does done look like? How was it verified?"
 ```
+
+Items tagged `task-implementation` will now require an `acceptance-criteria` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
+
+The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, and validating schemas without editing YAML directly.
 
 After adding or editing this file, reconnect the MCP server:
 
 ```
 /mcp  (disconnect and reconnect mcp-task-orchestrator)
 ```
-
-Items tagged `task-implementation` will now require a `requirements` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
 
 > **Docker:** To read this config file, mount the `.taskorchestrator/` folder into the container. Add this to your project-level `.mcp.json` (not the global CLI registration — a globally-registered server should not have its schema config vary per project):
 > ```json
@@ -264,5 +336,6 @@ Items tagged `task-implementation` will now require a `requirements` note before
 
 ## What's next
 
+- Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
 - [api-reference.md](api-reference.md) — full reference for all 13 MCP tools, parameters, and response shapes
 - [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
