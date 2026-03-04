@@ -25,12 +25,12 @@ get_context()
 
 ## Step 2: Welcome — The Big Picture
 
-Explain the core concept (4 sentences max):
+Explain briefly:
 
 - When you ask Claude to build something non-trivial, it enters **plan mode** — exploring the codebase and writing a plan saved as a **persistent markdown file**
 - The MCP Task Orchestrator **complements** the plan file by tracking **execution state** — what's been started, what's blocked, what's done, and what's next
 - Think of it this way: the **plan file** is your design document (the *what* and *how*), while the **MCP** is your project board (the *progress* and *status*)
-- The MCP also helps **during planning** — when Claude enters plan mode, the pre-plan hook tells it to check for existing tracked work and note schema requirements, setting a **definition floor** so the plan accounts for documentation gates and doesn't duplicate what's already in progress
+- The MCP also helps **during planning** — Claude automatically checks for existing tracked work and schema requirements before planning, setting a **definition floor** so the plan accounts for documentation gates and doesn't duplicate what's already in progress
 - Together, they give you full continuity across sessions — the plan tells you the approach, the MCP tells you where you left off
 
 ---
@@ -64,12 +64,10 @@ You describe what you want
   Health check               ← get_context() shows what completed and what didn't
 ```
 
-**Explain to the user:**
+**Reinforce to the user:**
 - The **plan file** and **MCP items** are not duplicates — they serve different roles
-- The plan file captures your design decisions, architectural reasoning, and approach — it's a reference document
 - MCP items track individual units of work through a lifecycle: who's working on what, what's blocked, and what's done
-- The pre-plan hook sets the **definition floor** — Claude checks what's already tracked and what documentation gates exist, so the plan is written with full MCP awareness rather than in a vacuum
-- The plugin hooks (`pre-plan`, `post-plan`) inject guidance automatically so Claude follows this pipeline — you don't need to ask for it
+- The plugin hooks inject guidance automatically so Claude follows this pipeline — you don't need to ask for it
 
 ---
 
@@ -177,6 +175,7 @@ Briefly mention that MCP items can have **required notes** that act as documenta
 - A `.taskorchestrator/config.yaml` file defines note schemas — which notes must be filled before an item can advance
 - Example: a `feature-implementation` schema might require `requirements` and `design` notes before work can start
 - This enforces documentation discipline — Claude must fill the notes before `advance_item` allows progression
+- Schemas can also carry a `guidance` field — authoring hints that tell agents exactly what to write in each note.
 - Run `/manage-schemas` to set one up interactively, or `/feature-implementation` to see the full lifecycle in action
 
 ---
@@ -193,7 +192,7 @@ Present this capabilities table:
 | See project health dashboard | `/work-summary` | Active work, blockers, next actions at a glance |
 | Advance an item through gates | `/status-progression` | Shows current role, gate status, correct trigger |
 
-**Offer cleanup:** Ask via `AskUserQuestion` whether to keep the tutorial items for reference or delete them. If delete, use:
+**Offer cleanup:** Ask via `AskUserQuestion` whether to keep the tutorial items for reference or delete them. If delete, use the container UUID returned in Step 4 above:
 
 ```
 manage_items(operation="delete", ids=["<container-UUID>"], recursive=true)

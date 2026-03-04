@@ -18,7 +18,7 @@ Determine from context (or from `$ARGUMENTS` if provided):
 - **Priority** — high / medium / low (default: medium)
 - **Scope** — single item, or feature with 2+ clear distinct subtasks?
 
-If title or type cannot be inferred with confidence, use `AskUserQuestion` with 2–3 concrete options. Do not ask open-ended questions.
+If title or type cannot be inferred with confidence, use `AskUserQuestion` with concrete options. Do not ask open-ended questions.
 
 ---
 
@@ -73,7 +73,7 @@ Empty (no project root exists):
 
 ## Step 4 — Apply tags via schema discovery
 
-Read `.taskorchestrator/config.yaml` to discover available note schemas. Each schema key is a tag that activates gate enforcement when applied to an item.
+Read `.taskorchestrator/config.yaml` to discover available note schemas (this is a file read, not an MCP call). In Docker, the path is resolved via the `AGENT_CONFIG_DIR` env var. Each schema key is a tag that activates gate enforcement when applied to an item.
 
 **Infer the best schema match from context:**
 
@@ -104,6 +104,7 @@ manage_items(operation="create", items=[{
   priority: "<inferred priority>",
   tags: "<tags or omit>",
   parentId: "<category container UUID>"
+  // Additional fields like `complexity` are optional — omit if not relevant
 }])
 ```
 
@@ -124,6 +125,7 @@ Default to single item when scope is unclear. Use `create_work_tree` only when t
 
 Check `expectedNotes` in the create response. For each note where `required: true` and `role: "queue"`:
 - Extract relevant content from the conversation
+- Check each `expectedNotes` entry for a `guidance` field — use it as the authoring instruction for note content. Guidance takes precedence over free-form inference.
 - Upsert: `manage_notes(operation="upsert", notes=[{itemId, key, role, body}])`
 - If conversation content is too sparse for a meaningful note body, leave it — do not fabricate content
 

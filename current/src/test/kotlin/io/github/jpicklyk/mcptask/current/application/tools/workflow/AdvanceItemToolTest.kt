@@ -966,4 +966,187 @@ class AdvanceItemToolTest {
         assertTrue(r["applied"]!!.jsonPrimitive.boolean)
         assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
     }
+
+    // ──────────────────────────────────────────────
+    // missingNotes structured field tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `start gate failure includes missingNotes with guidance`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(
+                key = "acceptance-criteria",
+                role = "queue",
+                required = true,
+                description = "Acceptance criteria for this task",
+                guidance = "List each criterion as a bullet point"
+            ),
+            NoteSchemaEntry(
+                key = "scope-definition",
+                role = "queue",
+                required = true,
+                description = "Scope definition",
+                guidance = "Describe what is in and out of scope"
+            )
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // No notes exist yet
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["error"]!!.jsonPrimitive.content.contains("Gate check failed"))
+
+        val missingNotes = r["missingNotes"]!!.jsonArray
+        assertEquals(2, missingNotes.size)
+
+        val first = missingNotes[0].jsonObject
+        assertEquals("acceptance-criteria", first["key"]!!.jsonPrimitive.content)
+        assertEquals("Acceptance criteria for this task", first["description"]!!.jsonPrimitive.content)
+        assertEquals("List each criterion as a bullet point", first["guidance"]!!.jsonPrimitive.content)
+
+        val second = missingNotes[1].jsonObject
+        assertEquals("scope-definition", second["key"]!!.jsonPrimitive.content)
+        assertEquals("Scope definition", second["description"]!!.jsonPrimitive.content)
+        assertEquals("Describe what is in and out of scope", second["guidance"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `start gate failure without guidance omits guidance from missingNotes entries`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(
+                key = "acceptance-criteria",
+                role = "queue",
+                required = true,
+                description = "Acceptance criteria for this task",
+                guidance = null  // no guidance
+            )
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+
+        val missingNotes = r["missingNotes"]!!.jsonArray
+        assertEquals(1, missingNotes.size)
+
+        val entry = missingNotes[0].jsonObject
+        assertEquals("acceptance-criteria", entry["key"]!!.jsonPrimitive.content)
+        assertEquals("Acceptance criteria for this task", entry["description"]!!.jsonPrimitive.content)
+        assertNull(entry["guidance"], "guidance key should not be present when guidance is null")
+    }
+
+    @Test
+    fun `complete gate failure includes missingNotes`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        // Item is in WORK role — has been advanced past queue
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(
+                key = "acceptance-criteria",
+                role = "queue",
+                required = true,
+                description = "Acceptance criteria",
+                guidance = "List each criterion"
+            ),
+            NoteSchemaEntry(
+                key = "implementation-notes",
+                role = "work",
+                required = true,
+                description = "Implementation notes",
+                guidance = null
+            )
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // The queue-phase note is filled, but the work-phase note is not
+        val filledNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue",
+            body = "Criteria are met")
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledNote))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(filledNote))
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "complete"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["error"]!!.jsonPrimitive.content.contains("Gate check failed"))
+
+        val missingNotes = r["missingNotes"]!!.jsonArray
+        assertEquals(1, missingNotes.size)
+
+        val entry = missingNotes[0].jsonObject
+        assertEquals("implementation-notes", entry["key"]!!.jsonPrimitive.content)
+        assertEquals("Implementation notes", entry["description"]!!.jsonPrimitive.content)
+        assertNull(entry["guidance"], "guidance key should not be present when guidance is null")
+    }
+
+    @Test
+    fun `dependency block error has no missingNotes`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val blockerId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE)
+        val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker Task")
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+        val dep = Dependency(
+            fromItemId = blockerId,
+            toItemId = itemId,
+            type = DependencyType.BLOCKS
+        )
+        every { depRepo.findByToItemId(itemId) } returns listOf(dep)
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["error"]!!.jsonPrimitive.content.contains("blocking"))
+
+        // Dependency block errors must NOT include missingNotes
+        assertNull(r["missingNotes"], "dependency block errors must not include missingNotes field")
+    }
 }

@@ -1,6 +1,6 @@
 # claude-plugins/ — Version Bump Requirement
 
-**Any change to plugin content in this directory requires a version bump.**
+**Any change to plugin content in this directory requires a version bump.** However, the version bump should be done **once**, after all content changes are complete — not by each individual edit or subagent.
 
 Claude Code caches plugin content (skills, hooks, output styles, scripts) keyed by version number.
 Without a version bump, Claude Code will continue serving the old cached copy — changes will not
@@ -37,9 +37,13 @@ Use semantic versioning (`major.minor.patch`):
 
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `2.3.5` |
+| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `2.3.9` |
 
 > Update this table when versions change.
+
+## Delegation Warning
+
+When multiple subagents edit plugin files in parallel, **only the orchestrator (or a single designated agent) should bump versions.** Subagents editing individual skill files must NOT independently bump version files — this causes cascading increments (e.g., 2.3.8 → 9 → 10 → 11) that must be corrected afterward. The orchestrator bumps once after all edits land.
 
 ## After Bumping
 

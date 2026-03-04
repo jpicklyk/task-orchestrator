@@ -315,6 +315,7 @@ Unified write operations for WorkItems (create, update, delete).
                                         put("role", JsonPrimitive(entry.role))
                                         put("required", JsonPrimitive(entry.required))
                                         put("description", JsonPrimitive(entry.description))
+                                        entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
                                         put("exists", JsonPrimitive(false))
                                     }
                                 }))

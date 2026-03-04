@@ -1036,6 +1036,97 @@ class ManageItemsToolTest {
         assertEquals(0, data["failed"]!!.jsonPrimitive.int)
     }
 
+    @Test
+    fun `create item with schema includes guidance in expectedNotes`(): Unit = runBlocking {
+        val mockSchema = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
+                return if (tags.contains("feature-plan")) {
+                    listOf(
+                        NoteSchemaEntry(
+                            key = "requirements",
+                            role = "queue",
+                            required = true,
+                            description = "Requirements for this item",
+                            guidance = "List all functional and non-functional requirements"
+                        )
+                    )
+                } else null
+            }
+        }
+        val schemaContext = contextWithSchema(mockSchema)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Planned feature with guidance"))
+                        put("tags", JsonPrimitive("feature-plan"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["created"]!!.jsonPrimitive.int)
+
+        val item = data["items"]!!.jsonArray[0] as JsonObject
+        val expectedNotes = item["expectedNotes"]!!.jsonArray
+        assertEquals(1, expectedNotes.size)
+
+        val entry = expectedNotes[0] as JsonObject
+        assertEquals("requirements", entry["key"]!!.jsonPrimitive.content)
+        assertTrue(entry.containsKey("guidance"), "expectedNotes entry should contain 'guidance' key")
+        assertEquals("List all functional and non-functional requirements", entry["guidance"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `create item with null guidance omits guidance field from expectedNotes`(): Unit = runBlocking {
+        val mockSchema = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
+                return if (tags.contains("feature-plan")) {
+                    listOf(
+                        NoteSchemaEntry(
+                            key = "requirements",
+                            role = "queue",
+                            required = true,
+                            description = "Requirements for this item",
+                            guidance = null
+                        )
+                    )
+                } else null
+            }
+        }
+        val schemaContext = contextWithSchema(mockSchema)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("Planned feature without guidance"))
+                        put("tags", JsonPrimitive("feature-plan"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["created"]!!.jsonPrimitive.int)
+
+        val item = data["items"]!!.jsonArray[0] as JsonObject
+        val expectedNotes = item["expectedNotes"]!!.jsonArray
+        assertEquals(1, expectedNotes.size)
+
+        val entry = expectedNotes[0] as JsonObject
+        assertEquals("requirements", entry["key"]!!.jsonPrimitive.content)
+        assertFalse(entry.containsKey("guidance"), "expectedNotes entry should NOT contain 'guidance' key when guidance is null")
+    }
+
     // ──────────────────────────────────────────────
     // Validation
     // ──────────────────────────────────────────────

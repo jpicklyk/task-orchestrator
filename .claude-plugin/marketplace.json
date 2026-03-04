@@ -10,8 +10,8 @@
   "plugins": [
     {
       "name": "task-orchestrator",
-      "version": "2.3.5",
-      "description": "Skills, hooks, and workflows for MCP Task Orchestrator (v3). Schema-aware context, note-driven workflow, and thin session hooks.",
+      "version": "2.3.9",
+      "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Schema-aware context, note-driven workflow, and session hooks.",
       "author": {
         "name": "Jeff Picklyk",
         "url": "https://github.com/jpicklyk"
@@ -21,7 +21,7 @@
       "license": "MIT",
       "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration"],
       "category": "productivity",
-      "tags": ["tasks", "features", "projects", "dependencies", "workflows", "v3"],
+      "tags": ["tasks", "features", "projects", "dependencies", "workflows"],
       "source": "./claude-plugins/task-orchestrator",
       "strict": true
     }

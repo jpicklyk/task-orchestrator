@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-03-04
+
+### Added
+- Added `guidancePointer` and `expectedNotes` to `advance_item`, `create_work_tree`, `manage_items`, and `get_context` responses — agents see exactly which notes need filling and get human-readable guidance at each gate transition
+- Added 6 new plugin skills: `batch-complete`, `dependency-manager`, `manage-schemas`, `quick-start`, `status-progression`, and `create-item` — covering bulk operations, dependency visualization, schema management, onboarding, and workflow navigation
+- Added `pre-plan-workflow` and `post-plan-workflow` internal skills with automatic hook injection — plan mode now checks existing MCP state and materializes items after approval without manual steps
+
+### Changed
+- Renamed output style from `current-analyst` to `workflow-orchestrator` to better reflect its orchestration focus
+- Overhauled plugin hooks (`pre-plan`, `post-plan`, `subagent-start`) for schema-aware context injection
+- Improved quick-start and workflow guide documentation with end-to-end examples
+
+### Fixed
+- Fixed 20 skill quality issues across 9 skills (contradictions, jargon, missing guards, unclear guidance)
+
+---
+
 ## [2.0.3] - 2026-02-19
 
 ### Added

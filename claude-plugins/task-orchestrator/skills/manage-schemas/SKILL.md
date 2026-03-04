@@ -70,11 +70,15 @@ If the user specified a schema name, show that schema's full detail: each note w
 
 Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance, rename key), apply changes, write back.
 
+If the target schema is not found in config.yaml, inform the user and offer to CREATE instead.
+
 For detailed workflow, see `references/edit-workflow.md` in this skill folder.
 
 ### DELETE — Remove a Schema
 
 Read current config, confirm the schema name, warn about orphaned notes on existing items, remove the key, write back.
+
+If the target schema is not found in config.yaml, inform the user and offer to CREATE instead.
 
 For detailed workflow, see `references/delete-workflow.md` in this skill folder.
 

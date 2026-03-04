@@ -82,7 +82,7 @@ If `gateStatus.canAdvance = false`, the item cannot advance until required notes
 
 For each missing note, check whether its content can be inferred from the conversation context. If yes, fill it directly. If not, ask the user what to capture.
 
-Use `guidancePointer` to prompt the user — it contains the guidance text for the first unfilled required note in the current phase.
+Use `guidancePointer` to prompt the user — it contains the guidance text for the first unfilled required note in the current phase. Only one `guidancePointer` is returned — for the first unfilled required note. See schema entries list for all unfilled notes.
 
 Fill notes with:
 
@@ -155,9 +155,9 @@ Choose the trigger based on the item's current role and the desired outcome:
 **Important notes:**
 
 - `start` checks gates for the **current phase only** — missing notes for the current phase block the transition; future-phase notes are not checked
-- `complete` checks gates across **all phases** — all required notes across queue, work, and review must be filled before terminal is reached
-- `cancel` does **not** check gates — items can be cancelled at any time regardless of missing notes; `statusLabel` is set to `"cancelled"`
-- `block` and `resume` are a paired workflow — `block` saves `previousRole` internally so `resume` always returns to the exact role before blocking; do not use `start` to resume a blocked item
+- `complete` checks gates across **all phases** — all required notes across queue, work, and review must be filled before terminal is reached; because it jumps directly to terminal, skipping intermediate phases, all prior phase notes are verified up front
+- `cancel` does **not** check gates — items can be cancelled at any time regardless of missing notes; `statusLabel` is set to `"cancelled"`; allowing cleanup regardless of state is intentional so a blocked or incomplete item can always be abandoned
+- `block` and `resume` are a paired workflow — `block` saves `previousRole` internally so `resume` always returns to the exact role before blocking; do not use `start` to resume a blocked item; this pairing is what guarantees resume returns to exact pre-block role rather than restarting from queue
 - When an item reaches TERMINAL, any items that had a `BLOCKS` dependency on it become unblocked — they appear in `unblockedItems` in the advance response
 - Cascade events: the **first child** to start from queue triggers its parent to cascade queue → work; the **last child** to reach terminal triggers its parent to cascade → terminal
 

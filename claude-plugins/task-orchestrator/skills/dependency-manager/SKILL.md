@@ -107,15 +107,13 @@ Many items that all block one item → fan-in pattern
 | `fan-out` | `source=A`, `targets=[B, C, D]` | One item blocks many |
 | `fan-in` | `sources=[A, B, C]`, `target=D` | Many items block one |
 
-Before creating, confirm intent with the user:
+Confirm the derived edges with the user before creating. Show them what you're about to create in a readable way, for example:
 
 ```
-◆ About to create:
-  A → BLOCKS → B
-  B → BLOCKS → C
-  C → BLOCKS → D
-  Proceed?
+About to create: A → B → C → D as a linear chain. Proceed?
 ```
+
+Adjust the format to fit the actual pattern (single edge, fan-out, fan-in, etc.).
 
 Then call `manage_dependencies(operation="create")` with the selected pattern:
 

@@ -58,7 +58,7 @@ Parse the child counts by role and present a preview table:
   ✓ terminal: 2 items (already done — will be skipped)
 ```
 
-**For `itemIds` path** (no root item): call `query_items(operation="get", id="<uuid>")` on each item and build the same role-grouped preview table from the individual results.
+**For `itemIds` path** (no root item): call `query_items(operation="get", id="<uuid>")` on each item and build the same role-grouped preview table from the individual results. For large lists (10+ items), use `query_items(operation="search")` with filters instead of individual get calls.
 
 **If any items are in `work` or `review`**, warn the user that active work will be force-completed (gate checks still apply). Use `AskUserQuestion` with three options:
 
@@ -101,6 +101,8 @@ Then offer three options via `AskUserQuestion`:
   2. Use cancel trigger — bypasses all gates, marks items as "cancelled"
   3. Proceed anyway — gated items will be skipped, others will complete
 ```
+
+Call `get_context(itemId=...)` to retrieve `guidancePointer` for items with missing notes. Use the guidance as authoring instructions before filling.
 
 Wait for the user's choice. If they choose option 2, switch to `trigger="cancel"` for the execution step.
 
@@ -217,11 +219,9 @@ Solution: Verify the UUID with `query_items(operation="get", id="<uuid>")`. If n
 
 ---
 
-**Problem: All items reported as skipped with "already terminal"**
+**FAQ: All items reported as skipped with "already terminal"**
 
-Cause: The items are already in terminal role — they were completed or cancelled in a prior run.
-
-Solution: This is not an error. Terminal items are intentionally skipped. If the summary shows all items skipped with "already terminal", the workstream is already closed. No further action is needed.
+This is expected behavior, not an error. Items already in terminal role are intentionally skipped — they were completed or cancelled in a prior run. If the summary shows all items skipped with "already terminal", the workstream is already closed. No further action is needed.
 
 ---
 
@@ -234,10 +234,10 @@ All items are ready; notes are filled; clean completion with no skips.
 **Step 2 preview shows:**
 ```
 ◆ Impact Preview — "Payment Integration"
-  ○ queue:    0 items
-  ◉ work:     0 items
-  ✓ terminal: 1 item  (already done — will be skipped)
   ○ queue:    3 items (will be completed)
+  ◉ work:     0 items
+  ◉ review:   0 items
+  ✓ terminal: 1 item  (already done — will be skipped)
 ```
 
 No active items — no warning needed. Gate check shows all required notes filled. Proceed directly.
