@@ -205,11 +205,20 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             is Result.Error -> emptyList()
                         }
                         val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-                        val missingKeys = requiredForCurrentPhase.filter { it.key !in filledKeys }.map { it.key }
+                        val missingEntries = requiredForCurrentPhase.filter { it.key !in filledKeys }
+                        val missingKeys = missingEntries.map { it.key }
                         if (missingKeys.isNotEmpty()) {
+                            val missingNotesJson = JsonArray(missingEntries.map { entry ->
+                                buildJsonObject {
+                                    put("key", JsonPrimitive(entry.key))
+                                    put("description", JsonPrimitive(entry.description))
+                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                                }
+                            })
                             failCount++
                             resultsList.add(buildErrorResult(itemId, trigger,
-                                "Gate check failed: required notes not filled for ${currentRoleStr} phase: ${missingKeys.joinToString()}"))
+                                "Gate check failed: required notes not filled for ${currentRoleStr} phase: ${missingKeys.joinToString()}",
+                                missingNotes = missingNotesJson))
                             continue
                         }
                     }
@@ -228,11 +237,20 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             is Result.Error -> emptyList()
                         }
                         val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-                        val missingKeys = allRequired.filter { it.key !in filledKeys }.map { it.key }
+                        val missingEntries = allRequired.filter { it.key !in filledKeys }
+                        val missingKeys = missingEntries.map { it.key }
                         if (missingKeys.isNotEmpty()) {
+                            val missingNotesJson = JsonArray(missingEntries.map { entry ->
+                                buildJsonObject {
+                                    put("key", JsonPrimitive(entry.key))
+                                    put("description", JsonPrimitive(entry.description))
+                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                                }
+                            })
                             failCount++
                             resultsList.add(buildErrorResult(itemId, trigger,
-                                "Gate check failed: required notes not filled: ${missingKeys.joinToString()}"))
+                                "Gate check failed: required notes not filled: ${missingKeys.joinToString()}",
+                                missingNotes = missingNotesJson))
                             continue
                         }
                     }
@@ -411,7 +429,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         itemId: UUID,
         trigger: String,
         error: String,
-        blockers: JsonArray? = null
+        blockers: JsonArray? = null,
+        missingNotes: JsonArray? = null
     ): JsonObject {
         return buildJsonObject {
             put("itemId", JsonPrimitive(itemId.toString()))
@@ -420,6 +439,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             put("error", JsonPrimitive(error))
             if (blockers != null) {
                 put("blockers", blockers)
+            }
+            if (missingNotes != null) {
+                put("missingNotes", missingNotes)
             }
         }
     }

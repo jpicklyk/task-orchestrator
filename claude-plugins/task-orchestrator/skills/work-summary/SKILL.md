@@ -63,6 +63,7 @@ Note: the overview `childCounts` reflects **direct children only**, not all desc
 **Blocked / Stalled:**
 - A blocked item whose blocker does NOT appear in active work → the block may not be getting attention; resolution isn't visible
 - Stalled items reveal their problem through which note is missing: `requirements` missing = was never properly scoped; `done-criteria` missing = implementation may be done but not verified
+- `get_context(itemId=...)` may return `guidancePointer` — instructions for filling the first missing required note. Surface this in stalled item observations.
 - Blocked items inside containers with large queue counts → a single block is holding up a whole workstream
 
 **Up Next:**

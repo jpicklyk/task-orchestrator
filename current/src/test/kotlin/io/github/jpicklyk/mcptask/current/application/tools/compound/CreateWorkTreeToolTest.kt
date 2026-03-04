@@ -617,4 +617,198 @@ class CreateWorkTreeToolTest {
         assertTrue(summary.contains("Epic Feature"), "Expected root title in summary: $summary")
         assertTrue(summary.contains("1"), "Expected child count in summary: $summary")
     }
+
+    // ──────────────────────────────────────────────
+    // expectedNotes: root with schema tag includes expectedNotes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `root with schema tag includes expectedNotes`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(
+                key = "acceptance-criteria",
+                role = "queue",
+                required = true,
+                description = "Criteria for acceptance",
+                guidance = "List each criterion as a bullet"
+            ),
+            NoteSchemaEntry(
+                key = "implementation-notes",
+                role = "work",
+                required = false,
+                description = "Notes on implementation approach"
+            )
+        )
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if (tags.contains("feature-task")) schemaEntries else null
+        }
+
+        val provider2 = mockk<RepositoryProvider>()
+        val mockExecutor2 = mockk<WorkTreeExecutor>()
+        every { provider2.workItemRepository() } returns workItemRepo
+        every { provider2.dependencyRepository() } returns mockk()
+        every { provider2.noteRepository() } returns mockk()
+        every { provider2.roleTransitionRepository() } returns mockk()
+        every { provider2.database() } returns null
+        every { provider2.workTreeExecutor() } returns mockExecutor2
+        val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+        coEvery { mockExecutor2.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            echoResult(input)
+        }
+
+        val rootSpec = buildJsonObject {
+            put("title", JsonPrimitive("Feature Root"))
+            put("tags", JsonPrimitive("feature-task"))
+        }
+        val params = buildParams(root = rootSpec)
+        val result = tool.execute(params, contextWithSchema)
+
+        val data = extractData(result)
+        val rootJson = data["root"]!!.jsonObject
+        assertTrue(rootJson.containsKey("expectedNotes"), "Root JSON should contain 'expectedNotes' key")
+
+        val expectedNotes = rootJson["expectedNotes"]!!.jsonArray
+        assertEquals(2, expectedNotes.size, "Expected 2 schema entries in expectedNotes")
+
+        val first = expectedNotes[0].jsonObject
+        assertEquals("acceptance-criteria", first["key"]!!.jsonPrimitive.content)
+        assertEquals("queue", first["role"]!!.jsonPrimitive.content)
+        assertTrue(first["required"]!!.jsonPrimitive.boolean)
+        assertEquals("Criteria for acceptance", first["description"]!!.jsonPrimitive.content)
+        assertEquals("List each criterion as a bullet", first["guidance"]!!.jsonPrimitive.content)
+        assertFalse(first["exists"]!!.jsonPrimitive.boolean)
+
+        val second = expectedNotes[1].jsonObject
+        assertEquals("implementation-notes", second["key"]!!.jsonPrimitive.content)
+        assertEquals("work", second["role"]!!.jsonPrimitive.content)
+        assertFalse(second["required"]!!.jsonPrimitive.boolean)
+        assertEquals("Notes on implementation approach", second["description"]!!.jsonPrimitive.content)
+        assertFalse(second.containsKey("guidance"), "guidance should be absent when null")
+        assertFalse(second["exists"]!!.jsonPrimitive.boolean)
+    }
+
+    // ──────────────────────────────────────────────
+    // expectedNotes: child with schema tag includes expectedNotes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `child with schema tag includes expectedNotes`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(
+                key = "test-plan",
+                role = "review",
+                required = true,
+                description = "Test plan for this child"
+            )
+        )
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if (tags.contains("subtask")) schemaEntries else null
+        }
+
+        val provider2 = mockk<RepositoryProvider>()
+        val mockExecutor2 = mockk<WorkTreeExecutor>()
+        every { provider2.workItemRepository() } returns workItemRepo
+        every { provider2.dependencyRepository() } returns mockk()
+        every { provider2.noteRepository() } returns mockk()
+        every { provider2.roleTransitionRepository() } returns mockk()
+        every { provider2.database() } returns null
+        every { provider2.workTreeExecutor() } returns mockExecutor2
+        val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+        coEvery { mockExecutor2.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            echoResult(input)
+        }
+
+        // Root has no schema tag; child has "subtask" tag
+        val rootSpec = buildJsonObject {
+            put("title", JsonPrimitive("Parent Task"))
+        }
+        val children = buildJsonArray {
+            add(buildJsonObject {
+                put("ref", JsonPrimitive("c1"))
+                put("title", JsonPrimitive("Child with subtask tag"))
+                put("tags", JsonPrimitive("subtask"))
+            })
+        }
+        val params = buildParams(root = rootSpec, children = children)
+        val result = tool.execute(params, contextWithSchema)
+
+        val data = extractData(result)
+
+        // Root should NOT have expectedNotes (no schema match)
+        val rootJson = data["root"]!!.jsonObject
+        assertFalse(rootJson.containsKey("expectedNotes"), "Root should not contain 'expectedNotes' when no schema matches")
+
+        // Child should have expectedNotes
+        val childrenArr = data["children"]!!.jsonArray
+        assertEquals(1, childrenArr.size)
+        val childJson = childrenArr[0].jsonObject
+        assertTrue(childJson.containsKey("expectedNotes"), "Child JSON should contain 'expectedNotes' key")
+
+        val expectedNotes = childJson["expectedNotes"]!!.jsonArray
+        assertEquals(1, expectedNotes.size)
+        val note = expectedNotes[0].jsonObject
+        assertEquals("test-plan", note["key"]!!.jsonPrimitive.content)
+        assertEquals("review", note["role"]!!.jsonPrimitive.content)
+        assertTrue(note["required"]!!.jsonPrimitive.boolean)
+        assertEquals("Test plan for this child", note["description"]!!.jsonPrimitive.content)
+        assertFalse(note["exists"]!!.jsonPrimitive.boolean)
+    }
+
+    // ──────────────────────────────────────────────
+    // expectedNotes: item without matching schema omits expectedNotes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item without matching schema omits expectedNotes`(): Unit = runBlocking {
+        // NoteSchemaService that never matches any tag
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+        }
+
+        val provider2 = mockk<RepositoryProvider>()
+        val mockExecutor2 = mockk<WorkTreeExecutor>()
+        every { provider2.workItemRepository() } returns workItemRepo
+        every { provider2.dependencyRepository() } returns mockk()
+        every { provider2.noteRepository() } returns mockk()
+        every { provider2.roleTransitionRepository() } returns mockk()
+        every { provider2.database() } returns null
+        every { provider2.workTreeExecutor() } returns mockExecutor2
+        val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+        coEvery { mockExecutor2.execute(any()) } answers {
+            val input = firstArg<WorkTreeInput>()
+            echoResult(input)
+        }
+
+        val rootSpec = buildJsonObject {
+            put("title", JsonPrimitive("Untagged Root"))
+            put("tags", JsonPrimitive("some-tag"))
+        }
+        val children = buildJsonArray {
+            add(buildJsonObject {
+                put("ref", JsonPrimitive("c1"))
+                put("title", JsonPrimitive("Untagged Child"))
+                put("tags", JsonPrimitive("another-tag"))
+            })
+        }
+        val params = buildParams(root = rootSpec, children = children)
+        val result = tool.execute(params, contextWithSchema)
+
+        val data = extractData(result)
+
+        // Neither root nor child should have expectedNotes when schema returns null
+        val rootJson = data["root"]!!.jsonObject
+        assertFalse(rootJson.containsKey("expectedNotes"), "Root should not contain 'expectedNotes' when schema returns null")
+
+        val childrenArr = data["children"]!!.jsonArray
+        assertEquals(1, childrenArr.size)
+        val childJson = childrenArr[0].jsonObject
+        assertFalse(childJson.containsKey("expectedNotes"), "Child should not contain 'expectedNotes' when schema returns null")
+    }
 }

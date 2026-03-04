@@ -587,4 +587,120 @@ class GetContextToolTest {
         assertEquals(1, childAncestors.size)
         assertEquals("Root", childAncestors[0].jsonObject["title"]!!.jsonPrimitive.content)
     }
+
+    // ──────────────────────────────────────────────
+    // guidancePointer tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `guidancePointer returns guidance for first missing required note`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC for the task", guidance = "List each criterion as a bullet"),
+            NoteSchemaEntry(key = "effort-estimate", role = "queue", required = true, description = "Estimate effort", guidance = "Use T-shirt sizing: XS/S/M/L/XL")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val guidancePointer = data["guidancePointer"]
+        assertNotNull(guidancePointer)
+        assertFalse(guidancePointer is JsonNull)
+        assertEquals("List each criterion as a bullet", guidancePointer!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `guidancePointer returns guidance for second note when first is filled`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC for the task", guidance = "List each criterion as a bullet"),
+            NoteSchemaEntry(key = "effort-estimate", role = "queue", required = true, description = "Estimate effort", guidance = "Use T-shirt sizing: XS/S/M/L/XL")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        // First required note is filled
+        val filledNote = Note(
+            itemId = itemId,
+            key = "acceptance-criteria",
+            role = "queue",
+            body = "The feature must do X, Y, and Z."
+        )
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledNote))
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val guidancePointer = data["guidancePointer"]
+        assertNotNull(guidancePointer)
+        assertFalse(guidancePointer is JsonNull)
+        assertEquals("Use T-shirt sizing: XS/S/M/L/XL", guidancePointer!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `guidancePointer is null when all required notes are filled`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC for the task", guidance = "List each criterion as a bullet"),
+            NoteSchemaEntry(key = "effort-estimate", role = "queue", required = true, description = "Estimate effort", guidance = "Use T-shirt sizing: XS/S/M/L/XL")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        val note1 = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC content filled in.")
+        val note2 = Note(itemId = itemId, key = "effort-estimate", role = "queue", body = "M - medium effort.")
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(note1, note2))
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val guidancePointer = data["guidancePointer"]
+        // When all notes filled, guidancePointer should be JsonNull
+        assertTrue(guidancePointer is JsonNull, "Expected guidancePointer to be null when all required notes are filled, got: $guidancePointer")
+    }
+
+    @Test
+    fun `guidancePointer is null when schema entry has no guidance`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC for the task", guidance = null)
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val guidancePointer = data["guidancePointer"]
+        // When the schema entry has no guidance, guidancePointer should be JsonNull
+        assertTrue(guidancePointer is JsonNull, "Expected guidancePointer to be null when schema entry has no guidance, got: $guidancePointer")
+    }
 }

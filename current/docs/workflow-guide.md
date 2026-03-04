@@ -134,18 +134,22 @@ note_schemas:
       role: queue
       required: true
       description: "Chosen approach, alternatives considered."
+      guidance: "Describe the chosen implementation approach. List alternatives considered and why they were rejected."
     - key: implementation-notes
       role: work
       required: true
       description: "Key decisions made during implementation."
+      guidance: "Document key decisions made during coding. Include any deviations from the design and why."
     - key: test-results
       role: work
       required: true
       description: "Test pass/fail count and new tests added."
+      guidance: "State total tests passing and failing. List new test cases added and what edge cases they cover."
     - key: deploy-notes
       role: review
       required: false
       description: "Deploy needed? Version bump? Reconnect required?"
+      guidance: "Note any deployment steps, config changes, version bumps, or client reconnection requirements."
 ```
 
 ### Phase Flow with Gates
@@ -209,10 +213,26 @@ Response includes:
     "missing": ["design"]
   },
   "schema": [
-    { "key": "requirements", "role": "queue", "required": true, "description": "...", "exists": true, "filled": true },
-    { "key": "design", "role": "queue", "required": true, "description": "...", "exists": false, "filled": false }
+    {
+      "key": "requirements",
+      "role": "queue",
+      "required": true,
+      "description": "Problem statement and acceptance criteria.",
+      "guidance": "Describe what problem this solves. List 2-5 acceptance criteria.",
+      "exists": true,
+      "filled": true
+    },
+    {
+      "key": "design",
+      "role": "queue",
+      "required": true,
+      "description": "Chosen approach, alternatives considered.",
+      "guidance": "Describe the chosen implementation approach. List alternatives considered and why they were rejected.",
+      "exists": false,
+      "filled": false
+    }
   ],
-  "guidancePointer": "Describe chosen approach and alternatives considered."
+  "guidancePointer": "Describe the chosen implementation approach. List alternatives considered and why they were rejected."
 }
 ```
 
@@ -251,16 +271,25 @@ The response includes `expectedNotes` when the tag matches a schema:
   "role": "queue",
   "tags": "feature-implementation",
   "expectedNotes": [
-    { "key": "requirements", "role": "queue", "required": true, "exists": false },
-    { "key": "design",        "role": "queue", "required": true, "exists": false },
-    { "key": "implementation-notes", "role": "work", "required": true, "exists": false },
-    { "key": "test-results",  "role": "work", "required": true, "exists": false },
-    { "key": "deploy-notes",  "role": "review", "required": false, "exists": false }
+    { "key": "requirements", "role": "queue", "required": true, "description": "Problem statement and acceptance criteria.", "guidance": "Describe what problem this solves. List 2-5 acceptance criteria.", "exists": false },
+    { "key": "design",        "role": "queue", "required": true, "description": "Chosen approach, alternatives considered.", "guidance": "Describe the chosen implementation approach. List alternatives considered and why they were rejected.", "exists": false },
+    { "key": "implementation-notes", "role": "work", "required": true, "description": "Key decisions made during implementation.", "guidance": "Document key decisions made during coding. Include any deviations from the design and why.", "exists": false },
+    { "key": "test-results",  "role": "work", "required": true, "description": "Test pass/fail count and new tests added.", "guidance": "State total tests passing and failing. List new test cases added and what edge cases they cover.", "exists": false },
+    { "key": "deploy-notes",  "role": "review", "required": false, "description": "Deploy needed? Version bump? Reconnect required?", "exists": false }
   ]
 }
 ```
 
 **Step 2: Fill queue-phase notes**
+
+Before writing notes, consult `guidancePointer` for authoring instructions:
+
+```json
+get_context(itemId="abc-123")
+// guidancePointer: "Describe what problem this solves. List 2-5 acceptance criteria."
+```
+
+Use the guidance to author each note:
 
 ```json
 manage_notes(operation="upsert", notes=[
@@ -291,6 +320,15 @@ advance_item(transitions=[{ "itemId": "abc-123", "trigger": "start" }])
 
 **Step 4: Fill work-phase notes**
 
+Consult `guidancePointer` again — it now points to the first unfilled work-phase note:
+
+```json
+get_context(itemId="abc-123")
+// guidancePointer: "Document key decisions made during coding. Include any deviations from the design and why."
+```
+
+Use the guidance to author each work-phase note:
+
 ```json
 manage_notes(operation="upsert", notes=[
   {
@@ -320,6 +358,109 @@ advance_item(transitions=[{ "itemId": "abc-123", "trigger": "start" }])
 ```json
 advance_item(transitions=[{ "itemId": "abc-123", "trigger": "start" }])
 // item is now role: terminal
+```
+
+### 5.5 Guidance — Agent Communication Channel
+
+The `guidance` field in note schemas is a communication channel from schema authors to automated agents. It provides specific authoring instructions that go beyond the short `description` — telling agents *how* to write a note, not just *what* the note is for.
+
+#### What guidance is
+
+`guidance` is an optional string set in `.taskorchestrator/config.yaml` alongside each note definition. It carries intent from whoever designed the schema to whoever (or whatever) fills the note at runtime. Agents should treat it as a prompt: follow it when composing note bodies.
+
+#### Where guidance appears
+
+Guidance surfaces in four places:
+
+- **`get_context(itemId=...)`** — `guidancePointer` at the top level. Points to the guidance of the first unfilled required note for the current phase. `null` when all required notes are filled or no matching schema has guidance.
+- **`manage_items(create)` response** — each entry in `expectedNotes` includes an optional `guidance` field when the schema defines one.
+- **`create_work_tree` response** — `expectedNotes` on root and child items include the optional `guidance` field.
+- **`advance_item` gate errors** — `missingNotes` array entries include the optional `guidance` field when present.
+
+#### How agents consume guidance
+
+The standard protocol is:
+
+1. Call `get_context(itemId=...)` before writing notes.
+2. Read `guidancePointer` — it is the instruction for the first unfilled required note in the current phase.
+3. Use the guidance text as authoring instructions for `manage_notes(operation="upsert")`.
+4. After filling that note, call `get_context` again if there are more unfilled required notes — `guidancePointer` will advance to the next one.
+
+Alternatively, use `expectedNotes` from the item creation response to batch-fill all notes at once, using each entry's `guidance` field individually.
+
+#### Semantics
+
+- `guidancePointer` always points to the **first** unfilled required note for the **current phase**.
+- It is `null` when all required notes for the current phase are filled, or when no schema entry for the current phase has a `guidance` value.
+- Advancing to the next phase resets the pointer to the first unfilled required note of the new phase.
+- Optional notes (required: false) do not contribute to `guidancePointer`.
+
+#### `expectedNotes` field availability by tool
+
+Different tools return different subsets of the `expectedNotes` fields:
+
+| Field         | `manage_items` | `advance_item` (success) | `advance_item` (gate error) | `create_work_tree` | `get_context` |
+|---------------|:--------------:|:------------------------:|:---------------------------:|:------------------:|:-------------:|
+| `key`         | ✓              | ✓                        | ✓                           | ✓                  | ✓             |
+| `role`        | ✓              | ✓                        | —                           | ✓                  | ✓             |
+| `required`    | ✓              | ✓                        | —                           | ✓                  | ✓             |
+| `description` | ✓              | ✓                        | ✓                           | ✓                  | ✓             |
+| `guidance`    | ✓ (optional)   | ✓ (optional)             | ✓ (optional)                | ✓ (optional)       | ✓ (optional)  |
+| `exists`      | ✓              | ✓                        | —                           | ✓                  | ✓             |
+| `filled`      | —              | —                        | —                           | —                  | ✓             |
+
+`guidance` is optional in all positions — it only appears when the schema entry defines it.
+
+---
+
+### 5.6 Agent Integration Patterns
+
+#### Standard note-filling protocol
+
+The recommended pattern for any agent filling notes on a schema-tagged item:
+
+```
+1. get_context(itemId=...)          → read guidancePointer
+2. manage_notes(upsert, ...)        → fill the note using guidancePointer as instructions
+3. Repeat until gateStatus.canAdvance: true
+4. advance_item(trigger="start")    → advance to next phase
+```
+
+#### Using `expectedNotes` at creation time
+
+When creating an item via `manage_items` or `create_work_tree`, the response includes `expectedNotes` with per-note `guidance`. Agents can use this to front-load all queue-phase notes immediately after creation without a separate `get_context` call:
+
+```json
+manage_items(operation="create", items=[{ "title": "...", "tags": "feature-implementation" }])
+// Response includes expectedNotes with guidance per entry
+// Use each entry's guidance to write the corresponding note body immediately
+```
+
+#### Hook and skill injection
+
+Orchestration hooks (e.g., `SubagentStart`) can inject `guidancePointer` into a subagent's system prompt before the agent begins work. This removes the need for the agent to call `get_context` itself:
+
+```
+System context injected by hook:
+  Item: abc-123 — Password Reset Feature (role: queue)
+  Required note: design
+  Guidance: Describe the chosen implementation approach. List alternatives considered
+            and why they were rejected.
+```
+
+The agent receives this context at session start and can proceed directly to `manage_notes(upsert)`.
+
+#### Example delegation prompt with guidance embedding
+
+When dispatching a subagent to fill notes for a specific item, embed the guidance directly in the prompt:
+
+```
+Fill the "design" note for item abc-123.
+
+Guidance from schema: "Describe the chosen implementation approach. List alternatives
+considered and why they were rejected."
+
+Use manage_notes(operation="upsert") with itemId="abc-123", key="design", role="queue".
 ```
 
 ---
@@ -573,6 +714,7 @@ docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.
 | Check gate before advancing       | `get_context(itemId="uuid")`                                    |
 | Advance to next phase             | `advance_item(transitions=[{itemId, trigger:"start"}])`         |
 | Fill a note                       | `manage_notes(operation="upsert", notes=[{itemId, key, role, body}])` |
+| Guidance consumption              | `get_context(itemId="uuid")` — `guidancePointer` gives instructions for filling the first missing required note |
 | Find blocked items                | `get_blocked_items(includeAncestors=true)`                      |
 | Create a dependency chain         | `manage_dependencies(operation="create", pattern="linear", itemIds=[...])` |
 | Cancel an item                    | `advance_item(transitions=[{itemId, trigger:"cancel"}])`        |

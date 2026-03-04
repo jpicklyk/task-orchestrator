@@ -317,6 +317,22 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             put("role", JsonPrimitive(rootResultItem.role.name.lowercase()))
             put("depth", JsonPrimitive(rootResultItem.depth))
             rootResultItem.tags?.let { put("tags", JsonPrimitive(it)) }
+            // Add expectedNotes from schema
+            rootResultItem.tags?.let { tags ->
+                val schemaEntries = context.noteSchemaService().getSchemaForTags(rootResultItem.tagList())
+                if (!schemaEntries.isNullOrEmpty()) {
+                    put("expectedNotes", JsonArray(schemaEntries.map { entry ->
+                        buildJsonObject {
+                            put("key", JsonPrimitive(entry.key))
+                            put("role", JsonPrimitive(entry.role))
+                            put("required", JsonPrimitive(entry.required))
+                            put("description", JsonPrimitive(entry.description))
+                            entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                            put("exists", JsonPrimitive(false))
+                        }
+                    }))
+                }
+            }
         }
 
         val childrenJson = JsonArray(
@@ -329,6 +345,22 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     put("depth", JsonPrimitive(item.depth))
                     item.tags?.let { put("tags", JsonPrimitive(it)) }
+                    // Add expectedNotes from schema
+                    item.tags?.let {
+                        val schemaEntries = context.noteSchemaService().getSchemaForTags(item.tagList())
+                        if (!schemaEntries.isNullOrEmpty()) {
+                            put("expectedNotes", JsonArray(schemaEntries.map { entry ->
+                                buildJsonObject {
+                                    put("key", JsonPrimitive(entry.key))
+                                    put("role", JsonPrimitive(entry.role))
+                                    put("required", JsonPrimitive(entry.required))
+                                    put("description", JsonPrimitive(entry.description))
+                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                                    put("exists", JsonPrimitive(false))
+                                }
+                            }))
+                        }
+                    }
                 }
             }
         )

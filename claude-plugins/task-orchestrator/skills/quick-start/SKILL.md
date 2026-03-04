@@ -177,6 +177,7 @@ Briefly mention that MCP items can have **required notes** that act as documenta
 - A `.taskorchestrator/config.yaml` file defines note schemas — which notes must be filled before an item can advance
 - Example: a `feature-implementation` schema might require `requirements` and `design` notes before work can start
 - This enforces documentation discipline — Claude must fill the notes before `advance_item` allows progression
+- Schemas can also carry a `guidance` field — authoring hints that tell agents exactly what to write in each note.
 - Run `/manage-schemas` to set one up interactively, or `/feature-implementation` to see the full lifecycle in action
 
 ---

@@ -102,6 +102,8 @@ Then offer three options via `AskUserQuestion`:
   3. Proceed anyway — gated items will be skipped, others will complete
 ```
 
+Call `get_context(itemId=...)` to retrieve `guidancePointer` for items with missing notes. Use the guidance as authoring instructions before filling.
+
 Wait for the user's choice. If they choose option 2, switch to `trigger="cancel"` for the execution step.
 
 ---

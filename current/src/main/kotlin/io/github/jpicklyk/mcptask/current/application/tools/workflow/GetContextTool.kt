@@ -140,7 +140,9 @@ Parameters:
             note == null || note.body.isBlank()
         }.map { it.key }
 
-        val guidancePointer = schema?.firstOrNull()?.guidance
+        val guidancePointer = missingForPhase.firstOrNull()?.let { key ->
+            schema?.firstOrNull { it.key == key }?.guidance
+        }
 
         // Resolve ancestors if requested
         val ancestorsJson: JsonArray = if (includeAncestors) {

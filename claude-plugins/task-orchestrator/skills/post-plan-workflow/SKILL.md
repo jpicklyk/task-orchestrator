@@ -24,10 +24,12 @@ Do NOT dispatch implementation agents until materialization is complete. Agents 
 Dispatch subagents to execute the plan:
 
 - Each subagent **owns one MCP item** — include the item UUID in the delegation prompt
-- Each agent must call `advance_item(trigger="start")` when beginning work
-- Each agent must call `advance_item(trigger="complete")` when done (or `trigger="start"` to advance through intermediate phases if the item has review-phase notes)
+- If `expectedNotes` entries include `guidance`, embed it in the delegation prompt as authoring instructions when filling notes
+- **Agents own their lifecycle transitions** — each agent calls `advance_item(trigger="start")` when beginning work and `advance_item(trigger="complete")` when done (or `trigger="start"` to advance through intermediate phases if the item has review-phase notes)
 - Fill work-phase notes (`implementation-notes`, `test-results`, etc.) as the agent works
 - Respect dependency ordering — do not dispatch an agent for a blocked item until its blockers complete
+- **Between waves:** call `get_blocked_items(parentId=...)` to confirm upstream items completed — dependency gating implicitly verifies agents transitioned their items. If downstream items are still blocked, investigate the upstream blocker
+- **Do not** call `advance_item` or `complete_tree` on items delegated to agents — agents handle their own transitions. Duplicate transition calls are harmless but wasteful
 
 Do NOT use `AskUserQuestion` between phases — proceed autonomously.
 
@@ -35,6 +37,7 @@ Do NOT use `AskUserQuestion` between phases — proceed autonomously.
 
 After all agents complete:
 
-1. Run `get_context()` health check to see what completed, what stalled, and what needs attention
-2. Review any stalled items — check which notes are missing with `get_context(itemId=...)`
-3. Address blockers or incomplete work as needed
+1. Run `query_items(parentId=..., role="work")` — any results are items agents failed to transition. Investigate and resolve
+2. Run `get_context()` health check to see what completed, what stalled, and what needs attention
+3. Review any stalled items — check which notes are missing with `get_context(itemId=...)`
+4. Address blockers or incomplete work as needed
