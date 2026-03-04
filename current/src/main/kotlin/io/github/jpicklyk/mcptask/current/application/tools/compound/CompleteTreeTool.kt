@@ -253,35 +253,22 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             }
 
             // Gate check: required notes must be filled for "complete" trigger
-            val itemTags = item.tagList()
-            val schema = context.noteSchemaService().getSchemaForTags(itemTags)
-            if (schema != null && trigger == "complete") {
-                val allRequired = schema.filter { it.required }
-                if (allRequired.isNotEmpty()) {
-                    val notesResult = context.noteRepository().findByItemId(item.id)
-                    val existingNotes = when (notesResult) {
-                        is Result.Success -> notesResult.data
-                        is Result.Error -> emptyList()
-                    }
-                    val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-                    val missingKeys = allRequired.filter { it.key !in filledKeys }.map { it.key }
-                    if (missingKeys.isNotEmpty()) {
-                        gateFailureCount++
-                        resultsList.add(buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId.toString()))
-                            put("title", JsonPrimitive(item.title))
-                            put("applied", JsonPrimitive(false))
-                            put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                        })
-                        // Skip dependents
-                        propagateSkip(itemId, adjacency, skippedSet)
-                        continue
-                    }
-                }
+            val missingKeys = checkGate(item, trigger, context)
+            if (missingKeys.isNotEmpty()) {
+                gateFailureCount++
+                resultsList.add(buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("title", JsonPrimitive(item.title))
+                    put("applied", JsonPrimitive(false))
+                    put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                })
+                // Skip dependents
+                propagateSkip(itemId, adjacency, skippedSet)
+                continue
             }
 
             // Resolve transition
-            val hasReviewPhase = context.noteSchemaService().hasReviewPhase(itemTags)
+            val hasReviewPhase = context.noteSchemaService().hasReviewPhase(item.tagList())
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
             if (!resolution.success || resolution.targetRole == null) {
                 // Item may already be terminal or otherwise can't transition — skip silently
@@ -328,35 +315,15 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 
         // Step 5: Process root item last (after all descendants), if requested
         if (rootItem != null) {
-            val itemId = rootItem.id
-            val itemTags = rootItem.tagList()
-            val schema = context.noteSchemaService().getSchemaForTags(itemTags)
-            if (schema != null && trigger == "complete") {
-                val allRequired = schema.filter { it.required }
-                if (allRequired.isNotEmpty()) {
-                    val notesResult = context.noteRepository().findByItemId(rootItem.id)
-                    val existingNotes = when (notesResult) {
-                        is Result.Success -> notesResult.data
-                        is Result.Error -> emptyList()
-                    }
-                    val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-                    val missingKeys = allRequired.filter { it.key !in filledKeys }.map { it.key }
-                    if (missingKeys.isNotEmpty()) {
-                        gateFailureCount++
-                        resultsList.add(buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId.toString()))
-                            put("title", JsonPrimitive(rootItem.title))
-                            put("applied", JsonPrimitive(false))
-                            put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                        })
-                    } else {
-                        processItem(rootItem, trigger, handler, context, resultsList,
-                            onComplete = { completedCount++ }, onSkip = { skippedCount++ })
-                    }
-                } else {
-                    processItem(rootItem, trigger, handler, context, resultsList,
-                        onComplete = { completedCount++ }, onSkip = { skippedCount++ })
-                }
+            val missingKeys = checkGate(rootItem, trigger, context)
+            if (missingKeys.isNotEmpty()) {
+                gateFailureCount++
+                resultsList.add(buildJsonObject {
+                    put("itemId", JsonPrimitive(rootItem.id.toString()))
+                    put("title", JsonPrimitive(rootItem.title))
+                    put("applied", JsonPrimitive(false))
+                    put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                })
             } else {
                 processItem(rootItem, trigger, handler, context, resultsList,
                     onComplete = { completedCount++ }, onSkip = { skippedCount++ })
@@ -429,6 +396,28 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             put("applied", JsonPrimitive(true))
             put("trigger", JsonPrimitive(trigger))
         })
+    }
+
+    /**
+     * Check gate requirements for an item. For the "complete" trigger, all required notes
+     * across all phases must be filled. Returns the list of missing note keys (empty = gate passed).
+     */
+    private suspend fun checkGate(
+        item: WorkItem,
+        trigger: String,
+        context: ToolExecutionContext
+    ): List<String> {
+        if (trigger != "complete") return emptyList()
+        val schema = context.noteSchemaService().getSchemaForTags(item.tagList()) ?: return emptyList()
+        val allRequired = schema.filter { it.required }
+        if (allRequired.isEmpty()) return emptyList()
+
+        val notes = when (val result = context.noteRepository().findByItemId(item.id)) {
+            is Result.Success -> result.data
+            is Result.Error -> emptyList()
+        }
+        val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+        return allRequired.filter { it.key !in filledKeys }.map { it.key }
     }
 
     override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {

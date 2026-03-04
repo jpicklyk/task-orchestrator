@@ -947,6 +947,132 @@ class GetContextToolTest {
         assertEquals("Describe the implementation", guidancePointer!!.jsonPrimitive.content)
     }
 
+    // ──────────────────────────────────────────────
+    // StalledItemEntry: multiple missing notes listed correctly
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `health-check stalled item with multiple missing required notes lists all of them`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl notes", guidance = "First guidance"),
+            NoteSchemaEntry(key = "effort-estimate", role = "work", required = true, description = "Effort", guidance = "Second guidance")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(params(), schemaContext)
+
+        val data = extractData(result)
+        val stalledItems = data["stalledItems"]!!.jsonArray
+        assertEquals(1, stalledItems.size)
+
+        val stalledItem = stalledItems[0].jsonObject
+        val missingNotes = stalledItem["missingNotes"]!!.jsonArray
+        assertEquals(2, missingNotes.size, "Both missing required notes should be listed")
+        val keys = missingNotes.map { it.jsonPrimitive.content }.toSet()
+        assertTrue("implementation-notes" in keys, "implementation-notes should be missing")
+        assertTrue("effort-estimate" in keys, "effort-estimate should be missing")
+
+        // guidancePointer should be for the first missing note
+        val guidancePointer = stalledItem["guidancePointer"]
+        assertNotNull(guidancePointer)
+        assertFalse(guidancePointer is JsonNull)
+        assertEquals("First guidance", guidancePointer!!.jsonPrimitive.content,
+            "guidancePointer should point to the first missing note's guidance")
+    }
+
+    // ──────────────────────────────────────────────
+    // buildAncestorsArray: stalled items with includeAncestors=true
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `health-check stalled item includeAncestors=true includes ancestors in stalled item entry`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val rootItem = makeItem(id = rootId, role = Role.QUEUE, tags = null, title = "Root")
+        val childItem = makeItem(id = childId, role = Role.WORK, tags = "feature-task", title = "Child", parentId = rootId, depth = 1)
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl", guidance = "Write impl")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        // Child is active (WORK) and stalled (missing required note)
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(childItem))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns Result.Success(
+            mapOf(childId to listOf(rootItem))
+        )
+
+        val result = tool.execute(
+            params("includeAncestors" to JsonPrimitive(true)),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        assertEquals("health-check", data["mode"]!!.jsonPrimitive.content)
+
+        val stalledItems = data["stalledItems"]!!.jsonArray
+        assertEquals(1, stalledItems.size)
+
+        val stalledItem = stalledItems[0].jsonObject
+        assertEquals(childId.toString(), stalledItem["id"]!!.jsonPrimitive.content)
+
+        // Verify ancestors are present
+        val ancestors = stalledItem["ancestors"]!!.jsonArray
+        assertEquals(1, ancestors.size, "Stalled item should have one ancestor (root)")
+        assertEquals(rootId.toString(), ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("Root", ancestors[0].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals(0, ancestors[0].jsonObject["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `session-resume stalled item includeAncestors=true includes ancestors`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val rootItem = makeItem(id = rootId, role = Role.QUEUE, tags = null, title = "Root")
+        val childItem = makeItem(id = childId, role = Role.WORK, tags = "feature-task", title = "Child", parentId = rootId, depth = 1)
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl", guidance = "Write impl")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(childItem))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns Result.Success(
+            mapOf(childId to listOf(rootItem))
+        )
+
+        val result = tool.execute(
+            params("since" to JsonPrimitive(since.toString()), "includeAncestors" to JsonPrimitive(true)),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        assertEquals("session-resume", data["mode"]!!.jsonPrimitive.content)
+
+        val stalledItems = data["stalledItems"]!!.jsonArray
+        assertEquals(1, stalledItems.size)
+
+        val stalledItem = stalledItems[0].jsonObject
+        val ancestors = stalledItem["ancestors"]!!.jsonArray
+        assertEquals(1, ancestors.size, "Stalled item should have one ancestor")
+        assertEquals(rootId.toString(), ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
+    }
+
     @Test
     fun `guidancePointer is null when schema entry has no guidance`(): Unit = runBlocking {
         val itemId = UUID.randomUUID()

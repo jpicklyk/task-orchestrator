@@ -626,6 +626,146 @@ class CompleteTreeToolTest {
     // Test: no descendants, only root — root is still processed with includeRoot=true
     // ──────────────────────────────────────────────
 
+    // ──────────────────────────────────────────────
+    // Test: checkGate — complete trigger with all required notes filled passes gate
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `complete trigger with all required notes filled passes gate and item completes`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, title = "Fully Noted Item", role = Role.QUEUE, tags = "feature")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria")
+        )
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if ("feature" in tags) schemaEntries else null
+        }
+
+        val repoProvider = mockk<RepositoryProvider>()
+        every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.dependencyRepository() } returns depRepo
+        every { repoProvider.noteRepository() } returns noteRepo
+        every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+
+        // Note exists with non-blank body — gate should pass
+        val note = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC content here.")
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(note))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(note))
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildItemIdsParams(listOf(itemId))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size)
+        assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean, "Item should complete when all notes are filled")
+        assertNull(results[0].jsonObject["gateErrors"], "No gate errors expected when notes are filled")
+
+        val summary = extractSummary(result)
+        assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+        assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: checkGate — cancel trigger bypasses gate even when notes are missing
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cancel trigger bypasses gate even when required notes are missing`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, title = "Gated but Cancelled", role = Role.QUEUE, tags = "feature")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria")
+        )
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if ("feature" in tags) schemaEntries else null
+        }
+
+        val repoProvider = mockk<RepositoryProvider>()
+        every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.dependencyRepository() } returns depRepo
+        every { repoProvider.noteRepository() } returns noteRepo
+        every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+
+        // No notes at all — gate would fail for "complete" but should be bypassed by "cancel"
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildItemIdsParams(listOf(itemId), trigger = "cancel")
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size)
+        assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean, "Cancel should bypass gate and succeed")
+        assertNull(results[0].jsonObject["gateErrors"], "No gate errors for cancel trigger")
+        assertEquals("cancel", results[0].jsonObject["trigger"]!!.jsonPrimitive.content)
+
+        val summary = extractSummary(result)
+        assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+        assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: checkGate — item with unmatched tags passes gate freely
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `complete trigger with unmatched tags passes gate freely`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, title = "Unmatched Tags Item", role = Role.QUEUE, tags = "unrelated-tag")
+
+        // Schema only matches "feature" — "unrelated-tag" should return null
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if ("feature" in tags) listOf(
+                    NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                        description = "AC")
+                ) else null
+        }
+
+        val repoProvider = mockk<RepositoryProvider>()
+        every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.dependencyRepository() } returns depRepo
+        every { repoProvider.noteRepository() } returns noteRepo
+        every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildItemIdsParams(listOf(itemId))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size)
+        assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean, "Unmatched tags should pass gate freely")
+
+        val summary = extractSummary(result)
+        assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+        assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: no descendants, only root — root is still processed with includeRoot=true
+    // ──────────────────────────────────────────────
+
     @Test
     fun `rootId with no descendants still processes root when includeRoot=true`(): Unit = runBlocking {
         val rootId = UUID.randomUUID()

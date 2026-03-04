@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -362,4 +363,22 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The first 8 characters
      */
     protected fun shortId(uuid: String): String = uuid.take(8)
+
+    // ──────────────────────────────────────────────
+    // JSON helpers
+    // ──────────────────────────────────────────────
+
+    /**
+     * Converts an ordered list of ancestor WorkItems (root-first) into a JSON array
+     * with id, title, and depth fields. Used by any tool that supports the includeAncestors parameter.
+     */
+    protected fun buildAncestorsArray(ancestors: List<WorkItem>): JsonArray {
+        return JsonArray(ancestors.map { ancestor ->
+            buildJsonObject {
+                put("id", JsonPrimitive(ancestor.id.toString()))
+                put("title", JsonPrimitive(ancestor.title))
+                put("depth", JsonPrimitive(ancestor.depth))
+            }
+        })
+    }
 }
