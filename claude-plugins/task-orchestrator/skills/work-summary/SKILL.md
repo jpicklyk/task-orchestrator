@@ -50,7 +50,7 @@ Classify every root item from the overview before rendering:
 | All `childCounts` = 0, role terminal | **Completed standalone item** — goes in Done footer as standalone |
 | Non-zero children, root item itself is terminal | **Structural anomaly** — root closed but descendants may still be active |
 
-Note: the overview `childCounts` reflects **direct children only**, not all descendants. Active grandchildren can exist under a terminal root. `get_context` will surface these — cross-reference both.
+> **Note:** The overview `childCounts` reflects **direct children only**, not all descendants. Active grandchildren can exist under a terminal root. `get_context` will surface these — cross-reference both.
 
 ### Signals to Look For
 

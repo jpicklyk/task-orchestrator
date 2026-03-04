@@ -1,12 +1,16 @@
 ---
 name: pre-plan-workflow
-description: Internal workflow for plan mode — checks MCP for existing work, note schemas, and gate requirements to set the definition floor before planning begins.
+description: Internal workflow for plan mode — checks MCP for existing work, note schemas, and gate requirements to set the definition floor before planning begins. Triggered automatically when entering plan mode for any non-trivial implementation task.
 user-invocable: false
 ---
 
 # Pre-Plan Workflow — Definition Floor
 
-When entering plan mode, use the MCP to set the **definition floor** before writing your plan. The definition floor is the baseline of existing work, documentation requirements, and gate constraints that the plan must account for.
+When entering plan mode, use the MCP to set the **definition floor** before writing your plan.
+
+The definition floor is the baseline of existing work, documentation requirements, and gate constraints that the plan must account for.
+
+**If MCP is unreachable:** Proceed with planning based on conversation context. Note in the plan that MCP state could not be verified — existing work may overlap. Re-check after MCP reconnects.
 
 ## Step 1: Check Existing MCP State
 
@@ -50,7 +54,6 @@ Structure the plan knowing it will be materialized into MCP items after approval
 
 - Each planned task should map to **one work item** with clear boundaries — a single unit of work a subagent can own
 - Account for **dependency ordering** — which tasks block others (these become `BLOCKS` edges)
-- If note schemas apply, plan sections should produce the content needed to fill required notes
 - Consider the **hierarchy** — a root container item with child task items is the standard pattern
 
 ## After Plan Approval

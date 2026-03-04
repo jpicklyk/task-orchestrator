@@ -1,6 +1,6 @@
 ---
 name: post-plan-workflow
-description: Internal workflow for post-plan materialization — creates MCP items from the approved plan and dispatches implementation.
+description: Internal workflow for post-plan materialization — creates MCP items from the approved plan and dispatches implementation. Triggered automatically after plan approval when MCP tracking is active.
 user-invocable: false
 ---
 
@@ -16,6 +16,8 @@ Complete materialization **before** any implementation begins.
 2. **Wire dependency edges** between items — use `BLOCKS` for sequencing, `fan-out`/`fan-in` patterns for parallel work
 3. **Check `expectedNotes` in create responses** — if the item's tags match a schema, the response includes the expected note keys and phases. Fill required queue-phase notes (`requirements`, `acceptance-criteria`, etc.) with content from the plan before advancing.
 4. **Verify all item UUIDs exist** — confirm the full item graph is materialized before proceeding
+
+**If `create_work_tree` fails:** Check partial state with `query_items(operation='overview')`. Delete partial items with `manage_items(delete, recursive=true)` and retry.
 
 Do NOT dispatch implementation agents until materialization is complete. Agents need MCP item UUIDs to self-report progress.
 
@@ -37,7 +39,7 @@ Do NOT use `AskUserQuestion` between phases — proceed autonomously.
 
 After all agents complete:
 
-1. Run `query_items(parentId=..., role="work")` — any results are items agents failed to transition. Investigate and resolve
+1. Run `query_items(parentId=..., role="work")` — any results are items agents failed to transition. Use `/status-progression` to diagnose and manually advance stuck items
 2. Run `get_context()` health check to see what completed, what stalled, and what needs attention
 3. Review any stalled items — check which notes are missing with `get_context(itemId=...)`
 4. Address blockers or incomplete work as needed
