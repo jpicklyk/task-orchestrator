@@ -136,14 +136,18 @@ Parameters:
         } ?: emptyList()
 
         // Gate status for current phase
-        val currentPhaseRequired = schema?.filter { it.role == currentRoleStr && it.required } ?: emptyList()
+        // Bug 2 fix: terminal items can never advance regardless of note status
+        val isTerminal = item.role == Role.TERMINAL
+        val currentPhaseRequired = if (isTerminal) emptyList() else schema?.filter { it.role == currentRoleStr && it.required } ?: emptyList()
         val missingForPhase = currentPhaseRequired.filter {
             val note = notesByKey[it.key]
             note == null || note.body.isBlank()
         }.map { it.key }
 
-        val guidancePointer = missingForPhase.firstOrNull()?.let { key ->
-            schema?.firstOrNull { it.key == key }?.guidance
+        // Bug 1 fix: guidancePointer must use only current-phase required notes (missingForPhase is
+        // already filtered by currentRoleStr, so no cross-phase leakage is possible)
+        val guidancePointer = if (isTerminal) null else missingForPhase.firstOrNull()?.let { key ->
+            schema?.firstOrNull { it.role == currentRoleStr && it.key == key }?.guidance
         }
 
         // Resolve ancestors if requested
@@ -169,7 +173,8 @@ Parameters:
             })
             put("schema", JsonArray(schemaEntries))
             put("gateStatus", buildJsonObject {
-                put("canAdvance", JsonPrimitive(missingForPhase.isEmpty()))
+                // Bug 2 fix: terminal items cannot advance; isTerminal set above
+                put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty()))
                 put("phase", JsonPrimitive(currentRoleStr))
                 put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
             })
@@ -216,7 +221,7 @@ Parameters:
 
         // Resolve ancestor chains once for all items if requested
         val ancestorChains: Map<java.util.UUID, List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>> = if (includeAncestors) {
-            val allIds = (activeItems.map { it.id } + stalledItems.map { (item, _) -> item.id }).toSet()
+            val allIds = (activeItems.map { it.id } + stalledItems.map { (item, _, _) -> item.id }).toSet()
             if (allIds.isNotEmpty()) {
                 when (val r = workItemRepo.findAncestorChains(allIds)) {
                     is Result.Success -> r.data
@@ -246,12 +251,15 @@ Parameters:
                     put("at", JsonPrimitive(t.transitionedAt.toString()))
                 }
             }))
-            put("stalledItems", JsonArray(stalledItems.map { (item, missing) ->
+            put("stalledItems", JsonArray(stalledItems.map { (item, missing, guidancePointer) ->
                 buildJsonObject {
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     put("missingNotes", JsonArray(missing.map { JsonPrimitive(it) }))
+                    // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
+                    if (guidancePointer != null) put("guidancePointer", JsonPrimitive(guidancePointer))
+                    else put("guidancePointer", JsonNull)
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
@@ -285,7 +293,7 @@ Parameters:
 
         // Resolve ancestor chains once for all items if requested
         val ancestorChains: Map<java.util.UUID, List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>> = if (includeAncestors) {
-            val allIds = (activeItems.map { it.id } + blockedItems.map { it.id } + stalledItems.map { (item, _) -> item.id }).toSet()
+            val allIds = (activeItems.map { it.id } + blockedItems.map { it.id } + stalledItems.map { (item, _, _) -> item.id }).toSet()
             if (allIds.isNotEmpty()) {
                 when (val r = workItemRepo.findAncestorChains(allIds)) {
                     is Result.Success -> r.data
@@ -313,12 +321,15 @@ Parameters:
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
-            put("stalledItems", JsonArray(stalledItems.map { (item, missing) ->
+            put("stalledItems", JsonArray(stalledItems.map { (item, missing, guidancePointer) ->
                 buildJsonObject {
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
                     put("role", JsonPrimitive(item.role.name.lowercase()))
                     put("missingNotes", JsonArray(missing.map { JsonPrimitive(it) }))
+                    // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
+                    if (guidancePointer != null) put("guidancePointer", JsonPrimitive(guidancePointer))
+                    else put("guidancePointer", JsonNull)
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
@@ -348,14 +359,16 @@ Parameters:
     /**
      * For each active item, determine which required notes for its current phase are missing.
      * Returns only items that have at least one missing required note.
+     * Bug 3 fix: also computes guidancePointer per stalled item so health-check/session-resume
+     * modes can include it without additional round-trips.
      */
     private suspend fun findStalledItems(
         items: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>,
         context: ToolExecutionContext
-    ): List<Pair<io.github.jpicklyk.mcptask.current.domain.model.WorkItem, List<String>>> {
+    ): List<Triple<io.github.jpicklyk.mcptask.current.domain.model.WorkItem, List<String>, String?>> {
         val schemaService = context.noteSchemaService()
         val noteRepo = context.noteRepository()
-        val result = mutableListOf<Pair<io.github.jpicklyk.mcptask.current.domain.model.WorkItem, List<String>>>()
+        val result = mutableListOf<Triple<io.github.jpicklyk.mcptask.current.domain.model.WorkItem, List<String>, String?>>()
 
         for (item in items) {
             val tags = item.tagList()
@@ -368,16 +381,17 @@ Parameters:
             }
             val notesByKey = notes.associateBy { it.key }
 
-            val missing = schema
+            val missingEntries = schema
                 .filter { it.role == currentRoleStr && it.required }
                 .filter { entry ->
                     val note = notesByKey[entry.key]
                     note == null || note.body.isBlank()
                 }
-                .map { it.key }
 
-            if (missing.isNotEmpty()) {
-                result.add(item to missing)
+            if (missingEntries.isNotEmpty()) {
+                // Bug 3 fix: compute guidancePointer for the first missing note in the current phase
+                val guidancePointer = missingEntries.firstOrNull()?.guidance
+                result.add(Triple(item, missingEntries.map { it.key }, guidancePointer))
             }
         }
 

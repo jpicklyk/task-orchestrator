@@ -64,10 +64,15 @@ class CompleteTreeToolTest {
         )
     }
 
-    private fun buildRootIdParams(rootId: UUID, trigger: String = "complete"): JsonObject {
+    private fun buildRootIdParams(
+        rootId: UUID,
+        trigger: String = "complete",
+        includeRoot: Boolean? = null
+    ): JsonObject {
         return buildJsonObject {
             put("rootId", JsonPrimitive(rootId.toString()))
             put("trigger", JsonPrimitive(trigger))
+            if (includeRoot != null) put("includeRoot", JsonPrimitive(includeRoot))
         }
     }
 
@@ -104,7 +109,8 @@ class CompleteTreeToolTest {
 
         coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(emptyList())
 
-        val params = buildRootIdParams(rootId)
+        // includeRoot=false to test descendants-only path with no items
+        val params = buildRootIdParams(rootId, includeRoot = false)
         val result = tool.execute(params, context)
 
         val data = extractData(result)
@@ -384,6 +390,15 @@ class CompleteTreeToolTest {
         })
     }
 
+    @Test
+    fun `valid rootId with includeRoot param passes validation`() {
+        // Should not throw
+        tool.validateParams(buildJsonObject {
+            put("rootId", JsonPrimitive(UUID.randomUUID().toString()))
+            put("includeRoot", JsonPrimitive(false))
+        })
+    }
+
     // ──────────────────────────────────────────────
     // Test: Terminal items are skipped (cannot transition further)
     // ──────────────────────────────────────────────
@@ -416,7 +431,7 @@ class CompleteTreeToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `rootId collects descendants and completes them`(): Unit = runBlocking {
+    fun `rootId collects descendants and completes them when includeRoot=false`(): Unit = runBlocking {
         val rootId = UUID.randomUUID()
         val childId = UUID.randomUUID()
         val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
@@ -427,11 +442,206 @@ class CompleteTreeToolTest {
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         every { depRepo.findByToItemId(childId) } returns emptyList()
 
-        val params = buildRootIdParams(rootId)
+        val params = buildRootIdParams(rootId, includeRoot = false)
         val result = tool.execute(params, context)
 
         val results = extractResults(result)
         assertEquals(1, results.size)
+        assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+
+        val summary = extractSummary(result)
+        assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: includeRoot=true (default) completes root item after descendants
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `rootId with default includeRoot completes root item after descendants`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val root = makeItem(id = rootId, title = "Root Item", role = Role.QUEUE, depth = 0)
+        val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
+
+        coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
+        coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(childId) } returns emptyList()
+
+        // No includeRoot param => defaults to true
+        val params = buildRootIdParams(rootId)
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        assertEquals(2, results.size, "Should complete both child and root")
+
+        val resultMap = results.associate {
+            val obj = it.jsonObject
+            UUID.fromString(obj["itemId"]!!.jsonPrimitive.content) to obj
+        }
+
+        val childResult = resultMap[childId]!!
+        assertTrue(childResult["applied"]!!.jsonPrimitive.boolean, "Child should be completed")
+
+        val rootResult = resultMap[rootId]!!
+        assertTrue(rootResult["applied"]!!.jsonPrimitive.boolean, "Root should be completed")
+        assertEquals(rootId.toString(), results.last().jsonObject["itemId"]!!.jsonPrimitive.content,
+            "Root should be processed last")
+
+        val summary = extractSummary(result)
+        assertEquals(2, summary["total"]!!.jsonPrimitive.int)
+        assertEquals(2, summary["completed"]!!.jsonPrimitive.int)
+        assertEquals(0, summary["skipped"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: includeRoot=false excludes root from processing
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `rootId with includeRoot=false excludes root item`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
+
+        coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(childId) } returns emptyList()
+
+        val params = buildRootIdParams(rootId, includeRoot = false)
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size, "Only child should be in results when includeRoot=false")
+        assertEquals(childId.toString(), results[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+        assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+
+        val summary = extractSummary(result)
+        assertEquals(1, summary["total"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: includeRoot=true with cancel trigger cancels root after descendants
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `rootId with cancel trigger cancels root item after descendants`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val root = makeItem(id = rootId, title = "Feature Root", role = Role.QUEUE, depth = 0)
+        val child = makeItem(id = childId, title = "Task Child", role = Role.WORK, parentId = rootId, depth = 1)
+
+        coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
+        coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(childId) } returns emptyList()
+
+        val params = buildRootIdParams(rootId, trigger = "cancel")
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        assertEquals(2, results.size)
+
+        results.forEach { r ->
+            assertTrue(r.jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Both items should be cancelled: ${r.jsonObject["itemId"]}")
+            assertEquals("cancel", r.jsonObject["trigger"]!!.jsonPrimitive.content)
+        }
+
+        val summary = extractSummary(result)
+        assertEquals(2, summary["completed"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: includeRoot=true, root has gate failure (missing required notes)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `root item gate failure is reported when required notes missing`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val root = makeItem(id = rootId, title = "Gated Root", role = Role.QUEUE, tags = "feature", depth = 0)
+        val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria")
+        )
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if ("feature" in tags) schemaEntries else null
+        }
+
+        val repoProvider = mockk<RepositoryProvider>()
+        every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.dependencyRepository() } returns depRepo
+        every { repoProvider.noteRepository() } returns noteRepo
+        every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+
+        coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
+        coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(childId) } returns emptyList()
+        coEvery { noteRepo.findByItemId(rootId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(rootId, any()) } returns Result.Success(emptyList())
+
+        val params = buildRootIdParams(rootId)
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        assertEquals(2, results.size)
+
+        val resultMap = results.associate {
+            val obj = it.jsonObject
+            UUID.fromString(obj["itemId"]!!.jsonPrimitive.content) to obj
+        }
+
+        val childResult = resultMap[childId]!!
+        assertTrue(childResult["applied"]!!.jsonPrimitive.boolean, "Child should complete")
+
+        val rootResult = resultMap[rootId]!!
+        assertFalse(rootResult["applied"]!!.jsonPrimitive.boolean, "Root should have gate failure")
+        assertNotNull(rootResult["gateErrors"], "Root should have gateErrors")
+        val gateErrors = rootResult["gateErrors"]!!.jsonArray
+        assertTrue(gateErrors[0].jsonPrimitive.content.contains("acceptance-criteria"))
+
+        val summary = extractSummary(result)
+        assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
+        assertEquals(0, summary["skipped"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Test: no descendants, only root — root is still processed with includeRoot=true
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `rootId with no descendants still processes root when includeRoot=true`(): Unit = runBlocking {
+        val rootId = UUID.randomUUID()
+        val root = makeItem(id = rootId, title = "Lone Root", role = Role.QUEUE, depth = 0)
+
+        coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+
+        val params = buildRootIdParams(rootId)
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size, "Root should be included when it has no descendants")
+        assertEquals(rootId.toString(), results[0].jsonObject["itemId"]!!.jsonPrimitive.content)
         assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
 
         val summary = extractSummary(result)

@@ -30,7 +30,7 @@ If no `$ARGUMENTS`, proceed with the global (unscoped) data collection as writte
 2. `get_context(includeAncestors=true)` — active (work/review), blocked, and stalled items with full ancestor chains
 3. `get_next_item(limit=3, includeAncestors=true)` — priority-ranked actionable items
 
-These three calls return non-overlapping data. No additional traversal or parent-walk calls are needed — ancestor chains are embedded on each item from calls 2 and 3.
+These three calls return non-overlapping data. No parent-walk calls are needed for ancestry — ancestor chains are embedded on each item from calls 2 and 3. For stalled items, item-mode `get_context(itemId=...)` may be needed to surface `guidancePointer` authoring instructions — these are not embedded in the health check response.
 
 ---
 

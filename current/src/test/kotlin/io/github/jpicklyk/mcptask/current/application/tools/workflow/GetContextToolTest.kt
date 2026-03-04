@@ -717,6 +717,236 @@ class GetContextToolTest {
         assertTrue(guidancePointer is JsonNull, "Expected guidancePointer to be null when all required notes are filled, got: $guidancePointer")
     }
 
+    // ──────────────────────────────────────────────
+    // Bug 1: guidancePointer must be phase-filtered (no cross-phase leakage)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `guidancePointer returns work-phase guidance after item advances to work role`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        // Item is now in WORK role (advanced from queue)
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            // Queue phase note (filled — item advanced past queue)
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC", guidance = "Queue-phase guidance — must NOT appear after advancing"),
+            // Work phase note (missing — should be the guidancePointer)
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl notes", guidance = "Work-phase guidance — this should be the pointer")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        // Queue note is filled, work note is missing
+        val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC is done.")
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val gateStatus = data["gateStatus"]!!.jsonObject
+        // canAdvance should be false — work-phase note is missing
+        assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "canAdvance should be false with missing work note")
+        assertEquals("work", gateStatus["phase"]!!.jsonPrimitive.content)
+        val missing = gateStatus["missing"]!!.jsonArray
+        assertEquals(1, missing.size)
+        assertEquals("implementation-notes", missing[0].jsonPrimitive.content)
+
+        // guidancePointer must be for the work-phase missing note, not the queue-phase note
+        val guidancePointer = data["guidancePointer"]
+        assertNotNull(guidancePointer)
+        assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when work-phase note is missing")
+        assertEquals("Work-phase guidance — this should be the pointer", guidancePointer!!.jsonPrimitive.content,
+            "guidancePointer must return work-phase guidance, not stale queue-phase guidance")
+    }
+
+    @Test
+    fun `guidancePointer does not bleed queue-phase guidance when item is in work role with no missing work notes`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC", guidance = "Queue guidance"),
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl", guidance = "Work guidance")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        // Both notes filled (queue and work)
+        val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC done.")
+        val workNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "Impl done.")
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote, workNote))
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val gateStatus = data["gateStatus"]!!.jsonObject
+        assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "canAdvance should be true when all work-phase notes filled")
+        val guidancePointer = data["guidancePointer"]
+        assertTrue(guidancePointer is JsonNull, "guidancePointer should be null when no work-phase notes missing, got: $guidancePointer")
+    }
+
+    // ──────────────────────────────────────────────
+    // Bug 2: canAdvance must be false for terminal items
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `canAdvance is false for terminal item even with no schema`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.TERMINAL, tags = null)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            context  // NoOp schema — no required notes, would erroneously return canAdvance=true without fix
+        )
+
+        val data = extractData(result)
+        assertEquals("terminal", data["item"]!!.jsonObject["role"]!!.jsonPrimitive.content)
+
+        val gateStatus = data["gateStatus"]!!.jsonObject
+        assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "canAdvance must be false for terminal items")
+        assertEquals("terminal", gateStatus["phase"]!!.jsonPrimitive.content)
+        assertEquals(0, gateStatus["missing"]!!.jsonArray.size, "missing should be empty for terminal items")
+    }
+
+    @Test
+    fun `canAdvance is false for terminal item with schema`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.TERMINAL, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC", guidance = "Guidance")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val gateStatus = data["gateStatus"]!!.jsonObject
+        assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "canAdvance must be false for terminal items regardless of schema")
+
+        val guidancePointer = data["guidancePointer"]
+        assertTrue(guidancePointer is JsonNull, "guidancePointer should be null for terminal items")
+    }
+
+    // ──────────────────────────────────────────────
+    // Bug 3: health-check stalled items include guidancePointer
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `health-check stalled items include guidancePointer`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl notes", guidance = "Write the implementation approach here")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+        // No notes for the item → it is stalled
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(params(), schemaContext)
+
+        val data = extractData(result)
+        assertEquals("health-check", data["mode"]!!.jsonPrimitive.content)
+
+        val stalledItems = data["stalledItems"]!!.jsonArray
+        assertEquals(1, stalledItems.size, "Expected one stalled item")
+
+        val stalledItem = stalledItems[0].jsonObject
+        assertEquals(itemId.toString(), stalledItem["id"]!!.jsonPrimitive.content)
+
+        val missingNotes = stalledItem["missingNotes"]!!.jsonArray
+        assertEquals(1, missingNotes.size)
+        assertEquals("implementation-notes", missingNotes[0].jsonPrimitive.content)
+
+        // Bug 3 fix: guidancePointer must be present in stalled item entry
+        val guidancePointer = stalledItem["guidancePointer"]
+        assertNotNull(guidancePointer, "guidancePointer should be present in stalled item")
+        assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when guidance is available")
+        assertEquals("Write the implementation approach here", guidancePointer!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `health-check stalled items guidancePointer is null when schema has no guidance`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl notes", guidance = null)
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(params(), schemaContext)
+
+        val data = extractData(result)
+        val stalledItems = data["stalledItems"]!!.jsonArray
+        assertEquals(1, stalledItems.size)
+
+        val stalledItem = stalledItems[0].jsonObject
+        val guidancePointer = stalledItem["guidancePointer"]
+        assertTrue(guidancePointer is JsonNull, "guidancePointer should be null when schema entry has no guidance, got: $guidancePointer")
+    }
+
+    @Test
+    fun `session-resume stalled items include guidancePointer`(): Unit = runBlocking {
+        val since = Instant.now().minusSeconds(3600)
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Impl notes", guidance = "Describe the implementation")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+        coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("since" to JsonPrimitive(since.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        assertEquals("session-resume", data["mode"]!!.jsonPrimitive.content)
+
+        val stalledItems = data["stalledItems"]!!.jsonArray
+        assertEquals(1, stalledItems.size)
+
+        val stalledItem = stalledItems[0].jsonObject
+        val guidancePointer = stalledItem["guidancePointer"]
+        assertNotNull(guidancePointer, "guidancePointer should be present in session-resume stalled item")
+        assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when guidance is available")
+        assertEquals("Describe the implementation", guidancePointer!!.jsonPrimitive.content)
+    }
+
     @Test
     fun `guidancePointer is null when schema entry has no guidance`(): Unit = runBlocking {
         val itemId = UUID.randomUUID()
