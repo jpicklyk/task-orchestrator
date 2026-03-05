@@ -1,7 +1,9 @@
 name: Build, Publish, and Release
 
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 env:
   REGISTRY: ghcr.io
@@ -53,21 +55,14 @@ jobs:
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
         echo "Building version: ${VERSION}"
 
-    - name: Check version tag does not exist
+    - name: Verify tag matches version.properties
       run: |
         VERSION=${{ steps.version.outputs.version }}
-        if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q "v${VERSION}"; then
-          echo "ERROR: Tag v${VERSION} already exists. Run /bump-version to increment the version before merging."
+        TAG_VERSION="${GITHUB_REF_NAME#v}"
+        if [ "$VERSION" != "$TAG_VERSION" ]; then
+          echo "ERROR: Tag ${GITHUB_REF_NAME} does not match version.properties (${VERSION})"
           exit 1
         fi
-
-    - name: Create and push version tag
-      run: |
-        VERSION=${{ steps.version.outputs.version }}
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag "v${VERSION}"
-        git push origin "v${VERSION}"
 
     - name: Extract Docker metadata
       id: meta
@@ -95,8 +90,8 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release create "v${{ steps.version.outputs.version }}" \
-          --title "v${{ steps.version.outputs.version }}" \
+        gh release create "${{ github.ref_name }}" \
+          --title "${{ github.ref_name }}" \
           --generate-notes \
           --verify-tag
 
