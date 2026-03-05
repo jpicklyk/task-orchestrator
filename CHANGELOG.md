@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-03-05
+
+### New Features
+- Added `schema-workflow` skill to the plugin — guides items through schema-defined lifecycle with gate-enforced phase transitions
+- Added shared tool helper utilities in `BaseToolDefinition` — reduces boilerplate across all MCP tool implementations
+
+### Improvements
+- Improved `complete_tree` with BFS-based traversal — handles deep hierarchies more efficiently and fixes edge cases with dependency ordering
+- Improved `query_dependencies` response format — clearer structure for dependency chain visualization
+- Overhauled `work-summary`, `batch-complete`, and `create-item` plugin skills — better prompts and more reliable behavior
+- Restructured `workflow-orchestrator` output style — cleaner zone separation between shared core and extensions
+
+### Performance
+- Parallelized sequential `findByRole` queries in `get_context` — reduces latency when loading items across multiple workflow phases
+
+### Changed
+- Automated releases via tag push (`v*` triggers Docker + GitHub Release, `plugin-v*` triggers plugin-only release) — replaces manual `workflow_dispatch`
+- Bumped plugin version to 2.5.0 (new skill, skill improvements)
+
+---
+
 ## [2.1.0] - 2026-03-04
 
 ### Added
