@@ -427,6 +427,34 @@ class CompleteTreeToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // Test: BLOCKED items are skipped (cannot complete while blocked)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `blocked item is skipped with cannot transition reason`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, title = "Blocked Work Item", role = Role.BLOCKED)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildItemIdsParams(listOf(itemId))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size)
+
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["skipped"]!!.jsonPrimitive.boolean)
+        assertTrue(r["skippedReason"]!!.jsonPrimitive.content.contains("blocked", ignoreCase = true))
+
+        val summary = extractSummary(result)
+        assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["skipped"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
     // Test: rootId uses findDescendants
     // ──────────────────────────────────────────────
 

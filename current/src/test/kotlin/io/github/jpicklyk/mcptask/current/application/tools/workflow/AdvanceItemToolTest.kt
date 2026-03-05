@@ -284,6 +284,92 @@ class AdvanceItemToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // 6b. Transitions on BLOCKED items (role-level rejection)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `complete on BLOCKED item fails with blocked error`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+        val params = buildParams(transitionObj(itemId, "complete"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["error"]!!.jsonPrimitive.content.contains("blocked", ignoreCase = true))
+
+        val summary = extractSummary(result)
+        assertEquals(0, summary["succeeded"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `start on BLOCKED item fails with blocked error`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(r["error"]!!.jsonPrimitive.content.contains("blocked", ignoreCase = true))
+
+        val summary = extractSummary(result)
+        assertEquals(0, summary["succeeded"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `batch with BLOCKED item fails independently and does not affect other items`(): Unit = runBlocking {
+        val blockedId = UUID.randomUUID()
+        val goodId = UUID.randomUUID()
+        val blockedItem = makeItem(id = blockedId, role = Role.BLOCKED, previousRole = Role.WORK)
+        val goodItem = makeItem(id = goodId, role = Role.QUEUE)
+
+        coEvery { workItemRepo.getById(blockedId) } returns Result.Success(blockedItem)
+        coEvery { workItemRepo.getById(goodId) } returns Result.Success(goodItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(goodId) } returns emptyList()
+        every { depRepo.findByFromItemId(goodId) } returns emptyList()
+
+        val params = buildParams(
+            transitionObj(blockedId, "complete"),
+            transitionObj(goodId, "complete")
+        )
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        assertEquals(2, results.size)
+
+        val resultMap = results.associate {
+            val obj = it.jsonObject
+            UUID.fromString(obj["itemId"]!!.jsonPrimitive.content) to obj
+        }
+
+        val blockedResult = resultMap[blockedId]!!
+        assertFalse(blockedResult["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(blockedResult["error"]!!.jsonPrimitive.content.contains("blocked", ignoreCase = true))
+
+        val goodResult = resultMap[goodId]!!
+        assertTrue(goodResult["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("terminal", goodResult["newRole"]!!.jsonPrimitive.content)
+
+        val summary = extractSummary(result)
+        assertEquals(2, summary["total"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["succeeded"]!!.jsonPrimitive.int)
+        assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
     // 7. Blocked by dependencies -- validation fails with blocker info
     // ──────────────────────────────────────────────
 
