@@ -137,14 +137,7 @@ Parameters:
                         item.parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
                     }
                     if (includeAncestors) {
-                        val ancestors = ancestorChains[item.id] ?: emptyList()
-                        put("ancestors", JsonArray(ancestors.map { ancestor ->
-                            buildJsonObject {
-                                put("id", JsonPrimitive(ancestor.id.toString()))
-                                put("title", JsonPrimitive(ancestor.title))
-                                put("depth", JsonPrimitive(ancestor.depth))
-                            }
-                        }))
+                        put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                     }
                 }
             }))

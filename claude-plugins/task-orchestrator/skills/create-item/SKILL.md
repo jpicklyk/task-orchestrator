@@ -42,14 +42,14 @@ Classify the existing structure:
 
 ### Category mapping
 
-| Item type | Target category container |
-|-----------|--------------------------|
-| Bug / error / crash / unexpected behavior | Bugs |
-| Feature / enhancement / new capability | Features |
-| Tech debt / refactor / cleanup / improvement | Tech Debt |
-| Observation / friction / optimization / missing capability | Observations |
-| Action item / follow-up / reminder / TODO | Action Items |
-| General / unclear | Best-effort match — ask if uncertain |
+| Item type | Target category container | Signal keywords |
+|-----------|--------------------------|-----------------|
+| Bug / error / crash / unexpected behavior | Bugs | bug, error, crash, broken, failure, wrong, exception |
+| Feature / enhancement / new capability | Features | feature, add, implement, new, support, capability, enhancement |
+| Tech debt / refactor / cleanup / improvement | Tech Debt | refactor, cleanup, simplify, debt, improve, migrate, restructure |
+| Observation / friction / optimization / missing capability | Observations | slow, performance, optimize, latency, friction, missing, gap, observe |
+| Action item / follow-up / reminder / TODO | Action Items | todo, follow up, remind, action, track, check |
+| General / unclear | Best-effort match — ask if uncertain | |
 
 ### Anchoring decision tree
 
@@ -73,7 +73,9 @@ Empty (no project root exists):
 
 ## Step 4 — Apply tags via schema discovery
 
-Read `.taskorchestrator/config.yaml` to discover available note schemas (this is a file read, not an MCP call). In Docker, the path is resolved via the `AGENT_CONFIG_DIR` env var. Each schema key is a tag that activates gate enforcement when applied to an item.
+Read `.taskorchestrator/config.yaml` to discover available note schemas (this is a file read, not an MCP call). In Docker, the config is mounted at a path controlled by the `AGENT_CONFIG_DIR` env var — read `$AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` if that variable is set, otherwise use `.taskorchestrator/config.yaml` relative to the working directory. Each schema key is a tag that activates gate enforcement when applied to an item.
+
+**Error handling:** If the config file is not found, cannot be read, or contains invalid YAML, skip schema-based tagging and create the item without tags. Inform the user: "No schema config found — item created without schema tags." Do not abort item creation due to a missing or malformed config.
 
 **Infer the best schema match from context:**
 
@@ -126,7 +128,13 @@ Default to single item when scope is unclear. Use `create_work_tree` only when t
 Check `expectedNotes` in the create response. For each note where `required: true` and `role: "queue"`:
 - Extract relevant content from the conversation
 - Check each `expectedNotes` entry for a `guidance` field — use it as the authoring instruction for note content. Guidance takes precedence over free-form inference.
-- Upsert: `manage_notes(operation="upsert", notes=[{itemId, key, role, body}])`
+- Batch all notes into a single call rather than one call per note:
+  ```
+  manage_notes(operation="upsert", notes=[
+    {itemId: "<uuid>", key: "reproduction-steps", role: "queue", body: "..."},
+    {itemId: "<uuid>", key: "root-cause",          role: "queue", body: "..."}
+  ])
+  ```
 - If conversation content is too sparse for a meaningful note body, leave it — do not fabricate content
 
 ---

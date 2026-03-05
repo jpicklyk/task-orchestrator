@@ -21,6 +21,7 @@ import java.util.UUID
  * - rootId (optional UUID): complete all descendants of this item
  * - itemIds (optional array of UUID strings): explicit list of items to complete
  * - trigger (optional string, default "complete"): "complete" or "cancel"
+ * - includeRoot (optional boolean, default true): when rootId is used, also include the root item itself
  *
  * One of rootId or itemIds must be provided.
  */
@@ -35,6 +36,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 - `rootId` (optional UUID string): complete all descendants of this item (exclusive with itemIds)
 - `itemIds` (optional array of UUID strings): explicit list of items to complete
 - `trigger` (optional string, default "complete"): "complete" or "cancel"
+- `includeRoot` (optional boolean, default true): when rootId is used, also include the root item itself in the completion scope. Ignored when itemIds is used.
 
 **Validation:** Exactly one of `rootId` or `itemIds` must be provided.
 
@@ -43,6 +45,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 - Gate check: if an item's tags match a note schema, all required notes must be filled before completing.
   Gate failures cause downstream dependents (within the target set) to be skipped.
 - Items already in TERMINAL role are recorded as skipped.
+- When rootId is used with includeRoot=true (the default), the root item is processed last, after all its descendants.
 
 **Response:**
 ```json
@@ -86,6 +89,10 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                     add(JsonPrimitive("complete"))
                     add(JsonPrimitive("cancel"))
                 })
+            })
+            put("includeRoot", buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("When rootId is used, also include the root item itself in the completion scope (default true). Ignored when itemIds is used."))
             })
         },
         required = listOf()
@@ -153,11 +160,12 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val paramsObj = params as JsonObject
         val trigger = (paramsObj["trigger"] as? JsonPrimitive)?.content?.lowercase() ?: "complete"
+        val includeRoot = (paramsObj["includeRoot"] as? JsonPrimitive)?.booleanOrNull ?: true
 
-        // Step 1: Collect target items
-        val targetItems: List<WorkItem> = collectTargetItems(paramsObj, context)
+        // Step 1: Collect target items (descendants only) and optionally the root item separately
+        val (targetItems, rootItem) = collectTargetItemsWithRoot(paramsObj, context, includeRoot)
 
-        if (targetItems.isEmpty()) {
+        if (targetItems.isEmpty() && rootItem == null) {
             return successResponse(buildJsonObject {
                 put("results", JsonArray(emptyList()))
                 put("summary", buildJsonObject {
@@ -169,7 +177,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             })
         }
 
-        // Step 2: Build dependency graph within the target set
+        // Step 2: Build dependency graph within the target set (descendants only, not root)
         val targetIds = targetItems.map { it.id }.toSet()
         val itemById = targetItems.associateBy { it.id }
 
@@ -195,7 +203,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             }
         }
 
-        // Step 3: Kahn's algorithm topological sort
+        // Step 3: Kahn's algorithm topological sort (descendants only)
         val sortedOrder = mutableListOf<UUID>()
         val queue = ArrayDeque<UUID>()
 
@@ -245,35 +253,22 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             }
 
             // Gate check: required notes must be filled for "complete" trigger
-            val itemTags = item.tagList()
-            val schema = context.noteSchemaService().getSchemaForTags(itemTags)
-            if (schema != null && trigger == "complete") {
-                val allRequired = schema.filter { it.required }
-                if (allRequired.isNotEmpty()) {
-                    val notesResult = context.noteRepository().findByItemId(item.id)
-                    val existingNotes = when (notesResult) {
-                        is Result.Success -> notesResult.data
-                        is Result.Error -> emptyList()
-                    }
-                    val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-                    val missingKeys = allRequired.filter { it.key !in filledKeys }.map { it.key }
-                    if (missingKeys.isNotEmpty()) {
-                        gateFailureCount++
-                        resultsList.add(buildJsonObject {
-                            put("itemId", JsonPrimitive(itemId.toString()))
-                            put("title", JsonPrimitive(item.title))
-                            put("applied", JsonPrimitive(false))
-                            put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                        })
-                        // Skip dependents
-                        propagateSkip(itemId, adjacency, skippedSet)
-                        continue
-                    }
-                }
+            val missingKeys = checkGate(item, trigger, context)
+            if (missingKeys.isNotEmpty()) {
+                gateFailureCount++
+                resultsList.add(buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("title", JsonPrimitive(item.title))
+                    put("applied", JsonPrimitive(false))
+                    put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                })
+                // Skip dependents
+                propagateSkip(itemId, adjacency, skippedSet)
+                continue
             }
 
             // Resolve transition
-            val hasReviewPhase = context.noteSchemaService().hasReviewPhase(itemTags)
+            val hasReviewPhase = context.noteSchemaService().hasReviewPhase(item.tagList())
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
             if (!resolution.success || resolution.targetRole == null) {
                 // Item may already be terminal or otherwise can't transition — skip silently
@@ -318,6 +313,23 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             })
         }
 
+        // Step 5: Process root item last (after all descendants), if requested
+        if (rootItem != null) {
+            val missingKeys = checkGate(rootItem, trigger, context)
+            if (missingKeys.isNotEmpty()) {
+                gateFailureCount++
+                resultsList.add(buildJsonObject {
+                    put("itemId", JsonPrimitive(rootItem.id.toString()))
+                    put("title", JsonPrimitive(rootItem.title))
+                    put("applied", JsonPrimitive(false))
+                    put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                })
+            } else {
+                processItem(rootItem, trigger, handler, context, resultsList,
+                    onComplete = { completedCount++ }, onSkip = { skippedCount++ })
+            }
+        }
+
         val totalCount = completedCount + skippedCount + gateFailureCount
         val data = buildJsonObject {
             put("results", JsonArray(resultsList))
@@ -332,6 +344,82 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         return successResponse(data)
     }
 
+    /**
+     * Apply a transition to a single item and record the result.
+     */
+    private suspend fun processItem(
+        item: WorkItem,
+        trigger: String,
+        handler: RoleTransitionHandler,
+        context: ToolExecutionContext,
+        resultsList: MutableList<JsonObject>,
+        onComplete: () -> Unit,
+        onSkip: () -> Unit
+    ) {
+        val itemTags = item.tagList()
+        val hasReviewPhase = context.noteSchemaService().hasReviewPhase(itemTags)
+        val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
+        if (!resolution.success || resolution.targetRole == null) {
+            onSkip()
+            resultsList.add(buildJsonObject {
+                put("itemId", JsonPrimitive(item.id.toString()))
+                put("title", JsonPrimitive(item.title))
+                put("applied", JsonPrimitive(false))
+                put("skipped", JsonPrimitive(true))
+                put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
+            })
+            return
+        }
+
+        val applyResult = handler.applyTransition(
+            item, resolution.targetRole, trigger, null, resolution.statusLabel,
+            context.workItemRepository(),
+            context.roleTransitionRepository()
+        )
+
+        if (!applyResult.success) {
+            onSkip()
+            resultsList.add(buildJsonObject {
+                put("itemId", JsonPrimitive(item.id.toString()))
+                put("title", JsonPrimitive(item.title))
+                put("applied", JsonPrimitive(false))
+                put("skipped", JsonPrimitive(true))
+                put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
+            })
+            return
+        }
+
+        onComplete()
+        resultsList.add(buildJsonObject {
+            put("itemId", JsonPrimitive(item.id.toString()))
+            put("title", JsonPrimitive(item.title))
+            put("applied", JsonPrimitive(true))
+            put("trigger", JsonPrimitive(trigger))
+        })
+    }
+
+    /**
+     * Check gate requirements for an item. For the "complete" trigger, all required notes
+     * across all phases must be filled. Returns the list of missing note keys (empty = gate passed).
+     */
+    private suspend fun checkGate(
+        item: WorkItem,
+        trigger: String,
+        context: ToolExecutionContext
+    ): List<String> {
+        if (trigger != "complete") return emptyList()
+        val schema = context.noteSchemaService().getSchemaForTags(item.tagList()) ?: return emptyList()
+        val allRequired = schema.filter { it.required }
+        if (allRequired.isEmpty()) return emptyList()
+
+        val notes = when (val result = context.noteRepository().findByItemId(item.id)) {
+            is Result.Success -> result.data
+            is Result.Error -> emptyList()
+        }
+        val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+        return allRequired.filter { it.key !in filledKeys }.map { it.key }
+    }
+
     override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
         if (isError) return "complete_tree failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
@@ -344,22 +432,34 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
     }
 
     /**
-     * Collect the target items based on parameters: either descendants of rootId or explicit itemIds.
+     * Collect the target items based on parameters.
+     * Returns a Pair of (descendants/explicit items, root item or null).
+     * The root item is returned separately so it can be processed last (after all descendants).
+     * When itemIds is used, the root item return value is always null.
      */
-    private suspend fun collectTargetItems(
+    private suspend fun collectTargetItemsWithRoot(
         paramsObj: JsonObject,
-        context: ToolExecutionContext
-    ): List<WorkItem> {
+        context: ToolExecutionContext,
+        includeRoot: Boolean = true
+    ): Pair<List<WorkItem>, WorkItem?> {
         val rootIdElem = paramsObj["rootId"]
         if (rootIdElem != null && rootIdElem !is JsonNull) {
             val rootId = UUID.fromString((rootIdElem as JsonPrimitive).content)
-            return when (val result = context.workItemRepository().findDescendants(rootId)) {
+            val descendants = when (val result = context.workItemRepository().findDescendants(rootId)) {
                 is Result.Success -> result.data
                 is Result.Error -> emptyList()
             }
+            if (!includeRoot) return Pair(descendants, null)
+
+            // Fetch root item separately — it will be processed after all its descendants
+            val rootItem = when (val result = context.workItemRepository().getById(rootId)) {
+                is Result.Success -> result.data
+                is Result.Error -> null
+            }
+            return Pair(descendants, rootItem)
         }
 
-        val itemIdsElem = paramsObj["itemIds"] as? JsonArray ?: return emptyList()
+        val itemIdsElem = paramsObj["itemIds"] as? JsonArray ?: return Pair(emptyList(), null)
         val items = mutableListOf<WorkItem>()
         for (element in itemIdsElem) {
             val id = UUID.fromString((element as JsonPrimitive).content)
@@ -368,7 +468,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 is Result.Error -> { /* skip missing items */ }
             }
         }
-        return items
+        return Pair(items, null)
     }
 
     /**

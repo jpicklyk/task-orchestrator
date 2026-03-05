@@ -209,13 +209,7 @@ Items in TERMINAL role are never included.
         val blockedItemsJson = blockedItemsList.map { (item, json) ->
             if (includeAncestors) {
                 val ancestors = ancestorChains[item.id] ?: emptyList()
-                val ancestorsArray = JsonArray(ancestors.map { ancestor ->
-                    buildJsonObject {
-                        put("id", JsonPrimitive(ancestor.id.toString()))
-                        put("title", JsonPrimitive(ancestor.title))
-                        put("depth", JsonPrimitive(ancestor.depth))
-                    }
-                })
+                val ancestorsArray = buildAncestorsArray(ancestors)
                 JsonObject(json.toMap() + ("ancestors" to ancestorsArray))
             } else {
                 json

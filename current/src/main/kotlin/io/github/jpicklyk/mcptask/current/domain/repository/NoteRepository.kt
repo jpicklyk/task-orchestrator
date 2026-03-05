@@ -10,4 +10,5 @@ interface NoteRepository {
     suspend fun deleteByItemId(itemId: UUID): Result<Int>
     suspend fun findByItemId(itemId: UUID, role: String? = null): Result<List<Note>>
     suspend fun findByItemIdAndKey(itemId: UUID, key: String): Result<Note?>
+    suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>>
 }

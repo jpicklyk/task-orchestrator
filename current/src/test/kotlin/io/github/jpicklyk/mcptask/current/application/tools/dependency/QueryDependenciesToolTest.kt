@@ -593,4 +593,213 @@ class QueryDependenciesToolTest {
         val summary = tool.userSummary(inputParams, result, isError = false)
         assertEquals("Found 1 dependency", summary)
     }
+
+    // ──────────────────────────────────────────────
+    // Batch BFS graph traversal tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `graph traversal linear chain correct order`(): Unit = runBlocking {
+        val a = createItem("Item A")
+        val b = createItem("Item B")
+        val c = createItem("Item C")
+        val d = createItem("Item D")
+
+        createDependency(a, b) // A blocks B
+        createDependency(b, c) // B blocks C
+        createDependency(c, d) // C blocks D
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(a.toString()),
+                "neighborsOnly" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val graph = data["graph"] as JsonObject
+        val chain = graph["chain"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+        assertEquals(4, chain.size)
+        // Topological order: A before B before C before D
+        assertTrue(chain.indexOf(a.toString()) < chain.indexOf(b.toString()))
+        assertTrue(chain.indexOf(b.toString()) < chain.indexOf(c.toString()))
+        assertTrue(chain.indexOf(c.toString()) < chain.indexOf(d.toString()))
+        assertEquals(3, graph["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `graph traversal diamond pattern correct depth`(): Unit = runBlocking {
+        val a = createItem("Item A")
+        val b = createItem("Item B")
+        val c = createItem("Item C")
+        val d = createItem("Item D")
+
+        createDependency(a, b) // A blocks B
+        createDependency(a, c) // A blocks C
+        createDependency(b, d) // B blocks D
+        createDependency(c, d) // C blocks D
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(a.toString()),
+                "neighborsOnly" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val graph = data["graph"] as JsonObject
+        val chain = graph["chain"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+        assertEquals(4, chain.size)
+        // A must come first, D must come last
+        assertEquals(a.toString(), chain[0])
+        assertEquals(d.toString(), chain[3])
+        assertEquals(2, graph["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `graph traversal from leaf discovers full graph`(): Unit = runBlocking {
+        val a = createItem("Item A")
+        val b = createItem("Item B")
+        val c = createItem("Item C")
+
+        createDependency(a, b) // A blocks B
+        createDependency(b, c) // B blocks C
+
+        // Query from leaf C
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(c.toString()),
+                "neighborsOnly" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val graph = data["graph"] as JsonObject
+        val chain = graph["chain"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+        assertEquals(3, chain.size)
+        assertTrue(chain.contains(a.toString()))
+        assertTrue(chain.contains(b.toString()))
+        assertTrue(chain.contains(c.toString()))
+    }
+
+    @Test
+    fun `graph traversal ignores RELATES_TO edges`(): Unit = runBlocking {
+        val a = createItem("Item A")
+        val b = createItem("Item B")
+        val c = createItem("Item C")
+
+        createDependency(a, b, DependencyType.BLOCKS)     // A blocks B
+        createDependency(a, c, DependencyType.RELATES_TO) // A relates to C
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(a.toString()),
+                "neighborsOnly" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val graph = data["graph"] as JsonObject
+        val chain = graph["chain"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+        // Only A and B should be in the chain (C is only RELATES_TO)
+        assertEquals(2, chain.size)
+        assertTrue(chain.contains(a.toString()))
+        assertTrue(chain.contains(b.toString()))
+        assertFalse(chain.contains(c.toString()))
+    }
+
+    @Test
+    fun `graph traversal disconnected start node`(): Unit = runBlocking {
+        val a = createItem("Lonely Item")
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(a.toString()),
+                "neighborsOnly" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val graph = data["graph"] as JsonObject
+        val chain = graph["chain"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+        assertEquals(1, chain.size)
+        assertEquals(a.toString(), chain[0])
+        assertEquals(0, graph["depth"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `graph traversal 50-node chain completes correctly`(): Unit = runBlocking {
+        // Create 50 items in a linear chain
+        val items = (1..50).map { createItem("Item $it") }
+
+        // Create chain: item[0] -> item[1] -> ... -> item[49]
+        for (i in 0 until 49) {
+            createDependency(items[i], items[i + 1])
+        }
+
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(items[0].toString()),
+                "neighborsOnly" to JsonPrimitive(false)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val graph = data["graph"] as JsonObject
+        val chain = graph["chain"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+        assertEquals(50, chain.size)
+        assertEquals(49, graph["depth"]!!.jsonPrimitive.int)
+
+        // Verify all items are present
+        for (item in items) {
+            assertTrue(chain.contains(item.toString()))
+        }
+    }
+
+    @Test
+    fun `counts correct when direction is all`(): Unit = runBlocking {
+        val a = createItem("Item A")
+        val b = createItem("Item B")
+        val c = createItem("Item C")
+        val d = createItem("Item D")
+
+        createDependency(a, b, DependencyType.BLOCKS)     // incoming to B
+        createDependency(b, c, DependencyType.BLOCKS)     // outgoing from B
+        createDependency(d, b, DependencyType.RELATES_TO) // relates-to for B
+
+        // Query with direction=all (should reuse allDeps for counts, no extra query)
+        val result = tool.execute(
+            params(
+                "itemId" to JsonPrimitive(b.toString()),
+                "direction" to JsonPrimitive("all")
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val counts = data["counts"] as JsonObject
+
+        assertEquals(1, counts["incoming"]!!.jsonPrimitive.int)
+        assertEquals(1, counts["outgoing"]!!.jsonPrimitive.int)
+        assertEquals(1, counts["relatesTo"]!!.jsonPrimitive.int)
+    }
 }

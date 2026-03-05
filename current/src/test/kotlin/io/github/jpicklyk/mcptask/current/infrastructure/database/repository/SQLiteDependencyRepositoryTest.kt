@@ -279,4 +279,110 @@ class SQLiteDependencyRepositoryTest {
         val deps = depRepository.findByFromItemId(itemA)
         assertEquals(2, deps.size)
     }
+
+    // --- findByItemIds ---
+
+    @Test
+    fun `findByItemIds returns deps grouped by item`(): Unit = runBlocking {
+        // A->B, B->C
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
+        depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC))
+
+        val result = depRepository.findByItemIds(setOf(itemA, itemC))
+
+        // map[A] should have A->B
+        val aDeps = result[itemA]!!
+        assertEquals(1, aDeps.size)
+        assertEquals(itemA, aDeps[0].fromItemId)
+        assertEquals(itemB, aDeps[0].toItemId)
+
+        // map[C] should have B->C
+        val cDeps = result[itemC]!!
+        assertEquals(1, cDeps.size)
+        assertEquals(itemB, cDeps[0].fromItemId)
+        assertEquals(itemC, cDeps[0].toItemId)
+    }
+
+    @Test
+    fun `findByItemIds shared dep appears in both groups`(): Unit = runBlocking {
+        // A->B
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
+
+        val result = depRepository.findByItemIds(setOf(itemA, itemB))
+
+        // A->B should appear in both A's list and B's list
+        val aDeps = result[itemA]!!
+        assertEquals(1, aDeps.size)
+        val bDeps = result[itemB]!!
+        assertEquals(1, bDeps.size)
+        // Both reference the same dependency
+        assertEquals(aDeps[0].id, bDeps[0].id)
+    }
+
+    @Test
+    fun `findByItemIds single item matches findByItemId`(): Unit = runBlocking {
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
+        depRepository.create(Dependency(fromItemId = itemC, toItemId = itemA))
+
+        val batchResult = depRepository.findByItemIds(setOf(itemA))
+        val singleResult = depRepository.findByItemId(itemA)
+
+        val batchDeps = batchResult[itemA]!!.sortedBy { it.id }
+        val singleDeps = singleResult.sortedBy { it.id }
+
+        assertEquals(singleDeps.size, batchDeps.size)
+        for (i in singleDeps.indices) {
+            assertEquals(singleDeps[i].id, batchDeps[i].id)
+        }
+    }
+
+    @Test
+    fun `findByItemIds empty set returns empty map`(): Unit = runBlocking {
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
+
+        val result = depRepository.findByItemIds(emptySet())
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `findByItemIds item with no deps absent from result`(): Unit = runBlocking {
+        // Only A->B exists, D has no deps
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
+
+        val result = depRepository.findByItemIds(setOf(itemD))
+        assertFalse(result.containsKey(itemD))
+    }
+
+    @Test
+    fun `findByItemIds includes all dependency types`(): Unit = runBlocking {
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemC, type = DependencyType.RELATES_TO))
+
+        val result = depRepository.findByItemIds(setOf(itemA))
+        val aDeps = result[itemA]!!
+        assertEquals(2, aDeps.size)
+
+        val types = aDeps.map { it.type }.toSet()
+        assertTrue(types.contains(DependencyType.BLOCKS))
+        assertTrue(types.contains(DependencyType.RELATES_TO))
+    }
+
+    @Test
+    fun `findByItemIds large set correct grouping`(): Unit = runBlocking {
+        // A->B->C->D chain
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
+        depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC))
+        depRepository.create(Dependency(fromItemId = itemC, toItemId = itemD))
+
+        val result = depRepository.findByItemIds(setOf(itemA, itemB, itemC, itemD))
+
+        // A: has A->B (as from)
+        assertEquals(1, result[itemA]!!.size)
+        // B: has A->B (as to) and B->C (as from)
+        assertEquals(2, result[itemB]!!.size)
+        // C: has B->C (as to) and C->D (as from)
+        assertEquals(2, result[itemC]!!.size)
+        // D: has C->D (as to)
+        assertEquals(1, result[itemD]!!.size)
+    }
 }

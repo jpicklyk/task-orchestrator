@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.dependency
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -117,7 +118,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
         })
 
         // Compute counts breakdown from the full (unfiltered by type) dep list for this item
-        val allDepsForCounts = depRepo.findByItemId(itemId)
+        val allDepsForCounts = if (direction == "all") allDeps else depRepo.findByItemId(itemId)
         val incomingCount = allDepsForCounts.count { it.toItemId == itemId && it.type != DependencyType.RELATES_TO }
         val outgoingCount = allDepsForCounts.count { it.fromItemId == itemId && it.type != DependencyType.RELATES_TO }
         val relatesToCount = allDepsForCounts.count { it.type == DependencyType.RELATES_TO }
@@ -201,50 +202,43 @@ Returns dependencies with counts breakdown and optional graph traversal data.
     }
 
     /**
-     * Performs BFS traversal from the given item following BLOCKS edges in both directions.
+     * Performs frontier-based BFS traversal from the given item following BLOCKS edges in both directions.
+     * Uses batch queries (findByItemIds) to eliminate N+1 query overhead.
      * Returns a topologically-ordered chain of item IDs and the maximum depth.
      */
-    private fun buildGraphJson(startItemId: UUID, depRepo: io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository): JsonObject {
-        // BFS to discover all connected items via BLOCKS/IS_BLOCKED_BY edges
+    private fun buildGraphJson(startItemId: UUID, depRepo: DependencyRepository): JsonObject {
         val visited = mutableSetOf<UUID>()
-        val queue: LinkedList<UUID> = LinkedList()
-        val edges = mutableListOf<Pair<UUID, UUID>>() // fromItemId -> toItemId (BLOCKS direction)
+        val edges = mutableListOf<Pair<UUID, UUID>>()
 
-        queue.add(startItemId)
         visited.add(startItemId)
+        var frontier = setOf(startItemId)
 
-        while (queue.isNotEmpty()) {
-            val current = queue.poll()
-            val deps = depRepo.findByItemId(current)
+        while (frontier.isNotEmpty()) {
+            val depsByItem = depRepo.findByItemIds(frontier)
+            val nextFrontier = mutableSetOf<UUID>()
 
-            for (dep in deps) {
-                // Only follow blocking edges for graph traversal
-                if (dep.type == DependencyType.RELATES_TO) continue
-
-                // Normalize to BLOCKS direction: from blocks to
-                val (from, to) = when (dep.type) {
-                    DependencyType.BLOCKS -> dep.fromItemId to dep.toItemId
-                    DependencyType.IS_BLOCKED_BY -> dep.toItemId to dep.fromItemId
-                    DependencyType.RELATES_TO -> continue
-                }
-
-                edges.add(from to to)
-
-                // Visit neighbor nodes
-                val neighbor = if (current == dep.fromItemId) dep.toItemId else dep.fromItemId
-                if (neighbor !in visited) {
-                    visited.add(neighbor)
-                    queue.add(neighbor)
+            for (current in frontier) {
+                val deps = depsByItem[current] ?: emptyList()
+                for (dep in deps) {
+                    if (dep.type == DependencyType.RELATES_TO) continue
+                    val (from, to) = when (dep.type) {
+                        DependencyType.BLOCKS -> dep.fromItemId to dep.toItemId
+                        DependencyType.IS_BLOCKED_BY -> dep.toItemId to dep.fromItemId
+                        DependencyType.RELATES_TO -> continue
+                    }
+                    edges.add(from to to)
+                    val neighbor = if (current == dep.fromItemId) dep.toItemId else dep.fromItemId
+                    if (neighbor !in visited) {
+                        visited.add(neighbor)
+                        nextFrontier.add(neighbor)
+                    }
                 }
             }
+            frontier = nextFrontier
         }
 
-        // Topological sort (Kahn's algorithm)
         val chain = topologicalSort(visited, edges)
-
-        // Compute depth: longest path from any source node
         val depth = computeMaxDepth(chain, edges)
-
         return buildJsonObject {
             put("chain", JsonArray(chain.map { JsonPrimitive(it.toString()) }))
             put("depth", JsonPrimitive(depth))

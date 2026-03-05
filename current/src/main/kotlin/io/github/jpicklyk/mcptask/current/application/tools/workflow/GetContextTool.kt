@@ -18,6 +18,13 @@ import kotlinx.serialization.json.*
  */
 class GetContextTool : BaseToolDefinition() {
 
+    /** Result entry from [findStalledItems]: an active item with missing required notes and optional guidance. */
+    private data class StalledItemEntry(
+        val item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem,
+        val missingKeys: List<String>,
+        val guidancePointer: String?
+    )
+
     override val name = "get_context"
 
     override val description = """
@@ -136,14 +143,18 @@ Parameters:
         } ?: emptyList()
 
         // Gate status for current phase
-        val currentPhaseRequired = schema?.filter { it.role == currentRoleStr && it.required } ?: emptyList()
+        // Bug 2 fix: terminal items can never advance regardless of note status
+        val isTerminal = item.role == Role.TERMINAL
+        val currentPhaseRequired = if (isTerminal) emptyList() else schema?.filter { it.role == currentRoleStr && it.required } ?: emptyList()
         val missingForPhase = currentPhaseRequired.filter {
             val note = notesByKey[it.key]
             note == null || note.body.isBlank()
         }.map { it.key }
 
-        val guidancePointer = missingForPhase.firstOrNull()?.let { key ->
-            schema?.firstOrNull { it.key == key }?.guidance
+        // Bug 1 fix: guidancePointer must use only current-phase required notes (missingForPhase is
+        // already filtered by currentRoleStr, so no cross-phase leakage is possible)
+        val guidancePointer = if (isTerminal) null else missingForPhase.firstOrNull()?.let { key ->
+            schema?.firstOrNull { it.role == currentRoleStr && it.key == key }?.guidance
         }
 
         // Resolve ancestors if requested
@@ -169,7 +180,8 @@ Parameters:
             })
             put("schema", JsonArray(schemaEntries))
             put("gateStatus", buildJsonObject {
-                put("canAdvance", JsonPrimitive(missingForPhase.isEmpty()))
+                // Bug 2 fix: terminal items cannot advance; isTerminal set above
+                put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty()))
                 put("phase", JsonPrimitive(currentRoleStr))
                 put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
             })
@@ -216,7 +228,7 @@ Parameters:
 
         // Resolve ancestor chains once for all items if requested
         val ancestorChains: Map<java.util.UUID, List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>> = if (includeAncestors) {
-            val allIds = (activeItems.map { it.id } + stalledItems.map { (item, _) -> item.id }).toSet()
+            val allIds = (activeItems.map { it.id } + stalledItems.map { it.item.id }).toSet()
             if (allIds.isNotEmpty()) {
                 when (val r = workItemRepo.findAncestorChains(allIds)) {
                     is Result.Success -> r.data
@@ -246,13 +258,16 @@ Parameters:
                     put("at", JsonPrimitive(t.transitionedAt.toString()))
                 }
             }))
-            put("stalledItems", JsonArray(stalledItems.map { (item, missing) ->
+            put("stalledItems", JsonArray(stalledItems.map { entry ->
                 buildJsonObject {
-                    put("id", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
-                    put("missingNotes", JsonArray(missing.map { JsonPrimitive(it) }))
-                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
+                    put("id", JsonPrimitive(entry.item.id.toString()))
+                    put("title", JsonPrimitive(entry.item.title))
+                    put("role", JsonPrimitive(entry.item.role.name.lowercase()))
+                    put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
+                    // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
+                    if (entry.guidancePointer != null) put("guidancePointer", JsonPrimitive(entry.guidancePointer))
+                    else put("guidancePointer", JsonNull)
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
                 }
             }))
         }
@@ -285,7 +300,7 @@ Parameters:
 
         // Resolve ancestor chains once for all items if requested
         val ancestorChains: Map<java.util.UUID, List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>> = if (includeAncestors) {
-            val allIds = (activeItems.map { it.id } + blockedItems.map { it.id } + stalledItems.map { (item, _) -> item.id }).toSet()
+            val allIds = (activeItems.map { it.id } + blockedItems.map { it.id } + stalledItems.map { it.item.id }).toSet()
             if (allIds.isNotEmpty()) {
                 when (val r = workItemRepo.findAncestorChains(allIds)) {
                     is Result.Success -> r.data
@@ -313,13 +328,16 @@ Parameters:
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
-            put("stalledItems", JsonArray(stalledItems.map { (item, missing) ->
+            put("stalledItems", JsonArray(stalledItems.map { entry ->
                 buildJsonObject {
-                    put("id", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
-                    put("missingNotes", JsonArray(missing.map { JsonPrimitive(it) }))
-                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
+                    put("id", JsonPrimitive(entry.item.id.toString()))
+                    put("title", JsonPrimitive(entry.item.title))
+                    put("role", JsonPrimitive(entry.item.role.name.lowercase()))
+                    put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
+                    // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
+                    if (entry.guidancePointer != null) put("guidancePointer", JsonPrimitive(entry.guidancePointer))
+                    else put("guidancePointer", JsonNull)
+                    if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
                 }
             }))
         }
@@ -332,52 +350,50 @@ Parameters:
     // ──────────────────────────────────────────────
 
     /**
-     * Converts an ordered list of ancestor WorkItems (root-first) into a JSON array with
-     * id, title, and depth fields.
-     */
-    private fun buildAncestorsArray(ancestors: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>): JsonArray {
-        return JsonArray(ancestors.map { ancestor ->
-            buildJsonObject {
-                put("id", JsonPrimitive(ancestor.id.toString()))
-                put("title", JsonPrimitive(ancestor.title))
-                put("depth", JsonPrimitive(ancestor.depth))
-            }
-        })
-    }
-
-    /**
      * For each active item, determine which required notes for its current phase are missing.
      * Returns only items that have at least one missing required note.
+     * Bug 3 fix: also computes guidancePointer per stalled item so health-check/session-resume
+     * modes can include it without additional round-trips.
      */
     private suspend fun findStalledItems(
         items: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>,
         context: ToolExecutionContext
-    ): List<Pair<io.github.jpicklyk.mcptask.current.domain.model.WorkItem, List<String>>> {
+    ): List<StalledItemEntry> {
         val schemaService = context.noteSchemaService()
         val noteRepo = context.noteRepository()
-        val result = mutableListOf<Pair<io.github.jpicklyk.mcptask.current.domain.model.WorkItem, List<String>>>()
+        val result = mutableListOf<StalledItemEntry>()
 
-        for (item in items) {
+        // Pre-filter to items that have a matching schema (avoids batch-fetching notes for schema-less items)
+        val schemaItems = items.mapNotNull { item ->
             val tags = item.tagList()
-            val schema = schemaService.getSchemaForTags(tags) ?: continue
+            val schema = schemaService.getSchemaForTags(tags)
+            if (schema != null) Triple(item, tags, schema) else null
+        }
+        if (schemaItems.isEmpty()) return emptyList()
+
+        // Batch-fetch all notes for schema-eligible items (N+1 → 1 query)
+        val itemIds = schemaItems.map { it.first.id }.toSet()
+        val notesByItemId = when (val r = noteRepo.findByItemIds(itemIds)) {
+            is Result.Success -> r.data
+            is Result.Error -> return emptyList()
+        }
+
+        // Check each item against its schema using local map lookup
+        for ((item, _, schema) in schemaItems) {
             val currentRoleStr = item.role.name.lowercase()
+            val notesByKey = (notesByItemId[item.id] ?: emptyList()).associateBy { it.key }
 
-            val notes = when (val r = noteRepo.findByItemId(item.id)) {
-                is Result.Success -> r.data
-                is Result.Error -> continue
-            }
-            val notesByKey = notes.associateBy { it.key }
-
-            val missing = schema
+            val missingEntries = schema
                 .filter { it.role == currentRoleStr && it.required }
                 .filter { entry ->
                     val note = notesByKey[entry.key]
                     note == null || note.body.isBlank()
                 }
-                .map { it.key }
 
-            if (missing.isNotEmpty()) {
-                result.add(item to missing)
+            if (missingEntries.isNotEmpty()) {
+                // Bug 3 fix: compute guidancePointer for the first missing note in the current phase
+                val guidancePointer = missingEntries.firstOrNull()?.guidance
+                result.add(StalledItemEntry(item, missingEntries.map { it.key }, guidancePointer))
             }
         }
 

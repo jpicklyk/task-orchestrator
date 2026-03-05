@@ -91,6 +91,42 @@ Rules for each bullet:
 - Do not mention internal class names, Kotlin types, or file paths
 - Example: `Added \`includeAncestors\` to \`query_items\` — eliminates parent-walk call chains for breadcrumb context`
 
+### 4d. Detect plugin content changes
+
+Check if any files under `claude-plugins/` changed since the last tag:
+
+```bash
+git diff <LAST_TAG>...HEAD --name-only -- claude-plugins/
+```
+
+If the output is non-empty, plugin content changed.
+
+**Read the current plugin version from the authoritative source** — do not assume it matches any
+git tag. The version in the repository files may have been bumped in a previous standalone plugin PR
+without a corresponding project release tag:
+
+```bash
+cat claude-plugins/task-orchestrator/.claude-plugin/plugin.json | grep '"version"'
+```
+
+Determine the plugin bump level using the same semver rules as the project version, but scoped
+to plugin content:
+
+| Condition | Plugin Bump |
+|-----------|-------------|
+| Breaking change to skill interface, hook behavior, or output style contract | **major** |
+| New skill, new hook, new output style added | **minor** |
+| Content fixes, wording, skill adjustments, script tweaks | **patch** |
+
+Note the plugin bump level separately from the project bump level — they are independent.
+If no plugin files changed, skip plugin versioning entirely.
+
+**Standalone plugin release:** If plugin content changed but there are no project-level changes
+(no new tools, no bug fixes, no API changes), this is a plugin-only release. In this case:
+- Skip Steps 5 and 8a (no project version bump needed)
+- The release branch and PR are still created, but only contain plugin version files + changelog
+- Use commit message: `chore: bump plugin version to X.Y.Z`
+
 ---
 
 ## Step 5 — Infer Bump Level
@@ -124,6 +160,9 @@ Output the following block and **stop**. Wait for the user to confirm or request
 
 **Bump level:** <major | minor | patch>
 **Reason:** <one sentence>
+
+**Plugin version:** <CURRENT → NEW> (<bump level>) — or "No plugin changes"
+**Release type:** project release | plugin-only release
 
 ### Changelog Draft
 
@@ -166,7 +205,29 @@ VERSION_MINOR=1
 VERSION_PATCH=0
 ```
 
-### 8b. Insert new section into `CHANGELOG.md`
+### 8b. Update plugin version files (if plugin content changed)
+
+Skip this step if no plugin files changed in Step 4d.
+
+Read the current plugin version from `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
+(already retrieved in Step 4d). Calculate the new version using the plugin bump level from Step 4d.
+
+Update **both** files with the new version:
+
+1. `claude-plugins/task-orchestrator/.claude-plugin/plugin.json` — update the `version` field
+2. `.claude-plugin/marketplace.json` — update `plugins[name="task-orchestrator"].version`
+
+Also update the version table in `claude-plugins/CLAUDE.md`:
+- Find the row for `task-orchestrator` and replace the version number
+
+Stage the three files (in addition to version.properties):
+```bash
+git add claude-plugins/task-orchestrator/.claude-plugin/plugin.json \
+        .claude-plugin/marketplace.json \
+        claude-plugins/CLAUDE.md
+```
+
+### 8c. Insert new section into `CHANGELOG.md`
 
 Read `CHANGELOG.md`. Find the first `## [` versioned entry (after the header). Insert the
 new section **immediately above** it, with a trailing `---` separator and a blank line:
@@ -185,13 +246,27 @@ new section **immediately above** it, with a trailing `---` separator and a blan
 
 Do not modify any existing entries.
 
-### 8c. Stage, commit, and push
+If plugin content changed (Step 4d), add under the appropriate section:
+- Bumped plugin version to X.Y.Z (<reason>)
+
+### 8d. Stage, commit, and push
 
 ```bash
 git add version.properties CHANGELOG.md
-git status   # confirm only these two files are staged
+# Plugin files (if changed — already staged from 8b)
+git status   # confirm only expected files are staged
 git commit -m "release: bump to vX.Y.Z"
 git push origin release/vX.Y.Z
+```
+
+**Standalone plugin release** (no project version bump — see Step 4d):
+
+```bash
+git add CHANGELOG.md
+# Plugin files already staged from 8b
+git status   # confirm only plugin + changelog files are staged
+git commit -m "chore: bump plugin version to X.Y.Z"
+git push origin release/plugin-vX.Y.Z
 ```
 
 ---
@@ -276,5 +351,6 @@ Or use the Actions tab:
 **Common mistakes to avoid:**
 - Do not include raw commit hashes or internal file paths in the changelog
 - Do not bump version without confirmation from the user
-- Do not stage files other than `version.properties`, `CHANGELOG.md` (and `README.md` if fixes were needed)
+- Do not stage files other than `version.properties`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
 - Do not create the PR if there are no commits ahead of the last tag
+- Do not bump plugin versions outside of the release workflow

@@ -1,52 +1,29 @@
-# claude-plugins/ — Version Bump Requirement
+# claude-plugins/ — Plugin Versioning
 
-**Any change to plugin content in this directory requires a version bump.** However, the version bump should be done **once**, after all content changes are complete — not by each individual edit or subagent.
+Plugin versions are bumped by the `/prepare-release` skill — either alongside a project release
+or as a standalone plugin-only PR. They are **not** bumped per individual change during development.
 
-Claude Code caches plugin content (skills, hooks, output styles, scripts) keyed by version number.
-Without a version bump, Claude Code will continue serving the old cached copy — changes will not
-take effect until the user removes and re-adds the marketplace.
+During development, plugin changes (skills, hooks, output styles, scripts) are picked up by
+removing and re-adding the marketplace in Claude Code. No version bump is needed for local iteration.
 
-## What Triggers a Bump
+## Current Plugin Versions
 
-Changes to **any** file inside a plugin directory:
-- `skills/` — skill markdown files
-- `hooks/` — hook config JSON or referenced scripts
-- `output-styles/` — output style markdown files
-- `scripts/` — hook scripts (`.mjs`, `.sh`, etc.)
-- `.claude-plugin/plugin.json` — plugin manifest
+| Plugin | Directory | Current Version |
+|--------|-----------|-----------------|
+| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `2.4.1` |
 
-## What to Update
+> Updated automatically by `/prepare-release`. Do not bump manually.
 
-Two files must be kept in sync for each affected plugin:
+## Version Files
+
+Two files must stay in sync for each plugin:
 
 | File | Field |
 |------|-------|
 | `.claude-plugin/marketplace.json` | `plugins[name="<plugin>"].version` |
 | `claude-plugins/<plugin>/.claude-plugin/plugin.json` | `version` |
 
-Both must carry the **same version string** after the bump.
-
-## Versioning Convention
-
-Use semantic versioning (`major.minor.patch`):
-- **patch** — content fixes, wording, minor skill adjustments
-- **minor** — new skill, new hook, new output style
-- **major** — breaking changes to skill interface or hook behavior
-
-## Current Plugin Versions
-
-| Plugin | Directory | Current Version |
-|--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `2.4.0` |
-
-> Update this table when versions change.
-
 ## Delegation Warning
 
-When multiple subagents edit plugin files in parallel, **only the orchestrator (or a single designated agent) should bump versions.** Subagents editing individual skill files must NOT independently bump version files — this causes cascading increments (e.g., 2.3.8 → 9 → 10 → 11) that must be corrected afterward. The orchestrator bumps once after all edits land.
-
-## After Bumping
-
-Re-add the marketplace in Claude Code to pull the updated cache:
-1. Remove the marketplace (Claude Code settings → Plugins → Remove)
-2. Re-add it pointing to this repo root
+When multiple subagents edit plugin files in parallel, subagents must NOT modify version files.
+Version bumps are handled by the orchestrator or by `/prepare-release` at release time.

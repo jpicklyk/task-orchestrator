@@ -248,13 +248,7 @@ Operations: get, search, overview
             val ancestors = (chains as? Result.Success)?.data?.get(item.id) ?: emptyList()
             val enriched = buildJsonObject {
                 itemJson.forEach { (k, v) -> put(k, v) }
-                put("ancestors", JsonArray(ancestors.map { ancestor ->
-                    buildJsonObject {
-                        put("id", JsonPrimitive(ancestor.id.toString()))
-                        put("title", JsonPrimitive(ancestor.title))
-                        put("depth", JsonPrimitive(ancestor.depth))
-                    }
-                }))
+                put("ancestors", buildAncestorsArray(ancestors))
             }
             successResponse(enriched)
         } else {
@@ -354,13 +348,7 @@ Operations: get, search, overview
                             val minimalJson = workItemToMinimalJson(item)
                             buildJsonObject {
                                 minimalJson.forEach { (k, v) -> put(k, v) }
-                                put("ancestors", JsonArray(ancestors.map { ancestor ->
-                                    buildJsonObject {
-                                        put("id", JsonPrimitive(ancestor.id.toString()))
-                                        put("title", JsonPrimitive(ancestor.title))
-                                        put("depth", JsonPrimitive(ancestor.depth))
-                                    }
-                                }))
+                                put("ancestors", buildAncestorsArray(ancestors))
                             }
                         } else {
                             workItemToMinimalJson(item)

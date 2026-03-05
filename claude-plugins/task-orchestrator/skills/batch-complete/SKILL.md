@@ -48,13 +48,21 @@ Before executing, show the user what will happen. Call:
 query_items(operation="overview", itemId="<rootId>")
 ```
 
-Parse the child counts by role and present a preview table:
+Parse the child counts by role and present a preview table. Use the trigger chosen (or likely to be chosen) to set the action label — `trigger="complete"` shows "will be completed"; `trigger="cancel"` shows "will be cancelled":
 
 ```
-◆ Impact Preview — "Auth System Feature"
+◆ Impact Preview — "Auth System Feature"  [trigger: complete]
   ○ queue:    3 items (will be completed)
   ◉ work:     1 item  (active — will be force-completed)
   ◉ review:   1 item  (active — will be force-completed)
+  ✓ terminal: 2 items (already done — will be skipped)
+```
+
+```
+◆ Impact Preview — "Auth System Feature"  [trigger: cancel]
+  ○ queue:    3 items (will be cancelled)
+  ◉ work:     1 item  (active — will be force-cancelled)
+  ◉ review:   1 item  (active — will be force-cancelled)
   ✓ terminal: 2 items (already done — will be skipped)
 ```
 
@@ -78,16 +86,16 @@ Wait for the user's choice before continuing. Record whether to use `trigger="co
 
 **Skip this step if `trigger="cancel"` was already chosen in Step 2** — cancel bypasses all gates, so gate checking is unnecessary.
 
-For `trigger="complete"`, check gate status. Call `get_context` on the root item (or each specific item if using `itemIds`):
+For `trigger="complete"`, gate previewing is best-effort. `complete_tree` performs the definitive gate check during execution and reports any failures in its response. A lightweight pre-check is still useful to surface issues before committing — call `get_context` on each child from Step 2's results rather than on the root item (the root itself is not completed by `complete_tree`, only its descendants are):
 
 ```
-get_context(itemId="<rootId>")
+get_context(itemId="<child-uuid>")   ← repeat for each child listed in Step 2
 ```
 
-If gate warnings exist, display them:
+If any child's gate status shows missing required notes, display them:
 
 ```
-⊘ Gate Warnings:
+⊘ Gate Warnings (preview — definitive check runs at execution):
   "Implement login" — missing: implementation-notes (work, required)
   "Write tests" — missing: test-results (work, required)
 ```
@@ -105,6 +113,8 @@ Then offer three options via `AskUserQuestion`:
 Call `get_context(itemId=...)` to retrieve `guidancePointer` for items with missing notes. Use the guidance as authoring instructions before filling.
 
 Wait for the user's choice. If they choose option 2, switch to `trigger="cancel"` for the execution step.
+
+If `complete_tree` reports gate failures in Step 4, fill the missing notes and rerun `complete_tree` — items already in terminal are silently skipped on subsequent runs.
 
 ---
 

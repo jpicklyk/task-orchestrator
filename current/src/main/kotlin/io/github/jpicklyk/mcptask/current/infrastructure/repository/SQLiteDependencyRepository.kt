@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -198,6 +199,26 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         }
 
         return hasCycle(toItemId)
+    }
+
+    override fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {
+        if (itemIds.isEmpty()) return emptyMap()
+        return transaction(databaseManager.getDatabase()) {
+            val deps = DependenciesTable.selectAll()
+                .where { (DependenciesTable.fromItemId inList itemIds) or (DependenciesTable.toItemId inList itemIds) }
+                .map { mapRowToDependency(it) }
+
+            val result = mutableMapOf<UUID, MutableList<Dependency>>()
+            for (dep in deps) {
+                if (dep.fromItemId in itemIds) {
+                    result.getOrPut(dep.fromItemId) { mutableListOf() }.add(dep)
+                }
+                if (dep.toItemId in itemIds) {
+                    result.getOrPut(dep.toItemId) { mutableListOf() }.add(dep)
+                }
+            }
+            result
+        }
     }
 
     private fun mapRowToDependency(row: ResultRow): Dependency {
