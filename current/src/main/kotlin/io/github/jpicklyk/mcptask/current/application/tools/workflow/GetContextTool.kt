@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.*
 
 /**
@@ -193,22 +195,21 @@ Parameters:
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
 
-        // Fetch work and review items (two calls, merge results)
-        val workItems = when (val r = workItemRepo.findByRole(Role.WORK, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
+        // Fetch work and review items in parallel, merge results
+        val (workItems, reviewItems) = coroutineScope {
+            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
+            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
+
+            Pair(
+                workDeferred.await().getOrElse(emptyList()),
+                reviewDeferred.await().getOrElse(emptyList())
+            )
         }
-        val reviewItems = when (val r = workItemRepo.findByRole(Role.REVIEW, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
-        val activeItems = (workItems + reviewItems)
+        val activeItems = workItems + reviewItems
 
         // Recent transitions since the given timestamp
-        val recentTransitions = when (val r = context.roleTransitionRepository().findSince(since, limit = transitionLimit)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
+        val recentTransitions = context.roleTransitionRepository().findSince(since, limit = transitionLimit)
+            .getOrElse(emptyList())
 
         // Stalled items: active items with missing required notes
         val stalledItems = findStalledItems(activeItems, context)
@@ -266,20 +267,20 @@ Parameters:
     private suspend fun executeHealthCheckMode(context: ToolExecutionContext, includeAncestors: Boolean): JsonElement {
         val workItemRepo = context.workItemRepository()
 
-        val workItems = when (val r = workItemRepo.findByRole(Role.WORK, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
-        val reviewItems = when (val r = workItemRepo.findByRole(Role.REVIEW, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
-        val blockedItems = when (val r = workItemRepo.findByRole(Role.BLOCKED, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
+        // Fetch work, review, and blocked items in parallel
+        val (workItems, reviewItems, blockedItems) = coroutineScope {
+            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
+            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
+            val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200) }
+
+            Triple(
+                workDeferred.await().getOrElse(emptyList()),
+                reviewDeferred.await().getOrElse(emptyList()),
+                blockedDeferred.await().getOrElse(emptyList())
+            )
         }
 
-        val activeItems = (workItems + reviewItems)
+        val activeItems = workItems + reviewItems
         val stalledItems = findStalledItems(activeItems, context)
 
         // Resolve ancestor chains once for all items if requested
