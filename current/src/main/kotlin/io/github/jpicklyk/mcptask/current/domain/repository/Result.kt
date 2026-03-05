@@ -62,6 +62,14 @@ sealed class Result<out T> {
         }
         return this
     }
+
+    /**
+     * Returns the data if this is a success result, otherwise returns the provided default value.
+     */
+    fun getOrElse(default: @UnsafeVariance T): T = when (this) {
+        is Success -> data
+        is Error -> default
+    }
 }
 
 /**

@@ -201,17 +201,15 @@ Parameters:
             val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
 
             Pair(
-                when (val r = workDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() },
-                when (val r = reviewDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() }
+                workDeferred.await().getOrElse(emptyList()),
+                reviewDeferred.await().getOrElse(emptyList())
             )
         }
-        val activeItems = (workItems + reviewItems)
+        val activeItems = workItems + reviewItems
 
         // Recent transitions since the given timestamp
-        val recentTransitions = when (val r = context.roleTransitionRepository().findSince(since, limit = transitionLimit)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
+        val recentTransitions = context.roleTransitionRepository().findSince(since, limit = transitionLimit)
+            .getOrElse(emptyList())
 
         // Stalled items: active items with missing required notes
         val stalledItems = findStalledItems(activeItems, context)
@@ -276,13 +274,13 @@ Parameters:
             val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200) }
 
             Triple(
-                when (val r = workDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() },
-                when (val r = reviewDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() },
-                when (val r = blockedDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() }
+                workDeferred.await().getOrElse(emptyList()),
+                reviewDeferred.await().getOrElse(emptyList()),
+                blockedDeferred.await().getOrElse(emptyList())
             )
         }
 
-        val activeItems = (workItems + reviewItems)
+        val activeItems = workItems + reviewItems
         val stalledItems = findStalledItems(activeItems, context)
 
         // Resolve ancestor chains once for all items if requested
