@@ -363,16 +363,25 @@ Parameters:
         val noteRepo = context.noteRepository()
         val result = mutableListOf<StalledItemEntry>()
 
-        for (item in items) {
+        // Pre-filter to items that have a matching schema (avoids batch-fetching notes for schema-less items)
+        val schemaItems = items.mapNotNull { item ->
             val tags = item.tagList()
-            val schema = schemaService.getSchemaForTags(tags) ?: continue
-            val currentRoleStr = item.role.name.lowercase()
+            val schema = schemaService.getSchemaForTags(tags)
+            if (schema != null) Triple(item, tags, schema) else null
+        }
+        if (schemaItems.isEmpty()) return emptyList()
 
-            val notes = when (val r = noteRepo.findByItemId(item.id)) {
-                is Result.Success -> r.data
-                is Result.Error -> continue
-            }
-            val notesByKey = notes.associateBy { it.key }
+        // Batch-fetch all notes for schema-eligible items (N+1 → 1 query)
+        val itemIds = schemaItems.map { it.first.id }.toSet()
+        val notesByItemId = when (val r = noteRepo.findByItemIds(itemIds)) {
+            is Result.Success -> r.data
+            is Result.Error -> return emptyList()
+        }
+
+        // Check each item against its schema using local map lookup
+        for ((item, _, schema) in schemaItems) {
+            val currentRoleStr = item.role.name.lowercase()
+            val notesByKey = (notesByItemId[item.id] ?: emptyList()).associateBy { it.key }
 
             val missingEntries = schema
                 .filter { it.role == currentRoleStr && it.required }

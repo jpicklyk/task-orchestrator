@@ -862,8 +862,8 @@ class GetContextToolTest {
         coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
         coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
         coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-        // No notes for the item → it is stalled
-        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        // No notes for the item → it is stalled (batch fetch returns empty map)
+        coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
 
         val result = tool.execute(params(), schemaContext)
 
@@ -900,7 +900,7 @@ class GetContextToolTest {
         coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
         coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
         coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
 
         val result = tool.execute(params(), schemaContext)
 
@@ -927,7 +927,7 @@ class GetContextToolTest {
         coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
         coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
         coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
 
         val result = tool.execute(
             params("since" to JsonPrimitive(since.toString())),
@@ -965,7 +965,7 @@ class GetContextToolTest {
         coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
         coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
         coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
 
         val result = tool.execute(params(), schemaContext)
 
@@ -1008,7 +1008,7 @@ class GetContextToolTest {
         coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(childItem))
         coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
         coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
         coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns Result.Success(
             mapOf(childId to listOf(rootItem))
         )
@@ -1051,7 +1051,7 @@ class GetContextToolTest {
         coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(childItem))
         coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
         coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
         coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns Result.Success(
             mapOf(childId to listOf(rootItem))
         )

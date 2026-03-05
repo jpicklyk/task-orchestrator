@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -103,6 +104,20 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
         }
     } catch (e: Exception) {
         Result.Error(RepositoryError.DatabaseError("Failed to find Notes by itemId: ${e.message}", e))
+    }
+
+    override suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>> {
+        if (itemIds.isEmpty()) return Result.Success(emptyMap())
+        return try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                val notes = NotesTable.selectAll()
+                    .where { NotesTable.itemId inList itemIds }
+                    .map { mapRowToNote(it) }
+                Result.Success(notes.groupBy { it.itemId })
+            }
+        } catch (e: Exception) {
+            Result.Error(RepositoryError.DatabaseError("Failed to find Notes by itemIds: ${e.message}", e))
+        }
     }
 
     override suspend fun findByItemIdAndKey(itemId: UUID, key: String): Result<Note?> = try {

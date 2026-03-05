@@ -196,4 +196,43 @@ class SQLiteNoteRepositoryTest {
         assertIs<Result.Success<Note?>>(result)
         assertNull(result.data)
     }
+
+    // --- findByItemIds ---
+
+    @Test
+    fun `findByItemIds returns notes grouped by item ID`() = runBlocking {
+        // Create a second work item
+        val item2 = WorkItem(title = "Second item")
+        workItemRepository.create(item2)
+        val item2Id = item2.id
+
+        // Create notes for both items
+        noteRepository.upsert(Note(itemId = testItemId, key = "note-a", role = "queue", body = "A"))
+        noteRepository.upsert(Note(itemId = testItemId, key = "note-b", role = "work", body = "B"))
+        noteRepository.upsert(Note(itemId = item2Id, key = "note-c", role = "queue", body = "C"))
+
+        val result = noteRepository.findByItemIds(setOf(testItemId, item2Id))
+        assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
+
+        val grouped = result.data
+        assertEquals(2, grouped.size, "Should have entries for both items")
+        assertEquals(2, grouped[testItemId]?.size, "First item should have 2 notes")
+        assertEquals(1, grouped[item2Id]?.size, "Second item should have 1 note")
+        assertEquals("C", grouped[item2Id]!![0].body)
+    }
+
+    @Test
+    fun `findByItemIds with empty set returns empty map`() = runBlocking {
+        val result = noteRepository.findByItemIds(emptySet())
+        assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
+        assertTrue(result.data.isEmpty())
+    }
+
+    @Test
+    fun `findByItemIds with no matching items returns empty map`() = runBlocking {
+        // testItemId has no notes yet
+        val result = noteRepository.findByItemIds(setOf(UUID.randomUUID(), UUID.randomUUID()))
+        assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
+        assertTrue(result.data.isEmpty())
+    }
 }
