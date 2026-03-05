@@ -372,6 +372,27 @@ After the user confirms the PR is merged:
 ```bash
 git checkout main
 git pull origin main --tags
+```
+
+**Verify CI is green before tagging.** The test workflow runs on every push to `main` —
+releasing before it passes risks tagging broken code.
+
+```bash
+gh run list --workflow=test.yml --branch=main --limit 1 --json status,conclusion,headSha
+```
+
+Check the result:
+- If `conclusion` is `"success"` and `headSha` matches `HEAD` on main → proceed to tag
+- If `status` is `"in_progress"` or `"queued"` → wait and re-check:
+  ```bash
+  gh run watch --exit-status
+  ```
+- If `conclusion` is `"failure"` → **stop**. Do not tag. Inform the user that tests
+  failed on main and the release cannot proceed until they pass.
+
+After CI is confirmed green:
+
+```bash
 git tag <TAG>
 git push origin <TAG>
 ```
