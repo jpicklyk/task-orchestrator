@@ -20,4 +20,12 @@ interface DependencyRepository {
     fun deleteByItemId(itemId: UUID): Int
     fun createBatch(dependencies: List<Dependency>): List<Dependency>
     fun hasCyclicDependency(fromItemId: UUID, toItemId: UUID): Boolean
+
+    /**
+     * Batch-fetch dependencies for multiple items in a single query.
+     * Returns a map where each key is an item ID from [itemIds] and the value is
+     * the list of dependencies that reference that item (as either fromItemId or toItemId).
+     * A dependency shared between two queried items appears in both entries.
+     */
+    fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>>
 }
