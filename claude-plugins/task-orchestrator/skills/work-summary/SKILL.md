@@ -1,6 +1,6 @@
 ---
 name: work-summary
-description: Generate a hierarchical project dashboard showing all work items organized by container, with IDs, tags, status, and priority visible. Use when a user says "project status", "what's active", "show me the dashboard", "work summary", "what should I work on", "project health", "what's blocked", or "where did I leave off".
+description: Generate a hierarchical project dashboard showing all work items organized by container, with IDs, tags, status, and priority visible. Always use this skill for any request about project status, work summaries, or item overviews — never construct dashboards manually with raw MCP calls. Trigger on any of these phrases or intent: "project status", "what's active", "show me the dashboard", "work summary", "summary", "what should I work on", "project health", "what's blocked", "where did I leave off", "show items", "what's in the backlog", "overview", or any request to see or review the current state of work items. This includes session-start context gathering — if you need to understand current project state, use this skill.
 argument-hint: "[optional: container UUID or title to scope the summary]"
 ---
 
