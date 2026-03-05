@@ -589,6 +589,43 @@ class GetContextToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // Parallel query tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `health check parallel queries return correct combined results`(): Unit = runBlocking {
+        val workItem = makeItem(title = "Work Task", role = Role.WORK)
+        val reviewItem = makeItem(title = "Review Task", role = Role.REVIEW)
+        val blockedItem = makeItem(title = "Blocked Task", role = Role.BLOCKED)
+
+        coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(workItem))
+        coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(listOf(reviewItem))
+        coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(listOf(blockedItem))
+
+        val result = tool.execute(params(), context)
+
+        val data = extractData(result)
+        assertEquals("health-check", data["mode"]!!.jsonPrimitive.content)
+
+        // Verify active items contain both work and review items
+        val activeItems = data["activeItems"]!!.jsonArray
+        assertEquals(2, activeItems.size)
+        val activeTitles = activeItems.map { it.jsonObject["title"]!!.jsonPrimitive.content }.toSet()
+        assertTrue("Work Task" in activeTitles, "Expected 'Work Task' in active items")
+        assertTrue("Review Task" in activeTitles, "Expected 'Review Task' in active items")
+
+        // Verify blocked items section
+        val blockedItems = data["blockedItems"]!!.jsonArray
+        assertEquals(1, blockedItems.size)
+        assertEquals("Blocked Task", blockedItems[0].jsonObject["title"]!!.jsonPrimitive.content)
+
+        // Verify all three findByRole calls were made
+        coVerify(exactly = 1) { workItemRepo.findByRole(Role.WORK, any()) }
+        coVerify(exactly = 1) { workItemRepo.findByRole(Role.REVIEW, any()) }
+        coVerify(exactly = 1) { workItemRepo.findByRole(Role.BLOCKED, any()) }
+    }
+
+    // ──────────────────────────────────────────────
     // guidancePointer tests
     // ──────────────────────────────────────────────
 

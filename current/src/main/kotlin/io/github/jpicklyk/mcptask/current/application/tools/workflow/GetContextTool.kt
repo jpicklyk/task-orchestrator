@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.*
 
 /**
@@ -193,14 +195,15 @@ Parameters:
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
 
-        // Fetch work and review items (two calls, merge results)
-        val workItems = when (val r = workItemRepo.findByRole(Role.WORK, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
-        val reviewItems = when (val r = workItemRepo.findByRole(Role.REVIEW, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
+        // Fetch work and review items in parallel, merge results
+        val (workItems, reviewItems) = coroutineScope {
+            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
+            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
+
+            Pair(
+                when (val r = workDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() },
+                when (val r = reviewDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() }
+            )
         }
         val activeItems = (workItems + reviewItems)
 
@@ -266,17 +269,17 @@ Parameters:
     private suspend fun executeHealthCheckMode(context: ToolExecutionContext, includeAncestors: Boolean): JsonElement {
         val workItemRepo = context.workItemRepository()
 
-        val workItems = when (val r = workItemRepo.findByRole(Role.WORK, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
-        val reviewItems = when (val r = workItemRepo.findByRole(Role.REVIEW, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
-        }
-        val blockedItems = when (val r = workItemRepo.findByRole(Role.BLOCKED, limit = 200)) {
-            is Result.Success -> r.data
-            is Result.Error -> emptyList()
+        // Fetch work, review, and blocked items in parallel
+        val (workItems, reviewItems, blockedItems) = coroutineScope {
+            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
+            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
+            val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200) }
+
+            Triple(
+                when (val r = workDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() },
+                when (val r = reviewDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() },
+                when (val r = blockedDeferred.await()) { is Result.Success -> r.data; is Result.Error -> emptyList() }
+            )
         }
 
         val activeItems = (workItems + reviewItems)
