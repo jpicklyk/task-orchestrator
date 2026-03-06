@@ -1,8 +1,8 @@
 # MCP Task Orchestrator
 
-**Structured project management for AI agents.**
+**Schema-driven workflow enforcement for AI agents.**
 
-An MCP server that gives AI coding assistants a persistent work item graph — with hierarchical planning, dependency tracking, note-based documentation, and gate-enforced workflows. Your AI plans, tracks, and picks up where it left off across sessions.
+An MCP server that gives AI coding assistants a persistent work item graph with server-enforced quality gates. Define workflow schemas in YAML to do two things: (1) set a **planning floor** that enforces your minimum specification requirements before work can start, and (2) **guide agent workflows** through each phase with structured instructions the server surfaces at exactly the right moment. Items flow through `queue → work → review → terminal` with dependency enforcement and gate-checked transitions — the server blocks progression until required work is done and tells agents precisely what's missing. The result: deterministic workflow progression that doesn't depend on prompt discipline, and persistent state that lets agents pick up where they left off across sessions.
 
 [![Version](https://img.shields.io/github/v/tag/jpicklyk/task-orchestrator?sort=semver)](https://github.com/jpicklyk/task-orchestrator/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -21,7 +21,7 @@ Task Orchestrator gives agents a structured backbone: a **persistent work item g
 ## Key Features
 
 - ✅ **Persistent Memory** — AI remembers project state, completed work, and decisions across sessions
-- ✅ **Token Efficiency** — Up to 90% reduction via just-in-time context loading and note-based handoffs
+- ✅ **Token Efficiency** — Agents read concise per-phase notes instead of replaying conversation history; overview queries and metadata-only modes minimize payload size
 - ✅ **Hierarchical WorkItems** — Flexible depth hierarchy (up to 4 levels) with any nesting structure you need
 - ✅ **Note Schemas** — Per-item documentation requirements that gate phase transitions; enforced by the server
 - ✅ **Role-Based Workflow** — `queue → work → review → terminal` with named triggers and automatic dependency enforcement
