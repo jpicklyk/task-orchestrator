@@ -1,8 +1,8 @@
 # MCP Task Orchestrator
 
-**Stop losing context. Start building faster.**
+**Structured project management for AI agents.**
 
-An orchestration framework for AI coding assistants that solves context pollution and token exhaustion — enabling your AI to work on complex projects without running out of memory.
+An MCP server that gives AI coding assistants a persistent work item graph — with hierarchical planning, dependency tracking, note-based documentation, and gate-enforced workflows. Your AI plans, tracks, and picks up where it left off across sessions.
 
 [![Version](https://img.shields.io/github/v/tag/jpicklyk/task-orchestrator?sort=semver)](https://github.com/jpicklyk/task-orchestrator/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -12,7 +12,9 @@ An orchestration framework for AI coding assistants that solves context pollutio
 
 ## Why This Exists
 
-AI agents [exhaust their effective context windows](https://www.anthropic.com/news/context-management) on long-running tasks — conversation history, tool outputs, and code examples accumulate until the model loses focus and fails. Task Orchestrator implements [industry-recommended patterns](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) to prevent this: persistent external memory, summary-based phase handoffs, and sub-agent isolation with clean contexts. Work scales to 50+ tasks with up to 90% token reduction and zero time rebuilding context after session restarts.
+AI agents have no built-in way to manage complex work. Without persistent state, every session starts from zero — no memory of what was planned, what's done, or what's blocked. Multi-step projects fall apart as the agent loses track of decisions, dependencies, and progress.
+
+Task Orchestrator gives agents a structured backbone: a **persistent work item graph** where items flow through `queue → work → review → terminal` with dependency enforcement and note-based documentation at every phase. The server — not the AI — enforces what can happen next: gate-checked transitions, dependency ordering, and required documentation create **deterministic workflow progression** regardless of which model, session, or sub-agent is driving. Agents read concise notes instead of replaying conversation history — implementing [context engineering patterns](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) that keep the agent aligned across sessions and sub-agent boundaries.
 
 ---
 
