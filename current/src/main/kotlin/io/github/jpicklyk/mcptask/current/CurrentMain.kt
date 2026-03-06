@@ -4,13 +4,14 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.SignalHandler
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer
 import org.slf4j.LoggerFactory
+import java.util.Properties
 
 /**
  * Entry point for the Current (v3) MCP Task Orchestrator application.
  */
 fun main() {
     val logger = LoggerFactory.getLogger("CurrentMain")
-    val version = "0.1.0-alpha-01"
+    val version = loadVersion()
 
     logger.info("Starting Current (v3) MCP Task Orchestrator v$version")
 
@@ -42,5 +43,20 @@ fun main() {
         // Don't use exitProcess(1) — it bypasses shutdown hooks.
         // Throwing from main() will cause the JVM to exit with code 1.
         throw e
+    }
+}
+
+/**
+ * Reads the application version from the build-generated resource file.
+ * Falls back to "unknown" if the resource is missing (e.g., running from IDE without a build).
+ */
+private fun loadVersion(): String {
+    val props = Properties()
+    val stream = object {}.javaClass.getResourceAsStream("/build-info/version.properties")
+    return if (stream != null) {
+        stream.use { props.load(it) }
+        props.getProperty("version", "unknown")
+    } else {
+        "unknown"
     }
 }
