@@ -46,6 +46,18 @@ class SchemaGatedLifecycleTest {
                     NoteSchemaEntry(key = "diagnosis", role = "queue", required = true, description = "Reproduction, root cause, and fix approach."),
                     NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Context handoff for downstream agents."),
                     NoteSchemaEntry(key = "review-checklist", role = "review", required = true, description = "Quality gate - fix alignment, test quality, and simplification review.")
+                ),
+                "mixed-schema" to listOf(
+                    // Queue phase: one required, one optional
+                    NoteSchemaEntry(key = "requirements", role = "queue", required = true, description = "Required requirements."),
+                    NoteSchemaEntry(key = "context", role = "queue", required = false, description = "Optional context."),
+                    // Work phase: one required, two optional
+                    NoteSchemaEntry(key = "design-decisions", role = "work", required = true, description = "Required design decisions."),
+                    NoteSchemaEntry(key = "alternatives", role = "work", required = false, description = "Optional alternatives considered."),
+                    NoteSchemaEntry(key = "open-questions", role = "work", required = false, description = "Optional open questions."),
+                    // Review phase: only optional (no required notes)
+                    NoteSchemaEntry(key = "review-notes", role = "review", required = false, description = "Optional review observations."),
+                    NoteSchemaEntry(key = "follow-ups", role = "review", required = false, description = "Optional follow-up items.")
                 )
             )
 
@@ -678,5 +690,119 @@ class SchemaGatedLifecycleTest {
         assertEquals(Role.TERMINAL, getItem(bugfix.id).role)
         assertEquals(Role.TERMINAL, getItem(untagged.id).role)
         assertEquals(Role.TERMINAL, getItem(parent.id).role)
+    }
+
+    // ──────────────────────────────────────────────
+    // 12. Mixed required/optional — only required
+    //     notes block the gate
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `gate only blocks on required notes and ignores optional notes`(): Unit = runBlocking {
+        val item = createItem("Mixed schema item", tags = "mixed-schema")
+
+        // Queue phase has "requirements" (required) + "context" (optional)
+        // Attempt advance without filling any notes → should fail on "requirements" only
+        val r1 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertGateRejection(r1, "requirements")
+        assertResponseMatchesDb(r1, item.id)
+        assertEquals(Role.QUEUE, getItem(item.id).role)
+
+        // Fill only the required note (skip optional "context")
+        createNote(item.id, key = "requirements", role = "queue")
+
+        // Advance should succeed — optional "context" note is NOT required
+        val r2 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertTransitionSuccess(r2, "work")
+        assertResponseMatchesDb(r2, item.id)
+        assertEquals(Role.WORK, getItem(item.id).role)
+    }
+
+    // ──────────────────────────────────────────────
+    // 13. Mixed schema — optional-only review phase
+    //     advances without any notes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `review phase with only optional notes advances freely`(): Unit = runBlocking {
+        val item = createItem("Optional review item", tags = "mixed-schema")
+
+        // Fill required queue note and advance to work
+        createNote(item.id, key = "requirements", role = "queue")
+        transitionTool.execute(buildTransitionParams(transitionObj(item.id, "start")), context)
+        assertEquals(Role.WORK, getItem(item.id).role)
+
+        // Fill required work note and advance to review
+        createNote(item.id, key = "design-decisions", role = "work")
+        transitionTool.execute(buildTransitionParams(transitionObj(item.id, "start")), context)
+        assertEquals(Role.REVIEW, getItem(item.id).role)
+
+        // Review phase has ONLY optional notes ("review-notes", "follow-ups")
+        // Advance should succeed without filling any notes
+        val r = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertTransitionSuccess(r, "terminal")
+        assertResponseMatchesDb(r, item.id)
+        assertEquals(Role.TERMINAL, getItem(item.id).role)
+    }
+
+    // ──────────────────────────────────────────────
+    // 14. Complete trigger with mixed required/optional
+    //     only checks required notes across all phases
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `complete trigger only requires required notes not optional ones`(): Unit = runBlocking {
+        val item = createItem("Complete mixed item", tags = "mixed-schema")
+
+        // Attempt complete with no notes → should fail on "requirements"
+        val r1 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "complete")),
+            context
+        )
+        assertGateRejection(r1, "requirements")
+
+        // Fill only the two required notes (skip all optional)
+        createNote(item.id, key = "requirements", role = "queue")
+        createNote(item.id, key = "design-decisions", role = "work")
+
+        // Complete should succeed — no required notes in review phase
+        val r2 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "complete")),
+            context
+        )
+        assertTransitionSuccess(r2, "terminal")
+        assertResponseMatchesDb(r2, item.id)
+        assertEquals(Role.TERMINAL, getItem(item.id).role)
+    }
+
+    // ──────────────────────────────────────────────
+    // 15. Filling optional note does not satisfy
+    //     the required note gate
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `filling optional note does not satisfy required note gate`(): Unit = runBlocking {
+        val item = createItem("Optional not enough", tags = "mixed-schema")
+
+        // Fill only the optional queue note, skip the required one
+        createNote(item.id, key = "context", role = "queue", body = "Optional context filled")
+
+        // Advance should still fail — "requirements" (required) is missing
+        val r = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertGateRejection(r, "requirements")
+        assertResponseMatchesDb(r, item.id)
+        assertEquals(Role.QUEUE, getItem(item.id).role)
     }
 }
