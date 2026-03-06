@@ -1,14 +1,13 @@
 ---
-description: Prepare a versioned release from main — reads commits since last tag, detects release type (server, plugin, or both), drafts changelog, creates release branch and PR. After merge, tags the release to automatically trigger the appropriate CI workflow.
+description: Prepare a versioned release from main — reads commits since last tag, detects release type (server or both), drafts changelog, creates release branch and PR. After merge, tags the release to automatically trigger CI.
 ---
 
 # Prepare Release
 
 Prepares a release from the current state of `main`. Reads commits since the last release tag,
-detects whether this is a server release, plugin-only release, or both, drafts a user-facing
+detects whether this is a server-only release or includes plugin changes too, drafts a user-facing
 changelog, confirms with you, then creates a release branch, commits the version bump, and
-opens a PR. After you merge the PR, tags the release — pushing the tag automatically triggers
-the appropriate CI workflow.
+opens a PR. After you merge the PR, tags the release — pushing the tag automatically triggers CI.
 
 **Usage:** `/prepare-release`
 
@@ -41,25 +40,19 @@ list them and ask the user whether to force-delete or keep them.
 
 ---
 
-## Step 2 — Find Last Release Tags
+## Step 2 — Find Last Release Tag
 
-Find the most recent tags for both release tracks:
+Find the most recent release tag:
 
 ```bash
 git tag -l 'v*' --sort=-v:refname | head -1
-git tag -l 'plugin-v*' --sort=-v:refname | head -1
 ```
 
-Note these as `LAST_SERVER_TAG` and `LAST_PLUGIN_TAG`. The appropriate one will be used
-as the baseline depending on the release type detected in Step 4.
-
-If neither tag exists, use the full history and treat this as the initial release.
+Note this as `LAST_TAG`. If no tag exists, use the full history and treat this as the initial release.
 
 ---
 
 ## Step 3 — Gather Commits Since Last Tag
-
-Use the **more recent** of the two tags as the baseline for the commit log:
 
 ```bash
 git log <LAST_TAG>...HEAD --oneline
@@ -77,27 +70,23 @@ Examine the changed files from Step 3 and classify:
 
 | Changed paths | Release type |
 |---------------|-------------|
-| Only `claude-plugins/`, `.claude-plugin/` | **plugin-only** |
 | Only `current/`, `gradle/`, `Dockerfile`, `build.gradle.kts`, `src/` | **server** |
-| Both plugin and server paths | **both** |
+| Includes `claude-plugins/` or `.claude-plugin/` paths | **both** |
 
 Files that are neutral (`.github/`, `README.md`, `CHANGELOG.md`, `version.properties`,
 `.claude/`, `.gitignore`, `docs/`) do not influence the classification — they follow
 whichever type the substantive changes belong to. If only neutral files changed, ask the
 user which release type to use.
 
-Record the release type — it determines which version files to bump, which tag scheme to
-use, and which CI workflow gets triggered.
+Record the release type — it determines which version files to bump.
 
 | Release type | Version files | Tag scheme | CI triggered |
 |-------------|---------------|------------|-------------|
 | **server** | `version.properties` | `vX.Y.Z` | `docker-publish.yml` (Docker + GitHub Release) |
-| **plugin-only** | `plugin.json` + `marketplace.json` | `plugin-vX.Y.Z` | `plugin-release.yml` (GitHub Release only) |
-| **both** | All three files | `vX.Y.Z` | `docker-publish.yml` (Docker + GitHub Release) |
+| **both** | All version files | `vX.Y.Z` | `docker-publish.yml` (Docker + GitHub Release) |
 
-For **both** releases: a single `v*` tag triggers the Docker workflow and GitHub Release.
-The plugin version bump is included in the same commit so the plugin cache updates when
-users re-add the marketplace.
+All releases use a single `vX.Y.Z` tag. For **both** releases, the plugin version bump is
+included in the same commit so the plugin cache updates when users re-add the marketplace.
 
 ---
 
@@ -160,12 +149,10 @@ If multiple conditions apply, use the highest applicable level.
 State the bump level and the one-sentence reason. Example:
 > Bump: **minor** — new skills and workflow hooks added (new capability, no breaking change).
 
-Calculate the proposed new version based on the **release type**:
+Calculate the proposed new version by bumping from current `version.properties` values.
 
-- **server** or **both**: bump from current `version.properties` values
-- **plugin-only**: bump from current `plugin.json` version
-- **both**: bump `version.properties` AND `plugin.json` independently — they may get
-  different bump levels if the changes warrant it. Present both.
+For **both** releases, also bump `plugin.json` independently — the plugin version may get a
+different bump level if the plugin changes warrant it. Present both.
 
 Version arithmetic:
 - **patch**: increment patch by 1, keep others
@@ -179,9 +166,9 @@ Version arithmetic:
 Output the following block and **stop**. Wait for the user to confirm or request changes.
 
 ```
-## Proposed Release: <TAG>  (CURRENT -> NEW)
+## Proposed Release: vX.Y.Z  (CURRENT -> NEW)
 
-**Release type:** <server | plugin-only | both>
+**Release type:** <server | both>
 **Bump level:** <major | minor | patch>
 **Reason:** <one sentence>
 
@@ -213,10 +200,8 @@ re-present before continuing.
 After confirmation:
 
 ```bash
-git checkout -b release/<TAG>
+git checkout -b release/vX.Y.Z
 ```
-
-Where `<TAG>` is `vX.Y.Z` for server/both releases, or `plugin-vX.Y.Z` for plugin-only.
 
 ---
 
@@ -224,14 +209,14 @@ Where `<TAG>` is `vX.Y.Z` for server/both releases, or `plugin-vX.Y.Z` for plugi
 
 ### 9a. Update version files
 
-**Server or both releases** — edit `version.properties`:
+**All releases** — edit `version.properties`:
 ```
 VERSION_MAJOR=X
 VERSION_MINOR=Y
 VERSION_PATCH=Z
 ```
 
-**Plugin-only or both releases** — edit `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
+**Both releases** — also edit `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
 and `.claude-plugin/marketplace.json`:
 - Update the `version` field in `plugin.json`
 - Update the `plugins[name="task-orchestrator"].version` field in `marketplace.json`
@@ -256,11 +241,6 @@ new section **immediately above** it, with a trailing `---` separator and a blan
 ## [previous version] ...
 ```
 
-For plugin-only releases, prefix the version with "Plugin " in the changelog header:
-```markdown
-## [Plugin X.Y.Z] - YYYY-MM-DD
-```
-
 Do not modify any existing entries.
 
 ### 9c. Stage, commit, and push
@@ -270,14 +250,6 @@ Stage only the files that changed:
 **Server release:**
 ```bash
 git add version.properties CHANGELOG.md
-```
-
-**Plugin-only release:**
-```bash
-git add claude-plugins/task-orchestrator/.claude-plugin/plugin.json \
-        .claude-plugin/marketplace.json \
-        claude-plugins/CLAUDE.md \
-        CHANGELOG.md
 ```
 
 **Both:**
@@ -292,8 +264,8 @@ git add version.properties \
 Then:
 ```bash
 git status   # confirm only expected files are staged
-git commit -m "release: bump to <TAG>"
-git push origin release/<TAG>
+git commit -m "release: bump to vX.Y.Z"
+git push origin release/vX.Y.Z
 ```
 
 ---
@@ -323,7 +295,7 @@ creates a GitHub release on every deploy. No change needed unless the URL is bro
 ```bash
 gh pr create \
   --base main \
-  --title "release: <TAG> — <one-line summary of most significant change>" \
+  --title "release: vX.Y.Z — <one-line summary of most significant change>" \
   --body "$(cat <<'EOF'
 ## Summary
 
@@ -333,7 +305,7 @@ gh pr create \
 
 ## Version
 
-**Release type:** <server | plugin-only | both>
+**Release type:** <server | both>
 <CURRENT> -> <NEW>
 
 Prepared with /prepare-release
@@ -353,9 +325,9 @@ code block instead of executing it.
 Output this block after the PR is created:
 
 ```
-Release prepared: CURRENT -> <TAG>  (<bump level>)
-Release type:     <server | plugin-only | both>
-Branch:           release/<TAG>
+Release prepared: CURRENT -> vX.Y.Z  (<bump level>)
+Release type:     <server | both>
+Branch:           release/vX.Y.Z
 PR:               <URL from gh pr create>
 
 After you merge the PR, I'll tag the release and CI will handle the rest.
@@ -393,23 +365,18 @@ Check the result:
 After CI is confirmed green:
 
 ```bash
-git tag <TAG>
-git push origin <TAG>
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
-
-Where `<TAG>` is:
-- `vX.Y.Z` for **server** or **both** releases — triggers `docker-publish.yml`
-- `plugin-vX.Y.Z` for **plugin-only** releases — triggers `plugin-release.yml`
 
 Confirm the workflow started:
 
 ```bash
-gh run list --workflow=<workflow-file> --limit 1
+gh run list --workflow=docker-publish.yml --limit 1
 ```
 
-Output the final status based on release type:
+Output the final status:
 
-**Server or both:**
 ```
 Tag pushed: vX.Y.Z
 CI workflow: https://github.com/jpicklyk/task-orchestrator/actions/workflows/docker-publish.yml
@@ -419,16 +386,6 @@ The workflow will:
   ✓ Build and push Docker image (amd64 + arm64)
   ✓ Create GitHub Release with auto-generated notes
   ✓ Run Trivy vulnerability scan
-```
-
-**Plugin-only:**
-```
-Tag pushed: plugin-vX.Y.Z
-CI workflow: https://github.com/jpicklyk/task-orchestrator/actions/workflows/plugin-release.yml
-
-The workflow will:
-  ✓ Verify tag matches plugin.json and marketplace.json
-  ✓ Create GitHub Release with auto-generated notes
 ```
 
 ---
@@ -444,13 +401,11 @@ The workflow will:
 | Release type | Tag scheme | CI workflow | Version files |
 |-------------|------------|-------------|--------------|
 | server | `vX.Y.Z` | `docker-publish.yml` | `version.properties` |
-| plugin-only | `plugin-vX.Y.Z` | `plugin-release.yml` | `plugin.json` + `marketplace.json` |
-| both | `vX.Y.Z` | `docker-publish.yml` | All three |
+| both | `vX.Y.Z` | `docker-publish.yml` | All version files |
 
 **Common mistakes to avoid:**
 - Do not include raw commit hashes or internal file paths in the changelog
 - Do not bump version without confirmation from the user
 - Do not stage files other than the expected version/changelog files for the release type
 - Do not create the PR if there are no commits ahead of the last tag
-- Do not use `v*` tags for plugin-only releases — use `plugin-v*`
 - For **both** releases, ensure `plugin.json` and `marketplace.json` versions match each other
