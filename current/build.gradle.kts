@@ -22,6 +22,20 @@ tasks.register("printTagVersion") {
     doLast { println(baseVersion) }
 }
 
+// Generate build-info resource so the app can read its version at runtime
+val generateBuildInfo = tasks.register("generateBuildInfo") {
+    val outputDir = layout.buildDirectory.dir("generated/resources/build-info")
+    val versionValue = version.toString()
+    inputs.property("version", versionValue)
+    outputs.dir(outputDir)
+    doLast {
+        val dir = outputDir.get().asFile.resolve("build-info")
+        dir.mkdirs()
+        dir.resolve("version.properties").writeText("version=$versionValue\n")
+    }
+}
+sourceSets.main { resources.srcDir(generateBuildInfo) }
+
 group = "io.github.jpicklyk"
 
 repositories {
