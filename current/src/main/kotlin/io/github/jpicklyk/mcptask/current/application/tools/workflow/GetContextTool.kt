@@ -32,7 +32,8 @@ Read-only context snapshot. Three modes:
 
 **Item mode** — `itemId` (UUID):
 Returns the item's current role, note schema for its tags, existing notes with filled/exists status,
-and gate status (canAdvance + missing required notes for current phase).
+gate status (canAdvance + missing required notes for current phase), and `noteProgress`
+(`{filled, remaining, total}` counts of required notes for the current role; null for terminal or schema-free items).
 
 **Session resume** — `since` (ISO 8601 timestamp):
 Returns active items (role=work or review), recent role transitions since the timestamp,
@@ -157,6 +158,12 @@ Parameters:
             schema?.firstOrNull { it.role == currentRoleStr && it.key == key }?.guidance
         }
 
+        // noteProgress: counts of required notes for current phase
+        val noteProgress: JsonObject? = if (isTerminal || schema == null) null else {
+            val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(notes)
+            NoteSchemaJsonHelpers.buildNoteProgress(schema, currentRoleStr, filledKeys)
+        }
+
         // Resolve ancestors if requested
         val ancestorsJson: JsonArray = if (includeAncestors) {
             val chains = when (val r = context.workItemRepository().findAncestorChains(setOf(item.id))) {
@@ -190,6 +197,7 @@ Parameters:
             } else {
                 put("guidancePointer", JsonNull)
             }
+            noteProgress?.let { put("noteProgress", it) }
         }
 
         return successResponse(data)

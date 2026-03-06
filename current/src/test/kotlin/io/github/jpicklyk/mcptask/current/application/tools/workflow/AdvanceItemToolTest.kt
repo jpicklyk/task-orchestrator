@@ -39,7 +39,10 @@ class AdvanceItemToolTest {
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
-        every { repoProvider.noteRepository() } returns mockk()
+        val defaultNoteRepo = mockk<NoteRepository>()
+        coEvery { defaultNoteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
 
         context = ToolExecutionContext(repoProvider)
@@ -1205,6 +1208,215 @@ class AdvanceItemToolTest {
         assertEquals("implementation-notes", entry["key"]!!.jsonPrimitive.content)
         assertEquals("Implementation notes", entry["description"]!!.jsonPrimitive.content)
         assertNull(entry["guidance"], "guidance key should not be present when guidance is null")
+    }
+
+    // ──────────────────────────────────────────────
+    // guidancePointer + noteProgress tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `advance with schema returns guidancePointer for first unfilled required note`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria", guidance = "List criteria"),
+            NoteSchemaEntry(key = "design-notes", role = "work", required = true,
+                description = "Design notes", guidance = "Do X"),
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true,
+                description = "Implementation notes", guidance = "Do Y")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // Queue note filled so gate passes; no work notes filled
+        val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue",
+            body = "Criteria here")
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote))
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+
+        // guidancePointer should be the guidance of the first unfilled required work note
+        assertEquals("Do X", r["guidancePointer"]!!.jsonPrimitive.content)
+
+        // noteProgress should show 0 filled, 2 remaining, 2 total
+        val progress = r["noteProgress"]!!.jsonObject
+        assertEquals(0, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(2, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(2, progress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `advance with partially filled notes returns correct guidancePointer`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria", guidance = "List criteria"),
+            NoteSchemaEntry(key = "design-notes", role = "work", required = true,
+                description = "Design notes", guidance = "Do X"),
+            NoteSchemaEntry(key = "implementation-notes", role = "work", required = true,
+                description = "Implementation notes", guidance = "Do Y")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        // Queue note and first work note filled
+        val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue",
+            body = "Criteria here")
+        val workNote = Note(itemId = itemId, key = "design-notes", role = "work",
+            body = "Design details")
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote, workNote))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote, workNote))
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+        // guidancePointer should be the second note's guidance (first is filled)
+        assertEquals("Do Y", r["guidancePointer"]!!.jsonPrimitive.content)
+
+        val progress = r["noteProgress"]!!.jsonObject
+        assertEquals(1, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(2, progress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `advance with all notes filled returns null guidancePointer`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true,
+                description = "Acceptance criteria", guidance = "List criteria"),
+            NoteSchemaEntry(key = "design-notes", role = "work", required = true,
+                description = "Design notes", guidance = "Do X")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue",
+            body = "Criteria here")
+        val workNote = Note(itemId = itemId, key = "design-notes", role = "work",
+            body = "Design details")
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote, workNote))
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote, workNote))
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+        // guidancePointer should be null (all required notes filled) — omitted from JSON
+        assertNull(r["guidancePointer"], "guidancePointer should not be present when all notes are filled")
+
+        val progress = r["noteProgress"]!!.jsonObject
+        assertEquals(1, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(0, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(1, progress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `advance without schema returns null guidancePointer and null noteProgress`(): Unit = runBlocking {
+        // Use default context (NoOpNoteSchemaService) — no schema
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+        // No schema means both fields should be absent
+        assertNull(r["guidancePointer"], "guidancePointer should not be present without a schema")
+        assertNull(r["noteProgress"], "noteProgress should not be present without a schema")
+    }
+
+    @Test
+    fun `advance with optional-only notes returns zero remaining`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "optional-notes", role = "work", required = false,
+                description = "Optional notes", guidance = "Write if you want")
+        )
+        val noteSchemaService = schemaServiceWith(schemaEntries)
+
+        val noteRepo = mockk<NoteRepository>()
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+
+        val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, gatedContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+        // guidancePointer should be null (no required notes)
+        assertNull(r["guidancePointer"], "guidancePointer should not be present with only optional notes")
+
+        // noteProgress should show 0/0/0 (only required notes counted)
+        val progress = r["noteProgress"]!!.jsonObject
+        assertEquals(0, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(0, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(0, progress["total"]!!.jsonPrimitive.int)
     }
 
     @Test

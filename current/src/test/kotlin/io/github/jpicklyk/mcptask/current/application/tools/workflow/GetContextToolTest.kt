@@ -1096,4 +1096,185 @@ class GetContextToolTest {
         // When the schema entry has no guidance, guidancePointer should be JsonNull
         assertTrue(guidancePointer is JsonNull, "Expected guidancePointer to be null when schema entry has no guidance, got: $guidancePointer")
     }
+
+    // ──────────────────────────────────────────────
+    // noteProgress tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode returns noteProgress for current phase`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
+            NoteSchemaEntry(key = "design-notes", role = "work", required = true, description = "Design notes"),
+            NoteSchemaEntry(key = "test-plan", role = "work", required = true, description = "Test plan")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val noteProgress = data["noteProgress"]!!.jsonObject
+        assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
+        assertEquals(3, noteProgress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `item mode noteProgress counts filled notes correctly`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
+            NoteSchemaEntry(key = "design-notes", role = "work", required = true, description = "Design notes"),
+            NoteSchemaEntry(key = "test-plan", role = "work", required = true, description = "Test plan")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        val note1 = Note(itemId = itemId, key = "impl-notes", role = "work", body = "Implementation approach described.")
+        val note2 = Note(itemId = itemId, key = "design-notes", role = "work", body = "Design decision recorded.")
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(note1, note2))
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val noteProgress = data["noteProgress"]!!.jsonObject
+        assertEquals(2, noteProgress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `item mode noteProgress is null when no schema matches`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = null)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            context  // NoOpNoteSchemaService → no schema
+        )
+
+        val data = extractData(result)
+        assertNull(data["noteProgress"], "noteProgress should not be present when no schema matches")
+    }
+
+    @Test
+    fun `item mode noteProgress is null for terminal items`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.TERMINAL, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        assertNull(data["noteProgress"], "noteProgress should not be present for terminal items")
+    }
+
+    @Test
+    fun `item mode noteProgress counts only required notes`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
+            NoteSchemaEntry(key = "design-notes", role = "work", required = true, description = "Design notes"),
+            NoteSchemaEntry(key = "optional-context", role = "work", required = false, description = "Optional context")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val noteProgress = data["noteProgress"]!!.jsonObject
+        assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
+        assertEquals(2, noteProgress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(2, noteProgress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `item mode noteProgress counts only current role notes`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
+            NoteSchemaEntry(key = "review-checklist", role = "review", required = true, description = "Review checklist"),
+            NoteSchemaEntry(key = "review-feedback", role = "review", required = true, description = "Review feedback")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val noteProgress = data["noteProgress"]!!.jsonObject
+        assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(1, noteProgress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `item mode noteProgress treats blank body as unfilled`(): Unit = runBlocking {
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes")
+        )
+        every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+        val blankNote = Note(itemId = itemId, key = "impl-notes", role = "work", body = "")
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(blankNote))
+
+        val result = tool.execute(
+            params("itemId" to JsonPrimitive(itemId.toString())),
+            schemaContext
+        )
+
+        val data = extractData(result)
+        val noteProgress = data["noteProgress"]!!.jsonObject
+        assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(1, noteProgress["total"]!!.jsonPrimitive.int)
+    }
 }
