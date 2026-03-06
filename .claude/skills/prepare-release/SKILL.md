@@ -82,7 +82,7 @@ Use only these categories (omit any that have no entries):
 - **Performance** — measurable throughput or latency improvement
 - **Documentation** — user-visible docs (only if substantive)
 
-### 4c. Write 3–8 user-facing bullet points
+### 4c. Write 3-8 user-facing bullet points
 
 Rules for each bullet:
 - Start with a past-tense verb (Added, Fixed, Improved, Removed, Changed)
@@ -99,17 +99,16 @@ Check if any files under `claude-plugins/` changed since the last tag:
 git diff <LAST_TAG>...HEAD --name-only -- claude-plugins/
 ```
 
-If the output is non-empty, plugin content changed.
+If the output is non-empty, plugin content changed — this is a **both** release (server + plugin).
 
 **Read the current plugin version from the authoritative source** — do not assume it matches any
-git tag. The version in the repository files may have been bumped in a previous standalone plugin PR
-without a corresponding project release tag:
+git tag. The version in the repository files may have been bumped in a previous release:
 
 ```bash
 cat claude-plugins/task-orchestrator/.claude-plugin/plugin.json | grep '"version"'
 ```
 
-Determine the plugin bump level using the same semver rules as the project version, but scoped
+Determine the plugin bump level using the same semver rules as the server version, but scoped
 to plugin content:
 
 | Condition | Plugin Bump |
@@ -118,14 +117,8 @@ to plugin content:
 | New skill, new hook, new output style added | **minor** |
 | Content fixes, wording, skill adjustments, script tweaks | **patch** |
 
-Note the plugin bump level separately from the project bump level — they are independent.
-If no plugin files changed, skip plugin versioning entirely.
-
-**Standalone plugin release:** If plugin content changed but there are no project-level changes
-(no new tools, no bug fixes, no API changes), this is a plugin-only release. In this case:
-- Skip Steps 5 and 8a (no project version bump needed)
-- The release branch and PR are still created, but only contain plugin version files + changelog
-- Use commit message: `chore: bump plugin version to X.Y.Z`
+Note the plugin bump level separately from the server bump level — they are independent.
+If no plugin files changed, skip plugin versioning entirely (server-only release).
 
 ---
 
@@ -156,13 +149,13 @@ Calculate the proposed new version:
 Output the following block and **stop**. Wait for the user to confirm or request changes.
 
 ```
-## Proposed Release: vX.Y.Z  (CURRENT → NEW)
+## Proposed Release: vX.Y.Z  (CURRENT -> NEW)
 
+**Release type:** <server | both>
 **Bump level:** <major | minor | patch>
 **Reason:** <one sentence>
 
-**Plugin version:** <CURRENT → NEW> (<bump level>) — or "No plugin changes"
-**Release type:** project release | plugin-only release
+**Plugin version:** <CURRENT -> NEW> (<bump level>) — or "No plugin changes"
 
 ### Changelog Draft
 
@@ -198,7 +191,7 @@ git checkout -b release/vX.Y.Z
 Edit `version.properties` in the project root. Set only the lines that need to change.
 Reset lower components on a major or minor bump.
 
-Example for a minor bump from 2.0.2 → 2.1.0:
+Example for a minor bump from 2.0.2 -> 2.1.0:
 ```
 VERSION_MAJOR=2
 VERSION_MINOR=1
@@ -251,22 +244,20 @@ If plugin content changed (Step 4d), add under the appropriate section:
 
 ### 8d. Stage, commit, and push
 
+**Server-only release:**
 ```bash
 git add version.properties CHANGELOG.md
-# Plugin files (if changed — already staged from 8b)
 git status   # confirm only expected files are staged
 git commit -m "release: bump to vX.Y.Z"
 git push origin release/vX.Y.Z
 ```
 
-**Standalone plugin release** (no project version bump — see Step 4d):
-
+**Both release** (plugin files already staged from 8b):
 ```bash
-git add CHANGELOG.md
-# Plugin files already staged from 8b
-git status   # confirm only plugin + changelog files are staged
-git commit -m "chore: bump plugin version to X.Y.Z"
-git push origin release/plugin-vX.Y.Z
+git add version.properties CHANGELOG.md
+git status   # confirm expected files are staged
+git commit -m "release: bump to vX.Y.Z"
+git push origin release/vX.Y.Z
 ```
 
 ---
@@ -307,9 +298,10 @@ gh pr create \
 
 ## Version
 
-<CURRENT> → <NEW>
+**Release type:** <server | both>
+<CURRENT> -> <NEW>
 
-🤖 Prepared with /prepare-release
+Prepared with /prepare-release
 EOF
 )"
 ```
@@ -326,7 +318,8 @@ code block instead of executing it.
 Output this block after the PR is created:
 
 ```
-Release prepared: CURRENT → vX.Y.Z  (<bump level>)
+Release prepared: CURRENT -> vX.Y.Z  (<bump level>)
+Release type:     <server | both>
 Branch:           release/vX.Y.Z
 PR:               <URL from gh pr create>
 
@@ -342,24 +335,9 @@ which builds the Docker image and creates a GitHub Release.
 Monitor: https://github.com/jpicklyk/task-orchestrator/actions/workflows/docker-publish.yml
 ```
 
-**Standalone plugin release** — use a `plugin-v` prefixed tag instead:
-
-```
-After merging the PR, create the plugin release tag to trigger CI:
-
-  git checkout main && git pull origin main
-  git tag plugin-vX.Y.Z
-  git push origin plugin-vX.Y.Z
-
-This triggers the "Plugin Release" workflow (plugin-release.yml)
-which verifies version consistency and creates a GitHub Release.
-
-Monitor: https://github.com/jpicklyk/task-orchestrator/actions/workflows/plugin-release.yml
-```
-
-**IMPORTANT:** Do NOT use `gh workflow run` — the CI workflows are triggered by tag
-pushes (`v*` and `plugin-v*`), not manual dispatch. The tag must be created on main
-after the release PR is merged.
+**IMPORTANT:** Do NOT use `gh workflow run` — the CI workflow is triggered by tag
+pushes (`v*`), not manual dispatch. The tag must be created on main after the release
+PR is merged.
 
 ---
 

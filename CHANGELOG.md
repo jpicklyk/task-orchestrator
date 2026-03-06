@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parallelized sequential `findByRole` queries in `get_context` — reduces latency when loading items across multiple workflow phases
 
 ### Changed
-- Automated releases via tag push (`v*` triggers Docker + GitHub Release, `plugin-v*` triggers plugin-only release) — replaces manual `workflow_dispatch`
+- Automated releases via tag push (`v*` triggers Docker + GitHub Release) — replaces manual `workflow_dispatch`
 - Bumped plugin version to 2.5.0 (new skill, skill improvements)
 
 ---
