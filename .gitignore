@@ -67,5 +67,8 @@ CLAUDE.local.md
 ### Temporary plans folder ###
 /plans/
 
+### Skill eval workspaces ###
+*-workspace/
+
 /.claude/settings.local.json
 .mcp.json
