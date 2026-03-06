@@ -321,7 +321,7 @@ code block instead of executing it.
 
 ---
 
-## Step 11 — Print Summary and Trigger Command
+## Step 11 — Print Summary and Post-Merge Tag Command
 
 Output this block after the PR is created:
 
@@ -330,13 +330,36 @@ Release prepared: CURRENT → vX.Y.Z  (<bump level>)
 Branch:           release/vX.Y.Z
 PR:               <URL from gh pr create>
 
-After merging the PR, trigger the Docker build and GitHub release:
+After merging the PR, create the release tag to trigger CI:
 
-  gh workflow run docker-publish.yml --ref main
+  git checkout main && git pull origin main
+  git tag vX.Y.Z
+  git push origin vX.Y.Z
 
-Or use the Actions tab:
-  https://github.com/jpicklyk/task-orchestrator/actions/workflows/docker-publish.yml
+This triggers the "Build, Publish, and Release" workflow (docker-publish.yml)
+which builds the Docker image and creates a GitHub Release.
+
+Monitor: https://github.com/jpicklyk/task-orchestrator/actions/workflows/docker-publish.yml
 ```
+
+**Standalone plugin release** — use a `plugin-v` prefixed tag instead:
+
+```
+After merging the PR, create the plugin release tag to trigger CI:
+
+  git checkout main && git pull origin main
+  git tag plugin-vX.Y.Z
+  git push origin plugin-vX.Y.Z
+
+This triggers the "Plugin Release" workflow (plugin-release.yml)
+which verifies version consistency and creates a GitHub Release.
+
+Monitor: https://github.com/jpicklyk/task-orchestrator/actions/workflows/plugin-release.yml
+```
+
+**IMPORTANT:** Do NOT use `gh workflow run` — the CI workflows are triggered by tag
+pushes (`v*` and `plugin-v*`), not manual dispatch. The tag must be created on main
+after the release PR is merged.
 
 ---
 
