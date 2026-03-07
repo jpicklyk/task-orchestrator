@@ -149,12 +149,6 @@ Parameters:
         val missingForPhase = phaseContext?.missingKeys ?: emptyList()
         val guidancePointer = phaseContext?.guidancePointer
 
-        // noteProgress: counts of required notes for current phase
-        val noteProgress: JsonObject? = if (isTerminal || schema == null) null else {
-            val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(notes)
-            NoteSchemaJsonHelpers.buildNoteProgress(schema, currentRoleStr, filledKeys)
-        }
-
         // Resolve ancestors if requested
         val ancestorsJson: JsonArray = if (includeAncestors) {
             val chains = when (val r = context.workItemRepository().findAncestorChains(setOf(item.id))) {
@@ -189,7 +183,13 @@ Parameters:
             } else {
                 put("guidancePointer", JsonNull)
             }
-            noteProgress?.let { put("noteProgress", it) }
+            if (phaseContext != null) {
+                put("noteProgress", buildJsonObject {
+                    put("filled", JsonPrimitive(phaseContext.filled))
+                    put("remaining", JsonPrimitive(phaseContext.remaining))
+                    put("total", JsonPrimitive(phaseContext.total))
+                })
+            }
         }
 
         return successResponse(data)
