@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -216,58 +216,30 @@ Unified write operations for Notes (upsert, delete).
         val itemContextMap = buildJsonObject {
             for (itemIdStr in successItemIds) {
                 val itemId = UUID.fromString(itemIdStr)
-                // Reuse cached item from validation — avoids redundant DB lookup
                 val item = validatedItems[itemId] ?: continue
 
-                // Terminal items cannot advance — no guidance needed
-                if (item.role == Role.TERMINAL) {
-                    put(itemIdStr, buildJsonObject {
-                        put("guidancePointer", JsonNull)
-                        put("noteProgress", JsonNull)
-                    })
-                    continue
-                }
-
                 val schema = context.noteSchemaService().getSchemaForTags(item.tagList())
-                if (schema == null) {
-                    put(itemIdStr, buildJsonObject {
-                        put("guidancePointer", JsonNull)
-                        put("noteProgress", JsonNull)
-                    })
-                    continue
-                }
-
-                // Get all notes for this item (including ones just upserted)
                 val allNotes = when (val nr = noteRepo.findByItemId(itemId)) {
                     is Result.Success -> nr.data
                     is Result.Error -> emptyList()
                 }
                 val notesByKey = allNotes.associateBy { it.key }
-                val currentRoleStr = item.role.name.lowercase()
 
-                // Required notes for current phase
-                val currentPhaseRequired = schema.filter { it.role == currentRoleStr && it.required }
-                val missingForPhase = currentPhaseRequired.filter {
-                    val note = notesByKey[it.key]
-                    note == null || note.body.isBlank()
-                }
-
-                // guidancePointer = guidance of first missing required note (use directly, no re-lookup)
-                val guidancePointer = missingForPhase.firstOrNull()?.guidance
-
-                // noteProgress counts
-                val filled = currentPhaseRequired.size - missingForPhase.size
-                val remaining = missingForPhase.size
-                val total = currentPhaseRequired.size
+                val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
 
                 put(itemIdStr, buildJsonObject {
-                    if (guidancePointer != null) put("guidancePointer", JsonPrimitive(guidancePointer))
-                    else put("guidancePointer", JsonNull)
-                    put("noteProgress", buildJsonObject {
-                        put("filled", JsonPrimitive(filled))
-                        put("remaining", JsonPrimitive(remaining))
-                        put("total", JsonPrimitive(total))
-                    })
+                    if (phaseContext != null) {
+                        if (phaseContext.guidancePointer != null) put("guidancePointer", JsonPrimitive(phaseContext.guidancePointer))
+                        else put("guidancePointer", JsonNull)
+                        put("noteProgress", buildJsonObject {
+                            put("filled", JsonPrimitive(phaseContext.filled))
+                            put("remaining", JsonPrimitive(phaseContext.remaining))
+                            put("total", JsonPrimitive(phaseContext.total))
+                        })
+                    } else {
+                        put("guidancePointer", JsonNull)
+                        put("noteProgress", JsonNull)
+                    }
                 })
             }
         }
