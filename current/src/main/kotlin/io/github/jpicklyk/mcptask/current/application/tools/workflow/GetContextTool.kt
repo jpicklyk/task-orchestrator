@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -32,7 +33,8 @@ Read-only context snapshot. Three modes:
 
 **Item mode** — `itemId` (UUID):
 Returns the item's current role, note schema for its tags, existing notes with filled/exists status,
-and gate status (canAdvance + missing required notes for current phase).
+gate status (canAdvance + missing required notes for current phase), and `noteProgress`
+(`{filled, remaining, total}` counts of required notes for the current role; null for terminal or schema-free items).
 
 **Session resume** — `since` (ISO 8601 timestamp):
 Returns active items (role=work or review), recent role transitions since the timestamp,
@@ -142,20 +144,10 @@ Parameters:
             }
         } ?: emptyList()
 
-        // Gate status for current phase
-        // Bug 2 fix: terminal items can never advance regardless of note status
-        val isTerminal = item.role == Role.TERMINAL
-        val currentPhaseRequired = if (isTerminal) emptyList() else schema?.filter { it.role == currentRoleStr && it.required } ?: emptyList()
-        val missingForPhase = currentPhaseRequired.filter {
-            val note = notesByKey[it.key]
-            note == null || note.body.isBlank()
-        }.map { it.key }
-
-        // Bug 1 fix: guidancePointer must use only current-phase required notes (missingForPhase is
-        // already filtered by currentRoleStr, so no cross-phase leakage is possible)
-        val guidancePointer = if (isTerminal) null else missingForPhase.firstOrNull()?.let { key ->
-            schema?.firstOrNull { it.role == currentRoleStr && it.key == key }?.guidance
-        }
+        // Gate status for current phase — uses shared computation
+        val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
+        val missingForPhase = phaseContext?.missingKeys ?: emptyList()
+        val guidancePointer = phaseContext?.guidancePointer
 
         // Resolve ancestors if requested
         val ancestorsJson: JsonArray = if (includeAncestors) {
@@ -180,7 +172,8 @@ Parameters:
             })
             put("schema", JsonArray(schemaEntries))
             put("gateStatus", buildJsonObject {
-                // Bug 2 fix: terminal items cannot advance; isTerminal set above
+                // Terminal items can never advance; schema-free items always can; schema items need all notes filled
+                val isTerminal = item.role == Role.TERMINAL
                 put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty()))
                 put("phase", JsonPrimitive(currentRoleStr))
                 put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
@@ -189,6 +182,13 @@ Parameters:
                 put("guidancePointer", JsonPrimitive(guidancePointer))
             } else {
                 put("guidancePointer", JsonNull)
+            }
+            if (phaseContext != null) {
+                put("noteProgress", buildJsonObject {
+                    put("filled", JsonPrimitive(phaseContext.filled))
+                    put("remaining", JsonPrimitive(phaseContext.remaining))
+                    put("total", JsonPrimitive(phaseContext.total))
+                })
             }
         }
 
@@ -378,22 +378,13 @@ Parameters:
             is Result.Error -> return emptyList()
         }
 
-        // Check each item against its schema using local map lookup
+        // Check each item against its schema using shared computation
         for ((item, _, schema) in schemaItems) {
-            val currentRoleStr = item.role.name.lowercase()
             val notesByKey = (notesByItemId[item.id] ?: emptyList()).associateBy { it.key }
+            val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
 
-            val missingEntries = schema
-                .filter { it.role == currentRoleStr && it.required }
-                .filter { entry ->
-                    val note = notesByKey[entry.key]
-                    note == null || note.body.isBlank()
-                }
-
-            if (missingEntries.isNotEmpty()) {
-                // Bug 3 fix: compute guidancePointer for the first missing note in the current phase
-                val guidancePointer = missingEntries.firstOrNull()?.guidance
-                result.add(StalledItemEntry(item, missingEntries.map { it.key }, guidancePointer))
+            if (phaseContext != null && phaseContext.missingKeys.isNotEmpty()) {
+                result.add(StalledItemEntry(item, phaseContext.missingKeys, phaseContext.guidancePointer))
             }
         }
 

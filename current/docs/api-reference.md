@@ -407,9 +407,21 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
     { "id": "uuid", "itemId": "uuid", "key": "requirements", "role": "queue" }
   ],
   "upserted": 1,
-  "failed": 0
+  "failed": 0,
+  "itemContext": {
+    "<itemId>": {
+      "guidancePointer": "Guidance text for the next unfilled required note, or null",
+      "noteProgress": { "filled": 1, "remaining": 0, "total": 1 }
+    }
+  }
 }
 ```
+
+The `itemContext` map is keyed by each `itemId` that had at least one successful upsert. For each item:
+- `guidancePointer` — the `guidance` text from the first unfilled required note in the item's current phase, or `null` if all required notes are filled (or no schema matches).
+- `noteProgress` — `{ filled, remaining, total }` counts of required notes for the current phase, or `null` if the item has no matching schema or is in terminal state.
+
+This eliminates the need to call `get_context` after each `manage_notes` upsert to check remaining work.
 
 ---
 
@@ -691,7 +703,9 @@ All cascade types are recorded in `cascadeEvents`.
       "unblockedItems": [{ "itemId": "uuid-next", "title": "Next task" }],
       "expectedNotes": [
         { "key": "done-criteria", "role": "work", "required": true, "description": "...", "exists": false }
-      ]
+      ],
+      "guidancePointer": "Fill the done-criteria note with...",
+      "noteProgress": { "filled": 0, "remaining": 1, "total": 1 }
     }
   ],
   "summary": { "total": 1, "succeeded": 1, "failed": 0 },
@@ -700,6 +714,10 @@ All cascade types are recorded in `cascadeEvents`.
 ```
 
 `unblockedItems` and `allUnblockedItems` are always present (as `[]` when empty). `cascadeEvents` is always present (as `[]` when no cascades occurred). `expectedNotes` is always present (as `[]` when no schema matches the item's tags).
+
+`guidancePointer` (string or null) is the guidance text for the first unfilled required note in the **new** role. It is null when no schema matches, no required notes exist for the new role, or all required notes are already filled. Omitted from the response when null.
+
+`noteProgress` provides counts of required notes for the new role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Omitted from the response when no schema matches the item's tags.
 
 **Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
 
@@ -823,9 +841,14 @@ supplied. Use for session startup, work-summary dashboards, and pre-advance gate
     { "key": "done-criteria", "role": "work", "required": true, "description": "...", "exists": false, "filled": false }
   ],
   "gateStatus": { "canAdvance": true, "phase": "queue", "missing": [] },
-  "guidancePointer": null
+  "guidancePointer": null,
+  "noteProgress": { "filled": 1, "remaining": 1, "total": 2 }
 }
 ```
+
+`guidancePointer` (string or null) is the guidance text for the first unfilled required note in the current role. Null when no schema matches, no required notes exist, or all are filled.
+
+`noteProgress` provides counts of required notes for the **current** role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Null when no schema matches the item's tags or the item is in terminal role (distinguishes "no schema" from "empty schema").
 
 **Response (health-check mode).**
 

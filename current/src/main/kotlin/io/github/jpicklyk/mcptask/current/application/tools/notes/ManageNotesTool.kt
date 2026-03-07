@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -29,7 +30,7 @@ Unified write operations for Notes (upsert, delete).
 - Each note: `{ itemId (required), key (required), role (required: "queue"|"work"|"review"), body? }`
 - (itemId, key) is unique — existing notes with same pair are updated
 - Validates that itemId references an existing WorkItem
-- Response: `{ notes: [{id, itemId, key, role}], upserted: N, failed: N, failures: [{index, error}] }`
+- Response: `{ notes: [{id, itemId, key, role}], upserted: N, failed: N, failures: [{index, error}], itemContext: { "<itemId>": { guidancePointer: "...|null", noteProgress: { filled: N, remaining: N, total: N }|null } } }`
 
 **delete** - Delete notes.
 - By `ids` array: delete each note by UUID
@@ -132,6 +133,8 @@ Unified write operations for Notes (upsert, delete).
 
         val upsertedNotes = mutableListOf<JsonObject>()
         val failures = mutableListOf<JsonObject>()
+        // Cache validated items to avoid redundant DB lookups in itemContext computation
+        val validatedItems = mutableMapOf<UUID, io.github.jpicklyk.mcptask.current.domain.model.WorkItem>()
 
         for ((index, element) in notesArray.withIndex()) {
             try {
@@ -152,12 +155,14 @@ Unified write operations for Notes (upsert, delete).
                     throw ToolValidationException("Note at index $index: 'itemId' is not a valid UUID: $itemIdStr")
                 }
 
-                // Validate that the WorkItem exists
-                when (itemRepo.getById(itemId)) {
-                    is Result.Success -> { /* item exists */ }
-                    is Result.Error -> throw ToolValidationException(
-                        "Note at index $index: WorkItem '$itemIdStr' not found"
-                    )
+                // Validate that the WorkItem exists (cache for itemContext reuse)
+                if (itemId !in validatedItems) {
+                    when (val r = itemRepo.getById(itemId)) {
+                        is Result.Success -> validatedItems[itemId] = r.data
+                        is Result.Error -> throw ToolValidationException(
+                            "Note at index $index: WorkItem '$itemIdStr' not found"
+                        )
+                    }
                 }
 
                 // Check for existing note with same (itemId, key) to preserve its ID
@@ -203,6 +208,42 @@ Unified write operations for Notes (upsert, delete).
             }
         }
 
+        // Compute itemContext for each unique itemId that had at least one successful upsert
+        val successItemIds = upsertedNotes.mapNotNull { note ->
+            note["itemId"]?.let { (it as? JsonPrimitive)?.content }
+        }.toSet()
+
+        val itemContextMap = buildJsonObject {
+            for (itemIdStr in successItemIds) {
+                val itemId = UUID.fromString(itemIdStr)
+                val item = validatedItems[itemId] ?: continue
+
+                val schema = context.noteSchemaService().getSchemaForTags(item.tagList())
+                val allNotes = when (val nr = noteRepo.findByItemId(itemId)) {
+                    is Result.Success -> nr.data
+                    is Result.Error -> emptyList()
+                }
+                val notesByKey = allNotes.associateBy { it.key }
+
+                val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
+
+                put(itemIdStr, buildJsonObject {
+                    if (phaseContext != null) {
+                        if (phaseContext.guidancePointer != null) put("guidancePointer", JsonPrimitive(phaseContext.guidancePointer))
+                        else put("guidancePointer", JsonNull)
+                        put("noteProgress", buildJsonObject {
+                            put("filled", JsonPrimitive(phaseContext.filled))
+                            put("remaining", JsonPrimitive(phaseContext.remaining))
+                            put("total", JsonPrimitive(phaseContext.total))
+                        })
+                    } else {
+                        put("guidancePointer", JsonNull)
+                        put("noteProgress", JsonNull)
+                    }
+                })
+            }
+        }
+
         val data = buildJsonObject {
             put("notes", JsonArray(upsertedNotes))
             put("upserted", JsonPrimitive(upsertedNotes.size))
@@ -210,6 +251,7 @@ Unified write operations for Notes (upsert, delete).
             if (failures.isNotEmpty()) {
                 put("failures", JsonArray(failures))
             }
+            put("itemContext", itemContextMap)
         }
 
         return successResponse(data)
