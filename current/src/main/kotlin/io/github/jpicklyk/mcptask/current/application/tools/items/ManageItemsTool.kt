@@ -393,22 +393,21 @@ Unified write operations for WorkItems (create, update, delete).
                 val newTitle = extractItemString(itemObj, "title")
                 val newDescription = extractItemStringAllowNull(itemObj, "description", existing.description)
                 val newSummary = extractItemString(itemObj, "summary")
-                val newRoleStr = extractItemString(itemObj, "role")
-                if (newRoleStr != null) {
+
+                // Reject role field in updates — all role changes must go through advance_item
+                if (itemObj.containsKey("role")) {
                     throw ToolValidationException(
                         "Item '$itemId': role changes are not allowed via manage_items update. " +
                         "Use advance_item with an appropriate trigger instead (start, complete, block, hold, resume, cancel, reopen)."
                     )
                 }
+
                 val newStatusLabel = extractItemStringAllowNull(itemObj, "statusLabel", existing.statusLabel)
                 val newPriorityStr = extractItemString(itemObj, "priority")
                 val newComplexity = extractItemInt(itemObj, "complexity")
                 val newRequiresVerification = itemObj["requiresVerification"]?.let { (it as? JsonPrimitive)?.booleanOrNull }
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
-
-                // Role is always null for updates (guarded above); kept for the copy() call below
-                val newRole: Role? = null
 
                 // Parse priority if provided
                 val newPriority = if (newPriorityStr != null) {
@@ -488,7 +487,7 @@ Unified write operations for WorkItems (create, update, delete).
                         title = newTitle ?: item.title,
                         description = newDescription,
                         summary = newSummary ?: item.summary,
-                        role = newRole ?: item.role,
+                        role = item.role,
                         statusLabel = newStatusLabel,
                         priority = newPriority ?: item.priority,
                         complexity = newComplexity ?: item.complexity,
