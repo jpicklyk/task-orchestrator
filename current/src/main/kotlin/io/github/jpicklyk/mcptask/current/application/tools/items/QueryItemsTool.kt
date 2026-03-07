@@ -476,7 +476,7 @@ Operations: get, search, overview
 
         val data = buildJsonObject {
             put("item", workItemToJson(item))
-            put("childCounts", roleCounToJson(childCounts))
+            put("childCounts", roleCountToJson(childCounts))
             put("children", JsonArray(children.map { workItemToMinimalJson(it) }))
         }
 
@@ -508,7 +508,7 @@ Operations: get, search, overview
                 put("title", JsonPrimitive(item.title))
                 put("role", JsonPrimitive(item.role.name.lowercase()))
                 put("priority", JsonPrimitive(item.priority.name.lowercase()))
-                put("childCounts", roleCounToJson(childCounts))
+                put("childCounts", roleCountToJson(childCounts))
                 if (includeChildren) {
                     val children = when (val result = context.workItemRepository().findChildren(item.id)) {
                         is Result.Success -> result.data
@@ -567,7 +567,7 @@ Operations: get, search, overview
         item.tags?.let { put("tags", JsonPrimitive(it)) }
     }
 
-    private fun roleCounToJson(counts: Map<Role, Int>): JsonObject = buildJsonObject {
+    private fun roleCountToJson(counts: Map<Role, Int>): JsonObject = buildJsonObject {
         for (role in Role.entries) {
             put(role.name.lowercase(), JsonPrimitive(counts[role] ?: 0))
         }
