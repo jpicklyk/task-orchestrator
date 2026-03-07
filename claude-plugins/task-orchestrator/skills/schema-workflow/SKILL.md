@@ -133,16 +133,18 @@ rather than assuming specific keys exist.
 
 **Orchestrator** (this skill's primary user):
 - Fills queue-phase notes (requirements, design) during planning
-- Calls `advance_item(trigger="start")` to move queue → work
-- Delegates implementation to subagents
-- Fills or verifies work-phase notes after subagents return
-- Advances work → review → terminal
+- Dispatches implementation agents with the item UUID — does NOT pre-advance items
+- Dispatches review agents after implementation completes
+- Performs the final terminal transition after review completes
+- Uses this skill for queue-phase note filling and terminal advancement
 
-**Subagents** (handled by the `subagent-start` hook):
-- Receive `guidancePointer` protocol automatically via hook injection
-- Call `advance_item` on their assigned child items
-- Fill notes on child items using `get_context` for guidance
-- Do NOT need this skill — the hook gives them everything they need
+**Implementation and review agents** (agent-owned-phase model):
+- Receive the full phase-aware protocol automatically via the `subagent-start` hook
+- Call `advance_item(start)` exactly once to enter their assigned phase
+- Fill phase notes using the JIT progression loop described in the hook protocol
+- Do NOT call `advance_item` again — the orchestrator handles terminal transitions
+
+**Key invariant:** Agents call `advance_item(start)` once to enter their phase. Only the orchestrator calls `advance_item(complete)` for the terminal transition. The orchestrator never pre-advances items before dispatching agents.
 
 ---
 

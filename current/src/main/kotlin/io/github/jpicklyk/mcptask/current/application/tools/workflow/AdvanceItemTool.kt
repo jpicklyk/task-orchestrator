@@ -64,7 +64,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       "unblockedItems": [],
       "expectedNotes": [
         { "key": "acceptance-criteria", "role": "work", "required": true, "description": "...", "exists": false }
-      ]
+      ],
+      "guidancePointer": "Guidance text for the first unfilled required note in the new role (null if all filled or no schema)",
+      "noteProgress": { "filled": 0, "remaining": 2, "total": 2 }
     }
   ],
   "summary": { "total": N, "succeeded": N, "failed": N },
@@ -360,31 +362,42 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 allUnblockedItems.add(unblockedJson)
             }
 
-            // Build expectedNotes: schema entries matching the new role
-            val expectedNotesJson: JsonArray = run {
-                val schema = noteSchemaService.getSchemaForTags(itemTags)
-                if (schema == null) {
-                    JsonArray(emptyList())
-                } else {
-                    val newRoleStr = targetRole.name.lowercase()
-                    val notesResult = context.noteRepository().findByItemId(item.id)
-                    val existingNotes = when (notesResult) {
-                        is Result.Success -> notesResult.data
-                        is Result.Error -> emptyList()
-                    }
-                    val existingKeys = existingNotes.map { it.key }.toSet()
-                    val forNewRole = schema.filter { it.role == newRoleStr }
-                    JsonArray(forNewRole.map { entry ->
-                        buildJsonObject {
-                            put("key", JsonPrimitive(entry.key))
-                            put("role", JsonPrimitive(entry.role))
-                            put("required", JsonPrimitive(entry.required))
-                            put("description", JsonPrimitive(entry.description))
-                            entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                            put("exists", JsonPrimitive(entry.key in existingKeys))
-                        }
-                    })
+            // Schema-driven response fields: expectedNotes, guidancePointer, noteProgress
+            val schema = noteSchemaService.getSchemaForTags(itemTags)
+            val newRoleStr = targetRole.name.lowercase()
+
+            // Only query notes when a schema exists (avoids unnecessary DB call)
+            val expectedNotesJson: JsonArray
+            val guidancePointer: String?
+            val noteProgress: JsonObject?
+
+            if (schema == null) {
+                expectedNotesJson = JsonArray(emptyList())
+                guidancePointer = null
+                noteProgress = null
+            } else {
+                val existingNotes = when (val notesResult = context.noteRepository().findByItemId(item.id)) {
+                    is Result.Success -> notesResult.data
+                    is Result.Error -> emptyList()
                 }
+                val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(existingNotes)
+                val existingKeys = existingNotes.map { it.key }.toSet()
+
+                // Build expectedNotes: schema entries matching the new role
+                val forNewRole = schema.filter { it.role == newRoleStr }
+                expectedNotesJson = JsonArray(forNewRole.map { entry ->
+                    buildJsonObject {
+                        put("key", JsonPrimitive(entry.key))
+                        put("role", JsonPrimitive(entry.role))
+                        put("required", JsonPrimitive(entry.required))
+                        put("description", JsonPrimitive(entry.description))
+                        entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                        put("exists", JsonPrimitive(entry.key in existingKeys))
+                    }
+                })
+
+                guidancePointer = NoteSchemaJsonHelpers.findGuidancePointer(schema, newRoleStr, filledKeys)
+                noteProgress = NoteSchemaJsonHelpers.buildNoteProgress(schema, newRoleStr, filledKeys)
             }
 
             // Build success result
@@ -398,6 +411,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 put("cascadeEvents", JsonArray(cascadeJsonList))
                 put("unblockedItems", JsonArray(unblockedJsonList))
                 put("expectedNotes", expectedNotesJson)
+                guidancePointer?.let { put("guidancePointer", JsonPrimitive(it)) }
+                noteProgress?.let { put("noteProgress", it) }
             })
         }
 
