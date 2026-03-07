@@ -3,7 +3,7 @@
 # ============================================================
 
 # --- Builder stage ---
-FROM eclipse-temurin:23-jdk AS builder
+FROM eclipse-temurin:21-jdk AS builder
 
 WORKDIR /app
 
