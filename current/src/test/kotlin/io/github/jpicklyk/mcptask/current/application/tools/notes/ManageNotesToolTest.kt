@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -17,6 +20,7 @@ import kotlin.test.*
 
 class ManageNotesToolTest {
 
+    private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: ManageNotesTool
 
@@ -26,7 +30,7 @@ class ManageNotesToolTest {
         val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         val databaseManager = DatabaseManager(database)
         DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = DefaultRepositoryProvider(databaseManager)
         context = ToolExecutionContext(repositoryProvider)
         tool = ManageNotesTool()
     }
@@ -407,5 +411,340 @@ class ManageNotesToolTest {
         val failure = failures[0] as JsonObject
         assertEquals(nonExistentId, failure["id"]!!.jsonPrimitive.content)
         assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"))
+    }
+
+    // ──────────────────────────────────────────────
+    // itemContext helpers
+    // ──────────────────────────────────────────────
+
+    private suspend fun createTestItemWithTags(
+        title: String = "Test Item",
+        tags: String? = null,
+        role: Role = Role.QUEUE
+    ): String {
+        val item = WorkItem(title = title, tags = tags, role = role)
+        val result = context.workItemRepository().create(item)
+        return ((result as Result.Success).data.id).toString()
+    }
+
+    private fun contextWithSchema(entries: List<NoteSchemaEntry>, matchTag: String): ToolExecutionContext {
+        val noteSchemaService = object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if (tags.contains(matchTag)) entries else null
+        }
+        return ToolExecutionContext(repositoryProvider, noteSchemaService)
+    }
+
+    // ──────────────────────────────────────────────
+    // itemContext in upsert response
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `upsert returns itemContext with guidancePointer and noteProgress when schema matches`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec"),
+            NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write the design")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val itemId = createTestItemWithTags(tags = "test-schema")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("The specification"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val itemContext = data["itemContext"] as JsonObject
+        val ctx = itemContext[itemId] as JsonObject
+
+        assertEquals("Write the design", ctx["guidancePointer"]!!.jsonPrimitive.content)
+
+        val progress = ctx["noteProgress"] as JsonObject
+        assertEquals(1, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(2, progress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `upsert returns null guidancePointer when all phase notes filled`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val itemId = createTestItemWithTags(tags = "test-schema")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Complete spec"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+        assertTrue(ctx["guidancePointer"] is JsonNull)
+
+        val progress = ctx["noteProgress"] as JsonObject
+        assertEquals(1, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(0, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(1, progress["total"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `upsert returns null itemContext fields when no schema matches`(): Unit = runBlocking {
+        val itemId = createTestItem()
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("some-note"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Content"))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+        assertTrue(ctx["guidancePointer"] is JsonNull)
+        assertTrue(ctx["noteProgress"] is JsonNull)
+    }
+
+    @Test
+    fun `upsert with empty body does not count as filled`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val itemId = createTestItemWithTags(tags = "test-schema")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive(""))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+        assertEquals("Write the spec", ctx["guidancePointer"]!!.jsonPrimitive.content)
+
+        val progress = ctx["noteProgress"] as JsonObject
+        assertEquals(0, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, progress["remaining"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `upsert batch returns itemContext for multiple items`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val itemId1 = createTestItemWithTags(title = "Item 1", tags = "test-schema")
+        val itemId2 = createTestItemWithTags(title = "Item 2", tags = "test-schema")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId1))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Spec for item 1"))
+                    },
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId2))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Spec for item 2"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val itemContext = data["itemContext"] as JsonObject
+        assertNotNull(itemContext[itemId1])
+        assertNotNull(itemContext[itemId2])
+        val progress1 = (itemContext[itemId1] as JsonObject)["noteProgress"] as JsonObject
+        assertEquals(0, progress1["remaining"]!!.jsonPrimitive.int)
+        val progress2 = (itemContext[itemId2] as JsonObject)["noteProgress"] as JsonObject
+        assertEquals(0, progress2["remaining"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `upsert itemContext omits items where all notes failed`(): Unit = runBlocking {
+        val fakeItemId = UUID.randomUUID().toString()
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(fakeItemId))
+                        put("key", JsonPrimitive("orphan"))
+                        put("role", JsonPrimitive("queue"))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val itemContext = data["itemContext"] as JsonObject
+        assertEquals(0, itemContext.size)
+    }
+
+    @Test
+    fun `upsert returns null context for terminal item even with schema`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val itemId = createTestItemWithTags(tags = "test-schema", role = Role.TERMINAL)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Content"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+        assertTrue(ctx["guidancePointer"] is JsonNull)
+        assertTrue(ctx["noteProgress"] is JsonNull)
+    }
+
+    @Test
+    fun `upsert mixed batch only includes successful items in itemContext`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val validItemId = createTestItemWithTags(tags = "test-schema")
+        val fakeItemId = UUID.randomUUID().toString()
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(validItemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Good content"))
+                    },
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(fakeItemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Should fail"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["upserted"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+        val itemContext = data["itemContext"] as JsonObject
+        assertEquals(1, itemContext.size)
+        assertNotNull(itemContext[validItemId])
+        assertNull(itemContext[fakeItemId])
+    }
+
+    @Test
+    fun `upsert shows correct progress when notes are pre-filled`(): Unit = runBlocking {
+        val schemaEntries = listOf(
+            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec"),
+            NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write the design"),
+            NoteSchemaEntry(key = "risks", role = "queue", required = true, guidance = "List the risks")
+        )
+        val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+        val itemId = createTestItemWithTags(tags = "test-schema")
+
+        // Pre-fill the first note
+        tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("spec"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Pre-filled spec"))
+                    }
+                ))
+            ),
+            schemaContext
+        )
+
+        // Now fill the second note — progress should reflect both filled
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("upsert"),
+                "notes" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive("design"))
+                        put("role", JsonPrimitive("queue"))
+                        put("body", JsonPrimitive("Design content"))
+                    }
+                ))
+            ),
+            schemaContext
+        ) as JsonObject
+
+        val data = result["data"] as JsonObject
+        val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+        // guidancePointer should point to the remaining unfilled note (risks)
+        assertEquals("List the risks", ctx["guidancePointer"]!!.jsonPrimitive.content)
+        val progress = ctx["noteProgress"] as JsonObject
+        assertEquals(2, progress["filled"]!!.jsonPrimitive.int)
+        assertEquals(1, progress["remaining"]!!.jsonPrimitive.int)
+        assertEquals(3, progress["total"]!!.jsonPrimitive.int)
     }
 }

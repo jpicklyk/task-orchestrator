@@ -405,9 +405,21 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
     { "id": "uuid", "itemId": "uuid", "key": "requirements", "role": "queue" }
   ],
   "upserted": 1,
-  "failed": 0
+  "failed": 0,
+  "itemContext": {
+    "<itemId>": {
+      "guidancePointer": "Guidance text for the next unfilled required note, or null",
+      "noteProgress": { "filled": 1, "remaining": 0, "total": 1 }
+    }
+  }
 }
 ```
+
+The `itemContext` map is keyed by each `itemId` that had at least one successful upsert. For each item:
+- `guidancePointer` — the `guidance` text from the first unfilled required note in the item's current phase, or `null` if all required notes are filled (or no schema matches).
+- `noteProgress` — `{ filled, remaining, total }` counts of required notes for the current phase, or `null` if the item has no matching schema or is in terminal state.
+
+This eliminates the need to call `get_context` after each `manage_notes` upsert to check remaining work.
 
 ---
 
