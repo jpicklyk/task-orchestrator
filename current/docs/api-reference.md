@@ -68,6 +68,8 @@ is computed automatically from the parent; the maximum nesting depth is 3.
 fields are changed; omitted fields retain existing values. Setting `parentId` to JSON null moves
 the item to root.
 
+**Note:** The `role` field is not accepted in update operations. Use `advance_item` with an appropriate trigger instead.
+
 **Response (update).**
 
 ```json
@@ -643,7 +645,7 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `itemId` | string (UUID) | Yes | Item to transition |
-| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel` |
+| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen` |
 | `summary` | string | No | Optional annotation stored on the transition record |
 
 **Trigger effects:**
@@ -655,6 +657,7 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 | `block` / `hold` | Any non-terminal → BLOCKED (saves `previousRole`) |
 | `resume` | BLOCKED → `previousRole` |
 | `cancel` | Any non-terminal → TERMINAL with `statusLabel="cancelled"` |
+| `reopen` | TERMINAL → QUEUE (clears statusLabel, bypasses gate enforcement, cascades parent TERMINAL → WORK) |
 
 **Gate enforcement.** When the item's `tags` match a configured note schema:
 - `start`: required notes for the current phase must exist and be filled.
@@ -662,7 +665,11 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 
 **Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE (same cascade logic applies up the ancestor chain). This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 
-**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. Both cascade types are recorded in `cascadeEvents`.
+**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal.
+
+**Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again.
+
+All cascade types are recorded in `cascadeEvents`.
 
 **Examples.**
 
@@ -784,7 +791,7 @@ the item is Ready to advance, Blocked, or Terminal, without making any changes.
 }
 
 // Terminal
-{ "recommendation": "Terminal", "currentRole": "terminal", "reason": "Item is already terminal and cannot progress further" }
+{ "recommendation": "Terminal", "currentRole": "terminal", "reason": "Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled." }
 ```
 
 When the item is in BLOCKED role, the response includes a `suggestion` field instead of `blockers`. When the item is blocked by unsatisfied dependencies, the response includes `blockers` but no `suggestion`.

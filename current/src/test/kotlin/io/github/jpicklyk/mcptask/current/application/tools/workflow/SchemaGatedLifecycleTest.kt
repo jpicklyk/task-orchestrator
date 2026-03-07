@@ -805,4 +805,48 @@ class SchemaGatedLifecycleTest {
         assertResponseMatchesDb(r, item.id)
         assertEquals(Role.QUEUE, getItem(item.id).role)
     }
+
+    // ──────────────────────────────────────────────
+    // 16. Full reopen lifecycle
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `full reopen lifecycle - create start complete reopen verify QUEUE start again`(): Unit = runBlocking {
+        // Create an untagged item (schema-free, advances freely)
+        val item = createItem("Reopen lifecycle item")
+
+        // QUEUE -> WORK
+        val r1 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertTransitionSuccess(r1, "work")
+        assertEquals(Role.WORK, getItem(item.id).role)
+
+        // WORK -> TERMINAL (schema-free skips review)
+        val r2 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertTransitionSuccess(r2, "terminal")
+        assertEquals(Role.TERMINAL, getItem(item.id).role)
+
+        // TERMINAL -> QUEUE via reopen
+        val r3 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "reopen")),
+            context
+        )
+        assertTransitionSuccess(r3, "queue")
+        assertResponseMatchesDb(r3, item.id)
+        assertEquals(Role.QUEUE, getItem(item.id).role)
+
+        // Verify item can re-enter WORK via start
+        val r4 = transitionTool.execute(
+            buildTransitionParams(transitionObj(item.id, "start")),
+            context
+        )
+        assertTransitionSuccess(r4, "work")
+        assertResponseMatchesDb(r4, item.id)
+        assertEquals(Role.WORK, getItem(item.id).role)
+    }
 }

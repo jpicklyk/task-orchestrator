@@ -19,6 +19,6 @@ data class RoleTransition(
     val transitionedAt: Instant = Instant.now()
 ) {
     companion object {
-        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel")
+        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
     }
 }

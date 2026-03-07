@@ -12,8 +12,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -1211,6 +1213,80 @@ class AdvanceItemToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // Reopen trigger tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `reopen trigger transitions TERMINAL to QUEUE`(): Unit = runBlocking {
+        val item = makeItem(role = Role.TERMINAL)
+        coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByFromItemId(item.id) } returns emptyList()
+
+        val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
+        val results = extractResults(result)
+        val first = results[0].jsonObject
+
+        assertEquals(true, first["applied"]?.jsonPrimitive?.boolean)
+        assertEquals("terminal", first["previousRole"]?.jsonPrimitive?.content)
+        assertEquals("queue", first["newRole"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `reopen on non-terminal item fails`(): Unit = runBlocking {
+        val item = makeItem(role = Role.WORK)
+        coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+
+        val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
+        val results = extractResults(result)
+        val first = results[0].jsonObject
+
+        assertEquals(false, first["applied"]?.jsonPrimitive?.boolean)
+        assertTrue(first["error"]?.jsonPrimitive?.content?.contains("not terminal") == true)
+    }
+
+    @Test
+    fun `reopen clears statusLabel on cancelled item`(): Unit = runBlocking {
+        val item = makeItem(role = Role.TERMINAL).let {
+            it.update { c -> c.copy(statusLabel = "cancelled") }
+        }
+        coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByFromItemId(item.id) } returns emptyList()
+
+        val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
+        val results = extractResults(result)
+        val first = results[0].jsonObject
+
+        assertEquals(true, first["applied"]?.jsonPrimitive?.boolean)
+        assertEquals("queue", first["newRole"]?.jsonPrimitive?.content)
+
+        // Verify the updated item has null statusLabel
+        val updateSlot = slot<WorkItem>()
+        coVerify { workItemRepo.update(capture(updateSlot)) }
+        assertNull(updateSlot.captured.statusLabel)
+    }
+
+    @Test
+    fun `reopen does not enforce gates on schema-tagged item`(): Unit = runBlocking {
+        val item = WorkItem(id = UUID.randomUUID(), title = "Gated item", role = Role.TERMINAL, tags = "feature-implementation")
+        coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByFromItemId(item.id) } returns emptyList()
+
+        val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
+        val results = extractResults(result)
+        val first = results[0].jsonObject
+
+        // Should succeed even though no notes are filled
+        assertEquals(true, first["applied"]?.jsonPrimitive?.boolean)
+        assertEquals("queue", first["newRole"]?.jsonPrimitive?.content)
+    }
+
+    // ──────────────────────────────────────────────
     // guidancePointer + noteProgress tests
     // ──────────────────────────────────────────────
 
@@ -1446,5 +1522,43 @@ class AdvanceItemToolTest {
 
         // Dependency block errors must NOT include missingNotes
         assertNull(r["missingNotes"], "dependency block errors must not include missingNotes field")
+    }
+
+    // ──────────────────────────────────────────────
+    // Reopen cascade test
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `reopen cascade fires when child reopens under terminal parent`(): Unit = runBlocking {
+        val parentId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val parent = makeItem(id = parentId, role = Role.TERMINAL, title = "Terminal Parent")
+        val child = makeItem(id = childId, role = Role.TERMINAL, parentId = parentId, title = "Terminal Child")
+
+        // Child getById before and after transition
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByFromItemId(childId) } returns emptyList()
+        every { depRepo.findByFromItemId(parentId) } returns emptyList()
+
+        val params = buildParams(transitionObj(childId, "reopen"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("queue", r["newRole"]!!.jsonPrimitive.content)
+
+        // Verify cascade event for parent TERMINAL → WORK
+        val cascades = r["cascadeEvents"]!!.jsonArray
+        assertTrue(cascades.isNotEmpty(), "Expected reopen cascade event for parent")
+        val cascade = cascades[0].jsonObject
+        assertEquals(parentId.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+        assertEquals("Terminal Parent", cascade["title"]!!.jsonPrimitive.content)
+        assertEquals("terminal", cascade["previousRole"]!!.jsonPrimitive.content)
+        assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
+        assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
     }
 }

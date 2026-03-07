@@ -44,7 +44,8 @@ Unified write operations for WorkItems (create, update, delete).
 - `tags` is always included (null if not set). `expectedNotes` is included only when the item's tags match a configured note schema — check it immediately after creation to know which notes to fill.
 
 **update** - Partial update from `items` array.
-- Each item: `{ id (required), title?, description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags? }`
+- Each item: `{ id (required), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags? }`
+- Note: role changes are not allowed in update operations. Use advance_item with triggers (start, complete, block, hold, resume, cancel, reopen) instead.
 - Only provided fields are changed; omitted fields retain existing values
 - If parentId changes, depth is recomputed from new parent
 - Response: `{ items: [{id, modifiedAt}], updated: N, failed: N, failures: [{id, error}] }`
@@ -392,23 +393,21 @@ Unified write operations for WorkItems (create, update, delete).
                 val newTitle = extractItemString(itemObj, "title")
                 val newDescription = extractItemStringAllowNull(itemObj, "description", existing.description)
                 val newSummary = extractItemString(itemObj, "summary")
-                val newRoleStr = extractItemString(itemObj, "role")
+
+                // Reject role field in updates — all role changes must go through advance_item
+                if (itemObj.containsKey("role")) {
+                    throw ToolValidationException(
+                        "Item '$itemId': role changes are not allowed via manage_items update. " +
+                        "Use advance_item with an appropriate trigger instead (start, complete, block, hold, resume, cancel, reopen)."
+                    )
+                }
+
                 val newStatusLabel = extractItemStringAllowNull(itemObj, "statusLabel", existing.statusLabel)
                 val newPriorityStr = extractItemString(itemObj, "priority")
                 val newComplexity = extractItemInt(itemObj, "complexity")
                 val newRequiresVerification = itemObj["requiresVerification"]?.let { (it as? JsonPrimitive)?.booleanOrNull }
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
-
-                // Parse role if provided
-                val newRole = if (newRoleStr != null) {
-                    Role.fromString(newRoleStr)
-                        ?: throw ToolValidationException(
-                            "Item '$itemId': invalid role '$newRoleStr'. Valid: ${Role.VALID_NAMES}"
-                        )
-                } else {
-                    null
-                }
 
                 // Parse priority if provided
                 val newPriority = if (newPriorityStr != null) {
@@ -488,7 +487,7 @@ Unified write operations for WorkItems (create, update, delete).
                         title = newTitle ?: item.title,
                         description = newDescription,
                         summary = newSummary ?: item.summary,
-                        role = newRole ?: item.role,
+                        role = item.role,
                         statusLabel = newStatusLabel,
                         priority = newPriority ?: item.priority,
                         complexity = newComplexity ?: item.complexity,

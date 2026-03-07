@@ -78,7 +78,7 @@ Read-only status progression recommendation for a WorkItem.
                 successResponse(buildJsonObject {
                     put("recommendation", JsonPrimitive("Terminal"))
                     put("currentRole", JsonPrimitive("terminal"))
-                    put("reason", JsonPrimitive("Item is already terminal and cannot progress further"))
+                    put("reason", JsonPrimitive("Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled."))
                 })
             }
 
