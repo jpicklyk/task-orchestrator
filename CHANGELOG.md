@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-03-07
+
+### Added
+- Added `reopen` trigger to `advance_item` — reopens terminal items back to queue, clears statusLabel on cancelled items
+- Added short UUID prefix resolution to `query_items` get — resolve items by 4+ hex character prefix instead of full UUID
+- Added `guidancePointer` and `noteProgress` to `advance_item` success response — shows next required note guidance and fill counts for the new role
+- Added `itemContext` to `manage_notes` upsert response — returns `guidancePointer` and `noteProgress` per item, eliminating N-1 `get_context` round-trips
+- Added role guard to `manage_items` update — rejects direct role changes with guidance to use `advance_item` triggers instead
+
+### Changed
+- Refined agent-owned-phase protocol in subagent-start hook — agents now enter their phase, iterate notes via JIT progression, and never double-advance
+- Extracted shared `PhaseNoteContext` computation — unified gate-check logic across `manage_notes`, `get_context`, and stalled-item detection
+- Bumped plugin version to 2.5.2 (agent-owned-phase protocol refinements)
+
+---
+
 ## [2.5.1] - 2026-03-05 (plugin-only)
 
 ### Fixed
