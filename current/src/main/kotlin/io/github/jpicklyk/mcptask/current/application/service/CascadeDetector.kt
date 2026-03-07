@@ -162,6 +162,40 @@ class CascadeDetector {
     }
 
     // -----------------------------------------------------------------------
+    // Reopen Cascade Detection
+    // -----------------------------------------------------------------------
+
+    /**
+     * Detect whether reopening an item should cascade to reopen its parent.
+     * If the item was just reopened (now in QUEUE) and its parent is TERMINAL,
+     * the parent should reopen to WORK since it now has a non-terminal child.
+     * Only checks immediate parent — no recursion.
+     */
+    suspend fun detectReopenCascades(
+        item: WorkItem,
+        workItemRepository: WorkItemRepository
+    ): List<CascadeEvent> {
+        // Only applies to items that just entered QUEUE via reopen
+        if (item.role != Role.QUEUE) return emptyList()
+
+        val parentId = item.parentId ?: return emptyList()
+
+        val parent = when (val result = workItemRepository.getById(parentId)) {
+            is Result.Success -> result.data
+            is Result.Error -> return emptyList()
+        }
+
+        // Only cascade if parent is TERMINAL
+        if (parent.role != Role.TERMINAL) return emptyList()
+
+        return listOf(CascadeEvent(
+            itemId = parent.id,
+            currentRole = Role.TERMINAL,
+            targetRole = Role.WORK
+        ))
+    }
+
+    // -----------------------------------------------------------------------
     // Unblock Detection
     // -----------------------------------------------------------------------
 

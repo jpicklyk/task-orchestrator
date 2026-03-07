@@ -155,7 +155,7 @@ class GetNextStatusToolTest {
         val data = extractData(result)
         assertEquals("Terminal", data["recommendation"]!!.jsonPrimitive.content)
         assertEquals("terminal", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("Item is already terminal and cannot progress further", data["reason"]!!.jsonPrimitive.content)
+        assertEquals("Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled.", data["reason"]!!.jsonPrimitive.content)
     }
 
     // ──────────────────────────────────────────────

@@ -1151,4 +1151,103 @@ class ManageItemsToolTest {
             )
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Role guard in update operations
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `update with role field is rejected`(): Unit = runBlocking {
+        // Create an item first
+        val createResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("Guard test item")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Attempt to update with role field — should be rejected
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("update"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(itemId))
+                        put("role", JsonPrimitive("work"))
+                        put("title", JsonPrimitive("Updated title"))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(0, data["updated"]!!.jsonPrimitive.int)
+        assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+        val failure = data["failures"]!!.jsonArray[0].jsonObject
+        assertTrue(failure["error"]!!.jsonPrimitive.content.contains("role changes are not allowed"))
+    }
+
+    @Test
+    fun `update without role field succeeds`(): Unit = runBlocking {
+        // Create an item first
+        val createResult = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject { put("title", JsonPrimitive("No role update item")) }
+                ))
+            ),
+            context
+        ) as JsonObject
+        val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        // Update without role field — should succeed
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("update"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(itemId))
+                        put("title", JsonPrimitive("Updated title"))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["updated"]!!.jsonPrimitive.int)
+        assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `create with role field still works`(): Unit = runBlocking {
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("create"),
+                "items" to JsonArray(listOf(
+                    buildJsonObject {
+                        put("title", JsonPrimitive("New item with role"))
+                        put("role", JsonPrimitive("work"))
+                    }
+                ))
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertEquals(1, data["created"]!!.jsonPrimitive.int)
+        assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+
+        val item = data["items"]!!.jsonArray[0] as JsonObject
+        assertEquals("work", item["role"]!!.jsonPrimitive.content)
+    }
 }

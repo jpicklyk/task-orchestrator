@@ -17,7 +17,7 @@ import java.util.UUID
  * Supports batch transitions via the `transitions` array parameter. Each transition
  * is processed independently: failures on one do not block others.
  *
- * Valid triggers: start, complete, block, hold, resume, cancel.
+ * Valid triggers: start, complete, block, hold, resume, cancel, reopen.
  *
  * NoteSchemaService integration:
  * - If the item's tags match a schema, gate enforcement applies:
@@ -35,7 +35,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
 **Parameters:**
 - `transitions` (required array): Each element: `{ itemId (required UUID), trigger (required string), summary? (optional string) }`
-- Valid triggers: start, complete, block, hold, resume, cancel
+- Valid triggers: start, complete, block, hold, resume, cancel, reopen
 
 **Trigger effects:**
 - start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
@@ -43,6 +43,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 - block/hold: any non-TERMINAL/BLOCKED -> BLOCKED (saves previousRole)
 - resume: BLOCKED -> previousRole
 - cancel: any non-TERMINAL -> TERMINAL (statusLabel = "cancelled")
+- reopen: TERMINAL -> QUEUE (clears statusLabel; bypasses gate enforcement)
 
 **Gate enforcement (when tags match a note schema):**
 - start: required notes for the current phase must be filled before advancing
@@ -330,6 +331,34 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     val cascadeApply = handler.applyTransition(
                         parentItem, event.targetRole, "cascade",
                         "Auto-cascaded from child start", null,
+                        context.workItemRepository(),
+                        context.roleTransitionRepository()
+                    )
+
+                    cascadeJsonList.add(buildJsonObject {
+                        put("itemId", JsonPrimitive(event.itemId.toString()))
+                        put("title", JsonPrimitive(parentItem.title))
+                        put("previousRole", JsonPrimitive(event.currentRole.name.lowercase()))
+                        put("targetRole", JsonPrimitive(event.targetRole.name.lowercase()))
+                        put("applied", JsonPrimitive(cascadeApply.success))
+                    })
+                }
+            }
+
+            // Phase 4c: Reopen cascade detection (only when reopening to QUEUE)
+            // When a child is reopened under a terminal parent, the parent should reopen to WORK.
+            if (trigger == "reopen" && targetRole == Role.QUEUE) {
+                val reopenCascadeEvents = cascadeDetector.detectReopenCascades(applyResult.item!!, context.workItemRepository())
+                for (event in reopenCascadeEvents) {
+                    val parentResult = context.workItemRepository().getById(event.itemId)
+                    val parentItem = when (parentResult) {
+                        is Result.Success -> parentResult.data
+                        is Result.Error -> continue
+                    }
+
+                    val cascadeApply = handler.applyTransition(
+                        parentItem, event.targetRole, "cascade",
+                        "Auto-cascaded from child reopen", null,
                         context.workItemRepository(),
                         context.roleTransitionRepository()
                     )

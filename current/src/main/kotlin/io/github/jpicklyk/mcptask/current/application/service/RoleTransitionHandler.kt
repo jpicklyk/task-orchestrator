@@ -64,7 +64,7 @@ data class TransitionApplyResult(
 class RoleTransitionHandler {
 
     companion object {
-        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel")
+        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
     }
 
     // -----------------------------------------------------------------------
@@ -89,6 +89,7 @@ class RoleTransitionHandler {
                         "Use resolveTransition(item, trigger) instead."
             )
             "cancel" -> resolveCancel(currentRole)
+            "reopen" -> resolveReopen(currentRole)
             else -> TransitionResolution(
                 success = false,
                 error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
@@ -111,6 +112,7 @@ class RoleTransitionHandler {
             "block", "hold" -> resolveBlock(item.role)
             "resume" -> resolveResume(item)
             "cancel" -> resolveCancel(item.role)
+            "reopen" -> resolveReopen(item.role)
             else -> TransitionResolution(
                 success = false,
                 error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
@@ -183,6 +185,14 @@ class RoleTransitionHandler {
         else -> TransitionResolution(success = true, targetRole = Role.TERMINAL, statusLabel = "cancelled")
     }
 
+    private fun resolveReopen(currentRole: Role): TransitionResolution = when (currentRole) {
+        Role.TERMINAL -> TransitionResolution(success = true, targetRole = Role.QUEUE, statusLabel = null)
+        else -> TransitionResolution(
+            success = false,
+            error = "Cannot reopen: item is not terminal (current role: ${currentRole.name.lowercase()})"
+        )
+    }
+
     // -----------------------------------------------------------------------
     // Phase 2: Validation (reads dependencies, suspend for WorkItem lookups)
     // -----------------------------------------------------------------------
@@ -204,6 +214,11 @@ class RoleTransitionHandler {
     ): TransitionValidation {
         // Blocking transitions always pass (no dependency gate)
         if (targetRole == Role.BLOCKED) {
+            return TransitionValidation(valid = true)
+        }
+
+        // Reopen transitions bypass the terminal guard (backward transition)
+        if (item.role == Role.TERMINAL && targetRole == Role.QUEUE) {
             return TransitionValidation(valid = true)
         }
 

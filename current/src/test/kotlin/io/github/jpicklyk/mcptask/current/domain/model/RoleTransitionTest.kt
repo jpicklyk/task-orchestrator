@@ -98,13 +98,13 @@ class RoleTransitionTest {
 
     @Test
     fun `VALID_TRIGGERS contains all expected triggers`() {
-        val expected = setOf("start", "complete", "block", "hold", "resume", "cancel")
+        val expected = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
         assertEquals(expected, RoleTransition.VALID_TRIGGERS)
     }
 
     @Test
     fun `VALID_TRIGGERS has exactly 6 entries`() {
-        assertEquals(6, RoleTransition.VALID_TRIGGERS.size)
+        assertEquals(7, RoleTransition.VALID_TRIGGERS.size)
     }
 
     @Test

@@ -15,7 +15,7 @@ Every WorkItem moves through a set of lifecycle phases called **roles**. Roles a
 | `queue`    | Pending, not yet started. Default role at creation.          |
 | `work`     | Actively being worked on.                                    |
 | `review`   | Work complete, undergoing verification or review.            |
-| `terminal` | Finished. No further transitions possible (unless cancelled).|
+| `terminal` | Finished. Use `reopen` to move back to queue if needed.      |
 | `blocked`  | Paused due to an unresolved dependency or explicit hold.     |
 
 ### Standard Flow
@@ -50,6 +50,7 @@ All role transitions use `advance_item(trigger=...)`. There is no direct role as
 | `hold`     | Any non-terminal          | `blocked`                | Alias for `block`.                                 |
 | `resume`   | `blocked`                 | Previous role            | Restores role saved at block time.                 |
 | `cancel`   | Any non-terminal          | `terminal`               | Sets `statusLabel = "cancelled"`.                  |
+| `reopen`   | `terminal`                | `queue`                  | Clears statusLabel, bypasses gates. Parent cascades TERMINAL → WORK. |
 
 ### Example: Advance a Work Item
 
@@ -537,7 +538,9 @@ get_blocked_items(parentId="feature-uuid", includeAncestors=true)
 
 **Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain.
 
-Both cascade types appear in `cascadeEvents` in the response:
+**Reopen cascade (child TERMINAL → QUEUE):** When a child item is reopened under a terminal parent, the parent is automatically reopened to WORK. This only applies to the immediate parent — no recursion.
+
+All cascade types appear in `cascadeEvents` in the response:
 
 ```json
 {
@@ -718,4 +721,5 @@ docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.
 | Find blocked items                | `get_blocked_items(includeAncestors=true)`                      |
 | Create a dependency chain         | `manage_dependencies(operation="create", pattern="linear", itemIds=[...])` |
 | Cancel an item                    | `advance_item(transitions=[{itemId, trigger:"cancel"}])`        |
+| Reopen a terminal item           | `advance_item(transitions=[{itemId, trigger:"reopen"}])`        |
 | Filter by phase                   | `query_items(operation="search", role="work")`                  |
