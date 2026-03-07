@@ -90,6 +90,12 @@ interface WorkItemRepository {
     suspend fun deleteAll(ids: Set<UUID>): Result<Int>
 
     /**
+     * Find work items whose ID starts with the given hex prefix.
+     * Used for short UUID prefix resolution.
+     */
+    suspend fun findByIdPrefix(prefix: String, limit: Int = 10): Result<List<WorkItem>>
+
+    /**
      * For each itemId, resolve its full ancestor chain (root -> direct parent).
      * Returns Map<itemId, List<WorkItem>> ordered root-first, ancestors only (item itself excluded).
      * Items with no parent (depth=0 root items) map to an empty list.

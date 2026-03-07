@@ -19,6 +19,13 @@ import kotlinx.serialization.json.*
  */
 class QueryItemsTool : BaseToolDefinition() {
 
+    companion object {
+        /** Minimum hex characters required for prefix resolution (avoids excessive ambiguity). */
+        private const val MIN_PREFIX_LENGTH = 4
+
+        private val HEX_PATTERN = Regex("^[0-9a-fA-F]+$")
+    }
+
     override val name = "query_items"
 
     override val description = """
@@ -26,8 +33,10 @@ Unified read operations for work items.
 
 Operations: get, search, overview
 
-**get** - Retrieve a single item by ID
-- Required: id (UUID)
+**get** - Retrieve a single item by ID or short prefix
+- Required: id (UUID or hex prefix, minimum 4 characters)
+- Full 36-char UUID: exact match (existing behavior)
+- Short hex prefix (4-35 chars): resolves to unique item; errors if ambiguous or not found
 - Returns full item JSON
 - includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
 
@@ -65,7 +74,7 @@ Operations: get, search, overview
             })
             put("id", buildJsonObject {
                 put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Item UUID (required for get)"))
+                put("description", JsonPrimitive("Item UUID or hex prefix (minimum 4 characters)"))
             })
             put("itemId", buildJsonObject {
                 put("type", JsonPrimitive("string"))
@@ -150,7 +159,7 @@ Operations: get, search, overview
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
         when (operation) {
-            "get" -> extractUUID(params, "id", required = true)
+            "get" -> requireString(params, "id") // Accept any string; UUID vs prefix validation happens in executeGet
             "search", "overview" -> { /* all parameters are optional */ }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be one of: get, search, overview")
         }
@@ -227,18 +236,73 @@ Operations: get, search, overview
     // ──────────────────────────────────────────────
 
     private suspend fun executeGet(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val id = extractUUID(params, "id", required = true)!!
+        val idStr = requireString(params, "id")
         val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
 
-        val item = when (val result = context.workItemRepository().getById(id)) {
-            is Result.Success -> result.data
-            is Result.Error -> return errorResponse(
-                "WorkItem not found",
-                ErrorCodes.RESOURCE_NOT_FOUND,
-                additionalData = buildJsonObject {
-                    put("requestedId", JsonPrimitive(id.toString()))
+        // Try parsing as a full UUID first (fast path — avoids prefix resolution overhead)
+        val item = if (idStr.length == 36) {
+            val id = try {
+                java.util.UUID.fromString(idStr)
+            } catch (_: IllegalArgumentException) {
+                return errorResponse("Invalid UUID format: $idStr", ErrorCodes.VALIDATION_ERROR)
+            }
+            when (val result = context.workItemRepository().getById(id)) {
+                is Result.Success -> result.data
+                is Result.Error -> return errorResponse(
+                    "WorkItem not found",
+                    ErrorCodes.RESOURCE_NOT_FOUND,
+                    additionalData = buildJsonObject {
+                        put("requestedId", JsonPrimitive(idStr))
+                    }
+                )
+            }
+        } else {
+            // Prefix resolution path
+            if (!idStr.matches(HEX_PATTERN)) {
+                return errorResponse(
+                    "Invalid ID format: must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $idStr",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            }
+            if (idStr.length < MIN_PREFIX_LENGTH) {
+                return errorResponse(
+                    "ID prefix too short: minimum $MIN_PREFIX_LENGTH hex characters required, got ${idStr.length}",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            }
+
+            when (val result = context.workItemRepository().findByIdPrefix(idStr)) {
+                is Result.Success -> {
+                    val matches = result.data
+                    when {
+                        matches.isEmpty() -> return errorResponse(
+                            "No WorkItem found matching prefix: $idStr",
+                            ErrorCodes.RESOURCE_NOT_FOUND,
+                            additionalData = buildJsonObject {
+                                put("prefix", JsonPrimitive(idStr))
+                            }
+                        )
+                        matches.size > 1 -> return errorResponse(
+                            "Ambiguous prefix: $idStr matches ${matches.size} items",
+                            ErrorCodes.VALIDATION_ERROR,
+                            additionalData = buildJsonObject {
+                                put("prefix", JsonPrimitive(idStr))
+                                put("matches", JsonArray(matches.map { match ->
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(match.id.toString()))
+                                        put("title", JsonPrimitive(match.title))
+                                    }
+                                }))
+                            }
+                        )
+                        else -> matches.first()
+                    }
                 }
-            )
+                is Result.Error -> return errorResponse(
+                    "Failed to resolve prefix: ${result.error.message}",
+                    ErrorCodes.DATABASE_ERROR
+                )
+            }
         }
 
         val itemJson = workItemToJson(item)

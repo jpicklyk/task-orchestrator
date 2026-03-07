@@ -17,7 +17,9 @@ import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
+import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.castTo
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -401,6 +403,42 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         } catch (e: Exception) {
             Result.Error(RepositoryError.DatabaseError("Failed to bulk-delete WorkItems: ${e.message}", e))
         }
+    }
+
+    override suspend fun findByIdPrefix(prefix: String, limit: Int): Result<List<WorkItem>> = try {
+        // Convert a hex-only prefix into a UUID-formatted prefix for LIKE matching.
+        // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (8-4-4-4-12)
+        // Dash positions in the hex string: after 8, 12, 16, 20
+        val formattedPrefix = formatHexAsUuidPrefix(prefix.lowercase())
+        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            val items = WorkItemsTable.selectAll()
+                .where {
+                    WorkItemsTable.id.castTo<String>(VarCharColumnType(36)).like("$formattedPrefix%")
+                }
+                .limit(limit)
+                .mapNotNull { mapRowToWorkItemSafe(it) }
+            Result.Success(items)
+        }
+    } catch (e: Exception) {
+        Result.Error(RepositoryError.DatabaseError("Failed to find WorkItems by ID prefix: ${e.message}", e))
+    }
+
+    /**
+     * Converts a hex-only prefix string into UUID-formatted prefix with dashes
+     * inserted at the correct positions (after hex positions 8, 12, 16, 20).
+     */
+    private fun formatHexAsUuidPrefix(hexPrefix: String): String {
+        val dashPositions = listOf(8, 12, 16, 20)
+        val sb = StringBuilder()
+        var hexIndex = 0
+        for (ch in hexPrefix) {
+            if (hexIndex in dashPositions) {
+                sb.append('-')
+            }
+            sb.append(ch)
+            hexIndex++
+        }
+        return sb.toString()
     }
 
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
