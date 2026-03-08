@@ -280,6 +280,64 @@ class SQLiteDependencyRepositoryTest {
         assertEquals(2, deps.size)
     }
 
+    // --- RELATES_TO should not participate in cycle detection ---
+
+    @Test
+    fun `hasCyclicDependency - RELATES_TO edge does not create blocking path`() = runBlocking {
+        // A RELATES_TO B is informational — it should not create a blocking path
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO))
+
+        // "Would adding B BLOCKS A create a cycle?" — No, because RELATES_TO is not a blocking edge
+        val isCyclic = depRepository.hasCyclicDependency(itemB, itemA)
+        assertFalse(isCyclic, "RELATES_TO should not be treated as a blocking path in cycle detection")
+    }
+
+    @Test
+    fun `create succeeds when only RELATES_TO exists in reverse direction`() = runBlocking {
+        // A RELATES_TO B is informational
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO))
+
+        // B BLOCKS A should succeed — RELATES_TO doesn't create a blocking cycle
+        val dep = depRepository.create(Dependency(fromItemId = itemB, toItemId = itemA, type = DependencyType.BLOCKS))
+        assertNotNull(dep)
+        assertEquals(itemB, dep.fromItemId)
+        assertEquals(itemA, dep.toItemId)
+    }
+
+    @Test
+    fun `RELATES_TO at end of BLOCKS chain does not cause false cycle`() = runBlocking {
+        // Build a BLOCKS chain: A -> B -> C
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
+        depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC, type = DependencyType.BLOCKS))
+
+        // C RELATES_TO A is informational — not a blocking cycle back to A
+        val dep = depRepository.create(Dependency(fromItemId = itemC, toItemId = itemA, type = DependencyType.RELATES_TO))
+        assertNotNull(dep, "RELATES_TO closing a BLOCKS chain should not be rejected as a cycle")
+    }
+
+    @Test
+    fun `mixed BLOCKS and IS_BLOCKED_BY cycle detection still works after fix`() = runBlocking {
+        // A BLOCKS B — real blocking relationship
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
+
+        // "Would adding B BLOCKS A create a cycle?" — Yes, this is a real blocking cycle
+        val isCyclic = depRepository.hasCyclicDependency(itemB, itemA)
+        assertTrue(isCyclic, "Real BLOCKS cycle should still be detected")
+    }
+
+    @Test
+    fun `createBatch succeeds with RELATES_TO closing a BLOCKS chain`() = runBlocking {
+        // Build a BLOCKS chain: A -> B -> C
+        depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
+        depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC, type = DependencyType.BLOCKS))
+
+        // Batch-create C RELATES_TO A — should succeed since RELATES_TO is informational
+        val batch = depRepository.createBatch(
+            listOf(Dependency(fromItemId = itemC, toItemId = itemA, type = DependencyType.RELATES_TO))
+        )
+        assertEquals(1, batch.size, "Batch with RELATES_TO closing a BLOCKS chain should succeed")
+    }
+
     // --- findByItemIds ---
 
     @Test

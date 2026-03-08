@@ -33,8 +33,9 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         }
 
     private fun insertDependencyInTransaction(dependency: Dependency): Dependency {
-        // Check for cyclic dependencies before creating
-        if (checkCyclicDependencyInternal(dependency.fromItemId, dependency.toItemId)) {
+        // Only check cycles for blocking dependency types — RELATES_TO is informational
+        if (dependency.type != DependencyType.RELATES_TO &&
+            checkCyclicDependencyInternal(dependency.fromItemId, dependency.toItemId)) {
             throw ValidationException("Creating this dependency would result in a circular dependency")
         }
 
@@ -128,8 +129,10 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         // Phase 3: Incremental cycle detection - check and insert each dependency sequentially.
         // Each dependency is inserted before checking the next, so subsequent checks see earlier
         // batch members in the graph. Transaction rollback handles atomicity on failure.
+        // RELATES_TO deps are informational and cannot create blocking cycles — skip check.
         for (dep in dependencies) {
-            if (checkCyclicDependencyInternal(dep.fromItemId, dep.toItemId)) {
+            if (dep.type != DependencyType.RELATES_TO &&
+                checkCyclicDependencyInternal(dep.fromItemId, dep.toItemId)) {
                 throw ValidationException(
                     "Creating these dependencies would result in a circular dependency chain"
                 )
@@ -169,13 +172,13 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
 
             visiting.add(currentItemId)
 
-            // Follow outgoing BLOCKS edges (not IS_BLOCKED_BY)
+            // Follow outgoing BLOCKS edges only (RELATES_TO is informational, not blocking)
             val outgoing = DependenciesTable.selectAll()
                 .where { DependenciesTable.fromItemId eq currentItemId }
                 .map { mapRowToDependency(it) }
 
             for (dep in outgoing) {
-                if (dep.type != DependencyType.IS_BLOCKED_BY) {
+                if (dep.type == DependencyType.BLOCKS) {
                     if (dep.toItemId == fromItemId) return true
                     if (hasCycle(dep.toItemId)) return true
                 }
