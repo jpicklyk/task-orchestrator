@@ -23,6 +23,7 @@ import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
@@ -194,32 +195,11 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         offset: Int
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
-            val conditions = mutableListOf<Op<Boolean>>()
-
-            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
-            depth?.let { conditions.add(WorkItemsTable.depth eq it) }
-            role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
-            priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
-            tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
-            query?.let {
-                val pattern = "%$it%"
-                conditions.add(
-                    (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
-                )
-            }
-            createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
-            createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
-            modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
-            modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
-            roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
-            roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
-
-            val baseQuery = if (conditions.isEmpty()) {
-                WorkItemsTable.selectAll()
-            } else {
-                val combined = conditions.reduce { acc, op -> acc and op }
-                WorkItemsTable.selectAll().where { combined }
-            }
+            val baseQuery = buildFilteredQuery(
+                parentId, depth, role, priority, tags, query,
+                createdAfter, createdBefore, modifiedAfter, modifiedBefore,
+                roleChangedAfter, roleChangedBefore
+            )
 
             // Determine sort column and order
             val sortColumn = when (sortBy?.lowercase()) {
@@ -258,32 +238,11 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         roleChangedBefore: Instant?
     ): Result<Int> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
-            val conditions = mutableListOf<Op<Boolean>>()
-
-            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
-            depth?.let { conditions.add(WorkItemsTable.depth eq it) }
-            role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
-            priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
-            tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
-            query?.let {
-                val pattern = "%$it%"
-                conditions.add(
-                    (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
-                )
-            }
-            createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
-            createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
-            modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
-            modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
-            roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
-            roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
-
-            val count = if (conditions.isEmpty()) {
-                WorkItemsTable.selectAll().count()
-            } else {
-                val combined = conditions.reduce { acc, op -> acc and op }
-                WorkItemsTable.selectAll().where { combined }.count()
-            }
+            val count = buildFilteredQuery(
+                parentId, depth, role, priority, tags, query,
+                createdAfter, createdBefore, modifiedAfter, modifiedBefore,
+                roleChangedAfter, roleChangedBefore
+            ).count()
 
             Result.Success(count.toInt())
         }
@@ -428,6 +387,52 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
 
     /**
      * Build a tag filter that matches tags at word boundaries within a comma-separated string.
+     * Builds a filtered SELECT query from optional filter parameters.
+     * Shared by [findByFilters] and [countByFilters] to avoid duplicating condition construction.
+     */
+    private fun buildFilteredQuery(
+        parentId: UUID?,
+        depth: Int?,
+        role: Role?,
+        priority: Priority?,
+        tags: List<String>?,
+        query: String?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?
+    ): Query {
+        val conditions = mutableListOf<Op<Boolean>>()
+
+        parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+        depth?.let { conditions.add(WorkItemsTable.depth eq it) }
+        role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
+        priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
+        tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
+        query?.let {
+            val pattern = "%$it%"
+            conditions.add(
+                (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
+            )
+        }
+        createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
+        createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
+        modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
+        modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
+        roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
+        roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
+
+        return if (conditions.isEmpty()) {
+            WorkItemsTable.selectAll()
+        } else {
+            val combined = conditions.reduce { acc, op -> acc and op }
+            WorkItemsTable.selectAll().where { combined }
+        }
+    }
+
+    /**
      * Handles: tag alone ("bug"), at start ("bug,feature"), in middle ("alpha,bug,beta"), at end ("alpha,bug").
      */
     private fun buildTagFilter(tags: List<String>): Op<Boolean> {
