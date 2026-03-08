@@ -90,7 +90,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
     }
 
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val itemId = extractUUID(params, "itemId", required = true)!!
+        val itemId = requireUUID(params, "itemId")
         val direction = optionalString(params, "direction") ?: "all"
         val typeFilter = optionalString(params, "type")?.let { DependencyType.fromString(it) }
         val includeItemInfo = optionalBoolean(params, "includeItemInfo", defaultValue = false)

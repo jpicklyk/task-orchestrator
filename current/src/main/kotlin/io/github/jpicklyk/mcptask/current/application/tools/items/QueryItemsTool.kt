@@ -343,6 +343,17 @@ Operations: get, search, overview
         val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
+        // Validate time ranges — reject inverted ranges early
+        if (createdAfter != null && createdBefore != null && createdAfter > createdBefore) {
+            return errorResponse("createdAfter must be before createdBefore", ErrorCodes.VALIDATION_ERROR)
+        }
+        if (modifiedAfter != null && modifiedBefore != null && modifiedAfter > modifiedBefore) {
+            return errorResponse("modifiedAfter must be before modifiedBefore", ErrorCodes.VALIDATION_ERROR)
+        }
+        if (roleChangedAfter != null && roleChangedBefore != null && roleChangedAfter > roleChangedBefore) {
+            return errorResponse("roleChangedAfter must be before roleChangedBefore", ErrorCodes.VALIDATION_ERROR)
+        }
+
         // Parse role
         val role = roleStr?.let {
             Role.fromString(it)

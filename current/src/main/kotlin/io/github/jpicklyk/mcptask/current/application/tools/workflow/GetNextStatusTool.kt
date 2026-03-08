@@ -58,7 +58,7 @@ Read-only status progression recommendation for a WorkItem.
     }
 
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val itemId = extractUUID(params, "itemId", required = true)!!
+        val itemId = requireUUID(params, "itemId")
 
         // Fetch the WorkItem
         val itemResult = context.workItemRepository().getById(itemId)

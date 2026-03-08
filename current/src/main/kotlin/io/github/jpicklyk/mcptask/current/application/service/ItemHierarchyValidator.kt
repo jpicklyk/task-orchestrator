@@ -45,13 +45,14 @@ class ItemHierarchyValidator {
         }
 
         // Guard: ancestor cycle check — walk up from parentId, ensure itemId is not an ancestor
+        // Uses a visited set to detect pre-existing cycles in the hierarchy (not just depth-bounded)
+        val visited = mutableSetOf<UUID>()
         var cursor: UUID? = parentId
-        repeat(MAX_DEPTH + 1) {
-            val cursorId = cursor ?: return@repeat
-            val ancestorResult = repo.getById(cursorId)
-            val ancestor = when (ancestorResult) {
+        while (cursor != null && visited.size <= MAX_DEPTH) {
+            if (!visited.add(cursor)) break  // Pre-existing cycle — stop walking
+            val ancestor = when (val ancestorResult = repo.getById(cursor)) {
                 is Result.Success -> ancestorResult.data
-                is Result.Error -> return@repeat
+                is Result.Error -> break
             }
             if (ancestor.id == itemId) {
                 throw ToolValidationException(
