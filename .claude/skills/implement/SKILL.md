@@ -47,23 +47,28 @@ review cleaner.
 
 ## Step 2 — Prepare the Branch
 
-Sync main and create a working branch before any implementation begins.
+Sync main before any implementation begins.
 
 ```bash
 git checkout main
 git pull origin main --tags
+```
+
+**If NOT using worktree isolation** (orchestrator implements directly or dispatches
+a single non-isolated agent), create a working branch:
+
+```bash
 git checkout -b <branch-name>
 ```
 
-**Branch naming:**
+**If using worktree isolation**, skip branch creation — each worktree agent gets
+its own isolated branch automatically. See Worktree Isolation below.
+
+**Branch naming** (for manually created branches):
 - `feat/<short-description>` — feature-implementation items
 - `fix/<short-description>` — bug-fix items
 - `fix/<grouped-description>` — batch of related bug fixes
 - `chore/<short-description>` — tech debt, refactoring, observations
-
-For autonomous batch work with unrelated items, create separate branches. Use
-worktree isolation (`isolation: "worktree"` on the Agent tool) when dispatching
-multiple implementation agents in parallel to prevent file conflicts.
 
 ---
 
@@ -117,7 +122,26 @@ UUID inclusion). The key decisions at this step are:
 - **Multiple child tasks, dependent:** dispatch sequentially — wait for each agent
   to return before dispatching the next.
 
-**After implementation completes:**
+**After implementation agents return:**
+
+If agents used worktree isolation, the Agent tool result includes the **worktree
+path** and **branch name**. Capture both — they are needed for review and PR
+creation. Record them alongside the MCP item ID:
+
+```
+| Item UUID | Worktree Path | Branch | Changed Files |
+|-----------|---------------|--------|---------------|
+| <uuid>    | <path>        | <branch> | <file list> |
+```
+
+To get the changed files list for a worktree, run:
+```bash
+git -C <worktree-path> diff main --name-only
+```
+
+**Post-implementation steps** (run in the worktree if isolated, or on the working
+branch if not):
+
 1. Run the `/simplify` skill on the changed code to check for reuse, quality, and
    efficiency — this is a cleanup pass before review, not a review itself
 2. **If `/simplify` made changes**, write or update tests to cover them. The simplify
@@ -138,11 +162,24 @@ UUID inclusion). The key decisions at this step are:
 Dispatch a **separate** review agent. The agent that implemented the code must not
 review its own work.
 
+**If the implementation used worktree isolation**, the review agent must operate
+in the same worktree so it reads the correct files and runs tests against the
+actual changes. Include in the review agent prompt:
+
+- The **worktree path** (from the implementation agent's return)
+- The **branch name** in the worktree
+- The **changed files list** (from `git -C <worktree-path> diff main --name-only`)
+- Instruction: "Run all commands and read all files from within the worktree at
+  `<worktree-path>`. Do NOT read files from the main working directory."
+
+**If NOT using worktree isolation**, the review agent reads from the current
+working branch as normal.
+
 The review agent:
 1. Reads the review-quality skill
 2. Uses `get_context(itemId=...)` to load the item's notes and review-phase requirements
-3. Reads the changed files directly
-4. Runs the test suite
+3. Reads the changed files (from the worktree path if isolated, or the working branch)
+4. Runs the test suite (from the worktree if isolated)
 5. Evaluates plan alignment, test quality, and simplification
 6. Fills the review-phase notes per `guidancePointer` with a verdict
 
@@ -162,6 +199,15 @@ from. Automatically retrying hides these signals.
 ## Step 6 — Commit and PR
 
 After review passes, commit the changes and create a PR.
+
+**If using worktree isolation**, all commands in this step run from the worktree:
+```bash
+git -C <worktree-path> add <specific-files>
+git -C <worktree-path> commit ...
+git -C <worktree-path> push origin <worktree-branch>
+```
+
+**If NOT using worktree isolation**, run from the working branch as normal.
 
 ### Commit
 
@@ -236,8 +282,11 @@ When processing multiple items autonomously:
    need separate branches
 2. **Parallel execution** — use worktree isolation for independent work streams.
    Sequential execution for items with dependency edges between them.
-3. **Per-group pipeline** — each group goes through Steps 2-6 independently
-4. **Report at the end** — summarize all PRs created, any items that couldn't be
+3. **Per-item pipeline** — each worktree goes through Steps 4-6 independently:
+   implementation → capture worktree metadata → simplify → review (in worktree) → PR
+4. **Track all worktrees** — maintain a table mapping item UUID → worktree path →
+   branch → status (implementing / reviewing / PR created / failed)
+5. **Report at the end** — summarize all PRs created, any items that couldn't be
    processed, and any review failures that need user attention
 
 If any item in the batch hits a review failure, continue processing other items
@@ -247,11 +296,23 @@ and report all failures together at the end.
 
 ## Worktree Isolation
 
-When dispatching multiple implementation agents in parallel, use `isolation: "worktree"`
-on the Agent tool. Each agent gets an isolated copy of the repository, preventing file
-conflicts, accidental cross-cutting changes, and test baseline contamination.
+Use `isolation: "worktree"` on the Agent tool to give each agent an isolated copy
+of the repository. This prevents file conflicts, cross-cutting changes, test
+baseline contamination, and — critically — ensures changes are committed to a
+real branch that survives the agent's lifecycle.
 
-**Dispatch pattern:**
+**When to use worktrees:**
+- Parallel dispatch of multiple implementation agents (prevents file conflicts)
+- Any implementation dispatch where you need the changes on a reviewable branch
+- When you want the implementation agent to commit and push independently
+
+**When NOT to use worktrees:**
+- Tasks that depend on each other's file changes (use sequential dispatch instead)
+- Pure MCP operations with no file modifications (e.g., materialization subagents)
+- Orchestrator implementing directly (already on a working branch)
+
+### Dispatch pattern
+
 ```
 Agent(
   prompt="...",
@@ -261,26 +322,54 @@ Agent(
 )
 ```
 
-**Scoping rules — include in every parallel subagent prompt:**
+**Scoping rules — include in every worktree subagent prompt:**
 - "Only modify files directly related to your task"
 - "Do not bump versions, modify shared config, or edit files outside your scope"
+- "Commit your changes before returning"
 - Cross-cutting changes (version bumps, shared config) are handled by the
   orchestrator after all agents return
 
-**Validation after agents return:**
-1. Review each worktree's changes — the Agent tool returns the worktree path and
-   branch when changes are made
-2. Spot-check at least 2 diffs for insertion errors, scope violations, or unintended
-   modifications
-3. Merge worktree branches sequentially into the working branch, resolving any conflicts
-4. Run the full test suite once after all merges to catch integration issues
-5. Worktrees with no changes are automatically cleaned up; merged worktrees should be
-   removed after successful integration
+### Worktree lifecycle
 
-**When NOT to use worktrees:**
-- Single-agent dispatch (no isolation needed)
-- Tasks that depend on each other's file changes (use sequential dispatch instead)
-- Pure MCP operations with no file modifications (e.g., materialization subagents)
+The worktree branch is the PR branch. Review and PR creation happen on that
+branch — do NOT merge worktree branches back before review.
+
+```
+1. Orchestrator dispatches agent with isolation: "worktree"
+2. Agent works in isolated worktree, commits to worktree branch
+3. Agent returns → result includes worktree path and branch name
+4. Orchestrator captures worktree metadata (path, branch, changed files)
+5. Orchestrator spot-checks diffs: git -C <worktree-path> diff main --stat
+6. Orchestrator runs /simplify in the worktree (or dispatches agent to do so)
+7. Review agent dispatched INTO the worktree (reads files and runs tests there)
+8. PR created from the worktree branch
+9. Worktrees with no changes are automatically cleaned up
+```
+
+### Capturing worktree metadata
+
+When an agent returns from worktree isolation, the Agent tool result includes:
+- **Worktree path** — the directory where the isolated copy lives
+- **Branch name** — the git branch the agent committed to
+
+Record these alongside the MCP item ID. You need them for:
+- Running `git -C <path> diff main --name-only` to get the changed files list
+- Pointing the review agent at the correct directory
+- Pushing the branch and creating the PR
+
+### Parallel worktree validation
+
+When multiple agents return from parallel worktrees:
+
+1. Capture each agent's worktree path and branch from the return metadata
+2. Spot-check at least 2 diffs for insertion errors, scope violations, or
+   unintended modifications
+3. Run each worktree's test suite independently (or delegate to review agents)
+4. Each worktree branch gets its own PR — do not merge them together unless
+   the items were intentionally grouped
+
+If items were grouped into a single working branch (Step 2), merge reviewed
+worktree branches into that branch sequentially AFTER review passes for each.
 
 ---
 
