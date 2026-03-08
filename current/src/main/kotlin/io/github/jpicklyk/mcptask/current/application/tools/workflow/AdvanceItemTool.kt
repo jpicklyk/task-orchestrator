@@ -208,21 +208,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             is Result.Success -> notesResult.data
                             is Result.Error -> emptyList()
                         }
-                        val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+                        val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(existingNotes)
                         val missingEntries = requiredForCurrentPhase.filter { it.key !in filledKeys }
-                        val missingKeys = missingEntries.map { it.key }
-                        if (missingKeys.isNotEmpty()) {
-                            val missingNotesJson = JsonArray(missingEntries.map { entry ->
-                                buildJsonObject {
-                                    put("key", JsonPrimitive(entry.key))
-                                    put("description", JsonPrimitive(entry.description))
-                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                }
-                            })
+                        if (missingEntries.isNotEmpty()) {
+                            val missingKeys = missingEntries.map { it.key }
                             failCount++
                             resultsList.add(buildErrorResult(itemId, trigger,
                                 "Gate check failed: required notes not filled for ${currentRoleStr} phase: ${missingKeys.joinToString()}",
-                                missingNotes = missingNotesJson))
+                                missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries)))
                             continue
                         }
                     }
@@ -240,21 +233,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             is Result.Success -> notesResult.data
                             is Result.Error -> emptyList()
                         }
-                        val filledKeys = existingNotes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+                        val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(existingNotes)
                         val missingEntries = allRequired.filter { it.key !in filledKeys }
-                        val missingKeys = missingEntries.map { it.key }
-                        if (missingKeys.isNotEmpty()) {
-                            val missingNotesJson = JsonArray(missingEntries.map { entry ->
-                                buildJsonObject {
-                                    put("key", JsonPrimitive(entry.key))
-                                    put("description", JsonPrimitive(entry.description))
-                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                }
-                            })
+                        if (missingEntries.isNotEmpty()) {
+                            val missingKeys = missingEntries.map { it.key }
                             failCount++
                             resultsList.add(buildErrorResult(itemId, trigger,
                                 "Gate check failed: required notes not filled: ${missingKeys.joinToString()}",
-                                missingNotes = missingNotesJson))
+                                missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries)))
                             continue
                         }
                     }
@@ -295,6 +281,36 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     val parentItem = when (parentResult) {
                         is Result.Success -> parentResult.data
                         is Result.Error -> break
+                    }
+
+                    // Gate check: cascade-to-TERMINAL requires all required notes (like "complete" trigger)
+                    if (event.targetRole == Role.TERMINAL) {
+                        val parentTags = parentItem.tagList()
+                        val parentSchema = noteSchemaService.getSchemaForTags(parentTags)
+                        if (parentSchema != null) {
+                            val allRequired = parentSchema.filter { it.required }
+                            if (allRequired.isNotEmpty()) {
+                                val parentNotes = when (val nr = context.noteRepository().findByItemId(parentItem.id)) {
+                                    is Result.Success -> nr.data
+                                    is Result.Error -> emptyList()
+                                }
+                                val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(parentNotes)
+                                val missingEntries = allRequired.filter { it.key !in filledKeys }
+                                if (missingEntries.isNotEmpty()) {
+                                    // Block cascade — report gate failure in cascade event
+                                    cascadeJsonList.add(buildJsonObject {
+                                        put("itemId", JsonPrimitive(event.itemId.toString()))
+                                        put("title", JsonPrimitive(parentItem.title))
+                                        put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
+                                        put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
+                                        put("applied", JsonPrimitive(false))
+                                        put("gateBlocked", JsonPrimitive(true))
+                                        put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries))
+                                    })
+                                    break // Stop cascading up the tree
+                                }
+                            }
+                        }
                     }
 
                     val cascadeApply = handler.applyTransition(

@@ -159,7 +159,7 @@ class CurrentMcpServer(
         }
 
         try {
-            server.connect(transport)
+            server.createSession(transport)
             logger.info("Current (v3) MCP server running as '$serverName' v$version with $toolCount tools")
             done.join()
         } catch (e: Exception) {

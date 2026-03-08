@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
@@ -48,6 +49,9 @@ class McpToolAdapter {
             description = toolDefinition.description,
             inputSchema = toolDefinition.parameterSchema
         ) { request ->
+            // 'this' is ClientConnection — provides sessionId, createMessage, listRoots,
+            // sendLoggingMessage, and other server-to-client capabilities from SDK 0.9.0.
+            val clientConnection = this@addTool
             try {
                 val preprocessedParams = preprocessParameters(request.arguments ?: JsonObject(emptyMap()))
 
@@ -81,7 +85,7 @@ class McpToolAdapter {
                     structuredContent = structuredData
                 )
             } catch (e: Exception) {
-                val message = "Internal error in '${toolDefinition.name}': ${e.message}"
+                val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"
                 logger.error(message, e)
                 CallToolResult(
                     content = listOf(TextContent(text = message)),
