@@ -387,8 +387,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     is Result.Success -> notesResult.data
                     is Result.Error -> emptyList()
                 }
-                val existingKeys = existingNotes.map { it.key }.toSet()
                 val notesByKey = existingNotes.associateBy { it.key }
+                val existingKeys = notesByKey.keys
 
                 // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
                 val forNewRole = schema.filter { it.role == newRoleStr }

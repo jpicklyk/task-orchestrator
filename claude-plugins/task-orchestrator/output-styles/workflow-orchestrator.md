@@ -129,7 +129,13 @@ During any implementation run (triggered by `/implement` or `post-plan-workflow`
 
 ## Retrospective Nudge
 
-After `complete_tree` completes, or when 3+ items transition to terminal during a session, append a one-line suggestion:
+When **any** item that was part of an `/implement` run reaches terminal — whether via `advance_item`, `complete_tree`, or auto-cascade — check if the run is complete:
+
+- **Single-item run:** The item reaching terminal = run complete.
+- **Multi-item run (manifest exists):** All items in `scope.preExistingItems` are terminal = run complete.
+- **No manifest fallback:** 3+ items transition to terminal during a session = likely run complete.
+
+When the run is complete, append a one-line suggestion:
 
 ```
 ↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
