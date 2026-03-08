@@ -79,13 +79,7 @@ class CurrentMcpServer(
         val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService)
         logger.info("Repository provider and tool context initialized")
 
-        // Configure MCP server
-        val serverName = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator-current"
-        val server = configureServer(serverName)
-        mcpSdkServer = server
-
-        // Register MCP tools
-        val adapter = McpToolAdapter()
+        // Build tool list
         val tools = listOf(
             // Phase 1: CRUD
             ManageItemsTool(),
@@ -106,6 +100,15 @@ class CurrentMcpServer(
             // Phase 3: Context
             GetContextTool()
         )
+
+        // Configure MCP server
+        val serverName = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator-current"
+        val toolNames = tools.joinToString(", ") { it.name }
+        val server = configureServer(serverName, tools.size, toolNames)
+        mcpSdkServer = server
+
+        // Register MCP tools
+        val adapter = McpToolAdapter()
         adapter.registerToolsWithServer(server, tools, toolContext)
         logger.info("Registered ${tools.size} MCP tools")
 
@@ -129,6 +132,15 @@ class CurrentMcpServer(
         mcpSdkServer?.close()
     }
 
+    private fun registerCommonCleanup(server: Server) {
+        shutdownCoordinator?.addCleanupAction("Close MCP Server") {
+            runBlocking { server.close() }
+        }
+        shutdownCoordinator?.addCleanupAction("Close Database") {
+            databaseManager.shutdown()
+        }
+    }
+
     private suspend fun runStdioTransport(server: Server, serverName: String, toolCount: Int) {
         logger.info("Starting MCP server with stdio transport...")
 
@@ -137,12 +149,7 @@ class CurrentMcpServer(
             outputStream = System.out.asSink().buffered()
         )
 
-        shutdownCoordinator?.addCleanupAction("Close MCP Server") {
-            runBlocking { server.close() }
-        }
-        shutdownCoordinator?.addCleanupAction("Close Database") {
-            databaseManager.shutdown()
-        }
+        registerCommonCleanup(server)
 
         val done = Job()
         server.onClose {
@@ -176,11 +183,11 @@ class CurrentMcpServer(
             ktorServer.stop(gracePeriodMillis = 1000, timeoutMillis = 5000)
             done.complete()
         }
-        shutdownCoordinator?.addCleanupAction("Close MCP Server") {
-            runBlocking { server.close() }
-        }
-        shutdownCoordinator?.addCleanupAction("Close Database") {
-            databaseManager.shutdown()
+        registerCommonCleanup(server)
+
+        server.onClose {
+            logger.info("Server closed")
+            if (shutdownCoordinator == null) databaseManager.shutdown()
         }
 
         if (shutdownCoordinator == null) {
@@ -203,7 +210,7 @@ class CurrentMcpServer(
     /**
      * Configures the MCP SDK server with capabilities for tools, prompts, and resources.
      */
-    private fun configureServer(serverName: String): Server {
+    private fun configureServer(serverName: String, toolCount: Int, toolNames: String): Server {
         return Server(
             serverInfo = Implementation(
                 name = serverName,
@@ -217,7 +224,7 @@ class CurrentMcpServer(
                     logging = JsonObject(emptyMap())
                 )
             ),
-            instructions = "Current (v3) MCP Task Orchestrator — 13 tools: manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, advance_item, get_next_status, get_next_item, get_blocked_items, complete_tree, create_work_tree, get_context"
+            instructions = "Current (v3) MCP Task Orchestrator — $toolCount tools: $toolNames"
         )
     }
 }
