@@ -14,7 +14,6 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
 import java.time.Instant
 import java.util.UUID
 
@@ -23,8 +22,8 @@ import java.util.UUID
  */
 class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteRepository {
 
-    override suspend fun getById(id: UUID): Result<Note> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun getById(id: UUID): Result<Note> =
+        databaseManager.suspendedTransaction("Failed to get Note by id") {
             val row = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
             if (row != null) {
                 Result.Success(mapRowToNote(row))
@@ -32,13 +31,10 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
                 Result.Error(RepositoryError.NotFound(id, "Note not found with id: $id"))
             }
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to get Note by id: ${e.message}", e))
-    }
 
-    override suspend fun upsert(note: Note): Result<Note> = try {
-        note.validate()
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun upsert(note: Note): Result<Note> =
+        databaseManager.suspendedTransaction("Failed to upsert Note") {
+            note.validate()
             // Check if a note with the same (itemId, key) already exists
             val existing = NotesTable.selectAll()
                 .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
@@ -69,30 +65,21 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
                 Result.Success(note)
             }
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to upsert Note: ${e.message}", e))
-    }
 
-    override suspend fun delete(id: UUID): Result<Boolean> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun delete(id: UUID): Result<Boolean> =
+        databaseManager.suspendedTransaction("Failed to delete Note") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.id eq id }
             Result.Success(deletedCount > 0)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to delete Note: ${e.message}", e))
-    }
 
-    override suspend fun deleteByItemId(itemId: UUID): Result<Int> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun deleteByItemId(itemId: UUID): Result<Int> =
+        databaseManager.suspendedTransaction("Failed to delete Notes by itemId") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.itemId eq itemId }
             Result.Success(deletedCount)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to delete Notes by itemId: ${e.message}", e))
-    }
 
-    override suspend fun findByItemId(itemId: UUID, role: String?): Result<List<Note>> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun findByItemId(itemId: UUID, role: String?): Result<List<Note>> =
+        databaseManager.suspendedTransaction("Failed to find Notes by itemId") {
             val notes = if (role != null) {
                 NotesTable.selectAll()
                     .where { (NotesTable.itemId eq itemId) and (NotesTable.role eq role) }
@@ -102,34 +89,24 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
             }.map { mapRowToNote(it) }
             Result.Success(notes)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to find Notes by itemId: ${e.message}", e))
-    }
 
     override suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
-        return try {
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                val notes = NotesTable.selectAll()
-                    .where { NotesTable.itemId inList itemIds }
-                    .map { mapRowToNote(it) }
-                Result.Success(notes.groupBy { it.itemId })
-            }
-        } catch (e: Exception) {
-            Result.Error(RepositoryError.DatabaseError("Failed to find Notes by itemIds: ${e.message}", e))
+        return databaseManager.suspendedTransaction("Failed to find Notes by itemIds") {
+            val notes = NotesTable.selectAll()
+                .where { NotesTable.itemId inList itemIds }
+                .map { mapRowToNote(it) }
+            Result.Success(notes.groupBy { it.itemId })
         }
     }
 
-    override suspend fun findByItemIdAndKey(itemId: UUID, key: String): Result<Note?> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun findByItemIdAndKey(itemId: UUID, key: String): Result<Note?> =
+        databaseManager.suspendedTransaction("Failed to find Note by itemId and key") {
             val row = NotesTable.selectAll()
                 .where { (NotesTable.itemId eq itemId) and (NotesTable.key eq key) }
                 .singleOrNull()
             Result.Success(row?.let { mapRowToNote(it) })
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to find Note by itemId and key: ${e.message}", e))
-    }
 
     private fun mapRowToNote(row: ResultRow): Note {
         return Note(

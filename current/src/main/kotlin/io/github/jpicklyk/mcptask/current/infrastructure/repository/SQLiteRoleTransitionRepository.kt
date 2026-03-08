@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -15,7 +14,6 @@ import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
 import java.time.Instant
 import java.util.UUID
 
@@ -24,8 +22,8 @@ import java.util.UUID
  */
 class SQLiteRoleTransitionRepository(private val databaseManager: DatabaseManager) : RoleTransitionRepository {
 
-    override suspend fun create(transition: RoleTransition): Result<RoleTransition> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun create(transition: RoleTransition): Result<RoleTransition> =
+        databaseManager.suspendedTransaction("Failed to create RoleTransition") {
             RoleTransitionsTable.insert {
                 it[id] = transition.id
                 it[itemId] = transition.itemId
@@ -39,12 +37,9 @@ class SQLiteRoleTransitionRepository(private val databaseManager: DatabaseManage
             }
             Result.Success(transition)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to create RoleTransition: ${e.message}", e))
-    }
 
-    override suspend fun findByItemId(itemId: UUID, limit: Int): Result<List<RoleTransition>> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun findByItemId(itemId: UUID, limit: Int): Result<List<RoleTransition>> =
+        databaseManager.suspendedTransaction("Failed to find RoleTransitions by itemId") {
             val transitions = RoleTransitionsTable.selectAll()
                 .where { RoleTransitionsTable.itemId eq itemId }
                 .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
@@ -52,17 +47,14 @@ class SQLiteRoleTransitionRepository(private val databaseManager: DatabaseManage
                 .map { mapRowToRoleTransition(it) }
             Result.Success(transitions)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to find RoleTransitions by itemId: ${e.message}", e))
-    }
 
     override suspend fun findByTimeRange(
         startTime: Instant,
         endTime: Instant,
         role: String?,
         limit: Int
-    ): Result<List<RoleTransition>> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    ): Result<List<RoleTransition>> =
+        databaseManager.suspendedTransaction("Failed to find RoleTransitions by time range") {
             var query = RoleTransitionsTable.selectAll().where {
                 (RoleTransitionsTable.transitionedAt greaterEq startTime) and
                         (RoleTransitionsTable.transitionedAt lessEq endTime)
@@ -80,12 +72,9 @@ class SQLiteRoleTransitionRepository(private val databaseManager: DatabaseManage
                 .map { mapRowToRoleTransition(it) }
             Result.Success(transitions)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to find RoleTransitions by time range: ${e.message}", e))
-    }
 
-    override suspend fun findSince(since: Instant, limit: Int): Result<List<RoleTransition>> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun findSince(since: Instant, limit: Int): Result<List<RoleTransition>> =
+        databaseManager.suspendedTransaction("Failed to find transitions since $since") {
             val results = RoleTransitionsTable.selectAll()
                 .where { RoleTransitionsTable.transitionedAt greaterEq since }
                 .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
@@ -93,18 +82,12 @@ class SQLiteRoleTransitionRepository(private val databaseManager: DatabaseManage
                 .map { mapRowToRoleTransition(it) }
             Result.Success(results)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to find transitions since $since: ${e.message}", e))
-    }
 
-    override suspend fun deleteByItemId(itemId: UUID): Result<Int> = try {
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+    override suspend fun deleteByItemId(itemId: UUID): Result<Int> =
+        databaseManager.suspendedTransaction("Failed to delete RoleTransitions by itemId") {
             val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }
             Result.Success(deletedCount)
         }
-    } catch (e: Exception) {
-        Result.Error(RepositoryError.DatabaseError("Failed to delete RoleTransitions by itemId: ${e.message}", e))
-    }
 
     private fun mapRowToRoleTransition(row: ResultRow): RoleTransition {
         return RoleTransition(

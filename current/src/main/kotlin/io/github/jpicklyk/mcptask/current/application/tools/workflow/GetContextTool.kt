@@ -91,7 +91,7 @@ Parameters:
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val itemId = extractUUID(params, "itemId", required = false)
         val sinceInstant = parseInstant(params, "since")
-        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
         val transitionLimit = params.jsonObject["limit"]?.jsonPrimitive?.intOrNull?.coerceIn(1, 200) ?: 50
 
         return when {
@@ -128,7 +128,7 @@ Parameters:
             is Result.Error -> emptyList()
         }
         val notesByKey = notes.associateBy { it.key }
-        val currentRoleStr = item.role.name.lowercase()
+        val currentRoleStr = item.role.toJsonString()
 
         // Build schema list with exists/filled status
         val schemaEntries = schema?.map { entry ->
@@ -165,7 +165,7 @@ Parameters:
             put("item", buildJsonObject {
                 put("id", JsonPrimitive(item.id.toString()))
                 put("title", JsonPrimitive(item.title))
-                put("role", JsonPrimitive(item.role.name.lowercase()))
+                put("role", JsonPrimitive(item.role.toJsonString()))
                 item.tags?.let { put("tags", JsonPrimitive(it)) }
                 put("depth", JsonPrimitive(item.depth))
                 if (includeAncestors) put("ancestors", ancestorsJson)
@@ -244,7 +244,7 @@ Parameters:
                 buildJsonObject {
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
+                    put("role", JsonPrimitive(item.role.toJsonString()))
                     item.tags?.let { put("tags", JsonPrimitive(it)) }
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
@@ -262,7 +262,7 @@ Parameters:
                 buildJsonObject {
                     put("id", JsonPrimitive(entry.item.id.toString()))
                     put("title", JsonPrimitive(entry.item.title))
-                    put("role", JsonPrimitive(entry.item.role.name.lowercase()))
+                    put("role", JsonPrimitive(entry.item.role.toJsonString()))
                     put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
                     // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
                     if (entry.guidancePointer != null) put("guidancePointer", JsonPrimitive(entry.guidancePointer))
@@ -315,7 +315,7 @@ Parameters:
                 buildJsonObject {
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
+                    put("role", JsonPrimitive(item.role.toJsonString()))
                     item.tags?.let { put("tags", JsonPrimitive(it)) }
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
@@ -324,7 +324,7 @@ Parameters:
                 buildJsonObject {
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
+                    put("role", JsonPrimitive(item.role.toJsonString()))
                     if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
                 }
             }))
@@ -332,7 +332,7 @@ Parameters:
                 buildJsonObject {
                     put("id", JsonPrimitive(entry.item.id.toString()))
                     put("title", JsonPrimitive(entry.item.title))
-                    put("role", JsonPrimitive(entry.item.role.name.lowercase()))
+                    put("role", JsonPrimitive(entry.item.role.toJsonString()))
                     put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
                     // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
                     if (entry.guidancePointer != null) put("guidancePointer", JsonPrimitive(entry.guidancePointer))

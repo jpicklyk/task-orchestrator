@@ -120,8 +120,8 @@ Read-only status progression recommendation for a WorkItem.
                     val effectiveTotal = if (hasReviewPhase) Role.PROGRESSION.size else Role.PROGRESSION.size - 1
                     successResponse(buildJsonObject {
                         put("recommendation", JsonPrimitive("Ready"))
-                        put("currentRole", JsonPrimitive(item.role.name.lowercase()))
-                        put("nextRole", JsonPrimitive(targetRole.name.lowercase()))
+                        put("currentRole", JsonPrimitive(item.role.toJsonString()))
+                        put("nextRole", JsonPrimitive(targetRole.toJsonString()))
                         put("trigger", JsonPrimitive("start"))
                         put("progressionPosition", JsonPrimitive("${position + 1}/$effectiveTotal"))
                     })
@@ -129,11 +129,11 @@ Read-only status progression recommendation for a WorkItem.
                     // Blocked by dependencies
                     successResponse(buildJsonObject {
                         put("recommendation", JsonPrimitive("Blocked"))
-                        put("currentRole", JsonPrimitive(item.role.name.lowercase()))
+                        put("currentRole", JsonPrimitive(item.role.toJsonString()))
                         put("blockers", JsonArray(validation.blockers.map { blocker ->
                             buildJsonObject {
                                 put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                put("currentRole", JsonPrimitive(blocker.currentRole.name.lowercase()))
+                                put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
                                 put("requiredRole", JsonPrimitive(blocker.requiredRole))
                             }
                         }))
