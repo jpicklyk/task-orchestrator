@@ -1,6 +1,6 @@
 ---
 name: session-retrospective
-description: "Analyze the current implementation run — evaluate schema effectiveness, delegation alignment, note quality, plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run'."
+description: "Analyze the current implementation run — evaluate schema effectiveness, delegation alignment, note quality, plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use when the output style's retrospective nudge fires after complete_tree."
 argument-hint: "[optional: --dry-run to preview without creating items]"
 ---
 
@@ -31,10 +31,15 @@ Parse the JSON manifest. Extract: `runId`, `scope`, `delegations`, `schemaIntera
 
 ```
 get_context() — active, blocked, stalled items
-query_items(operation="search", role="terminal", limit=50) — recently completed items
+query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20) — recently completed items
 ```
 
-Build a synthetic scope from items that appear to have been touched in this session. Note in the report: `**Fallback mode** — no run manifest found. Analysis based on MCP state queries.`
+Build a synthetic scope from items modified today (compare `modifiedAt` to current date). Discard items that appear stale. Note in the report: `**Fallback mode** — no run manifest found. Analysis based on MCP state queries.`
+
+**If neither manifest nor fallback produces any items in scope:** Exit early with:
+```
+◆ No implementation run data found. Nothing to retrospect — run `/implement` first, then try again.
+```
 
 ---
 
@@ -109,7 +114,7 @@ Identify themes across entries (e.g., "3 friction entries related to gate failur
 
 ## Step 4 — Check Trend Memory
 
-Read the auto memory file at `C:/Users/jeff_/.claude/projects/D--Projects-task-orchestrator/memory/retrospectives.md` (file read, not MCP call).
+Read the trend memory file `memory/retrospectives.md` from the auto memory directory (file read, not MCP call). The auto memory path is shown at session start — typically `~/.claude/projects/<project-key>/memory/`.
 
 **If the file does not exist:** This is the first retrospective. Skip trend comparison — all findings are new baselines.
 
@@ -180,13 +185,7 @@ manage_notes(operation="upsert", notes=[
 
 ### 5d. Advance to terminal
 
-The retrospective is a write-once artifact. Advance through all gates to terminal:
-
-```
-advance_item(transitions=[{itemId: "<retro-uuid>", trigger: "start"}])
-```
-
-Then:
+The retrospective is a write-once artifact — all notes are queue-phase, so after filling them there are no further gates. Complete directly:
 
 ```
 complete_tree(itemIds=["<retro-uuid>"], trigger="complete")
@@ -198,7 +197,7 @@ complete_tree(itemIds=["<retro-uuid>"], trigger="complete")
 
 **Skip entirely in dry-run mode.**
 
-Read `C:/Users/jeff_/.claude/projects/D--Projects-task-orchestrator/memory/retrospectives.md`. Update each section:
+Read `memory/retrospectives.md` from the auto memory directory. Update each section:
 
 - **Schema Effectiveness:** Add or update entries from dimension 3a findings. Format: `- <schema-note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
 - **Delegation Patterns:** Add or update from dimension 3b. Format: `- <pattern>. Sessions: N. Last seen: YYYY-MM-DD`
