@@ -35,7 +35,7 @@ If `get_context` returns no `noteSchema` for a tagged item, schemas may not be c
 
 Set via the `model` parameter on the Agent tool. Default inherits orchestrator model — always override for haiku-eligible work.
 
-**Rule: Never make 3+ MCP calls in a single turn.** Use the Agent tool with `model: "haiku"` to delegate bulk MCP work (multiple item/dependency/note creates) and keep the orchestrator context clean.
+**Rule: Never make 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged. Use the Agent tool with `model: "haiku"` to delegate bulk MCP write work (multiple item/dependency/note creates) and keep the orchestrator context clean.
 
 Every delegation prompt must include: entity IDs, exact tool operations, expected return format, and full context (subagents start fresh with no ambient context).
 
