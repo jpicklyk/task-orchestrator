@@ -77,7 +77,7 @@ class UpdateItemHandler(
                 val newStatusLabel = extractItemStringAllowNull(itemObj, "statusLabel", existing.statusLabel)
                 val newPriorityStr = extractItemString(itemObj, "priority")
                 val newComplexity = extractItemInt(itemObj, "complexity")
-                val newRequiresVerification = itemObj["requiresVerification"]?.let { (it as? JsonPrimitive)?.booleanOrNull }
+                val newRequiresVerification = extractItemBoolean(itemObj, "requiresVerification")
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
 

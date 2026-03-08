@@ -38,6 +38,17 @@ internal fun extractItemStringAllowNull(obj: JsonObject, name: String, existing:
 /**
  * Extracts an integer field from a JsonObject item. Returns null if absent or not parseable.
  */
+/**
+ * Extracts a boolean field from a JsonObject item. Returns null if absent or not parseable.
+ */
+internal fun extractItemBoolean(obj: JsonObject, name: String): Boolean? {
+    val value = obj[name] as? JsonPrimitive ?: return null
+    return value.booleanOrNull ?: value.content.toBooleanStrictOrNull()
+}
+
+/**
+ * Extracts an integer field from a JsonObject item. Returns null if absent or not parseable.
+ */
 internal fun extractItemInt(obj: JsonObject, name: String): Int? {
     val value = obj[name] as? JsonPrimitive ?: return null
     return try {

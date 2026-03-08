@@ -50,7 +50,7 @@ class CreateItemHandler(
                 val statusLabel = extractItemString(itemObj, "statusLabel")
                 val priorityStr = extractItemString(itemObj, "priority")
                 val complexity = extractItemInt(itemObj, "complexity")
-                val requiresVerification = itemObj["requiresVerification"]?.let { (it as? JsonPrimitive)?.booleanOrNull } ?: false
+                val requiresVerification = extractItemBoolean(itemObj, "requiresVerification") ?: false
                 val metadata = extractItemString(itemObj, "metadata")
                 val tags = extractItemString(itemObj, "tags")
 

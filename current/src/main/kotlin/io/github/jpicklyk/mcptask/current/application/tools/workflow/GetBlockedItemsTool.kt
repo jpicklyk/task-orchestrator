@@ -101,7 +101,7 @@ Items in TERMINAL role are never included.
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val parentId = extractUUID(params, "parentId", required = false)
         val includeDetails = optionalBoolean(params, "includeItemDetails", false)
-        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
         val workItemRepo = context.workItemRepository()
         val depRepo = context.dependencyRepository()

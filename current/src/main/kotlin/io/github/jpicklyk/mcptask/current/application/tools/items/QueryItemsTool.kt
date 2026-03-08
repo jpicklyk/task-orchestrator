@@ -237,7 +237,7 @@ Operations: get, search, overview
 
     private suspend fun executeGet(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val idStr = requireString(params, "id")
-        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
         // Try parsing as a full UUID first (fast path — avoids prefix resolution overhead)
         val item = if (idStr.length == 36) {
@@ -340,8 +340,8 @@ Operations: get, search, overview
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
         val limit = optionalInt(params, "limit") ?: 50
-        val offset = params.jsonObject["offset"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
-        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
+        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
         // Parse role
         val role = roleStr?.let {

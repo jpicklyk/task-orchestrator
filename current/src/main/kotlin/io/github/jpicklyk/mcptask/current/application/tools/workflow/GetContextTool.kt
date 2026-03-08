@@ -91,7 +91,7 @@ Parameters:
     override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
         val itemId = extractUUID(params, "itemId", required = false)
         val sinceInstant = parseInstant(params, "since")
-        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
         val transitionLimit = params.jsonObject["limit"]?.jsonPrimitive?.intOrNull?.coerceIn(1, 200) ?: 50
 
         return when {

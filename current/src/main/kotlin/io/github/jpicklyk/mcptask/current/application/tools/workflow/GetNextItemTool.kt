@@ -78,7 +78,7 @@ Parameters:
         val parentId = extractUUID(params, "parentId", required = false)
         val limit = optionalInt(params, "limit") ?: 1
         val includeDetails = optionalBoolean(params, "includeDetails", defaultValue = false)
-        val includeAncestors = params.jsonObject["includeAncestors"]?.jsonPrimitive?.booleanOrNull ?: false
+        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
         val workItemRepo = context.workItemRepository()
         val dependencyRepo = context.dependencyRepository()

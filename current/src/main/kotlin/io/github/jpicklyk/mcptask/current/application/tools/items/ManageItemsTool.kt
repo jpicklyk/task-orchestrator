@@ -143,7 +143,7 @@ Unified write operations for WorkItems (create, update, delete).
             )
             "delete" -> deleteHandler.execute(
                 requireJsonArray(params, "ids"),
-                params.jsonObject["recursive"]?.jsonPrimitive?.booleanOrNull ?: false,
+                optionalBoolean(params, "recursive", false),
                 context
             )
             else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
