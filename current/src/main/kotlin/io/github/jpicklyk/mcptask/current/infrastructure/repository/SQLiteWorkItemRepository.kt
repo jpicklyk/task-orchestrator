@@ -41,7 +41,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         databaseManager.suspendedTransaction("Failed to get WorkItem by id") {
             val row = WorkItemsTable.selectAll().where { WorkItemsTable.id eq id }.singleOrNull()
             if (row != null) {
-                Result.Success(mapRowToWorkItem(row))
+                Result.Success(toWorkItem(row))
             } else {
                 Result.Error(RepositoryError.NotFound(id, "WorkItem not found with id: $id"))
             }
@@ -120,7 +120,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val items = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.parentId eq parentId }
                 .limit(limit)
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -129,7 +129,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val items = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.role eq role.name.lowercase() }
                 .limit(limit)
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -138,7 +138,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val items = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.depth eq depth }
                 .limit(limit)
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -147,7 +147,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val row = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.parentId.isNull() and (WorkItemsTable.depth eq 0) }
                 .singleOrNull()
-            Result.Success(row?.let { mapRowToWorkItemSafe(it) })
+            Result.Success(row?.let { toWorkItemOrNull(it) })
         }
 
     override suspend fun search(query: String, limit: Int): Result<List<WorkItem>> =
@@ -158,7 +158,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                     (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
                 }
                 .limit(limit)
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -172,7 +172,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         databaseManager.suspendedTransaction("Failed to find children of WorkItem") {
             val items = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.parentId eq parentId }
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -218,7 +218,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                 .orderBy(sortColumn, order)
                 .limit(limit)
                 .offset(offset.coerceAtLeast(0).toLong())
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
 
             Result.Success(items)
         }
@@ -251,7 +251,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         databaseManager.suspendedTransaction("Failed to count children by role") {
             val counts = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.parentId eq parentId }
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
                 .groupBy { it.role }
                 .mapValues { (_, items) -> items.size }
             Result.Success(counts)
@@ -262,7 +262,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val items = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.parentId.isNull() }
                 .limit(limit)
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -276,7 +276,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                 val current = queue.removeFirst()
                 val children = WorkItemsTable.selectAll()
                     .where { WorkItemsTable.parentId eq current }
-                    .mapNotNull { mapRowToWorkItemSafe(it) }
+                    .mapNotNull { toWorkItemOrNull(it) }
                 results.addAll(children)
                 queue.addAll(children.map { it.id })
             }
@@ -291,7 +291,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             Result.Success(
                 WorkItemsTable.selectAll()
                     .where { WorkItemsTable.id inList entityIds }
-                    .mapNotNull { mapRowToWorkItemSafe(it) }
+                    .mapNotNull { toWorkItemOrNull(it) }
             )
         }
     }
@@ -316,7 +316,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                     WorkItemsTable.id.castTo<String>(VarCharColumnType(36)).like("$formattedPrefix%")
                 }
                 .limit(limit)
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
     }
@@ -349,7 +349,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val inputEntityIds = itemIds.map { EntityID(it, WorkItemsTable) }
             val inputItems = WorkItemsTable.selectAll()
                 .where { WorkItemsTable.id inList inputEntityIds }
-                .mapNotNull { mapRowToWorkItemSafe(it) }
+                .mapNotNull { toWorkItemOrNull(it) }
             inputItems.forEach { cache[it.id.toString()] = it }
 
             // BFS upward: collect all parentIds that need fetching
@@ -358,7 +358,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
                 val fetchEntityIds = toFetch.map { EntityID(UUID.fromString(it), WorkItemsTable) }
                 val fetched = WorkItemsTable.selectAll()
                     .where { WorkItemsTable.id inList fetchEntityIds }
-                    .mapNotNull { mapRowToWorkItemSafe(it) }
+                    .mapNotNull { toWorkItemOrNull(it) }
                 fetched.forEach { cache[it.id.toString()] = it }
                 toFetch = fetched.mapNotNull { it.parentId }.map { it.toString() }.toSet() - cache.keys
             }
@@ -445,7 +445,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         }.reduce { acc, op -> acc or op }
     }
 
-    private fun mapRowToWorkItem(row: ResultRow): WorkItem {
+    private fun toWorkItem(row: ResultRow): WorkItem {
         return WorkItem(
             id = row[WorkItemsTable.id].value,
             parentId = row[WorkItemsTable.parentId],
@@ -469,15 +469,15 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
     }
 
     /**
-     * Safe variant of [mapRowToWorkItem] for bulk-read operations.
+     * Safe variant of [toWorkItem] that returns null on failure, for bulk-read operations.
      *
      * Returns null and logs a warning if a row contains data that fails domain validation
      * (e.g. an oversized title written by an older version of the server). This prevents
      * a single corrupt row from crashing an entire list query.
      */
-    private fun mapRowToWorkItemSafe(row: ResultRow): WorkItem? {
+    private fun toWorkItemOrNull(row: ResultRow): WorkItem? {
         return try {
-            mapRowToWorkItem(row)
+            toWorkItem(row)
         } catch (e: Exception) {
             logger.warn(
                 "Skipping corrupt WorkItem row (id={}): {}",
