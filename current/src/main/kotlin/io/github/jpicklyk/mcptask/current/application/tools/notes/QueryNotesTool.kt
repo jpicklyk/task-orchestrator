@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -130,7 +129,7 @@ Read-only query operations for Notes (get, list).
 
         return when (val result = noteRepo.getById(id)) {
             is Result.Success -> {
-                successResponse(noteToJson(result.data))
+                successResponse(result.data.toJson())
             }
             is Result.Error -> {
                 errorResponse(
@@ -156,7 +155,7 @@ Read-only query operations for Notes (get, list).
             is Result.Success -> {
                 val notes = result.data
                 val data = buildJsonObject {
-                    put("notes", JsonArray(notes.map { noteToJson(it, includeBody) }))
+                    put("notes", JsonArray(notes.map { it.toJson(includeBody) }))
                     put("total", JsonPrimitive(notes.size))
                 }
                 successResponse(data)
@@ -171,17 +170,4 @@ Read-only query operations for Notes (get, list).
         }
     }
 
-    // ──────────────────────────────────────────────
-    // JSON serialization helper
-    // ──────────────────────────────────────────────
-
-    private fun noteToJson(note: Note, includeBody: Boolean = true): JsonObject = buildJsonObject {
-        put("id", JsonPrimitive(note.id.toString()))
-        put("itemId", JsonPrimitive(note.itemId.toString()))
-        put("key", JsonPrimitive(note.key))
-        put("role", JsonPrimitive(note.role))
-        if (includeBody) put("body", JsonPrimitive(note.body))
-        put("createdAt", JsonPrimitive(note.createdAt.toString()))
-        put("modifiedAt", JsonPrimitive(note.modifiedAt.toString()))
-    }
 }

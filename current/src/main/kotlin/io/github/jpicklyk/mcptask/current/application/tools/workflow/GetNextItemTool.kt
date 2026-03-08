@@ -128,8 +128,8 @@ Parameters:
                 buildJsonObject {
                     put("itemId", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
-                    put("priority", JsonPrimitive(item.priority.name.lowercase()))
+                    put("role", JsonPrimitive(item.role.toJsonString()))
+                    put("priority", JsonPrimitive(item.priority.toJsonString()))
                     put("complexity", JsonPrimitive(item.complexity))
                     if (includeDetails) {
                         put("summary", JsonPrimitive(item.summary))

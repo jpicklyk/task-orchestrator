@@ -305,7 +305,7 @@ Operations: get, search, overview
             }
         }
 
-        val itemJson = workItemToJson(item)
+        val itemJson = item.toFullJson()
 
         return if (includeAncestors) {
             val chains = context.workItemRepository().findAncestorChains(setOf(item.id))
@@ -409,13 +409,13 @@ Operations: get, search, overview
                     put("items", JsonArray(items.map { item ->
                         if (includeAncestors) {
                             val ancestors = chains[item.id] ?: emptyList()
-                            val minimalJson = workItemToMinimalJson(item)
+                            val minimalJson = item.toMinimalJson()
                             buildJsonObject {
                                 minimalJson.forEach { (k, v) -> put(k, v) }
                                 put("ancestors", buildAncestorsArray(ancestors))
                             }
                         } else {
-                            workItemToMinimalJson(item)
+                            item.toMinimalJson()
                         }
                     }))
                     put("total", JsonPrimitive(totalCount))
@@ -475,9 +475,9 @@ Operations: get, search, overview
         }
 
         val data = buildJsonObject {
-            put("item", workItemToJson(item))
-            put("childCounts", roleCounToJson(childCounts))
-            put("children", JsonArray(children.map { workItemToMinimalJson(it) }))
+            put("item", item.toFullJson())
+            put("childCounts", roleCountToJson(childCounts))
+            put("children", JsonArray(children.map { it.toMinimalJson() }))
         }
 
         return successResponse(data)
@@ -506,9 +506,9 @@ Operations: get, search, overview
             buildJsonObject {
                 put("id", JsonPrimitive(item.id.toString()))
                 put("title", JsonPrimitive(item.title))
-                put("role", JsonPrimitive(item.role.name.lowercase()))
-                put("priority", JsonPrimitive(item.priority.name.lowercase()))
-                put("childCounts", roleCounToJson(childCounts))
+                put("role", JsonPrimitive(item.role.toJsonString()))
+                put("priority", JsonPrimitive(item.priority.toJsonString()))
+                put("childCounts", roleCountToJson(childCounts))
                 if (includeChildren) {
                     val children = when (val result = context.workItemRepository().findChildren(item.id)) {
                         is Result.Success -> result.data
@@ -518,7 +518,7 @@ Operations: get, search, overview
                         buildJsonObject {
                             put("id", JsonPrimitive(child.id.toString()))
                             put("title", JsonPrimitive(child.title))
-                            put("role", JsonPrimitive(child.role.name.lowercase()))
+                            put("role", JsonPrimitive(child.role.toJsonString()))
                             put("depth", JsonPrimitive(child.depth))
                         }
                     }))
@@ -534,42 +534,4 @@ Operations: get, search, overview
         return successResponse(data)
     }
 
-    // ──────────────────────────────────────────────
-    // JSON serialization helpers
-    // ──────────────────────────────────────────────
-
-    private fun workItemToJson(item: WorkItem): JsonObject = buildJsonObject {
-        put("id", JsonPrimitive(item.id.toString()))
-        item.parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
-        put("title", JsonPrimitive(item.title))
-        item.description?.let { put("description", JsonPrimitive(it)) }
-        put("summary", JsonPrimitive(item.summary))
-        put("role", JsonPrimitive(item.role.name.lowercase()))
-        item.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-        item.previousRole?.let { put("previousRole", JsonPrimitive(it.name.lowercase())) }
-        put("priority", JsonPrimitive(item.priority.name.lowercase()))
-        put("complexity", JsonPrimitive(item.complexity))
-        put("depth", JsonPrimitive(item.depth))
-        item.metadata?.let { put("metadata", JsonPrimitive(it)) }
-        item.tags?.let { put("tags", JsonPrimitive(it)) }
-        put("createdAt", JsonPrimitive(item.createdAt.toString()))
-        put("modifiedAt", JsonPrimitive(item.modifiedAt.toString()))
-        put("roleChangedAt", JsonPrimitive(item.roleChangedAt.toString()))
-    }
-
-    private fun workItemToMinimalJson(item: WorkItem): JsonObject = buildJsonObject {
-        put("id", JsonPrimitive(item.id.toString()))
-        item.parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
-        put("title", JsonPrimitive(item.title))
-        put("role", JsonPrimitive(item.role.name.lowercase()))
-        put("priority", JsonPrimitive(item.priority.name.lowercase()))
-        put("depth", JsonPrimitive(item.depth))
-        item.tags?.let { put("tags", JsonPrimitive(it)) }
-    }
-
-    private fun roleCounToJson(counts: Map<Role, Int>): JsonObject = buildJsonObject {
-        for (role in Role.entries) {
-            put(role.name.lowercase(), JsonPrimitive(counts[role] ?: 0))
-        }
-    }
 }

@@ -314,7 +314,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val rootJson = buildJsonObject {
             put("id", JsonPrimitive(rootResultItem.id.toString()))
             put("title", JsonPrimitive(rootResultItem.title))
-            put("role", JsonPrimitive(rootResultItem.role.name.lowercase()))
+            put("role", JsonPrimitive(rootResultItem.role.toJsonString()))
             put("depth", JsonPrimitive(rootResultItem.depth))
             rootResultItem.tags?.let { put("tags", JsonPrimitive(it)) }
             // Add expectedNotes from schema
@@ -342,7 +342,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                     put("ref", JsonPrimitive(ref))
                     put("id", JsonPrimitive(item.id.toString()))
                     put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.name.lowercase()))
+                    put("role", JsonPrimitive(item.role.toJsonString()))
                     put("depth", JsonPrimitive(item.depth))
                     item.tags?.let { put("tags", JsonPrimitive(it)) }
                     // Add expectedNotes from schema

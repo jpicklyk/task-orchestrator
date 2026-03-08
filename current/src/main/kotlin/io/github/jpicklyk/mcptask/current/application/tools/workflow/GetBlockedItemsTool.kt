@@ -256,7 +256,7 @@ Items in TERMINAL role are never included.
             buildJsonObject {
                 put("itemId", JsonPrimitive(info.blockerItemId.toString()))
                 put("title", JsonPrimitive(blockerItem?.title ?: "Unknown"))
-                put("role", JsonPrimitive(blockerRole.name.lowercase()))
+                put("role", JsonPrimitive(blockerRole.toJsonString()))
                 info.unblockAt?.let { put("unblockAt", JsonPrimitive(it)) }
                 info.effectiveUnblockRole?.let { put("effectiveUnblockRole", JsonPrimitive(it)) }
                 put("satisfied", JsonPrimitive(satisfied))
@@ -279,8 +279,8 @@ Items in TERMINAL role are never included.
         return buildJsonObject {
             put("itemId", JsonPrimitive(item.id.toString()))
             put("title", JsonPrimitive(item.title))
-            put("role", JsonPrimitive(item.role.name.lowercase()))
-            put("priority", JsonPrimitive(item.priority.name.lowercase()))
+            put("role", JsonPrimitive(item.role.toJsonString()))
+            put("priority", JsonPrimitive(item.priority.toJsonString()))
             put("complexity", JsonPrimitive(item.complexity))
             put("blockType", JsonPrimitive(blockType))
             put("blockedBy", blockedBy)

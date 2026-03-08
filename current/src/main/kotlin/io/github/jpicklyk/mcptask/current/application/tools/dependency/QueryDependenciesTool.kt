@@ -179,8 +179,8 @@ Returns dependencies with counts breakdown and optional graph traversal data.
                     val item = fromResult.data
                     put("fromItem", buildJsonObject {
                         put("title", JsonPrimitive(item.title))
-                        put("role", JsonPrimitive(item.role.name.lowercase()))
-                        put("priority", JsonPrimitive(item.priority.name.lowercase()))
+                        put("role", JsonPrimitive(item.role.toJsonString()))
+                        put("priority", JsonPrimitive(item.priority.toJsonString()))
                     })
                 }
                 is Result.Error -> { /* item may have been deleted; skip */ }
@@ -192,8 +192,8 @@ Returns dependencies with counts breakdown and optional graph traversal data.
                     val item = toResult.data
                     put("toItem", buildJsonObject {
                         put("title", JsonPrimitive(item.title))
-                        put("role", JsonPrimitive(item.role.name.lowercase()))
-                        put("priority", JsonPrimitive(item.priority.name.lowercase()))
+                        put("role", JsonPrimitive(item.role.toJsonString()))
+                        put("priority", JsonPrimitive(item.priority.toJsonString()))
                     })
                 }
                 is Result.Error -> { /* item may have been deleted; skip */ }

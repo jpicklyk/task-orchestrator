@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValid
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -130,8 +131,8 @@ class CreateItemHandler(
                             put("id", JsonPrimitive(result.data.id.toString()))
                             put("title", JsonPrimitive(result.data.title))
                             put("depth", JsonPrimitive(result.data.depth))
-                            put("role", JsonPrimitive(result.data.role.name.lowercase()))
-                            put("priority", JsonPrimitive(result.data.priority.name.lowercase()))
+                            put("role", JsonPrimitive(result.data.role.toJsonString()))
+                            put("priority", JsonPrimitive(result.data.priority.toJsonString()))
                             put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
                             if (createdTags != null) {
                                 put("tags", JsonPrimitive(createdTags))

@@ -181,7 +181,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     JsonArray(validation.blockers.map { blocker ->
                         buildJsonObject {
                             put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                            put("currentRole", JsonPrimitive(blocker.currentRole.name.lowercase()))
+                            put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
                             put("requiredRole", JsonPrimitive(blocker.requiredRole))
                         }
                     })
@@ -200,7 +200,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             if (trigger == "start") {
                 val schema = noteSchemaService.getSchemaForTags(itemTags)
                 if (schema != null) {
-                    val currentRoleStr = item.role.name.lowercase()
+                    val currentRoleStr = item.role.toJsonString()
                     val requiredForCurrentPhase = schema.filter { it.role == currentRoleStr && it.required }
                     if (requiredForCurrentPhase.isNotEmpty()) {
                         val notesResult = context.noteRepository().findByItemId(item.id)
@@ -307,8 +307,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     cascadeJsonList.add(buildJsonObject {
                         put("itemId", JsonPrimitive(event.itemId.toString()))
                         put("title", JsonPrimitive(parentItem.title))
-                        put("previousRole", JsonPrimitive(event.currentRole.name.lowercase()))
-                        put("targetRole", JsonPrimitive(event.targetRole.name.lowercase()))
+                        put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
+                        put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
                         put("applied", JsonPrimitive(cascadeApply.success))
                     })
 
@@ -354,7 +354,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Schema-driven response fields: expectedNotes, guidancePointer, noteProgress
             val schema = noteSchemaService.getSchemaForTags(itemTags)
-            val newRoleStr = targetRole.name.lowercase()
+            val newRoleStr = targetRole.toJsonString()
 
             // Only query notes when a schema exists (avoids unnecessary DB call)
             val expectedNotesJson: JsonArray
@@ -393,8 +393,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Build success result
             resultsList.add(buildJsonObject {
                 put("itemId", JsonPrimitive(itemId.toString()))
-                put("previousRole", JsonPrimitive(previousRole.name.lowercase()))
-                put("newRole", JsonPrimitive(targetRole.name.lowercase()))
+                put("previousRole", JsonPrimitive(previousRole.toJsonString()))
+                put("newRole", JsonPrimitive(targetRole.toJsonString()))
                 put("trigger", JsonPrimitive(trigger))
                 put("applied", JsonPrimitive(true))
                 if (summary != null) put("summary", JsonPrimitive(summary))
@@ -458,8 +458,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             cascadeJsonList.add(buildJsonObject {
                 put("itemId", JsonPrimitive(event.itemId.toString()))
                 put("title", JsonPrimitive(parentItem.title))
-                put("previousRole", JsonPrimitive(event.currentRole.name.lowercase()))
-                put("targetRole", JsonPrimitive(event.targetRole.name.lowercase()))
+                put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
+                put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
                 put("applied", JsonPrimitive(cascadeApply.success))
             })
         }
