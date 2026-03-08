@@ -849,4 +849,149 @@ class SchemaGatedLifecycleTest {
         assertResponseMatchesDb(r4, item.id)
         assertEquals(Role.WORK, getItem(item.id).role)
     }
+
+    // ──────────────────────────────────────────────
+    // 17. Cascade-to-TERMINAL blocked by parent's
+    //     schema gate (missing required notes)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade to terminal blocked when parent has schema with unfilled required notes`(): Unit = runBlocking {
+        // Parent with schema tag — has required notes across all phases
+        val parent = createItem("Gated parent", tags = "feature-implementation")
+        // Do NOT fill any parent notes
+
+        // Single child (schema-free, advances freely)
+        val child = createItem("Only child", parentId = parent.id)
+
+        // Advance child through to TERMINAL
+        transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+        assertEquals(Role.WORK, getItem(child.id).role)
+        // Parent should have start-cascaded to WORK
+        assertEquals(Role.WORK, getItem(parent.id).role)
+
+        val rComplete = transitionTool.execute(
+            buildTransitionParams(transitionObj(child.id, "start")),
+            context
+        )
+        assertTransitionSuccess(rComplete, "terminal")
+        assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+        // Parent should NOT have cascaded to TERMINAL (gate blocked)
+        assertEquals(Role.WORK, getItem(parent.id).role)
+
+        // Verify cascade event reports gate block
+        val results = extractResults(rComplete)
+        val r = results[0].jsonObject
+        val cascades = r["cascadeEvents"]!!.jsonArray
+        assertTrue(cascades.isNotEmpty(), "Expected a cascade event for parent")
+        val cascade = cascades[0].jsonObject
+        assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+        assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "Cascade should not have been applied")
+        assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean, "Cascade should report gateBlocked")
+        val missingNotes = cascade["missingNotes"]!!.jsonArray
+        assertTrue(missingNotes.isNotEmpty(), "Should report missing notes")
+        // All three required notes should be listed
+        val missingKeys = missingNotes.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+        assertTrue(missingKeys.contains("specification"), "Should list specification as missing")
+        assertTrue(missingKeys.contains("implementation-notes"), "Should list implementation-notes as missing")
+        assertTrue(missingKeys.contains("review-checklist"), "Should list review-checklist as missing")
+    }
+
+    // ──────────────────────────────────────────────
+    // 18. Cascade-to-TERMINAL succeeds when parent's
+    //     required notes are all filled
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade to terminal succeeds when parent has all required notes filled`(): Unit = runBlocking {
+        // Parent with schema tag — fill ALL required notes upfront
+        val parent = createItem("Fully noted parent", tags = "feature-implementation")
+        createNote(parent.id, key = "specification", role = "queue")
+        createNote(parent.id, key = "implementation-notes", role = "work")
+        createNote(parent.id, key = "review-checklist", role = "review")
+
+        // Single child (schema-free)
+        val child = createItem("Only child", parentId = parent.id)
+
+        // Advance child to TERMINAL
+        transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+        val rComplete = transitionTool.execute(
+            buildTransitionParams(transitionObj(child.id, "start")),
+            context
+        )
+        assertTransitionSuccess(rComplete, "terminal")
+        assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+        // Parent SHOULD have cascaded to TERMINAL (all notes filled)
+        assertEquals(Role.TERMINAL, getItem(parent.id).role)
+
+        // Verify cascade event reports success
+        val results = extractResults(rComplete)
+        val cascade = results[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+        assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "Cascade should have been applied")
+        assertNull(cascade["gateBlocked"], "Should not have gateBlocked field")
+    }
+
+    // ──────────────────────────────────────────────
+    // 19. Cascade-to-TERMINAL blocked with partially
+    //     filled notes on parent
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade to terminal blocked when parent has only some required notes filled`(): Unit = runBlocking {
+        // Parent with schema tag — fill only ONE of three required notes
+        val parent = createItem("Partial parent", tags = "feature-implementation")
+        createNote(parent.id, key = "specification", role = "queue")
+        // Missing: implementation-notes, review-checklist
+
+        // Single child (schema-free)
+        val child = createItem("Only child", parentId = parent.id)
+
+        // Advance child to TERMINAL
+        transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+        val rComplete = transitionTool.execute(
+            buildTransitionParams(transitionObj(child.id, "start")),
+            context
+        )
+        assertTransitionSuccess(rComplete, "terminal")
+
+        // Parent should NOT cascade to TERMINAL (missing notes)
+        assertEquals(Role.WORK, getItem(parent.id).role)
+
+        // Verify the cascade event reports exactly the missing notes
+        val cascade = extractResults(rComplete)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+        assertFalse(cascade["applied"]!!.jsonPrimitive.boolean)
+        assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean)
+        val missingKeys = cascade["missingNotes"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+        assertEquals(setOf("implementation-notes", "review-checklist"), missingKeys)
+    }
+
+    // ──────────────────────────────────────────────
+    // 20. Schema-free parent still cascades freely
+    //     (regression guard)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `schema-free parent cascades to terminal without gate check`(): Unit = runBlocking {
+        // Parent with NO schema tag
+        val parent = createItem("Schema-free parent")
+
+        // Single child (also schema-free)
+        val child = createItem("Child task", parentId = parent.id)
+
+        // Advance child to TERMINAL
+        transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+        val rComplete = transitionTool.execute(
+            buildTransitionParams(transitionObj(child.id, "start")),
+            context
+        )
+        assertTransitionSuccess(rComplete, "terminal")
+
+        // Parent should cascade to TERMINAL freely (no schema = no gate)
+        assertEquals(Role.TERMINAL, getItem(parent.id).role)
+
+        val cascade = extractResults(rComplete)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+        assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+    }
 }

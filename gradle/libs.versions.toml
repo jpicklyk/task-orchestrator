@@ -5,7 +5,7 @@ kotlinCoroutines = "1.8.0"
 kotlinSerialization = "1.8.0"
 
 # MCP SDK
-mcpSdk = "0.8.4"
+mcpSdk = "0.9.0"
 
 # Ktor (version-aligned with MCP SDK's transitive dependency)
 ktor = "3.2.3"
@@ -35,6 +35,7 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 
 # MCP SDK
 mcp-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcpSdk" }
+mcp-sdk-testing = { module = "io.modelcontextprotocol:kotlin-sdk-testing", version.ref = "mcpSdk" }
 
 # Ktor
 ktor-bom        = { module = "io.ktor:ktor-bom",        version.ref = "ktor" }

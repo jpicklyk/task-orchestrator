@@ -156,6 +156,9 @@ Two skill systems — do not confuse them:
 
 ## Git Workflow
 
-- Main branch: `main` — follow conventional commits, reference issue numbers
+**Local-first squash flow** — work stays local on branches, squash-merged into `main`, batched PRs to GitHub. See the `/implement` skill for the full step-by-step process.
+
+- Follow conventional commits, reference issue numbers
 - All tests must pass before committing
+- Never force-push `main` — use PR branches to sync with origin
 - Database migrations require special attention

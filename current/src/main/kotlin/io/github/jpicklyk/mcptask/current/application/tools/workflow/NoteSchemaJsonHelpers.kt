@@ -31,6 +31,19 @@ object NoteSchemaJsonHelpers {
     }
 
     /**
+     * Builds a JSON array describing which required notes are missing (unfilled).
+     * Used by gate checks in [AdvanceItemTool] for start, complete, and cascade triggers.
+     */
+    fun buildMissingNotesArray(missingEntries: List<NoteSchemaEntry>): JsonArray =
+        JsonArray(missingEntries.map { entry ->
+            buildJsonObject {
+                put("key", JsonPrimitive(entry.key))
+                put("description", JsonPrimitive(entry.description))
+                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+            }
+        })
+
+    /**
      * Builds a `noteProgress` JSON object with `{filled, remaining, total}` counts
      * for required notes in the given role. Callers should guard for null schema
      * before calling — this function always returns a non-null object.
