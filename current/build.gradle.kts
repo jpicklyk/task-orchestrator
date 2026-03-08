@@ -77,6 +77,7 @@ dependencies {
 
     // Testing
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.mcp.sdk.testing)
     testImplementation(libs.mockk)
     testImplementation(libs.junit.api)
     testImplementation(libs.junit.params)
