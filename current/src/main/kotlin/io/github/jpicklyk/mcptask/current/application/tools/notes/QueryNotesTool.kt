@@ -124,7 +124,7 @@ Read-only query operations for Notes (get, list).
     // ──────────────────────────────────────────────
 
     private suspend fun executeGet(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val id = extractUUID(params, "id", required = true)!!
+        val id = requireUUID(params, "id")
         val noteRepo = context.noteRepository()
 
         return when (val result = noteRepo.getById(id)) {
@@ -146,7 +146,7 @@ Read-only query operations for Notes (get, list).
     // ──────────────────────────────────────────────
 
     private suspend fun executeList(params: JsonElement, context: ToolExecutionContext): JsonElement {
-        val itemId = extractUUID(params, "itemId", required = true)!!
+        val itemId = requireUUID(params, "itemId")
         val role = optionalString(params, "role")
         val includeBody = optionalBoolean(params, "includeBody", defaultValue = true)
         val noteRepo = context.noteRepository()

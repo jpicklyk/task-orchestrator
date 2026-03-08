@@ -217,7 +217,7 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             val items = baseQuery
                 .orderBy(sortColumn, order)
                 .limit(limit)
-                .offset(offset.toLong())
+                .offset(offset.coerceAtLeast(0).toLong())
                 .mapNotNull { mapRowToWorkItemSafe(it) }
 
             Result.Success(items)

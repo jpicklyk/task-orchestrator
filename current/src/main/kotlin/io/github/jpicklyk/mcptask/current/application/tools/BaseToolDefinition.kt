@@ -278,6 +278,20 @@ abstract class BaseToolDefinition : ToolDefinition {
     // ──────────────────────────────────────────────
 
     /**
+     * Extracts and parses a required UUID parameter, returning a non-null UUID.
+     *
+     * Wraps [extractUUID] with `required=true` so call sites avoid `!!` non-null assertions.
+     *
+     * @param params The input parameters
+     * @param name The parameter name
+     * @return The parsed UUID (never null)
+     * @throws ToolValidationException if missing or not a valid UUID
+     */
+    protected fun requireUUID(params: JsonElement, name: String): UUID =
+        extractUUID(params, name, required = true)
+            ?: throw ToolValidationException("'$name' is required and must be a valid UUID")
+
+    /**
      * Extracts and parses a UUID parameter from a string value.
      *
      * @param params The input parameters
