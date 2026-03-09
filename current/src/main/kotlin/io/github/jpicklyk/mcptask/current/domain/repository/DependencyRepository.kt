@@ -12,14 +12,25 @@ interface DependencyRepository {
 
     /** Suspend variant for use within a [newSuspendedTransaction] context — joins the outer transaction. */
     suspend fun createSuspend(dependency: Dependency): Dependency
+
     fun findById(id: UUID): Dependency?
+
     fun findByItemId(itemId: UUID): List<Dependency>
+
     fun findByFromItemId(fromItemId: UUID): List<Dependency>
+
     fun findByToItemId(toItemId: UUID): List<Dependency>
+
     fun delete(id: UUID): Boolean
+
     fun deleteByItemId(itemId: UUID): Int
+
     fun createBatch(dependencies: List<Dependency>): List<Dependency>
-    fun hasCyclicDependency(fromItemId: UUID, toItemId: UUID): Boolean
+
+    fun hasCyclicDependency(
+        fromItemId: UUID,
+        toItemId: UUID
+    ): Boolean
 
     /**
      * Batch-fetch dependencies for multiple items in a single query.

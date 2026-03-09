@@ -38,14 +38,15 @@ abstract class BaseRepositoryTest {
         tags: String? = null,
         priority: Priority = Priority.MEDIUM
     ): WorkItem {
-        val item = makeItem(
-            title = title,
-            role = role,
-            parentId = parentId,
-            depth = depth,
-            tags = tags,
-            priority = priority
-        )
+        val item =
+            makeItem(
+                title = title,
+                role = role,
+                parentId = parentId,
+                depth = depth,
+                tags = tags,
+                priority = priority
+            )
         val result = repositoryProvider.workItemRepository().create(item)
         return (result as Result.Success).data
     }

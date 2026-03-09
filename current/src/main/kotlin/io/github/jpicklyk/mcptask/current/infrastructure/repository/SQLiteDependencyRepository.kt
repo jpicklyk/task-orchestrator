@@ -22,8 +22,9 @@ import java.util.UUID
  * SQLite implementation of DependencyRepository.
  * Uses non-suspend functions with synchronous transactions (needed for cascade detection).
  */
-class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) : DependencyRepository {
-
+class SQLiteDependencyRepository(
+    private val databaseManager: DatabaseManager
+) : DependencyRepository {
     override fun create(dependency: Dependency): Dependency =
         transaction(databaseManager.getDatabase()) { insertDependencyInTransaction(dependency) }
 
@@ -35,16 +36,20 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
     private fun insertDependencyInTransaction(dependency: Dependency): Dependency {
         // Only check cycles for blocking dependency types — RELATES_TO is informational
         if (dependency.type != DependencyType.RELATES_TO &&
-            checkCyclicDependencyInternal(dependency.fromItemId, dependency.toItemId)) {
+            checkCyclicDependencyInternal(dependency.fromItemId, dependency.toItemId)
+        ) {
             throw ValidationException("Creating this dependency would result in a circular dependency")
         }
 
         // Check for duplicate dependencies
-        val existing = DependenciesTable.selectAll().where {
-            (DependenciesTable.fromItemId eq dependency.fromItemId) and
-                    (DependenciesTable.toItemId eq dependency.toItemId) and
-                    (DependenciesTable.type eq dependency.type.name)
-        }.singleOrNull()
+        val existing =
+            DependenciesTable
+                .selectAll()
+                .where {
+                    (DependenciesTable.fromItemId eq dependency.fromItemId) and
+                        (DependenciesTable.toItemId eq dependency.toItemId) and
+                        (DependenciesTable.type eq dependency.type.name)
+                }.singleOrNull()
 
         if (existing != null) {
             throw ValidationException("A dependency of this type already exists between these items")
@@ -61,106 +66,129 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         return dependency
     }
 
-    override fun findById(id: UUID): Dependency? = transaction(databaseManager.getDatabase()) {
-        DependenciesTable.selectAll().where { DependenciesTable.id eq id }
-            .map { mapRowToDependency(it) }
-            .singleOrNull()
-    }
-
-    override fun findByItemId(itemId: UUID): List<Dependency> = transaction(databaseManager.getDatabase()) {
-        DependenciesTable.selectAll()
-            .where { (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId) }
-            .map { mapRowToDependency(it) }
-    }
-
-    override fun findByFromItemId(fromItemId: UUID): List<Dependency> = transaction(databaseManager.getDatabase()) {
-        DependenciesTable.selectAll()
-            .where { DependenciesTable.fromItemId eq fromItemId }
-            .map { mapRowToDependency(it) }
-    }
-
-    override fun findByToItemId(toItemId: UUID): List<Dependency> = transaction(databaseManager.getDatabase()) {
-        DependenciesTable.selectAll()
-            .where { DependenciesTable.toItemId eq toItemId }
-            .map { mapRowToDependency(it) }
-    }
-
-    override fun delete(id: UUID): Boolean = transaction(databaseManager.getDatabase()) {
-        DependenciesTable.deleteWhere { DependenciesTable.id eq id } > 0
-    }
-
-    override fun deleteByItemId(itemId: UUID): Int = transaction(databaseManager.getDatabase()) {
-        DependenciesTable.deleteWhere {
-            (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId)
-        }
-    }
-
-    override fun createBatch(dependencies: List<Dependency>): List<Dependency> = transaction(databaseManager.getDatabase()) {
-        if (dependencies.isEmpty()) {
-            return@transaction emptyList()
+    override fun findById(id: UUID): Dependency? =
+        transaction(databaseManager.getDatabase()) {
+            DependenciesTable
+                .selectAll()
+                .where { DependenciesTable.id eq id }
+                .map { mapRowToDependency(it) }
+                .singleOrNull()
         }
 
-        // Phase 1: Check for duplicates within the batch itself
-        val seen = mutableSetOf<Triple<UUID, UUID, DependencyType>>()
-        for (dep in dependencies) {
-            val key = Triple(dep.fromItemId, dep.toItemId, dep.type)
-            if (!seen.add(key)) {
-                throw ValidationException(
-                    "Duplicate dependency within batch: ${dep.fromItemId} -> ${dep.toItemId} (${dep.type})"
-                )
+    override fun findByItemId(itemId: UUID): List<Dependency> =
+        transaction(databaseManager.getDatabase()) {
+            DependenciesTable
+                .selectAll()
+                .where { (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId) }
+                .map { mapRowToDependency(it) }
+        }
+
+    override fun findByFromItemId(fromItemId: UUID): List<Dependency> =
+        transaction(databaseManager.getDatabase()) {
+            DependenciesTable
+                .selectAll()
+                .where { DependenciesTable.fromItemId eq fromItemId }
+                .map { mapRowToDependency(it) }
+        }
+
+    override fun findByToItemId(toItemId: UUID): List<Dependency> =
+        transaction(databaseManager.getDatabase()) {
+            DependenciesTable
+                .selectAll()
+                .where { DependenciesTable.toItemId eq toItemId }
+                .map { mapRowToDependency(it) }
+        }
+
+    override fun delete(id: UUID): Boolean =
+        transaction(databaseManager.getDatabase()) {
+            DependenciesTable.deleteWhere { DependenciesTable.id eq id } > 0
+        }
+
+    override fun deleteByItemId(itemId: UUID): Int =
+        transaction(databaseManager.getDatabase()) {
+            DependenciesTable.deleteWhere {
+                (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId)
             }
         }
 
-        // Phase 2: Check for duplicates against existing dependencies
-        for (dep in dependencies) {
-            val existing = DependenciesTable.selectAll().where {
-                (DependenciesTable.fromItemId eq dep.fromItemId) and
-                        (DependenciesTable.toItemId eq dep.toItemId) and
-                        (DependenciesTable.type eq dep.type.name)
-            }.singleOrNull()
-
-            if (existing != null) {
-                throw ValidationException(
-                    "A dependency of type ${dep.type} already exists between items ${dep.fromItemId} and ${dep.toItemId}"
-                )
+    override fun createBatch(dependencies: List<Dependency>): List<Dependency> =
+        transaction(databaseManager.getDatabase()) {
+            if (dependencies.isEmpty()) {
+                return@transaction emptyList()
             }
+
+            // Phase 1: Check for duplicates within the batch itself
+            val seen = mutableSetOf<Triple<UUID, UUID, DependencyType>>()
+            for (dep in dependencies) {
+                val key = Triple(dep.fromItemId, dep.toItemId, dep.type)
+                if (!seen.add(key)) {
+                    throw ValidationException(
+                        "Duplicate dependency within batch: ${dep.fromItemId} -> ${dep.toItemId} (${dep.type})"
+                    )
+                }
+            }
+
+            // Phase 2: Check for duplicates against existing dependencies
+            for (dep in dependencies) {
+                val existing =
+                    DependenciesTable
+                        .selectAll()
+                        .where {
+                            (DependenciesTable.fromItemId eq dep.fromItemId) and
+                                (DependenciesTable.toItemId eq dep.toItemId) and
+                                (DependenciesTable.type eq dep.type.name)
+                        }.singleOrNull()
+
+                if (existing != null) {
+                    throw ValidationException(
+                        "A dependency of type ${dep.type} already exists between items ${dep.fromItemId} and ${dep.toItemId}"
+                    )
+                }
+            }
+
+            // Phase 3: Incremental cycle detection - check and insert each dependency sequentially.
+            // Each dependency is inserted before checking the next, so subsequent checks see earlier
+            // batch members in the graph. Transaction rollback handles atomicity on failure.
+            // RELATES_TO deps are informational and cannot create blocking cycles — skip check.
+            for (dep in dependencies) {
+                if (dep.type != DependencyType.RELATES_TO &&
+                    checkCyclicDependencyInternal(dep.fromItemId, dep.toItemId)
+                ) {
+                    throw ValidationException(
+                        "Creating these dependencies would result in a circular dependency chain"
+                    )
+                }
+
+                DependenciesTable.insert {
+                    it[id] = dep.id
+                    it[fromItemId] = dep.fromItemId
+                    it[toItemId] = dep.toItemId
+                    it[type] = dep.type.name
+                    it[unblockAt] = dep.unblockAt
+                    it[createdAt] = dep.createdAt
+                }
+            }
+
+            dependencies
         }
 
-        // Phase 3: Incremental cycle detection - check and insert each dependency sequentially.
-        // Each dependency is inserted before checking the next, so subsequent checks see earlier
-        // batch members in the graph. Transaction rollback handles atomicity on failure.
-        // RELATES_TO deps are informational and cannot create blocking cycles — skip check.
-        for (dep in dependencies) {
-            if (dep.type != DependencyType.RELATES_TO &&
-                checkCyclicDependencyInternal(dep.fromItemId, dep.toItemId)) {
-                throw ValidationException(
-                    "Creating these dependencies would result in a circular dependency chain"
-                )
-            }
-
-            DependenciesTable.insert {
-                it[id] = dep.id
-                it[fromItemId] = dep.fromItemId
-                it[toItemId] = dep.toItemId
-                it[type] = dep.type.name
-                it[unblockAt] = dep.unblockAt
-                it[createdAt] = dep.createdAt
-            }
+    override fun hasCyclicDependency(
+        fromItemId: UUID,
+        toItemId: UUID
+    ): Boolean =
+        transaction(databaseManager.getDatabase()) {
+            checkCyclicDependencyInternal(fromItemId, toItemId)
         }
-
-        dependencies
-    }
-
-    override fun hasCyclicDependency(fromItemId: UUID, toItemId: UUID): Boolean = transaction(databaseManager.getDatabase()) {
-        checkCyclicDependencyInternal(fromItemId, toItemId)
-    }
 
     /**
      * Internal cyclic dependency check that must be called within an existing transaction.
      * Uses DFS to check if adding an edge from [fromItemId] to [toItemId] would create a cycle.
      * A cycle exists if there's already a path from toItemId back to fromItemId.
      */
-    private fun checkCyclicDependencyInternal(fromItemId: UUID, toItemId: UUID): Boolean {
+    private fun checkCyclicDependencyInternal(
+        fromItemId: UUID,
+        toItemId: UUID
+    ): Boolean {
         if (fromItemId == toItemId) return true
 
         val visited = mutableSetOf<UUID>()
@@ -173,9 +201,11 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             visiting.add(currentItemId)
 
             // Follow outgoing BLOCKS edges only (RELATES_TO is informational, not blocking)
-            val outgoing = DependenciesTable.selectAll()
-                .where { DependenciesTable.fromItemId eq currentItemId }
-                .map { mapRowToDependency(it) }
+            val outgoing =
+                DependenciesTable
+                    .selectAll()
+                    .where { DependenciesTable.fromItemId eq currentItemId }
+                    .map { mapRowToDependency(it) }
 
             for (dep in outgoing) {
                 if (dep.type == DependencyType.BLOCKS) {
@@ -185,9 +215,11 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             }
 
             // Follow incoming IS_BLOCKED_BY edges (reverse direction)
-            val incoming = DependenciesTable.selectAll()
-                .where { DependenciesTable.toItemId eq currentItemId }
-                .map { mapRowToDependency(it) }
+            val incoming =
+                DependenciesTable
+                    .selectAll()
+                    .where { DependenciesTable.toItemId eq currentItemId }
+                    .map { mapRowToDependency(it) }
 
             for (dep in incoming) {
                 if (dep.type == DependencyType.IS_BLOCKED_BY) {
@@ -207,9 +239,11 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
     override fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {
         if (itemIds.isEmpty()) return emptyMap()
         return transaction(databaseManager.getDatabase()) {
-            val deps = DependenciesTable.selectAll()
-                .where { (DependenciesTable.fromItemId inList itemIds) or (DependenciesTable.toItemId inList itemIds) }
-                .map { mapRowToDependency(it) }
+            val deps =
+                DependenciesTable
+                    .selectAll()
+                    .where { (DependenciesTable.fromItemId inList itemIds) or (DependenciesTable.toItemId inList itemIds) }
+                    .map { mapRowToDependency(it) }
 
             val result = mutableMapOf<UUID, MutableList<Dependency>>()
             for (dep in deps) {
@@ -224,8 +258,8 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
         }
     }
 
-    private fun mapRowToDependency(row: ResultRow): Dependency {
-        return Dependency(
+    private fun mapRowToDependency(row: ResultRow): Dependency =
+        Dependency(
             id = row[DependenciesTable.id].value,
             fromItemId = row[DependenciesTable.fromItemId],
             toItemId = row[DependenciesTable.toItemId],
@@ -233,5 +267,4 @@ class SQLiteDependencyRepository(private val databaseManager: DatabaseManager) :
             unblockAt = row[DependenciesTable.unblockAt],
             createdAt = row[DependenciesTable.createdAt]
         )
-    }
 }

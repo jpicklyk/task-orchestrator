@@ -19,7 +19,6 @@ package io.github.jpicklyk.mcptask.current.application.service
  * 3. For resume: existing applyTransition logic preserves pre-block label
  */
 interface StatusLabelService {
-
     /**
      * Returns the status label for the given trigger, or null if the trigger
      * should not set a label (e.g., resume, reopen).
@@ -32,14 +31,15 @@ interface StatusLabelService {
  * Used when no config file is present or as a fallback.
  */
 object NoOpStatusLabelService : StatusLabelService {
-    private val defaults = mapOf(
-        "start" to "in-progress",
-        "complete" to "done",
-        "block" to "blocked",
-        "cancel" to "cancelled",
-        "cascade" to "done"
-        // resume and reopen intentionally absent — null means no label override
-    )
+    private val defaults =
+        mapOf(
+            "start" to "in-progress",
+            "complete" to "done",
+            "block" to "blocked",
+            "cancel" to "cancelled",
+            "cascade" to "done"
+            // resume and reopen intentionally absent — null means no label override
+        )
 
     override fun resolveLabel(trigger: String): String? = defaults[trigger]
 }

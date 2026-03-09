@@ -26,10 +26,10 @@ import java.util.UUID
  * One of rootId or itemIds must be provided.
  */
 class CompleteTreeTool : BaseToolDefinition() {
-
     override val name = "complete_tree"
 
-    override val description = """
+    override val description =
+        """
 Complete or cancel all descendants of a root item (or an explicit list of items) in topological dependency order.
 
 **Parameters:**
@@ -58,49 +58,79 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
   "summary": { "total": 3, "completed": 1, "skipped": 2, "gateFailures": 1 }
 }
 ```
-    """.trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = false,
-        destructiveHint = false,
-        idempotentHint = false,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = false,
+            destructiveHint = false,
+            idempotentHint = false,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("rootId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("UUID of root item whose descendants should be completed. Mutually exclusive with itemIds."))
-            })
-            put("itemIds", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Explicit list of item UUIDs to complete. Mutually exclusive with rootId."))
-                put("items", buildJsonObject {
-                    put("type", JsonPrimitive("string"))
-                })
-            })
-            put("trigger", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Transition trigger: 'complete' (default) or 'cancel'."))
-                put("enum", buildJsonArray {
-                    add(JsonPrimitive("complete"))
-                    add(JsonPrimitive("cancel"))
-                })
-            })
-            put("includeRoot", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("When rootId is used, also include the root item itself in the completion scope (default true). Ignored when itemIds is used."))
-            })
-        },
-        required = listOf()
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "rootId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive("UUID of root item whose descendants should be completed. Mutually exclusive with itemIds.")
+                            )
+                        }
+                    )
+                    put(
+                        "itemIds",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Explicit list of item UUIDs to complete. Mutually exclusive with rootId."))
+                            put(
+                                "items",
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("string"))
+                                }
+                            )
+                        }
+                    )
+                    put(
+                        "trigger",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Transition trigger: 'complete' (default) or 'cancel'."))
+                            put(
+                                "enum",
+                                buildJsonArray {
+                                    add(JsonPrimitive("complete"))
+                                    add(JsonPrimitive("cancel"))
+                                }
+                            )
+                        }
+                    )
+                    put(
+                        "includeRoot",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "When rootId is used, also include the root item itself in the completion scope (default true). Ignored when itemIds is used."
+                                )
+                            )
+                        }
+                    )
+                },
+            required = listOf()
+        )
 
     override fun validateParams(params: JsonElement) {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val rootId = paramsObj["rootId"]
         val itemIds = paramsObj["itemIds"]
@@ -116,8 +146,9 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         }
 
         if (hasRootId) {
-            val prim = rootId as? JsonPrimitive
-                ?: throw ToolValidationException("rootId must be a string UUID")
+            val prim =
+                rootId as? JsonPrimitive
+                    ?: throw ToolValidationException("rootId must be a string UUID")
             if (!prim.isString || prim.content.isBlank()) {
                 throw ToolValidationException("rootId must be a non-empty string UUID")
             }
@@ -129,11 +160,13 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         }
 
         if (hasItemIds) {
-            val arr = itemIds as? JsonArray
-                ?: throw ToolValidationException("itemIds must be a JSON array")
+            val arr =
+                itemIds as? JsonArray
+                    ?: throw ToolValidationException("itemIds must be a JSON array")
             arr.forEachIndexed { index, element ->
-                val prim = element as? JsonPrimitive
-                    ?: throw ToolValidationException("itemIds[$index] must be a string UUID")
+                val prim =
+                    element as? JsonPrimitive
+                        ?: throw ToolValidationException("itemIds[$index] must be a string UUID")
                 if (!prim.isString || prim.content.isBlank()) {
                     throw ToolValidationException("itemIds[$index] must be a non-empty string UUID")
                 }
@@ -148,8 +181,9 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         // Validate trigger if provided
         val triggerElem = paramsObj["trigger"]
         if (triggerElem != null && triggerElem !is JsonNull) {
-            val triggerPrim = triggerElem as? JsonPrimitive
-                ?: throw ToolValidationException("trigger must be a string")
+            val triggerPrim =
+                triggerElem as? JsonPrimitive
+                    ?: throw ToolValidationException("trigger must be a string")
             val trigger = triggerPrim.content.lowercase()
             if (trigger !in setOf("complete", "cancel")) {
                 throw ToolValidationException("trigger must be 'complete' or 'cancel', got: $trigger")
@@ -157,7 +191,10 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val paramsObj = params as JsonObject
         val trigger = (paramsObj["trigger"] as? JsonPrimitive)?.content?.lowercase() ?: "complete"
         val includeRoot = (paramsObj["includeRoot"] as? JsonPrimitive)?.booleanOrNull ?: true
@@ -166,15 +203,20 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         val (targetItems, rootItem) = collectTargetItemsWithRoot(paramsObj, context, includeRoot)
 
         if (targetItems.isEmpty() && rootItem == null) {
-            return successResponse(buildJsonObject {
-                put("results", JsonArray(emptyList()))
-                put("summary", buildJsonObject {
-                    put("total", JsonPrimitive(0))
-                    put("completed", JsonPrimitive(0))
-                    put("skipped", JsonPrimitive(0))
-                    put("gateFailures", JsonPrimitive(0))
-                })
-            })
+            return successResponse(
+                buildJsonObject {
+                    put("results", JsonArray(emptyList()))
+                    put(
+                        "summary",
+                        buildJsonObject {
+                            put("total", JsonPrimitive(0))
+                            put("completed", JsonPrimitive(0))
+                            put("skipped", JsonPrimitive(0))
+                            put("gateFailures", JsonPrimitive(0))
+                        }
+                    )
+                }
+            )
         }
 
         // Step 2: Build dependency graph within the target set (descendants only, not root)
@@ -240,13 +282,15 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             // Check if this item is in the skipped set
             if (itemId in skippedSet) {
                 skippedCount++
-                resultsList.add(buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(false))
-                    put("skipped", JsonPrimitive(true))
-                    put("skippedReason", JsonPrimitive("dependency gate failed"))
-                })
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("title", JsonPrimitive(item.title))
+                        put("applied", JsonPrimitive(false))
+                        put("skipped", JsonPrimitive(true))
+                        put("skippedReason", JsonPrimitive("dependency gate failed"))
+                    }
+                )
                 // Propagate skip to dependents
                 propagateSkip(itemId, adjacency, skippedSet)
                 continue
@@ -256,12 +300,14 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             val missingKeys = checkGate(item, trigger, context)
             if (missingKeys.isNotEmpty()) {
                 gateFailureCount++
-                resultsList.add(buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(false))
-                    put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                })
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("title", JsonPrimitive(item.title))
+                        put("applied", JsonPrimitive(false))
+                        put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                    }
+                )
                 // Skip dependents
                 propagateSkip(itemId, adjacency, skippedSet)
                 continue
@@ -273,47 +319,58 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             if (!resolution.success || resolution.targetRole == null) {
                 // Item may already be terminal or otherwise can't transition — skip silently
                 skippedCount++
-                resultsList.add(buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(false))
-                    put("skipped", JsonPrimitive(true))
-                    put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
-                })
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("title", JsonPrimitive(item.title))
+                        put("applied", JsonPrimitive(false))
+                        put("skipped", JsonPrimitive(true))
+                        put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
+                    }
+                )
                 continue
             }
 
             // Apply transition with config-driven status label
             val configLabel = context.statusLabelService().resolveLabel(trigger)
             val effectiveLabel = resolution.statusLabel ?: configLabel
-            val applyResult = handler.applyTransition(
-                item, resolution.targetRole, trigger, null, effectiveLabel,
-                context.workItemRepository(),
-                context.roleTransitionRepository()
-            )
+            val applyResult =
+                handler.applyTransition(
+                    item,
+                    resolution.targetRole,
+                    trigger,
+                    null,
+                    effectiveLabel,
+                    context.workItemRepository(),
+                    context.roleTransitionRepository()
+                )
 
             if (!applyResult.success) {
                 skippedCount++
-                resultsList.add(buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(false))
-                    put("skipped", JsonPrimitive(true))
-                    put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
-                })
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("title", JsonPrimitive(item.title))
+                        put("applied", JsonPrimitive(false))
+                        put("skipped", JsonPrimitive(true))
+                        put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
+                    }
+                )
                 // Propagate skip to dependents
                 propagateSkip(itemId, adjacency, skippedSet)
                 continue
             }
 
             completedCount++
-            resultsList.add(buildJsonObject {
-                put("itemId", JsonPrimitive(itemId.toString()))
-                put("title", JsonPrimitive(item.title))
-                put("applied", JsonPrimitive(true))
-                put("trigger", JsonPrimitive(trigger))
-                applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-            })
+            resultsList.add(
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("title", JsonPrimitive(item.title))
+                    put("applied", JsonPrimitive(true))
+                    put("trigger", JsonPrimitive(trigger))
+                    applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+                }
+            )
         }
 
         // Step 5: Process root item last (after all descendants), if requested
@@ -321,28 +378,41 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             val missingKeys = checkGate(rootItem, trigger, context)
             if (missingKeys.isNotEmpty()) {
                 gateFailureCount++
-                resultsList.add(buildJsonObject {
-                    put("itemId", JsonPrimitive(rootItem.id.toString()))
-                    put("title", JsonPrimitive(rootItem.title))
-                    put("applied", JsonPrimitive(false))
-                    put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                })
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(rootItem.id.toString()))
+                        put("title", JsonPrimitive(rootItem.title))
+                        put("applied", JsonPrimitive(false))
+                        put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                    }
+                )
             } else {
-                processItem(rootItem, trigger, handler, context, resultsList,
-                    onComplete = { completedCount++ }, onSkip = { skippedCount++ })
+                processItem(
+                    rootItem,
+                    trigger,
+                    handler,
+                    context,
+                    resultsList,
+                    onComplete = { completedCount++ },
+                    onSkip = { skippedCount++ }
+                )
             }
         }
 
         val totalCount = completedCount + skippedCount + gateFailureCount
-        val data = buildJsonObject {
-            put("results", JsonArray(resultsList))
-            put("summary", buildJsonObject {
-                put("total", JsonPrimitive(totalCount))
-                put("completed", JsonPrimitive(completedCount))
-                put("skipped", JsonPrimitive(skippedCount))
-                put("gateFailures", JsonPrimitive(gateFailureCount))
-            })
-        }
+        val data =
+            buildJsonObject {
+                put("results", JsonArray(resultsList))
+                put(
+                    "summary",
+                    buildJsonObject {
+                        put("total", JsonPrimitive(totalCount))
+                        put("completed", JsonPrimitive(completedCount))
+                        put("skipped", JsonPrimitive(skippedCount))
+                        put("gateFailures", JsonPrimitive(gateFailureCount))
+                    }
+                )
+            }
 
         return successResponse(data)
     }
@@ -364,44 +434,55 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
         if (!resolution.success || resolution.targetRole == null) {
             onSkip()
-            resultsList.add(buildJsonObject {
-                put("itemId", JsonPrimitive(item.id.toString()))
-                put("title", JsonPrimitive(item.title))
-                put("applied", JsonPrimitive(false))
-                put("skipped", JsonPrimitive(true))
-                put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
-            })
+            resultsList.add(
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(item.id.toString()))
+                    put("title", JsonPrimitive(item.title))
+                    put("applied", JsonPrimitive(false))
+                    put("skipped", JsonPrimitive(true))
+                    put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
+                }
+            )
             return
         }
 
         val configLabel = context.statusLabelService().resolveLabel(trigger)
         val effectiveLabel = resolution.statusLabel ?: configLabel
-        val applyResult = handler.applyTransition(
-            item, resolution.targetRole, trigger, null, effectiveLabel,
-            context.workItemRepository(),
-            context.roleTransitionRepository()
-        )
+        val applyResult =
+            handler.applyTransition(
+                item,
+                resolution.targetRole,
+                trigger,
+                null,
+                effectiveLabel,
+                context.workItemRepository(),
+                context.roleTransitionRepository()
+            )
 
         if (!applyResult.success) {
             onSkip()
-            resultsList.add(buildJsonObject {
-                put("itemId", JsonPrimitive(item.id.toString()))
-                put("title", JsonPrimitive(item.title))
-                put("applied", JsonPrimitive(false))
-                put("skipped", JsonPrimitive(true))
-                put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
-            })
+            resultsList.add(
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(item.id.toString()))
+                    put("title", JsonPrimitive(item.title))
+                    put("applied", JsonPrimitive(false))
+                    put("skipped", JsonPrimitive(true))
+                    put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
+                }
+            )
             return
         }
 
         onComplete()
-        resultsList.add(buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(true))
-            put("trigger", JsonPrimitive(trigger))
-            applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-        })
+        resultsList.add(
+            buildJsonObject {
+                put("itemId", JsonPrimitive(item.id.toString()))
+                put("title", JsonPrimitive(item.title))
+                put("applied", JsonPrimitive(true))
+                put("trigger", JsonPrimitive(trigger))
+                applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+            }
+        )
     }
 
     /**
@@ -418,23 +499,31 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         val allRequired = schema.filter { it.required }
         if (allRequired.isEmpty()) return emptyList()
 
-        val notes = when (val result = context.noteRepository().findByItemId(item.id)) {
-            is Result.Success -> result.data
-            is Result.Error -> emptyList()
-        }
+        val notes =
+            when (val result = context.noteRepository().findByItemId(item.id)) {
+                is Result.Success -> result.data
+                is Result.Error -> emptyList()
+            }
         val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
         return allRequired.filter { it.key !in filledKeys }.map { it.key }
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
         if (isError) return "complete_tree failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         val summary = data?.get("summary") as? JsonObject
         val completed = summary?.get("completed")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
         val total = summary?.get("total")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
         val gateFailures = summary?.get("gateFailures")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        return if (gateFailures == 0) "Completed $completed/$total item(s)"
-        else "Completed $completed/$total item(s), $gateFailures gate failure(s)"
+        return if (gateFailures == 0) {
+            "Completed $completed/$total item(s)"
+        } else {
+            "Completed $completed/$total item(s), $gateFailures gate failure(s)"
+        }
     }
 
     /**
@@ -451,17 +540,19 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         val rootIdElem = paramsObj["rootId"]
         if (rootIdElem != null && rootIdElem !is JsonNull) {
             val rootId = UUID.fromString((rootIdElem as JsonPrimitive).content)
-            val descendants = when (val result = context.workItemRepository().findDescendants(rootId)) {
-                is Result.Success -> result.data
-                is Result.Error -> emptyList()
-            }
+            val descendants =
+                when (val result = context.workItemRepository().findDescendants(rootId)) {
+                    is Result.Success -> result.data
+                    is Result.Error -> emptyList()
+                }
             if (!includeRoot) return Pair(descendants, null)
 
             // Fetch root item separately — it will be processed after all its descendants
-            val rootItem = when (val result = context.workItemRepository().getById(rootId)) {
-                is Result.Success -> result.data
-                is Result.Error -> null
-            }
+            val rootItem =
+                when (val result = context.workItemRepository().getById(rootId)) {
+                    is Result.Success -> result.data
+                    is Result.Error -> null
+                }
             return Pair(descendants, rootItem)
         }
 

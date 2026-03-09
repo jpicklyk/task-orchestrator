@@ -20,10 +20,10 @@ import java.util.UUID
  * Pattern shortcuts (`linear`, `fan-out`, `fan-in`) generate dependency arrays then delegate to createBatch.
  */
 class ManageDependenciesTool : BaseToolDefinition() {
-
     override val name = "manage_dependencies"
 
-    override val description = """
+    override val description =
+        """
 Unified write operations for WorkItem dependencies (create, delete).
 
 **Create via dependencies array:**
@@ -42,80 +42,136 @@ Unified write operations for WorkItem dependencies (create, delete).
 - By `id`: delete single dependency by its UUID
 - By `fromItemId` + `toItemId` (+ optional `type`): find and delete matching deps
 - By `fromItemId` or `toItemId` with `deleteAll=true`: delete ALL deps for that item
-""".trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.DEPENDENCY_MANAGEMENT
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = false,
-        destructiveHint = true,
-        idempotentHint = false,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = false,
+            destructiveHint = true,
+            idempotentHint = false,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("operation", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Operation: create, delete"))
-                put("enum", JsonArray(listOf("create", "delete").map { JsonPrimitive(it) }))
-            })
-            put("dependencies", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Array of dependency objects for create: {fromItemId, toItemId, type?, unblockAt?}"))
-            })
-            put("pattern", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Pattern shortcut: linear, fan-out, fan-in"))
-                put("enum", JsonArray(listOf("linear", "fan-out", "fan-in").map { JsonPrimitive(it) }))
-            })
-            put("itemIds", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Ordered item IDs for linear pattern"))
-            })
-            put("source", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Source item UUID for fan-out pattern"))
-            })
-            put("targets", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Target item UUIDs for fan-out pattern"))
-            })
-            put("sources", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Source item UUIDs for fan-in pattern"))
-            })
-            put("target", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Target item UUID for fan-in pattern"))
-            })
-            put("type", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Shared default dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS)"))
-            })
-            put("unblockAt", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Shared default unblockAt threshold: queue, work, review, terminal (default: null = terminal)"))
-            })
-            put("id", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Dependency UUID for delete by ID"))
-            })
-            put("fromItemId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Source item UUID for delete by relationship"))
-            })
-            put("toItemId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Target item UUID for delete by relationship"))
-            })
-            put("deleteAll", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("Delete ALL dependencies for the given fromItemId or toItemId"))
-            })
-        },
-        required = listOf("operation")
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "operation",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Operation: create, delete"))
+                            put("enum", JsonArray(listOf("create", "delete").map { JsonPrimitive(it) }))
+                        }
+                    )
+                    put(
+                        "dependencies",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put(
+                                "description",
+                                JsonPrimitive("Array of dependency objects for create: {fromItemId, toItemId, type?, unblockAt?}")
+                            )
+                        }
+                    )
+                    put(
+                        "pattern",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Pattern shortcut: linear, fan-out, fan-in"))
+                            put("enum", JsonArray(listOf("linear", "fan-out", "fan-in").map { JsonPrimitive(it) }))
+                        }
+                    )
+                    put(
+                        "itemIds",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Ordered item IDs for linear pattern"))
+                        }
+                    )
+                    put(
+                        "source",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Source item UUID for fan-out pattern"))
+                        }
+                    )
+                    put(
+                        "targets",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Target item UUIDs for fan-out pattern"))
+                        }
+                    )
+                    put(
+                        "sources",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Source item UUIDs for fan-in pattern"))
+                        }
+                    )
+                    put(
+                        "target",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Target item UUID for fan-in pattern"))
+                        }
+                    )
+                    put(
+                        "type",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive("Shared default dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS)")
+                            )
+                        }
+                    )
+                    put(
+                        "unblockAt",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Shared default unblockAt threshold: queue, work, review, terminal (default: null = terminal)"
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "id",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Dependency UUID for delete by ID"))
+                        }
+                    )
+                    put(
+                        "fromItemId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Source item UUID for delete by relationship"))
+                        }
+                    )
+                    put(
+                        "toItemId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Target item UUID for delete by relationship"))
+                        }
+                    )
+                    put(
+                        "deleteAll",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put("description", JsonPrimitive("Delete ALL dependencies for the given fromItemId or toItemId"))
+                        }
+                    )
+                },
+            required = listOf("operation")
+        )
 
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
@@ -201,7 +257,10 @@ Unified write operations for WorkItem dependencies (create, delete).
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val operation = requireString(params, "operation")
         return when (operation) {
             "create" -> executeCreate(params, context)
@@ -210,16 +269,23 @@ Unified write operations for WorkItem dependencies (create, delete).
         }
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        val op = (params as? JsonObject)?.get("operation")?.let {
-            (it as? JsonPrimitive)?.content
-        } ?: "unknown"
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
+        val op =
+            (params as? JsonObject)?.get("operation")?.let {
+                (it as? JsonPrimitive)?.content
+            } ?: "unknown"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         return when {
             isError -> {
-                val msg = (result as? JsonObject)?.get("error")
-                    ?.let { (it as? JsonObject)?.get("message") }
-                    ?.let { (it as? JsonPrimitive)?.content }
+                val msg =
+                    (result as? JsonObject)
+                        ?.get("error")
+                        ?.let { (it as? JsonObject)?.get("message") }
+                        ?.let { (it as? JsonPrimitive)?.content }
                 if (msg != null) "manage_dependencies($op) failed: $msg" else "manage_dependencies($op) failed"
             }
             op == "create" -> {
@@ -238,55 +304,66 @@ Unified write operations for WorkItem dependencies (create, delete).
     // Create operation
     // ──────────────────────────────────────────────
 
-    private fun executeCreate(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    private fun executeCreate(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val depsArray = optionalJsonArray(params, "dependencies")
         val pattern = optionalString(params, "pattern")
 
         // Resolve shared defaults
         val sharedTypeStr = optionalString(params, "type")
-        val sharedType = if (sharedTypeStr != null) {
-            DependencyType.fromString(sharedTypeStr)
-                ?: return errorResponse(
-                    "Invalid dependency type: $sharedTypeStr. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO",
-                    ErrorCodes.VALIDATION_ERROR
-                )
-        } else {
-            DependencyType.BLOCKS
-        }
+        val sharedType =
+            if (sharedTypeStr != null) {
+                DependencyType.fromString(sharedTypeStr)
+                    ?: return errorResponse(
+                        "Invalid dependency type: $sharedTypeStr. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO",
+                        ErrorCodes.VALIDATION_ERROR
+                    )
+            } else {
+                DependencyType.BLOCKS
+            }
         val sharedUnblockAt = optionalString(params, "unblockAt")
 
-        val dependencies: List<Dependency> = try {
-            if (depsArray != null) {
-                parseDependenciesArray(depsArray, sharedType, sharedUnblockAt)
-            } else {
-                generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt)
+        val dependencies: List<Dependency> =
+            try {
+                if (depsArray != null) {
+                    parseDependenciesArray(depsArray, sharedType, sharedUnblockAt)
+                } else {
+                    generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt)
+                }
+            } catch (e: ToolValidationException) {
+                val failedCount = depsArray?.size ?: 1
+                return successResponse(buildValidationFailureResponse(e.message ?: "Validation failed", failedCount))
+            } catch (e: ValidationException) {
+                val failedCount = depsArray?.size ?: 1
+                return successResponse(buildValidationFailureResponse(e.message ?: "Domain validation failed", failedCount))
             }
-        } catch (e: ToolValidationException) {
-            val failedCount = depsArray?.size ?: 1
-            return successResponse(buildValidationFailureResponse(e.message ?: "Validation failed", failedCount))
-        } catch (e: ValidationException) {
-            val failedCount = depsArray?.size ?: 1
-            return successResponse(buildValidationFailureResponse(e.message ?: "Domain validation failed", failedCount))
-        }
 
         val repo = context.dependencyRepository()
 
         return try {
             val created = repo.createBatch(dependencies)
-            val data = buildJsonObject {
-                put("dependencies", JsonArray(created.map { dep ->
-                    buildJsonObject {
-                        put("id", JsonPrimitive(dep.id.toString()))
-                        put("fromItemId", JsonPrimitive(dep.fromItemId.toString()))
-                        put("toItemId", JsonPrimitive(dep.toItemId.toString()))
-                        put("type", JsonPrimitive(dep.type.name))
-                        if (dep.unblockAt != null) {
-                            put("unblockAt", JsonPrimitive(dep.unblockAt))
-                        }
-                    }
-                }))
-                put("created", JsonPrimitive(created.size))
-            }
+            val data =
+                buildJsonObject {
+                    put(
+                        "dependencies",
+                        JsonArray(
+                            created.map { dep ->
+                                buildJsonObject {
+                                    put("id", JsonPrimitive(dep.id.toString()))
+                                    put("fromItemId", JsonPrimitive(dep.fromItemId.toString()))
+                                    put("toItemId", JsonPrimitive(dep.toItemId.toString()))
+                                    put("type", JsonPrimitive(dep.type.name))
+                                    if (dep.unblockAt != null) {
+                                        put("unblockAt", JsonPrimitive(dep.unblockAt))
+                                    }
+                                }
+                            }
+                        )
+                    )
+                    put("created", JsonPrimitive(created.size))
+                }
             successResponse(data)
         } catch (e: ValidationException) {
             successResponse(buildValidationFailureResponse(e.message ?: "Dependency creation failed", dependencies.size))
@@ -299,36 +376,42 @@ Unified write operations for WorkItem dependencies (create, delete).
         depsArray: JsonArray,
         sharedType: DependencyType,
         sharedUnblockAt: String?
-    ): List<Dependency> {
-        return depsArray.mapIndexed { index, element ->
-            val depObj = element as? JsonObject
-                ?: throw ToolValidationException("Dependency at index $index must be a JSON object")
+    ): List<Dependency> =
+        depsArray.mapIndexed { index, element ->
+            val depObj =
+                element as? JsonObject
+                    ?: throw ToolValidationException("Dependency at index $index must be a JSON object")
 
-            val fromItemIdStr = extractItemString(depObj, "fromItemId")
-                ?: throw ToolValidationException("Dependency at index $index: 'fromItemId' is required")
-            val toItemIdStr = extractItemString(depObj, "toItemId")
-                ?: throw ToolValidationException("Dependency at index $index: 'toItemId' is required")
+            val fromItemIdStr =
+                extractItemString(depObj, "fromItemId")
+                    ?: throw ToolValidationException("Dependency at index $index: 'fromItemId' is required")
+            val toItemIdStr =
+                extractItemString(depObj, "toItemId")
+                    ?: throw ToolValidationException("Dependency at index $index: 'toItemId' is required")
 
-            val fromItemId = try {
-                UUID.fromString(fromItemIdStr)
-            } catch (_: IllegalArgumentException) {
-                throw ToolValidationException("Dependency at index $index: 'fromItemId' is not a valid UUID: $fromItemIdStr")
-            }
-            val toItemId = try {
-                UUID.fromString(toItemIdStr)
-            } catch (_: IllegalArgumentException) {
-                throw ToolValidationException("Dependency at index $index: 'toItemId' is not a valid UUID: $toItemIdStr")
-            }
+            val fromItemId =
+                try {
+                    UUID.fromString(fromItemIdStr)
+                } catch (_: IllegalArgumentException) {
+                    throw ToolValidationException("Dependency at index $index: 'fromItemId' is not a valid UUID: $fromItemIdStr")
+                }
+            val toItemId =
+                try {
+                    UUID.fromString(toItemIdStr)
+                } catch (_: IllegalArgumentException) {
+                    throw ToolValidationException("Dependency at index $index: 'toItemId' is not a valid UUID: $toItemIdStr")
+                }
 
             val typeStr = extractItemString(depObj, "type")
-            val type = if (typeStr != null) {
-                DependencyType.fromString(typeStr)
-                    ?: throw ToolValidationException(
-                        "Dependency at index $index: invalid type '$typeStr'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO"
-                    )
-            } else {
-                sharedType
-            }
+            val type =
+                if (typeStr != null) {
+                    DependencyType.fromString(typeStr)
+                        ?: throw ToolValidationException(
+                            "Dependency at index $index: invalid type '$typeStr'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO"
+                        )
+                } else {
+                    sharedType
+                }
 
             val unblockAt = extractItemString(depObj, "unblockAt") ?: sharedUnblockAt
 
@@ -339,26 +422,27 @@ Unified write operations for WorkItem dependencies (create, delete).
                 throw ToolValidationException("Dependency at index $index: ${e.message}")
             }
         }
-    }
 
     private fun generateFromPattern(
         params: JsonElement,
         pattern: String,
         sharedType: DependencyType,
         sharedUnblockAt: String?
-    ): List<Dependency> {
-        return when (pattern) {
+    ): List<Dependency> =
+        when (pattern) {
             "linear" -> {
                 val itemIdsArray = requireJsonArray(params, "itemIds")
-                val itemIds = itemIdsArray.map { element ->
-                    val str = (element as? JsonPrimitive)?.content
-                        ?: throw ToolValidationException("Each itemId must be a string UUID")
-                    try {
-                        UUID.fromString(str)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Invalid UUID in itemIds: $str")
+                val itemIds =
+                    itemIdsArray.map { element ->
+                        val str =
+                            (element as? JsonPrimitive)?.content
+                                ?: throw ToolValidationException("Each itemId must be a string UUID")
+                        try {
+                            UUID.fromString(str)
+                        } catch (_: IllegalArgumentException) {
+                            throw ToolValidationException("Invalid UUID in itemIds: $str")
+                        }
                     }
-                }
                 // Generate chain: A→B, B→C, C→D
                 itemIds.zipWithNext().map { (from, to) ->
                     Dependency(fromItemId = from, toItemId = to, type = sharedType, unblockAt = sharedUnblockAt)
@@ -366,55 +450,63 @@ Unified write operations for WorkItem dependencies (create, delete).
             }
             "fan-out" -> {
                 val sourceStr = requireString(params, "source")
-                val sourceId = try {
-                    UUID.fromString(sourceStr)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("'source' is not a valid UUID: $sourceStr")
-                }
-                val targetsArray = requireJsonArray(params, "targets")
-                val targetIds = targetsArray.map { element ->
-                    val str = (element as? JsonPrimitive)?.content
-                        ?: throw ToolValidationException("Each target must be a string UUID")
+                val sourceId =
                     try {
-                        UUID.fromString(str)
+                        UUID.fromString(sourceStr)
                     } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Invalid UUID in targets: $str")
+                        throw ToolValidationException("'source' is not a valid UUID: $sourceStr")
                     }
-                }
+                val targetsArray = requireJsonArray(params, "targets")
+                val targetIds =
+                    targetsArray.map { element ->
+                        val str =
+                            (element as? JsonPrimitive)?.content
+                                ?: throw ToolValidationException("Each target must be a string UUID")
+                        try {
+                            UUID.fromString(str)
+                        } catch (_: IllegalArgumentException) {
+                            throw ToolValidationException("Invalid UUID in targets: $str")
+                        }
+                    }
                 targetIds.map { targetId ->
                     Dependency(fromItemId = sourceId, toItemId = targetId, type = sharedType, unblockAt = sharedUnblockAt)
                 }
             }
             "fan-in" -> {
                 val targetStr = requireString(params, "target")
-                val targetId = try {
-                    UUID.fromString(targetStr)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("'target' is not a valid UUID: $targetStr")
-                }
-                val sourcesArray = requireJsonArray(params, "sources")
-                val sourceIds = sourcesArray.map { element ->
-                    val str = (element as? JsonPrimitive)?.content
-                        ?: throw ToolValidationException("Each source must be a string UUID")
+                val targetId =
                     try {
-                        UUID.fromString(str)
+                        UUID.fromString(targetStr)
                     } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Invalid UUID in sources: $str")
+                        throw ToolValidationException("'target' is not a valid UUID: $targetStr")
                     }
-                }
+                val sourcesArray = requireJsonArray(params, "sources")
+                val sourceIds =
+                    sourcesArray.map { element ->
+                        val str =
+                            (element as? JsonPrimitive)?.content
+                                ?: throw ToolValidationException("Each source must be a string UUID")
+                        try {
+                            UUID.fromString(str)
+                        } catch (_: IllegalArgumentException) {
+                            throw ToolValidationException("Invalid UUID in sources: $str")
+                        }
+                    }
                 sourceIds.map { sourceId ->
                     Dependency(fromItemId = sourceId, toItemId = targetId, type = sharedType, unblockAt = sharedUnblockAt)
                 }
             }
             else -> throw ToolValidationException("Invalid pattern: $pattern")
         }
-    }
 
     // ──────────────────────────────────────────────
     // Delete operation
     // ──────────────────────────────────────────────
 
-    private fun executeDelete(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    private fun executeDelete(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val repo = context.dependencyRepository()
         val id = extractUUID(params, "id", required = false)
         val fromItemId = extractUUID(params, "fromItemId", required = false)
@@ -427,10 +519,11 @@ Unified write operations for WorkItem dependencies (create, delete).
                 // Delete by dependency ID
                 id != null -> {
                     val deleted = repo.delete(id)
-                    val data = buildJsonObject {
-                        put("id", JsonPrimitive(id.toString()))
-                        put("deleted", JsonPrimitive(if (deleted) 1 else 0))
-                    }
+                    val data =
+                        buildJsonObject {
+                            put("id", JsonPrimitive(id.toString()))
+                            put("deleted", JsonPrimitive(if (deleted) 1 else 0))
+                        }
                     if (deleted) {
                         successResponse(data)
                     } else {
@@ -440,43 +533,48 @@ Unified write operations for WorkItem dependencies (create, delete).
 
                 // Delete all dependencies for an item
                 deleteAll -> {
-                    val itemId = fromItemId ?: toItemId
-                        ?: return errorResponse(
-                            "deleteAll requires 'fromItemId' or 'toItemId'",
-                            ErrorCodes.VALIDATION_ERROR
-                        )
+                    val itemId =
+                        fromItemId ?: toItemId
+                            ?: return errorResponse(
+                                "deleteAll requires 'fromItemId' or 'toItemId'",
+                                ErrorCodes.VALIDATION_ERROR
+                            )
                     val count = repo.deleteByItemId(itemId)
-                    val data = buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("deleted", JsonPrimitive(count))
-                    }
+                    val data =
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(itemId.toString()))
+                            put("deleted", JsonPrimitive(count))
+                        }
                     successResponse(data)
                 }
 
                 // Delete by relationship (fromItemId + toItemId)
                 fromItemId != null && toItemId != null -> {
-                    val deps = repo.findByFromItemId(fromItemId).filter { dep ->
-                        dep.toItemId == toItemId &&
+                    val deps =
+                        repo.findByFromItemId(fromItemId).filter { dep ->
+                            dep.toItemId == toItemId &&
                                 (typeFilter == null || dep.type == DependencyType.fromString(typeFilter))
-                    }
+                        }
                     var deletedCount = 0
                     for (dep in deps) {
                         if (repo.delete(dep.id)) {
                             deletedCount++
                         }
                     }
-                    val data = buildJsonObject {
-                        put("fromItemId", JsonPrimitive(fromItemId.toString()))
-                        put("toItemId", JsonPrimitive(toItemId.toString()))
-                        put("deleted", JsonPrimitive(deletedCount))
-                    }
+                    val data =
+                        buildJsonObject {
+                            put("fromItemId", JsonPrimitive(fromItemId.toString()))
+                            put("toItemId", JsonPrimitive(toItemId.toString()))
+                            put("deleted", JsonPrimitive(deletedCount))
+                        }
                     successResponse(data)
                 }
 
-                else -> errorResponse(
-                    "Delete requires 'id', 'fromItemId'+'toItemId', or 'deleteAll' with an item ID",
-                    ErrorCodes.VALIDATION_ERROR
-                )
+                else ->
+                    errorResponse(
+                        "Delete requires 'id', 'fromItemId'+'toItemId', or 'deleteAll' with an item ID",
+                        ErrorCodes.VALIDATION_ERROR
+                    )
             }
         } catch (e: Exception) {
             errorResponse(e.message ?: "Unexpected error deleting dependencies", ErrorCodes.INTERNAL_ERROR)
@@ -487,21 +585,34 @@ Unified write operations for WorkItem dependencies (create, delete).
     // JSON item field extraction helpers
     // ──────────────────────────────────────────────
 
-    private fun extractItemString(obj: JsonObject, name: String): String? {
+    private fun extractItemString(
+        obj: JsonObject,
+        name: String
+    ): String? {
         val value = obj[name] as? JsonPrimitive ?: return null
         if (!value.isString) return null
         val content = value.content
         return if (content.isBlank()) null else content
     }
 
-    private fun buildValidationFailureResponse(error: String, failedCount: Int): JsonObject =
+    private fun buildValidationFailureResponse(
+        error: String,
+        failedCount: Int
+    ): JsonObject =
         buildJsonObject {
             put("dependencies", JsonArray(emptyList()))
             put("created", JsonPrimitive(0))
             put("failed", JsonPrimitive(failedCount))
-            put("failures", JsonArray(listOf(buildJsonObject {
-                put("index", JsonPrimitive(0))
-                put("error", JsonPrimitive(error))
-            })))
+            put(
+                "failures",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("index", JsonPrimitive(0))
+                            put("error", JsonPrimitive(error))
+                        }
+                    )
+                )
+            )
         }
 }

@@ -18,10 +18,11 @@ import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTrans
 suspend fun <T> DatabaseManager.suspendedTransaction(
     errorMessage: String,
     block: suspend () -> Result<T>
-): Result<T> = try {
-    newSuspendedTransaction(db = getDatabase()) {
-        block()
+): Result<T> =
+    try {
+        newSuspendedTransaction(db = getDatabase()) {
+            block()
+        }
+    } catch (e: Exception) {
+        Result.Error(RepositoryError.DatabaseError("$errorMessage: ${e.message}", e))
     }
-} catch (e: Exception) {
-    Result.Error(RepositoryError.DatabaseError("$errorMessage: ${e.message}", e))
-}

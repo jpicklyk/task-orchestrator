@@ -23,7 +23,6 @@ import kotlinx.serialization.json.*
  * - [DeleteItemHandler] for delete operations
  */
 class ManageItemsTool : BaseToolDefinition() {
-
     companion object {
         /** Maximum allowed nesting depth for WorkItems. Delegates to [ItemHierarchyValidator]. */
         const val MAX_DEPTH = ItemHierarchyValidator.MAX_DEPTH
@@ -35,7 +34,8 @@ class ManageItemsTool : BaseToolDefinition() {
 
     override val name = "manage_items"
 
-    override val description = """
+    override val description =
+        """
 Unified write operations for WorkItems (create, update, delete).
 
 **Operations:**
@@ -59,50 +59,74 @@ Unified write operations for WorkItems (create, update, delete).
 - Response: `{ ids: [...], deleted: N, failed: N, failures: [{id, error}] }`
 - Use `recursive: true` to recursively delete all descendant items before deleting the specified items.
   Without this flag, deleting an item with children will fail with a constraint error.
-""".trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = false,
-        destructiveHint = true,
-        idempotentHint = false,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = false,
+            destructiveHint = true,
+            idempotentHint = false,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("operation", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Operation: create, update, delete"))
-                put("enum", JsonArray(listOf("create", "update", "delete").map { JsonPrimitive(it) }))
-            })
-            put("items", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Array of item objects for create/update"))
-            })
-            put("ids", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Array of item UUIDs for delete"))
-            })
-            put("recursive", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive(
-                    "When true, recursively deletes all descendant items before deleting the specified items. " +
-                    "Default false — without this flag, deleting an item with children will fail with a constraint error."
-                ))
-            })
-            put("parentId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Shared default parent ID for create"))
-            })
-            put("requiresVerification", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("Whether this item requires explicit verification before completion"))
-            })
-        },
-        required = listOf("operation")
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "operation",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Operation: create, update, delete"))
+                            put("enum", JsonArray(listOf("create", "update", "delete").map { JsonPrimitive(it) }))
+                        }
+                    )
+                    put(
+                        "items",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Array of item objects for create/update"))
+                        }
+                    )
+                    put(
+                        "ids",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Array of item UUIDs for delete"))
+                        }
+                    )
+                    put(
+                        "recursive",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "When true, recursively deletes all descendant items before deleting the specified items. " +
+                                        "Default false — without this flag, deleting an item with children will fail with a constraint error."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "parentId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Shared default parent ID for create"))
+                        }
+                    )
+                    put(
+                        "requiresVerification",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put("description", JsonPrimitive("Whether this item requires explicit verification before completion"))
+                        }
+                    )
+                },
+            required = listOf("operation")
+        )
 
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
@@ -129,31 +153,42 @@ Unified write operations for WorkItems (create, update, delete).
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val operation = requireString(params, "operation")
         return when (operation) {
-            "create" -> createHandler.execute(
-                requireJsonArray(params, "items"),
-                extractUUID(params, "parentId", required = false),
-                context
-            )
-            "update" -> updateHandler.execute(
-                requireJsonArray(params, "items"),
-                context
-            )
-            "delete" -> deleteHandler.execute(
-                requireJsonArray(params, "ids"),
-                optionalBoolean(params, "recursive", false),
-                context
-            )
+            "create" ->
+                createHandler.execute(
+                    requireJsonArray(params, "items"),
+                    extractUUID(params, "parentId", required = false),
+                    context
+                )
+            "update" ->
+                updateHandler.execute(
+                    requireJsonArray(params, "items"),
+                    context
+                )
+            "delete" ->
+                deleteHandler.execute(
+                    requireJsonArray(params, "ids"),
+                    optionalBoolean(params, "recursive", false),
+                    context
+                )
             else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
         }
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        val op = (params as? JsonObject)?.get("operation")?.let {
-            (it as? JsonPrimitive)?.content
-        } ?: "unknown"
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
+        val op =
+            (params as? JsonObject)?.get("operation")?.let {
+                (it as? JsonPrimitive)?.content
+            } ?: "unknown"
         val data = (result as? JsonObject)
         return when {
             isError -> "manage_items($op) failed"

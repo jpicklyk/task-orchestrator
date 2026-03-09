@@ -8,12 +8,11 @@ import java.io.File
 import java.nio.file.Path
 
 class YamlStatusLabelServiceTest {
-
     @TempDir
     lateinit var tempDir: Path
 
     @Test
-    fun `NoOp returns hardcoded defaults`(): Unit {
+    fun `NoOp returns hardcoded defaults`() {
         assertEquals("in-progress", NoOpStatusLabelService.resolveLabel("start"))
         assertEquals("done", NoOpStatusLabelService.resolveLabel("complete"))
         assertEquals("blocked", NoOpStatusLabelService.resolveLabel("block"))
@@ -24,12 +23,12 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `NoOp returns null for unknown trigger`(): Unit {
+    fun `NoOp returns null for unknown trigger`() {
         assertNull(NoOpStatusLabelService.resolveLabel("unknown"))
     }
 
     @Test
-    fun `missing config file uses defaults`(): Unit {
+    fun `missing config file uses defaults`() {
         val nonExistentPath = tempDir.resolve(".taskorchestrator/config.yaml")
         val service = YamlStatusLabelService(nonExistentPath)
 
@@ -43,14 +42,17 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `config without status_labels section uses defaults`(): Unit {
-        val configFile = createConfigFile("""
-            note_schemas:
-              default:
-                - key: test
-                  role: queue
-                  required: false
-        """.trimIndent())
+    fun `config without status_labels section uses defaults`() {
+        val configFile =
+            createConfigFile(
+                """
+                note_schemas:
+                  default:
+                    - key: test
+                      role: queue
+                      required: false
+                """.trimIndent()
+            )
 
         val service = YamlStatusLabelService(configFile)
 
@@ -59,15 +61,18 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `custom status_labels override defaults`(): Unit {
-        val configFile = createConfigFile("""
-            status_labels:
-              start: "working"
-              complete: "finished"
-              block: "on-hold"
-              cancel: "abandoned"
-              cascade: "auto-done"
-        """.trimIndent())
+    fun `custom status_labels override defaults`() {
+        val configFile =
+            createConfigFile(
+                """
+                status_labels:
+                  start: "working"
+                  complete: "finished"
+                  block: "on-hold"
+                  cancel: "abandoned"
+                  cascade: "auto-done"
+                """.trimIndent()
+            )
 
         val service = YamlStatusLabelService(configFile)
 
@@ -79,13 +84,16 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `custom config with explicit null values`(): Unit {
-        val configFile = createConfigFile("""
-            status_labels:
-              start: "active"
-              resume: null
-              reopen: null
-        """.trimIndent())
+    fun `custom config with explicit null values`() {
+        val configFile =
+            createConfigFile(
+                """
+                status_labels:
+                  start: "active"
+                  resume: null
+                  reopen: null
+                """.trimIndent()
+            )
 
         val service = YamlStatusLabelService(configFile)
 
@@ -95,11 +103,14 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `custom config with partial overrides returns null for unmapped triggers`(): Unit {
-        val configFile = createConfigFile("""
-            status_labels:
-              start: "doing"
-        """.trimIndent())
+    fun `custom config with partial overrides returns null for unmapped triggers`() {
+        val configFile =
+            createConfigFile(
+                """
+                status_labels:
+                  start: "doing"
+                """.trimIndent()
+            )
 
         val service = YamlStatusLabelService(configFile)
 
@@ -110,17 +121,20 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `config coexists with note_schemas`(): Unit {
-        val configFile = createConfigFile("""
-            note_schemas:
-              default:
-                - key: test
-                  role: queue
-                  required: false
-            status_labels:
-              start: "in-progress"
-              complete: "done"
-        """.trimIndent())
+    fun `config coexists with note_schemas`() {
+        val configFile =
+            createConfigFile(
+                """
+                note_schemas:
+                  default:
+                    - key: test
+                      role: queue
+                      required: false
+                status_labels:
+                  start: "in-progress"
+                  complete: "done"
+                """.trimIndent()
+            )
 
         val service = YamlStatusLabelService(configFile)
 
@@ -129,7 +143,7 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `empty config file uses defaults`(): Unit {
+    fun `empty config file uses defaults`() {
         val configFile = createConfigFile("")
 
         val service = YamlStatusLabelService(configFile)
@@ -140,7 +154,7 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `malformed YAML uses defaults gracefully`(): Unit {
+    fun `malformed YAML uses defaults gracefully`() {
         val configFile = createConfigFile("{{{{invalid yaml")
 
         val service = YamlStatusLabelService(configFile)
@@ -150,11 +164,14 @@ class YamlStatusLabelServiceTest {
     }
 
     @Test
-    fun `unknown trigger returns null`(): Unit {
-        val configFile = createConfigFile("""
-            status_labels:
-              start: "active"
-        """.trimIndent())
+    fun `unknown trigger returns null`() {
+        val configFile =
+            createConfigFile(
+                """
+                status_labels:
+                  start: "active"
+                """.trimIndent()
+            )
 
         val service = YamlStatusLabelService(configFile)
 

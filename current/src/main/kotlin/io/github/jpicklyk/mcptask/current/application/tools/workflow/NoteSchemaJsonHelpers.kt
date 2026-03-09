@@ -11,7 +11,6 @@ import kotlinx.serialization.json.*
  * into the shared [io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext] function.
  */
 object NoteSchemaJsonHelpers {
-
     /**
      * A note is considered "filled" if it exists with a non-blank body.
      * This is the single source of truth for fill-check logic across all workflow tools.
@@ -24,11 +23,13 @@ object NoteSchemaJsonHelpers {
      * Used by gate checks in [AdvanceItemTool] for start, complete, and cascade triggers.
      */
     fun buildMissingNotesArray(missingEntries: List<NoteSchemaEntry>): JsonArray =
-        JsonArray(missingEntries.map { entry ->
-            buildJsonObject {
-                put("key", JsonPrimitive(entry.key))
-                put("description", JsonPrimitive(entry.description))
-                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+        JsonArray(
+            missingEntries.map { entry ->
+                buildJsonObject {
+                    put("key", JsonPrimitive(entry.key))
+                    put("description", JsonPrimitive(entry.description))
+                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                }
             }
-        })
+        )
 }

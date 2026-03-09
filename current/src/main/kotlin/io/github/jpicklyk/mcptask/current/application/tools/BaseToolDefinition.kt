@@ -17,7 +17,6 @@ import java.util.UUID
  * [ToolDefinition.execute] and optionally override [ToolDefinition.validateParams].
  */
 abstract class BaseToolDefinition : ToolDefinition {
-
     protected val logger = LoggerFactory.getLogger(this.javaClass)
 
     // ──────────────────────────────────────────────
@@ -31,9 +30,10 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @param message Optional human-readable message
      * @return A success response envelope
      */
-    protected fun successResponse(data: JsonElement, message: String? = null): JsonObject {
-        return ResponseUtil.createSuccessResponse(data = data, message = message)
-    }
+    protected fun successResponse(
+        data: JsonElement,
+        message: String? = null
+    ): JsonObject = ResponseUtil.createSuccessResponse(data = data, message = message)
 
     /**
      * Creates a standardized success response with only a message.
@@ -41,9 +41,7 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @param message The human-readable success message
      * @return A success response envelope
      */
-    protected fun successResponse(message: String): JsonObject {
-        return ResponseUtil.createSuccessResponse(message = message)
-    }
+    protected fun successResponse(message: String): JsonObject = ResponseUtil.createSuccessResponse(message = message)
 
     /**
      * Creates a standardized error response and logs a warning.
@@ -76,12 +74,17 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The non-blank string value
      * @throws ToolValidationException if missing, wrong type, or blank
      */
-    protected fun requireString(params: JsonElement, name: String): String {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun requireString(
+        params: JsonElement,
+        name: String
+    ): String {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
-        val value = paramsObj[name] as? JsonPrimitive
-            ?: throw ToolValidationException("Missing required parameter: $name")
+        val value =
+            paramsObj[name] as? JsonPrimitive
+                ?: throw ToolValidationException("Missing required parameter: $name")
 
         if (!value.isString) {
             throw ToolValidationException("Parameter $name must be a string")
@@ -103,9 +106,13 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The string value, or null if absent/blank
      * @throws ToolValidationException if present but not a string
      */
-    protected fun optionalString(params: JsonElement, name: String): String? {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun optionalString(
+        params: JsonElement,
+        name: String
+    ): String? {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val value = paramsObj[name] as? JsonPrimitive ?: return null
 
@@ -129,9 +136,14 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The string value, or [defaultValue] if absent
      * @throws ToolValidationException if present but not a string
      */
-    protected fun optionalString(params: JsonElement, name: String, defaultValue: String): String {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun optionalString(
+        params: JsonElement,
+        name: String,
+        defaultValue: String
+    ): String {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val value = paramsObj[name] as? JsonPrimitive ?: return defaultValue
 
@@ -156,19 +168,25 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The boolean value, or [defaultValue] if absent
      * @throws ToolValidationException if present but not parseable as a boolean
      */
-    protected fun optionalBoolean(params: JsonElement, name: String, defaultValue: Boolean = false): Boolean {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun optionalBoolean(
+        params: JsonElement,
+        name: String,
+        defaultValue: Boolean = false
+    ): Boolean {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val value = paramsObj[name] as? JsonPrimitive ?: return defaultValue
 
         return when {
             // JSON boolean literal (non-string)
-            !value.isString -> try {
-                value.boolean
-            } catch (_: Exception) {
-                throw ToolValidationException("Parameter $name must be a boolean")
-            }
+            !value.isString ->
+                try {
+                    value.boolean
+                } catch (_: Exception) {
+                    throw ToolValidationException("Parameter $name must be a boolean")
+                }
             // String representations
             value.content.equals("true", ignoreCase = true) -> true
             value.content.equals("false", ignoreCase = true) -> false
@@ -190,12 +208,17 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The integer value
      * @throws ToolValidationException if missing or not parseable as an integer
      */
-    protected fun requireInt(params: JsonElement, name: String): Int {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun requireInt(
+        params: JsonElement,
+        name: String
+    ): Int {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
-        val value = paramsObj[name] as? JsonPrimitive
-            ?: throw ToolValidationException("Missing required parameter: $name")
+        val value =
+            paramsObj[name] as? JsonPrimitive
+                ?: throw ToolValidationException("Missing required parameter: $name")
 
         return try {
             value.content.toInt()
@@ -213,9 +236,14 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The integer value, or [defaultValue] if absent
      * @throws ToolValidationException if present but not parseable as an integer
      */
-    protected fun optionalInt(params: JsonElement, name: String, defaultValue: Int? = null): Int? {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun optionalInt(
+        params: JsonElement,
+        name: String,
+        defaultValue: Int? = null
+    ): Int? {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val value = paramsObj[name] as? JsonPrimitive ?: return defaultValue
 
@@ -238,9 +266,13 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The JsonArray, or null if the parameter is absent
      * @throws ToolValidationException if present but not a JSON array
      */
-    protected fun optionalJsonArray(params: JsonElement, name: String): JsonArray? {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun optionalJsonArray(
+        params: JsonElement,
+        name: String
+    ): JsonArray? {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val element = paramsObj[name] ?: return null
 
@@ -259,12 +291,17 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The JsonArray
      * @throws ToolValidationException if missing or not a JSON array
      */
-    protected fun requireJsonArray(params: JsonElement, name: String): JsonArray {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun requireJsonArray(
+        params: JsonElement,
+        name: String
+    ): JsonArray {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
-        val element = paramsObj[name]
-            ?: throw ToolValidationException("Missing required parameter: $name")
+        val element =
+            paramsObj[name]
+                ?: throw ToolValidationException("Missing required parameter: $name")
 
         if (element is JsonArray) {
             return element
@@ -287,7 +324,10 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The parsed UUID (never null)
      * @throws ToolValidationException if missing or not a valid UUID
      */
-    protected fun requireUUID(params: JsonElement, name: String): UUID =
+    protected fun requireUUID(
+        params: JsonElement,
+        name: String
+    ): UUID =
         extractUUID(params, name, required = true)
             ?: throw ToolValidationException("'$name' is required and must be a valid UUID")
 
@@ -300,9 +340,14 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The parsed UUID, or null if not required and absent
      * @throws ToolValidationException if required and missing, or if the value is not a valid UUID
      */
-    protected fun extractUUID(params: JsonElement, name: String, required: Boolean = true): UUID? {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun extractUUID(
+        params: JsonElement,
+        name: String,
+        required: Boolean = true
+    ): UUID? {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val value = paramsObj[name] as? JsonPrimitive
 
@@ -344,9 +389,13 @@ abstract class BaseToolDefinition : ToolDefinition {
      * @return The parsed Instant, or null if the parameter is absent
      * @throws ToolValidationException if present but not a valid ISO 8601 timestamp
      */
-    protected fun parseInstant(params: JsonElement, name: String): Instant? {
-        val paramsObj = params as? JsonObject
-            ?: throw ToolValidationException("Parameters must be a JSON object")
+    protected fun parseInstant(
+        params: JsonElement,
+        name: String
+    ): Instant? {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
 
         val value = paramsObj[name] as? JsonPrimitive ?: return null
 
@@ -386,13 +435,14 @@ abstract class BaseToolDefinition : ToolDefinition {
      * Converts an ordered list of ancestor WorkItems (root-first) into a JSON array
      * with id, title, and depth fields. Used by any tool that supports the includeAncestors parameter.
      */
-    protected fun buildAncestorsArray(ancestors: List<WorkItem>): JsonArray {
-        return JsonArray(ancestors.map { ancestor ->
-            buildJsonObject {
-                put("id", JsonPrimitive(ancestor.id.toString()))
-                put("title", JsonPrimitive(ancestor.title))
-                put("depth", JsonPrimitive(ancestor.depth))
+    protected fun buildAncestorsArray(ancestors: List<WorkItem>): JsonArray =
+        JsonArray(
+            ancestors.map { ancestor ->
+                buildJsonObject {
+                    put("id", JsonPrimitive(ancestor.id.toString()))
+                    put("title", JsonPrimitive(ancestor.title))
+                    put("depth", JsonPrimitive(ancestor.depth))
+                }
             }
-        })
-    }
+        )
 }

@@ -6,19 +6,19 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class RoleTransitionTest {
-
     private val testItemId = UUID.randomUUID()
 
     // --- Valid creation ---
 
     @Test
     fun `valid creation with required fields`() {
-        val transition = RoleTransition(
-            itemId = testItemId,
-            fromRole = "queue",
-            toRole = "work",
-            trigger = "start"
-        )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "queue",
+                toRole = "work",
+                trigger = "start"
+            )
         assertEquals(testItemId, transition.itemId)
         assertEquals("queue", transition.fromRole)
         assertEquals("work", transition.toRole)
@@ -31,16 +31,17 @@ class RoleTransitionTest {
     @Test
     fun `valid creation with all fields`() {
         val id = UUID.randomUUID()
-        val transition = RoleTransition(
-            id = id,
-            itemId = testItemId,
-            fromRole = "work",
-            toRole = "review",
-            fromStatusLabel = "in-progress",
-            toStatusLabel = "in-review",
-            trigger = "complete",
-            summary = "Task implementation done"
-        )
+        val transition =
+            RoleTransition(
+                id = id,
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "review",
+                fromStatusLabel = "in-progress",
+                toStatusLabel = "in-review",
+                trigger = "complete",
+                summary = "Task implementation done"
+            )
         assertEquals(id, transition.id)
         assertEquals("work", transition.fromRole)
         assertEquals("review", transition.toRole)
@@ -52,45 +53,49 @@ class RoleTransitionTest {
 
     @Test
     fun `creation with block trigger`() {
-        val transition = RoleTransition(
-            itemId = testItemId,
-            fromRole = "work",
-            toRole = "blocked",
-            trigger = "block"
-        )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "blocked",
+                trigger = "block"
+            )
         assertEquals("block", transition.trigger)
     }
 
     @Test
     fun `creation with hold trigger`() {
-        val transition = RoleTransition(
-            itemId = testItemId,
-            fromRole = "work",
-            toRole = "blocked",
-            trigger = "hold"
-        )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "blocked",
+                trigger = "hold"
+            )
         assertEquals("hold", transition.trigger)
     }
 
     @Test
     fun `creation with resume trigger`() {
-        val transition = RoleTransition(
-            itemId = testItemId,
-            fromRole = "blocked",
-            toRole = "work",
-            trigger = "resume"
-        )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "blocked",
+                toRole = "work",
+                trigger = "resume"
+            )
         assertEquals("resume", transition.trigger)
     }
 
     @Test
     fun `creation with cancel trigger`() {
-        val transition = RoleTransition(
-            itemId = testItemId,
-            fromRole = "work",
-            toRole = "terminal",
-            trigger = "cancel"
-        )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "terminal",
+                trigger = "cancel"
+            )
         assertEquals("cancel", transition.trigger)
     }
 

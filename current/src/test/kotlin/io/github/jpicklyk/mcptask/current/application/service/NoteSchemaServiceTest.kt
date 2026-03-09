@@ -5,7 +5,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class NoteSchemaServiceTest {
-
     @Test
     fun `NoOp returns null for any tags`() {
         assertNull(NoOpNoteSchemaService.getSchemaForTags(listOf("any-tag")))

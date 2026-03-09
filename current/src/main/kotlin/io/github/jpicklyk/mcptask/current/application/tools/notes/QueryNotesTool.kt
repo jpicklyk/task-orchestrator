@@ -14,10 +14,10 @@ import kotlinx.serialization.json.*
  * - **list**: List all notes for a WorkItem, with optional role filtering and body inclusion control.
  */
 class QueryNotesTool : BaseToolDefinition() {
-
     override val name = "query_notes"
 
-    override val description = """
+    override val description =
+        """
 Read-only query operations for Notes (get, list).
 
 **Operations:**
@@ -31,43 +31,61 @@ Read-only query operations for Notes (get, list).
 - Optional: `role` — filter by role: "queue", "work", "review"
 - Optional: `includeBody` (boolean, default true) — set false to omit body for token efficiency
 - Response: `{ notes: [...], total: N }`
-""".trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = true,
-        destructiveHint = false,
-        idempotentHint = true,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = true,
+            destructiveHint = false,
+            idempotentHint = true,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("operation", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Operation: get, list"))
-                put("enum", JsonArray(listOf("get", "list").map { JsonPrimitive(it) }))
-            })
-            put("id", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Note UUID (required for get)"))
-            })
-            put("itemId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("WorkItem UUID (required for list)"))
-            })
-            put("role", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Filter by role: queue, work, review"))
-            })
-            put("includeBody", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("Include note body (default: true)"))
-            })
-        },
-        required = listOf("operation")
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "operation",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Operation: get, list"))
+                            put("enum", JsonArray(listOf("get", "list").map { JsonPrimitive(it) }))
+                        }
+                    )
+                    put(
+                        "id",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Note UUID (required for get)"))
+                        }
+                    )
+                    put(
+                        "itemId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("WorkItem UUID (required for list)"))
+                        }
+                    )
+                    put(
+                        "role",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Filter by role: queue, work, review"))
+                        }
+                    )
+                    put(
+                        "includeBody",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put("description", JsonPrimitive("Include note body (default: true)"))
+                        }
+                    )
+                },
+            required = listOf("operation")
+        )
 
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
@@ -91,7 +109,10 @@ Read-only query operations for Notes (get, list).
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val operation = requireString(params, "operation")
         return when (operation) {
             "get" -> executeGet(params, context)
@@ -100,10 +121,15 @@ Read-only query operations for Notes (get, list).
         }
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        val op = (params as? JsonObject)?.get("operation")?.let {
-            (it as? JsonPrimitive)?.content
-        } ?: "unknown"
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
+        val op =
+            (params as? JsonObject)?.get("operation")?.let {
+                (it as? JsonPrimitive)?.content
+            } ?: "unknown"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         return when {
             isError -> "query_notes($op) failed"
@@ -123,7 +149,10 @@ Read-only query operations for Notes (get, list).
     // Get operation
     // ──────────────────────────────────────────────
 
-    private suspend fun executeGet(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    private suspend fun executeGet(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val id = requireUUID(params, "id")
         val noteRepo = context.noteRepository()
 
@@ -145,7 +174,10 @@ Read-only query operations for Notes (get, list).
     // List operation
     // ──────────────────────────────────────────────
 
-    private suspend fun executeList(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    private suspend fun executeList(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val itemId = requireUUID(params, "itemId")
         val role = optionalString(params, "role")
         val includeBody = optionalBoolean(params, "includeBody", defaultValue = true)
@@ -154,10 +186,11 @@ Read-only query operations for Notes (get, list).
         return when (val result = noteRepo.findByItemId(itemId, role)) {
             is Result.Success -> {
                 val notes = result.data
-                val data = buildJsonObject {
-                    put("notes", JsonArray(notes.map { it.toJson(includeBody) }))
-                    put("total", JsonPrimitive(notes.size))
-                }
+                val data =
+                    buildJsonObject {
+                        put("notes", JsonArray(notes.map { it.toJson(includeBody) }))
+                        put("total", JsonPrimitive(notes.size))
+                    }
                 successResponse(data)
             }
             is Result.Error -> {
@@ -169,5 +202,4 @@ Read-only query operations for Notes (get, list).
             }
         }
     }
-
 }

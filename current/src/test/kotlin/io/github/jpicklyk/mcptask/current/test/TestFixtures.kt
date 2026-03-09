@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.test
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import kotlinx.serialization.json.*
 import java.util.UUID
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 // ── WorkItem builder ──
@@ -24,26 +22,31 @@ fun makeItem(
     summary: String = "",
     metadata: String? = null,
     requiresVerification: Boolean = false
-): WorkItem = WorkItem(
-    id = id,
-    title = title,
-    role = role,
-    previousRole = previousRole,
-    parentId = parentId,
-    depth = depth,
-    priority = priority,
-    complexity = complexity,
-    tags = tags,
-    statusLabel = statusLabel,
-    description = description,
-    summary = summary,
-    metadata = metadata,
-    requiresVerification = requiresVerification
-)
+): WorkItem =
+    WorkItem(
+        id = id,
+        title = title,
+        role = role,
+        previousRole = previousRole,
+        parentId = parentId,
+        depth = depth,
+        priority = priority,
+        complexity = complexity,
+        tags = tags,
+        statusLabel = statusLabel,
+        description = description,
+        summary = summary,
+        metadata = metadata,
+        requiresVerification = requiresVerification
+    )
 
 // ── Dependency builders ──
 
-fun blocksDep(fromItemId: UUID, toItemId: UUID, unblockAt: String? = null): Dependency =
+fun blocksDep(
+    fromItemId: UUID,
+    toItemId: UUID,
+    unblockAt: String? = null
+): Dependency =
     Dependency(
         fromItemId = fromItemId,
         toItemId = toItemId,
@@ -51,7 +54,10 @@ fun blocksDep(fromItemId: UUID, toItemId: UUID, unblockAt: String? = null): Depe
         unblockAt = unblockAt
     )
 
-fun relatesDep(fromItemId: UUID, toItemId: UUID): Dependency =
+fun relatesDep(
+    fromItemId: UUID,
+    toItemId: UUID
+): Dependency =
     Dependency(
         fromItemId = fromItemId,
         toItemId = toItemId,
@@ -65,19 +71,23 @@ fun makeNote(
     key: String = "test-note",
     role: String = "queue",
     body: String = "Test body"
-): Note = Note(
-    itemId = itemId,
-    key = key,
-    role = role,
-    body = body
-)
+): Note =
+    Note(
+        itemId = itemId,
+        key = key,
+        role = role,
+        body = body
+    )
 
 // ── JSON param helpers ──
 
-fun params(vararg pairs: Pair<String, JsonElement>): JsonObject =
-    buildJsonObject { pairs.forEach { (k, v) -> put(k, v) } }
+fun params(vararg pairs: Pair<String, JsonElement>): JsonObject = buildJsonObject { pairs.forEach { (k, v) -> put(k, v) } }
 
-fun transitionObj(itemId: UUID, trigger: String, summary: String? = null): JsonObject =
+fun transitionObj(
+    itemId: UUID,
+    trigger: String,
+    summary: String? = null
+): JsonObject =
     buildJsonObject {
         put("itemId", itemId.toString())
         put("trigger", trigger)
@@ -121,13 +131,18 @@ fun extractSummary(result: JsonElement): JsonObject {
  * Optionally checks that the error message contains [expectedMessage].
  * Returns the full response object for further assertions.
  */
-fun assertErrorResponse(result: JsonElement, expectedMessage: String? = null): JsonObject {
+fun assertErrorResponse(
+    result: JsonElement,
+    expectedMessage: String? = null
+): JsonObject {
     val obj = result.jsonObject
     assertTrue(obj["success"]?.jsonPrimitive?.boolean == false, "Expected success=false but got: $obj")
     expectedMessage?.let { expected ->
         val msg = obj["error"]?.jsonPrimitive?.content ?: obj["message"]?.jsonPrimitive?.content ?: ""
-        assertTrue(msg.contains(expected, ignoreCase = true),
-            "Expected error message to contain '$expected' but got: '$msg'")
+        assertTrue(
+            msg.contains(expected, ignoreCase = true),
+            "Expected error message to contain '$expected' but got: '$msg'"
+        )
     }
     return obj
 }

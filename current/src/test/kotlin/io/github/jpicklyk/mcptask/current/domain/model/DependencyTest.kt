@@ -9,7 +9,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DependencyTest {
-
     private val itemA = UUID.randomUUID()
     private val itemB = UUID.randomUUID()
 
@@ -57,25 +56,28 @@ class DependencyTest {
 
     @Test
     fun `self-referencing dependency throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Dependency(fromItemId = itemA, toItemId = itemA)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Dependency(fromItemId = itemA, toItemId = itemA)
+            }
         assertTrue(ex.message!!.contains("cannot reference the same item"))
     }
 
     @Test
     fun `RELATES_TO with unblockAt throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO, unblockAt = "work")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO, unblockAt = "work")
+            }
         assertTrue(ex.message!!.contains("RELATES_TO dependencies cannot have an unblockAt"))
     }
 
     @Test
     fun `invalid unblockAt value throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Dependency(fromItemId = itemA, toItemId = itemB, unblockAt = "invalid")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Dependency(fromItemId = itemA, toItemId = itemB, unblockAt = "invalid")
+            }
         assertTrue(ex.message!!.contains("unblockAt must be one of"))
     }
 

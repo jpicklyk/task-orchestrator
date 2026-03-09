@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -44,6 +44,5 @@ class MockRepositoryProvider {
     fun context(
         noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
         statusLabelService: StatusLabelService = NoOpStatusLabelService
-    ): ToolExecutionContext =
-        ToolExecutionContext(provider, noteSchemaService, statusLabelService)
+    ): ToolExecutionContext = ToolExecutionContext(provider, noteSchemaService, statusLabelService)
 }

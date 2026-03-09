@@ -31,7 +31,6 @@ import java.nio.file.Paths
 class YamlNoteSchemaService(
     private val configPath: java.nio.file.Path = resolveDefaultConfigPath()
 ) : NoteSchemaService {
-
     private val logger = LoggerFactory.getLogger(YamlNoteSchemaService::class.java)
 
     /** Lazily loaded schema cache. Null until first access. Empty map if file missing. */
@@ -59,9 +58,10 @@ class YamlNoteSchemaService(
                 val noteSchemas = root["note_schemas"] as? Map<String, Any> ?: return emptyMap()
 
                 noteSchemas.entries.associate { (schemaName, rawEntries) ->
-                    val entries = (rawEntries as? List<Map<String, Any>>)
-                        ?.mapNotNull { parseEntry(it) }
-                        ?: emptyList()
+                    val entries =
+                        (rawEntries as? List<Map<String, Any>>)
+                            ?.mapNotNull { parseEntry(it) }
+                            ?: emptyList()
                     schemaName to entries
                 }
             }
@@ -90,9 +90,10 @@ class YamlNoteSchemaService(
         private val VALID_SCHEMA_ROLES = setOf("queue", "work", "review")
 
         fun resolveDefaultConfigPath(): java.nio.file.Path {
-            val projectRoot = Paths.get(
-                System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
-            )
+            val projectRoot =
+                Paths.get(
+                    System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
+                )
             return projectRoot.resolve(".taskorchestrator/config.yaml")
         }
     }

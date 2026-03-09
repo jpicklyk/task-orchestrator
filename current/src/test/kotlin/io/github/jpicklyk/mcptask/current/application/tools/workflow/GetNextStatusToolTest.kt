@@ -20,7 +20,6 @@ import java.util.UUID
 import kotlin.test.*
 
 class GetNextStatusToolTest {
-
     private lateinit var tool: GetNextStatusTool
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepo: WorkItemRepository
@@ -53,14 +52,13 @@ class GetNextStatusToolTest {
         role: Role = Role.QUEUE,
         previousRole: Role? = null,
         title: String = "Test Item"
-    ): WorkItem {
-        return WorkItem(
+    ): WorkItem =
+        WorkItem(
             id = id,
             title = title,
             role = role,
             previousRole = previousRole
         )
-    }
 
     private fun extractData(result: JsonElement): JsonObject {
         val obj = result as JsonObject
@@ -68,175 +66,192 @@ class GetNextStatusToolTest {
         return obj["data"] as JsonObject
     }
 
-    private fun isSuccess(result: JsonElement): Boolean {
-        return (result as JsonObject)["success"]!!.jsonPrimitive.boolean
-    }
+    private fun isSuccess(result: JsonElement): Boolean = (result as JsonObject)["success"]!!.jsonPrimitive.boolean
 
     // ──────────────────────────────────────────────
     // Ready recommendations
     // ──────────────────────────────────────────────
 
     @Test
-    fun `QUEUE item with no deps returns Ready with nextRole WORK`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.QUEUE)
+    fun `QUEUE item with no deps returns Ready with nextRole WORK`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("work", data["nextRole"]!!.jsonPrimitive.content)
-        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun `WORK item with no deps returns Ready with nextRole REVIEW`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.WORK)
-
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
-
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
-
-        val data = extractData(result)
-        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("review", data["nextRole"]!!.jsonPrimitive.content)
-        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("work", data["nextRole"]!!.jsonPrimitive.content)
+            assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+        }
 
     @Test
-    fun `REVIEW item with no deps returns Ready with nextRole TERMINAL`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.REVIEW)
+    fun `WORK item with no deps returns Ready with nextRole REVIEW`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("review", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("terminal", data["nextRole"]!!.jsonPrimitive.content)
-        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("review", data["nextRole"]!!.jsonPrimitive.content)
+            assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `REVIEW item with no deps returns Ready with nextRole TERMINAL`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.REVIEW)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("review", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("terminal", data["nextRole"]!!.jsonPrimitive.content)
+            assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+        }
 
     // ──────────────────────────────────────────────
     // Terminal recommendation
     // ──────────────────────────────────────────────
 
     @Test
-    fun `TERMINAL item returns Terminal recommendation`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.TERMINAL)
+    fun `TERMINAL item returns Terminal recommendation`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.TERMINAL)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Terminal", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("terminal", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled.", data["reason"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("Terminal", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("terminal", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals(
+                "Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled.",
+                data["reason"]!!.jsonPrimitive.content
+            )
+        }
 
     // ──────────────────────────────────────────────
     // Blocked recommendations
     // ──────────────────────────────────────────────
 
     @Test
-    fun `BLOCKED item returns Blocked with resume suggestion`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
+    fun `BLOCKED item returns Blocked with resume suggestion`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("blocked", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("Use 'resume' trigger to return to previous role", data["suggestion"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("blocked", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("Use 'resume' trigger to return to previous role", data["suggestion"]!!.jsonPrimitive.content)
+        }
 
     @Test
-    fun `QUEUE item with unsatisfied dependency returns Blocked with blockers`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val blockerId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.QUEUE)
-        val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
+    fun `QUEUE item with unsatisfied dependency returns Blocked with blockers`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val blockerId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+            val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
 
-        // Blocker BLOCKS item, default unblockAt = terminal
-        val dep = Dependency(
-            fromItemId = blockerId,
-            toItemId = itemId,
-            type = DependencyType.BLOCKS
-        )
-        every { depRepo.findByToItemId(itemId) } returns listOf(dep)
+            // Blocker BLOCKS item, default unblockAt = terminal
+            val dep =
+                Dependency(
+                    fromItemId = blockerId,
+                    toItemId = itemId,
+                    type = DependencyType.BLOCKS
+                )
+            every { depRepo.findByToItemId(itemId) } returns listOf(dep)
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
+            val data = extractData(result)
+            assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
 
-        val blockers = data["blockers"]!!.jsonArray
-        assertEquals(1, blockers.size)
-        val blocker = blockers[0].jsonObject
-        assertEquals(blockerId.toString(), blocker["fromItemId"]!!.jsonPrimitive.content)
-        assertEquals("queue", blocker["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("terminal", blocker["requiredRole"]!!.jsonPrimitive.content)
-    }
+            val blockers = data["blockers"]!!.jsonArray
+            assertEquals(1, blockers.size)
+            val blocker = blockers[0].jsonObject
+            assertEquals(blockerId.toString(), blocker["fromItemId"]!!.jsonPrimitive.content)
+            assertEquals("queue", blocker["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("terminal", blocker["requiredRole"]!!.jsonPrimitive.content)
+        }
 
     // ──────────────────────────────────────────────
     // Error cases
     // ──────────────────────────────────────────────
 
     @Test
-    fun `item not found returns error response`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
+    fun `item not found returns error response`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Error(
-            RepositoryError.NotFound(itemId, "WorkItem not found: $itemId")
-        )
+            coEvery { workItemRepo.getById(itemId) } returns
+                Result.Error(
+                    RepositoryError.NotFound(itemId, "WorkItem not found: $itemId")
+                )
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val obj = result as JsonObject
-        assertFalse(obj["success"]!!.jsonPrimitive.boolean)
-        val error = obj["error"] as JsonObject
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("not found"))
-    }
+            val obj = result as JsonObject
+            assertFalse(obj["success"]!!.jsonPrimitive.boolean)
+            val error = obj["error"] as JsonObject
+            assertTrue(error["message"]!!.jsonPrimitive.content.contains("not found"))
+        }
 
     @Test
     fun `missing itemId parameter fails validation`() {
@@ -257,81 +272,89 @@ class GetNextStatusToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `progressionPosition is 1 of 4 for QUEUE`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.QUEUE)
+    fun `progressionPosition is 1 of 4 for QUEUE`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("1/4", data["progressionPosition"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun `progressionPosition is 2 of 4 for WORK`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.WORK)
-
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
-
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
-
-        val data = extractData(result)
-        assertEquals("2/4", data["progressionPosition"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("1/4", data["progressionPosition"]!!.jsonPrimitive.content)
+        }
 
     @Test
-    fun `progressionPosition is 3 of 4 for REVIEW`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.REVIEW)
+    fun `progressionPosition is 2 of 4 for WORK`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("3/4", data["progressionPosition"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("2/4", data["progressionPosition"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `progressionPosition is 3 of 4 for REVIEW`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.REVIEW)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("3/4", data["progressionPosition"]!!.jsonPrimitive.content)
+        }
 
     // ──────────────────────────────────────────────
     // userSummary
     // ──────────────────────────────────────────────
 
     @Test
-    fun `userSummary shows recommendation and role`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        val item = makeItem(id = itemId, role = Role.QUEUE)
+    fun `userSummary shows recommendation and role`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val input = params("itemId" to JsonPrimitive(itemId.toString()))
-        val result = tool.execute(input, context)
-        val summary = tool.userSummary(input, result, isError = false)
+            val input = params("itemId" to JsonPrimitive(itemId.toString()))
+            val result = tool.execute(input, context)
+            val summary = tool.userSummary(input, result, isError = false)
 
-        assertEquals("Recommendation: Ready (current: queue)", summary)
-    }
+            assertEquals("Recommendation: Ready (current: queue)", summary)
+        }
 
     @Test
     fun `userSummary on error returns failure message`() {
-        val errorResult = buildJsonObject {
-            put("success", JsonPrimitive(false))
-            put("error", buildJsonObject { put("message", JsonPrimitive("fail")) })
-        }
+        val errorResult =
+            buildJsonObject {
+                put("success", JsonPrimitive(false))
+                put("error", buildJsonObject { put("message", JsonPrimitive("fail")) })
+            }
         val summary = tool.userSummary(params(), errorResult, isError = true)
         assertEquals("get_next_status failed", summary)
     }
@@ -341,52 +364,56 @@ class GetNextStatusToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `WORK role with no schema tags skips REVIEW and returns nextRole terminal`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        // Item has no tags — NoOp schema returns hasReviewPhase=false
-        val item = makeItem(id = itemId, role = Role.WORK)
+    fun `WORK role with no schema tags skips REVIEW and returns nextRole terminal`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            // Item has no tags — NoOp schema returns hasReviewPhase=false
+            val item = makeItem(id = itemId, role = Role.WORK)
 
-        every { noteSchemaService.hasReviewPhase(emptyList()) } returns false
+            every { noteSchemaService.hasReviewPhase(emptyList()) } returns false
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("terminal", data["nextRole"]!!.jsonPrimitive.content)
-        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
-        // Effective total is 3 (QUEUE/WORK/TERMINAL — no REVIEW step)
-        assertEquals("2/3", data["progressionPosition"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("terminal", data["nextRole"]!!.jsonPrimitive.content)
+            assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+            // Effective total is 3 (QUEUE/WORK/TERMINAL — no REVIEW step)
+            assertEquals("2/3", data["progressionPosition"]!!.jsonPrimitive.content)
+        }
 
     @Test
-    fun `WORK role with schema tags that include review phase returns nextRole review`(): Unit = runBlocking {
-        val itemId = UUID.randomUUID()
-        // Item has a tag that matches a schema with a review note
-        val item = makeItem(id = itemId, role = Role.WORK).copy(tags = "feature")
+    fun `WORK role with schema tags that include review phase returns nextRole review`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            // Item has a tag that matches a schema with a review note
+            val item = makeItem(id = itemId, role = Role.WORK).copy(tags = "feature")
 
-        every { noteSchemaService.hasReviewPhase(listOf("feature")) } returns true
+            every { noteSchemaService.hasReviewPhase(listOf("feature")) } returns true
 
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        every { depRepo.findByToItemId(itemId) } returns emptyList()
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
-        val result = tool.execute(
-            params("itemId" to JsonPrimitive(itemId.toString())),
-            context
-        )
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
 
-        val data = extractData(result)
-        assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
-        assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
-        assertEquals("review", data["nextRole"]!!.jsonPrimitive.content)
-        assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
-        // Effective total is 4 (QUEUE/WORK/REVIEW/TERMINAL)
-        assertEquals("2/4", data["progressionPosition"]!!.jsonPrimitive.content)
-    }
+            val data = extractData(result)
+            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("work", data["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("review", data["nextRole"]!!.jsonPrimitive.content)
+            assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
+            // Effective total is 4 (QUEUE/WORK/REVIEW/TERMINAL)
+            assertEquals("2/4", data["progressionPosition"]!!.jsonPrimitive.content)
+        }
 }

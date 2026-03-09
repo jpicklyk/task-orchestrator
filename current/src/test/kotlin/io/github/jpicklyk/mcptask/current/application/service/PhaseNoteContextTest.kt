@@ -8,8 +8,10 @@ import java.util.UUID
 import kotlin.test.*
 
 class PhaseNoteContextTest {
-
-    private fun note(key: String, body: String = "content") = Note(
+    private fun note(
+        key: String,
+        body: String = "content"
+    ) = Note(
         id = UUID.randomUUID(),
         itemId = UUID.randomUUID(),
         key = key,
@@ -19,9 +21,10 @@ class PhaseNoteContextTest {
 
     @Test
     fun `returns null for terminal items`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec")
+            )
         val result = computePhaseNoteContext(Role.TERMINAL, schema, emptyMap())
         assertNull(result)
     }
@@ -34,10 +37,11 @@ class PhaseNoteContextTest {
 
     @Test
     fun `computes correct counts with no notes filled`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec"),
-            NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write design")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec"),
+                NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write design")
+            )
         val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
 
         assertNotNull(result)
@@ -50,11 +54,12 @@ class PhaseNoteContextTest {
 
     @Test
     fun `computes correct counts with some notes filled`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec"),
-            NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write design"),
-            NoteSchemaEntry(key = "risks", role = "queue", required = true, guidance = "List risks")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec"),
+                NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write design"),
+                NoteSchemaEntry(key = "risks", role = "queue", required = true, guidance = "List risks")
+            )
         val notesByKey = mapOf("spec" to note("spec"))
         val result = computePhaseNoteContext(Role.QUEUE, schema, notesByKey)
 
@@ -68,9 +73,10 @@ class PhaseNoteContextTest {
 
     @Test
     fun `all notes filled gives null guidancePointer`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec")
+            )
         val notesByKey = mapOf("spec" to note("spec"))
         val result = computePhaseNoteContext(Role.QUEUE, schema, notesByKey)
 
@@ -84,9 +90,10 @@ class PhaseNoteContextTest {
 
     @Test
     fun `blank body does not count as filled`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write spec")
+            )
         val notesByKey = mapOf("spec" to note("spec", body = ""))
         val result = computePhaseNoteContext(Role.QUEUE, schema, notesByKey)
 
@@ -98,10 +105,11 @@ class PhaseNoteContextTest {
 
     @Test
     fun `only considers notes for the current role`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Queue guidance"),
-            NoteSchemaEntry(key = "impl", role = "work", required = true, guidance = "Work guidance")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Queue guidance"),
+                NoteSchemaEntry(key = "impl", role = "work", required = true, guidance = "Work guidance")
+            )
         // Item is in WORK phase — should only consider work-role notes
         val result = computePhaseNoteContext(Role.WORK, schema, emptyMap())
 
@@ -115,10 +123,11 @@ class PhaseNoteContextTest {
 
     @Test
     fun `non-required notes are excluded from counts`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Required"),
-            NoteSchemaEntry(key = "optional-notes", role = "queue", required = false, guidance = "Optional")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Required"),
+                NoteSchemaEntry(key = "optional-notes", role = "queue", required = false, guidance = "Optional")
+            )
         val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
 
         assertNotNull(result)

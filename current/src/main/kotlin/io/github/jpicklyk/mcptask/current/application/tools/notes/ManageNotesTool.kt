@@ -18,10 +18,10 @@ import java.util.UUID
  * - **delete**: Delete notes by `ids` array, or by `itemId` (optionally scoped by `key`).
  */
 class ManageNotesTool : BaseToolDefinition() {
-
     override val name = "manage_notes"
 
-    override val description = """
+    override val description =
+        """
 Unified write operations for Notes (upsert, delete).
 
 **Operations:**
@@ -36,43 +36,61 @@ Unified write operations for Notes (upsert, delete).
 - By `ids` array: delete each note by UUID
 - By `itemId` + optional `key`: delete all notes for item, or specific note by key
 - Response: `{ deleted: N, failed: N, failures: [{id, error}] }`
-""".trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = false,
-        destructiveHint = true,
-        idempotentHint = false,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = false,
+            destructiveHint = true,
+            idempotentHint = false,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("operation", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Operation: upsert, delete"))
-                put("enum", JsonArray(listOf("upsert", "delete").map { JsonPrimitive(it) }))
-            })
-            put("notes", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Array of note objects for upsert"))
-            })
-            put("ids", buildJsonObject {
-                put("type", JsonPrimitive("array"))
-                put("description", JsonPrimitive("Array of note UUIDs for delete"))
-            })
-            put("itemId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("WorkItem UUID — delete all notes for this item"))
-            })
-            put("key", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Note key — with itemId, delete specific note"))
-            })
-        },
-        required = listOf("operation")
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "operation",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Operation: upsert, delete"))
+                            put("enum", JsonArray(listOf("upsert", "delete").map { JsonPrimitive(it) }))
+                        }
+                    )
+                    put(
+                        "notes",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Array of note objects for upsert"))
+                        }
+                    )
+                    put(
+                        "ids",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("description", JsonPrimitive("Array of note UUIDs for delete"))
+                        }
+                    )
+                    put(
+                        "itemId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("WorkItem UUID — delete all notes for this item"))
+                        }
+                    )
+                    put(
+                        "key",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Note key — with itemId, delete specific note"))
+                        }
+                    )
+                },
+            required = listOf("operation")
+        )
 
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
@@ -94,7 +112,10 @@ Unified write operations for Notes (upsert, delete).
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val operation = requireString(params, "operation")
         return when (operation) {
             "upsert" -> executeUpsert(params, context)
@@ -103,10 +124,15 @@ Unified write operations for Notes (upsert, delete).
         }
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
-        val op = (params as? JsonObject)?.get("operation")?.let {
-            (it as? JsonPrimitive)?.content
-        } ?: "unknown"
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
+        val op =
+            (params as? JsonObject)?.get("operation")?.let {
+                (it as? JsonPrimitive)?.content
+            } ?: "unknown"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         return when {
             isError -> "manage_notes($op) failed"
@@ -126,7 +152,10 @@ Unified write operations for Notes (upsert, delete).
     // Upsert operation
     // ──────────────────────────────────────────────
 
-    private suspend fun executeUpsert(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    private suspend fun executeUpsert(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val notesArray = requireJsonArray(params, "notes")
         val noteRepo = context.noteRepository()
         val itemRepo = context.workItemRepository()
@@ -138,22 +167,27 @@ Unified write operations for Notes (upsert, delete).
 
         for ((index, element) in notesArray.withIndex()) {
             try {
-                val noteObj = element as? JsonObject
-                    ?: throw ToolValidationException("Note at index $index must be a JSON object")
+                val noteObj =
+                    element as? JsonObject
+                        ?: throw ToolValidationException("Note at index $index must be a JSON object")
 
-                val itemIdStr = extractNoteString(noteObj, "itemId")
-                    ?: throw ToolValidationException("Note at index $index: 'itemId' is required")
-                val key = extractNoteString(noteObj, "key")
-                    ?: throw ToolValidationException("Note at index $index: 'key' is required")
-                val role = extractNoteString(noteObj, "role")
-                    ?: throw ToolValidationException("Note at index $index: 'role' is required")
+                val itemIdStr =
+                    extractNoteString(noteObj, "itemId")
+                        ?: throw ToolValidationException("Note at index $index: 'itemId' is required")
+                val key =
+                    extractNoteString(noteObj, "key")
+                        ?: throw ToolValidationException("Note at index $index: 'key' is required")
+                val role =
+                    extractNoteString(noteObj, "role")
+                        ?: throw ToolValidationException("Note at index $index: 'role' is required")
                 val body = extractNoteString(noteObj, "body") ?: ""
 
-                val itemId = try {
-                    UUID.fromString(itemIdStr)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("Note at index $index: 'itemId' is not a valid UUID: $itemIdStr")
-                }
+                val itemId =
+                    try {
+                        UUID.fromString(itemIdStr)
+                    } catch (_: IllegalArgumentException) {
+                        throw ToolValidationException("Note at index $index: 'itemId' is not a valid UUID: $itemIdStr")
+                    }
 
                 // Validate that the WorkItem exists (cache for itemContext reuse)
                 if (itemId !in validatedItems) {
@@ -166,93 +200,117 @@ Unified write operations for Notes (upsert, delete).
                 }
 
                 // Check for existing note with same (itemId, key) to preserve its ID
-                val existingNote = when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
-                    is Result.Success -> findResult.data
-                    is Result.Error -> null
-                }
+                val existingNote =
+                    when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
+                        is Result.Success -> findResult.data
+                        is Result.Error -> null
+                    }
 
-                val note = Note(
-                    id = existingNote?.id ?: UUID.randomUUID(),
-                    itemId = itemId,
-                    key = key,
-                    role = role,
-                    body = body
-                )
+                val note =
+                    Note(
+                        id = existingNote?.id ?: UUID.randomUUID(),
+                        itemId = itemId,
+                        key = key,
+                        role = role,
+                        body = body
+                    )
 
                 when (val result = noteRepo.upsert(note)) {
                     is Result.Success -> {
-                        upsertedNotes.add(buildJsonObject {
-                            put("id", JsonPrimitive(result.data.id.toString()))
-                            put("itemId", JsonPrimitive(result.data.itemId.toString()))
-                            put("key", JsonPrimitive(result.data.key))
-                            put("role", JsonPrimitive(result.data.role))
-                        })
+                        upsertedNotes.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(result.data.id.toString()))
+                                put("itemId", JsonPrimitive(result.data.itemId.toString()))
+                                put("key", JsonPrimitive(result.data.key))
+                                put("role", JsonPrimitive(result.data.role))
+                            }
+                        )
                     }
                     is Result.Error -> {
-                        failures.add(buildJsonObject {
-                            put("index", JsonPrimitive(index))
-                            put("error", JsonPrimitive(result.error.message))
-                        })
+                        failures.add(
+                            buildJsonObject {
+                                put("index", JsonPrimitive(index))
+                                put("error", JsonPrimitive(result.error.message))
+                            }
+                        )
                     }
                 }
             } catch (e: ToolValidationException) {
-                failures.add(buildJsonObject {
-                    put("index", JsonPrimitive(index))
-                    put("error", JsonPrimitive(e.message ?: "Validation failed"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(e.message ?: "Validation failed"))
+                    }
+                )
             } catch (e: Exception) {
-                failures.add(buildJsonObject {
-                    put("index", JsonPrimitive(index))
-                    put("error", JsonPrimitive(e.message ?: "Unexpected error"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(e.message ?: "Unexpected error"))
+                    }
+                )
             }
         }
 
         // Compute itemContext for each unique itemId that had at least one successful upsert
-        val successItemIds = upsertedNotes.mapNotNull { note ->
-            note["itemId"]?.let { (it as? JsonPrimitive)?.content }
-        }.toSet()
+        val successItemIds =
+            upsertedNotes
+                .mapNotNull { note ->
+                    note["itemId"]?.let { (it as? JsonPrimitive)?.content }
+                }.toSet()
 
-        val itemContextMap = buildJsonObject {
-            for (itemIdStr in successItemIds) {
-                val itemId = UUID.fromString(itemIdStr)
-                val item = validatedItems[itemId] ?: continue
+        val itemContextMap =
+            buildJsonObject {
+                for (itemIdStr in successItemIds) {
+                    val itemId = UUID.fromString(itemIdStr)
+                    val item = validatedItems[itemId] ?: continue
 
-                val schema = context.noteSchemaService().getSchemaForTags(item.tagList())
-                val allNotes = when (val nr = noteRepo.findByItemId(itemId)) {
-                    is Result.Success -> nr.data
-                    is Result.Error -> emptyList()
+                    val schema = context.noteSchemaService().getSchemaForTags(item.tagList())
+                    val allNotes =
+                        when (val nr = noteRepo.findByItemId(itemId)) {
+                            is Result.Success -> nr.data
+                            is Result.Error -> emptyList()
+                        }
+                    val notesByKey = allNotes.associateBy { it.key }
+
+                    val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
+
+                    put(
+                        itemIdStr,
+                        buildJsonObject {
+                            if (phaseContext != null) {
+                                if (phaseContext.guidancePointer != null) {
+                                    put("guidancePointer", JsonPrimitive(phaseContext.guidancePointer))
+                                } else {
+                                    put("guidancePointer", JsonNull)
+                                }
+                                put(
+                                    "noteProgress",
+                                    buildJsonObject {
+                                        put("filled", JsonPrimitive(phaseContext.filled))
+                                        put("remaining", JsonPrimitive(phaseContext.remaining))
+                                        put("total", JsonPrimitive(phaseContext.total))
+                                    }
+                                )
+                            } else {
+                                put("guidancePointer", JsonNull)
+                                put("noteProgress", JsonNull)
+                            }
+                        }
+                    )
                 }
-                val notesByKey = allNotes.associateBy { it.key }
-
-                val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
-
-                put(itemIdStr, buildJsonObject {
-                    if (phaseContext != null) {
-                        if (phaseContext.guidancePointer != null) put("guidancePointer", JsonPrimitive(phaseContext.guidancePointer))
-                        else put("guidancePointer", JsonNull)
-                        put("noteProgress", buildJsonObject {
-                            put("filled", JsonPrimitive(phaseContext.filled))
-                            put("remaining", JsonPrimitive(phaseContext.remaining))
-                            put("total", JsonPrimitive(phaseContext.total))
-                        })
-                    } else {
-                        put("guidancePointer", JsonNull)
-                        put("noteProgress", JsonNull)
-                    }
-                })
             }
-        }
 
-        val data = buildJsonObject {
-            put("notes", JsonArray(upsertedNotes))
-            put("upserted", JsonPrimitive(upsertedNotes.size))
-            put("failed", JsonPrimitive(failures.size))
-            if (failures.isNotEmpty()) {
-                put("failures", JsonArray(failures))
+        val data =
+            buildJsonObject {
+                put("notes", JsonArray(upsertedNotes))
+                put("upserted", JsonPrimitive(upsertedNotes.size))
+                put("failed", JsonPrimitive(failures.size))
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
+                put("itemContext", itemContextMap)
             }
-            put("itemContext", itemContextMap)
-        }
 
         return successResponse(data)
     }
@@ -261,7 +319,10 @@ Unified write operations for Notes (upsert, delete).
     // Delete operation
     // ──────────────────────────────────────────────
 
-    private suspend fun executeDelete(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    private suspend fun executeDelete(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val idsArray = optionalJsonArray(params, "ids")
         val itemIdStr = optionalString(params, "itemId")
         val key = optionalString(params, "key")
@@ -275,37 +336,47 @@ Unified write operations for Notes (upsert, delete).
             for (element in idsArray) {
                 val idStr = (element as? JsonPrimitive)?.content
                 if (idStr == null) {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive("null"))
-                        put("error", JsonPrimitive("Each ID must be a string"))
-                    })
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive("null"))
+                            put("error", JsonPrimitive("Each ID must be a string"))
+                        }
+                    )
                     continue
                 }
 
-                val id = try {
-                    UUID.fromString(idStr)
-                } catch (_: IllegalArgumentException) {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive(idStr))
-                        put("error", JsonPrimitive("Invalid UUID format: $idStr"))
-                    })
-                    continue
-                }
+                val id =
+                    try {
+                        UUID.fromString(idStr)
+                    } catch (_: IllegalArgumentException) {
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(idStr))
+                                put("error", JsonPrimitive("Invalid UUID format: $idStr"))
+                            }
+                        )
+                        continue
+                    }
 
                 when (val result = noteRepo.delete(id)) {
-                    is Result.Success -> if (result.data) {
-                        deletedCount++
-                    } else {
-                        failures.add(buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive("Note '$idStr' not found"))
-                        })
-                    }
+                    is Result.Success ->
+                        if (result.data) {
+                            deletedCount++
+                        } else {
+                            failures.add(
+                                buildJsonObject {
+                                    put("id", JsonPrimitive(idStr))
+                                    put("error", JsonPrimitive("Note '$idStr' not found"))
+                                }
+                            )
+                        }
                     is Result.Error -> {
-                        failures.add(buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive(result.error.message))
-                        })
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(idStr))
+                                put("error", JsonPrimitive(result.error.message))
+                            }
+                        )
                     }
                 }
             }
@@ -313,14 +384,15 @@ Unified write operations for Notes (upsert, delete).
 
         // Delete by itemId (+ optional key)
         if (itemIdStr != null) {
-            val itemId = try {
-                UUID.fromString(itemIdStr)
-            } catch (_: IllegalArgumentException) {
-                return errorResponse(
-                    "Parameter 'itemId' is not a valid UUID: $itemIdStr",
-                    ErrorCodes.VALIDATION_ERROR
-                )
-            }
+            val itemId =
+                try {
+                    UUID.fromString(itemIdStr)
+                } catch (_: IllegalArgumentException) {
+                    return errorResponse(
+                        "Parameter 'itemId' is not a valid UUID: $itemIdStr",
+                        ErrorCodes.VALIDATION_ERROR
+                    )
+                }
 
             if (key != null) {
                 // Delete specific note by (itemId, key)
@@ -331,20 +403,24 @@ Unified write operations for Notes (upsert, delete).
                             when (val delResult = noteRepo.delete(note.id)) {
                                 is Result.Success -> deletedCount++
                                 is Result.Error -> {
-                                    failures.add(buildJsonObject {
-                                        put("id", JsonPrimitive(note.id.toString()))
-                                        put("error", JsonPrimitive(delResult.error.message))
-                                    })
+                                    failures.add(
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive(note.id.toString()))
+                                            put("error", JsonPrimitive(delResult.error.message))
+                                        }
+                                    )
                                 }
                             }
                         }
                         // If note is null, nothing to delete — not an error
                     }
                     is Result.Error -> {
-                        failures.add(buildJsonObject {
-                            put("id", JsonPrimitive("$itemIdStr/$key"))
-                            put("error", JsonPrimitive(findResult.error.message))
-                        })
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive("$itemIdStr/$key"))
+                                put("error", JsonPrimitive(findResult.error.message))
+                            }
+                        )
                     }
                 }
             } else {
@@ -352,22 +428,25 @@ Unified write operations for Notes (upsert, delete).
                 when (val result = noteRepo.deleteByItemId(itemId)) {
                     is Result.Success -> deletedCount += result.data
                     is Result.Error -> {
-                        failures.add(buildJsonObject {
-                            put("id", JsonPrimitive(itemIdStr))
-                            put("error", JsonPrimitive(result.error.message))
-                        })
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(itemIdStr))
+                                put("error", JsonPrimitive(result.error.message))
+                            }
+                        )
                     }
                 }
             }
         }
 
-        val data = buildJsonObject {
-            put("deleted", JsonPrimitive(deletedCount))
-            put("failed", JsonPrimitive(failures.size))
-            if (failures.isNotEmpty()) {
-                put("failures", JsonArray(failures))
+        val data =
+            buildJsonObject {
+                put("deleted", JsonPrimitive(deletedCount))
+                put("failed", JsonPrimitive(failures.size))
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
             }
-        }
 
         return successResponse(data)
     }
@@ -379,7 +458,10 @@ Unified write operations for Notes (upsert, delete).
     /**
      * Extracts a string field from a JsonObject. Returns null if absent, not a string, or blank.
      */
-    private fun extractNoteString(obj: JsonObject, name: String): String? {
+    private fun extractNoteString(
+        obj: JsonObject,
+        name: String
+    ): String? {
         val value = obj[name] as? JsonPrimitive ?: return null
         if (!value.isString) return null
         val content = value.content

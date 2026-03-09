@@ -15,7 +15,6 @@ import java.util.UUID
  * - Maximum depth enforcement
  */
 class ItemHierarchyValidator {
-
     companion object {
         /** Maximum allowed nesting depth for WorkItems. */
         const val MAX_DEPTH = 3
@@ -49,11 +48,12 @@ class ItemHierarchyValidator {
         val visited = mutableSetOf<UUID>()
         var cursor: UUID? = parentId
         while (cursor != null && visited.size <= MAX_DEPTH) {
-            if (!visited.add(cursor)) break  // Pre-existing cycle — stop walking
-            val ancestor = when (val ancestorResult = repo.getById(cursor)) {
-                is Result.Success -> ancestorResult.data
-                is Result.Error -> break
-            }
+            if (!visited.add(cursor)) break // Pre-existing cycle — stop walking
+            val ancestor =
+                when (val ancestorResult = repo.getById(cursor)) {
+                    is Result.Success -> ancestorResult.data
+                    is Result.Error -> break
+                }
             if (ancestor.id == itemId) {
                 throw ToolValidationException(
                     "$errorPrefix: reparenting to '$parentId' would create a circular hierarchy"

@@ -12,9 +12,14 @@ import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
  */
 interface RepositoryProvider {
     fun workItemRepository(): WorkItemRepository
+
     fun noteRepository(): NoteRepository
+
     fun dependencyRepository(): DependencyRepository
+
     fun roleTransitionRepository(): RoleTransitionRepository
+
     fun database(): org.jetbrains.exposed.v1.jdbc.Database?
+
     fun workTreeExecutor(): WorkTreeExecutor
 }

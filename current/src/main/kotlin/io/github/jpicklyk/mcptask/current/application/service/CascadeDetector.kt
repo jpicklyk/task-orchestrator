@@ -42,7 +42,6 @@ data class UnblockedItem(
  *    whose incoming blocking dependencies are now fully satisfied.
  */
 class CascadeDetector {
-
     companion object {
         /** Maximum ancestor depth for recursive cascade detection. */
         const val MAX_DEPTH = 3
@@ -85,10 +84,11 @@ class CascadeDetector {
 
         // Get role counts for all children of the parent
         val countsResult = workItemRepository.countChildrenByRole(parentId)
-        val roleCounts = when (countsResult) {
-            is Result.Success -> countsResult.data
-            is Result.Error -> return emptyList()
-        }
+        val roleCounts =
+            when (countsResult) {
+                is Result.Success -> countsResult.data
+                is Result.Error -> return emptyList()
+            }
 
         // If there are no children at all, no cascade
         if (roleCounts.isEmpty()) return emptyList()
@@ -99,26 +99,29 @@ class CascadeDetector {
 
         // All children are terminal -- create cascade event for the parent
         val parentResult = workItemRepository.getById(parentId)
-        val parent = when (parentResult) {
-            is Result.Success -> parentResult.data
-            is Result.Error -> return emptyList()
-        }
+        val parent =
+            when (parentResult) {
+                is Result.Success -> parentResult.data
+                is Result.Error -> return emptyList()
+            }
 
         // If parent is already terminal, no cascade needed
         if (parent.role == Role.TERMINAL) return emptyList()
 
-        val event = CascadeEvent(
-            itemId = parent.id,
-            currentRole = parent.role,
-            targetRole = Role.TERMINAL
-        )
+        val event =
+            CascadeEvent(
+                itemId = parent.id,
+                currentRole = parent.role,
+                targetRole = Role.TERMINAL
+            )
 
         // Recursively check the parent's parent
-        val upstreamEvents = if (parent.parentId != null) {
-            detectCascadesRecursive(parent.parentId, workItemRepository, depth + 1)
-        } else {
-            emptyList()
-        }
+        val upstreamEvents =
+            if (parent.parentId != null) {
+                detectCascadesRecursive(parent.parentId, workItemRepository, depth + 1)
+            } else {
+                emptyList()
+            }
 
         return listOf(event) + upstreamEvents
     }
@@ -146,19 +149,22 @@ class CascadeDetector {
 
         // Fetch parent
         val parentResult = workItemRepository.getById(parentId)
-        val parent = when (parentResult) {
-            is Result.Success -> parentResult.data
-            is Result.Error -> return emptyList()
-        }
+        val parent =
+            when (parentResult) {
+                is Result.Success -> parentResult.data
+                is Result.Error -> return emptyList()
+            }
 
         // Parent must be in QUEUE to cascade
         if (parent.role != Role.QUEUE) return emptyList()
 
-        return listOf(CascadeEvent(
-            itemId = parent.id,
-            currentRole = parent.role,
-            targetRole = Role.WORK
-        ))
+        return listOf(
+            CascadeEvent(
+                itemId = parent.id,
+                currentRole = parent.role,
+                targetRole = Role.WORK
+            )
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -180,19 +186,22 @@ class CascadeDetector {
 
         val parentId = item.parentId ?: return emptyList()
 
-        val parent = when (val result = workItemRepository.getById(parentId)) {
-            is Result.Success -> result.data
-            is Result.Error -> return emptyList()
-        }
+        val parent =
+            when (val result = workItemRepository.getById(parentId)) {
+                is Result.Success -> result.data
+                is Result.Error -> return emptyList()
+            }
 
         // Only cascade if parent is TERMINAL
         if (parent.role != Role.TERMINAL) return emptyList()
 
-        return listOf(CascadeEvent(
-            itemId = parent.id,
-            currentRole = Role.TERMINAL,
-            targetRole = Role.WORK
-        ))
+        return listOf(
+            CascadeEvent(
+                itemId = parent.id,
+                currentRole = Role.TERMINAL,
+                targetRole = Role.WORK
+            )
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -230,10 +239,11 @@ class CascadeDetector {
             if (isFullyUnblocked(targetId, dependencyRepository, workItemRepository)) {
                 // Fetch the target item to get its title
                 val targetResult = workItemRepository.getById(targetId)
-                val targetItem = when (targetResult) {
-                    is Result.Success -> targetResult.data
-                    is Result.Error -> continue
-                }
+                val targetItem =
+                    when (targetResult) {
+                        is Result.Success -> targetResult.data
+                        is Result.Error -> continue
+                    }
                 unblockedItems.add(UnblockedItem(itemId = targetItem.id, title = targetItem.title))
             }
         }
@@ -260,10 +270,11 @@ class CascadeDetector {
 
             // Get the blocker's current state
             val blockerResult = workItemRepository.getById(dep.fromItemId)
-            val blockerItem = when (blockerResult) {
-                is Result.Success -> blockerResult.data
-                is Result.Error -> return false // Missing blocker counts as still blocked
-            }
+            val blockerItem =
+                when (blockerResult) {
+                    is Result.Success -> blockerResult.data
+                    is Result.Error -> return false // Missing blocker counts as still blocked
+                }
 
             // If the blocker hasn't reached the threshold, this item is still blocked
             if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
