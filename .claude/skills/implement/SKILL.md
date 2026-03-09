@@ -187,6 +187,18 @@ actual changes. Include in the review agent prompt:
 - Instruction: "Run all commands and read all files from within the worktree at
   `<worktree-path>`. Do NOT read files from the main working directory."
 
+**Review agent worktree template (copy verbatim, fill placeholders):**
+
+```
+You are reviewing implementation work in an isolated worktree.
+- Worktree path: <WORKTREE_PATH>
+- Branch: <BRANCH_NAME>
+- Changed files: <OUTPUT OF git -C <WORKTREE_PATH> diff main --name-only>
+
+Run ALL commands from within the worktree at <WORKTREE_PATH>.
+Read ALL files from that directory. Do NOT read from the main working directory.
+```
+
 **If NOT using worktree isolation**, the review agent reads from the current
 working branch as normal.
 
@@ -370,12 +382,16 @@ Agent(
 )
 ```
 
-**Scoping rules — include in every worktree subagent prompt:**
-- "Only modify files directly related to your task"
-- "Do not bump versions, modify shared config, or edit files outside your scope"
-- "Commit your changes before returning"
-- Cross-cutting changes (version bumps, shared config) are handled by the
-  orchestrator after all agents return
+**Scoping rules:** The `subagent-start` hook automatically injects commit, scope,
+and cd-discipline rules into every subagent. You do NOT need to include these in
+delegation prompts. Focus prompts on task-specific context:
+- Item UUID and what to implement
+- Which files to modify (explicit list when possible)
+- Test expectations
+- Return format
+
+Cross-cutting changes (version bumps, shared config) are handled by the
+orchestrator after all agents return.
 
 ### Worktree lifecycle
 
@@ -416,6 +432,20 @@ When multiple agents return from parallel worktrees:
 4. Squash-merge each reviewed worktree branch into local `main` sequentially
 5. Run the full test suite after all merges to catch integration issues
 6. Delete worktree branches after successful squash-merge
+
+### Test baseline management
+
+When dispatching parallel worktree agents, check if any task modifies shared
+code (domain models, enums, database schema, test infrastructure). If so:
+
+1. Dispatch the shared-code task **first** (not in parallel)
+2. After it returns, run `./gradlew :current:test` on main to establish a clean baseline
+3. **Then** dispatch the remaining independent tasks in parallel
+
+**Symptom of contamination:** Multiple agents report "N pre-existing test
+failures unrelated to our changes" on the same tests. That's contamination
+from a parallel task, not pre-existing failures. Always verify agent test
+reports with a direct test run after all agents complete.
 
 ---
 

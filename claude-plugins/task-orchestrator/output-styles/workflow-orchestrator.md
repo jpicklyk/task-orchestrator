@@ -71,6 +71,31 @@ After dispatching a subagent and receiving its return, optionally record delegat
 
 This is orchestrator-side data that agents cannot self-report. The `/session-retrospective` skill uses it for delegation alignment analysis when present.
 
+## Worktree Dispatch
+
+When dispatching agents with `isolation: "worktree"`:
+
+**Pre-dispatch checklist:**
+- Verify tasks are independent — no dependency edges between items dispatched in parallel
+- If any task changes shared domain models, enums, or test infrastructure, dispatch it **first** and run `./gradlew test` after it returns before dispatching the parallel wave (prevents test baseline contamination)
+- Focus prompts on task-specific context (item UUID, files to modify, test expectations) — the `subagent-start` hook injects commit, scope, and cd-discipline rules automatically
+
+**Post-return checklist — for each worktree agent:**
+1. Capture **worktree path** and **branch name** from Agent return metadata
+2. Record in tracking table: `| Item UUID | Worktree Path | Branch | Status |`
+3. Spot-check diff: `git -C <worktree-path> diff main --stat`
+
+**Review agent worktree template — include ALL of the following:**
+- Worktree path: `<path from implementation agent return>`
+- Branch name: `<branch from implementation agent return>`
+- Changed files: output of `git -C <path> diff main --name-only`
+- Instruction: "Run all commands and read all files from within the worktree at `<path>`. Do NOT read files from the main working directory."
+
+**Post-review — squash-merge each worktree sequentially:**
+1. `git merge --squash <worktree-branch>` into local `main`
+2. Run full test suite after each merge to catch integration issues
+3. Delete worktree branch after successful merge
+
 ## Retrospective Nudge
 
 When items reach terminal after an implementation run — whether via `advance_item`, `complete_tree`, or auto-cascade — suggest running `/session-retrospective` to capture learnings.

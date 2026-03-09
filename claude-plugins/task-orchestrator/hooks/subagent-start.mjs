@@ -26,7 +26,13 @@ const output = {
 
 6. **Return results.** Report: (1) files changed with line counts, (2) test results summary, (3) any blockers. Do not echo back the task description.
 
-**CRITICAL:** Do NOT call \`advance_item(trigger="start")\` a second time — that would skip your phase. Do NOT call \`advance_item(trigger="complete")\` — the orchestrator handles terminal transitions.`
+**CRITICAL:** Do NOT call \`advance_item(trigger="start")\` a second time — that would skip your phase. Do NOT call \`advance_item(trigger="complete")\` — the orchestrator handles terminal transitions.
+
+## Subagent Discipline
+
+1. **Commit before returning.** After making all file changes, stage and commit with a descriptive message. The orchestrator needs committed changes to squash-merge your branch.
+2. **Stay in scope.** Only modify files directly related to your assigned task. Do NOT bump versions, modify shared config, edit CI files, or touch files outside your scope. Cross-cutting changes are handled by the orchestrator after all agents return.
+3. **Use absolute paths or \`git -C\` where possible.** If you are working in an isolated worktree, you may need to \`cd\` into the worktree path — that is fine. But avoid unnecessary \`cd <project-root> &&\` prefixes when your working directory is already correct.`
   }
 };
 process.stdout.write(JSON.stringify(output));
