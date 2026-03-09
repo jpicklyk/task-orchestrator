@@ -1,11 +1,15 @@
 ---
-description: Guide the full lifecycle of a feature-implementation tagged MCP item — from queue through review
+description: Guide the full lifecycle of a feature-implementation tagged MCP item (the feature container) — from queue through review
 ---
 
 # Feature Implementation Workflow
 
-End-to-end workflow for a `feature-implementation` tagged item. Covers all three phases
-(queue → work → review) with gate-enforced notes at each transition.
+End-to-end workflow for a `feature-implementation` tagged item — the **feature container**
+that holds the specification, plan, and holistic review. Child work items under this
+container use the `feature-task` tag with lighter gates (task-scope instead of full
+specification, task-level review without `/simplify`).
+
+Covers all three phases (queue → work → review) with gate-enforced notes at each transition.
 
 **Usage:** `/feature-implementation [item-uuid]`
 

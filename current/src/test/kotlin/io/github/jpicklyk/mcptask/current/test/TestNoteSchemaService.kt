@@ -27,6 +27,16 @@ class TestNoteSchemaService(
             )
         ))
 
+        /** Feature task schema — lighter gates for child work items under a feature container. */
+        val FEATURE_TASK = TestNoteSchemaService(mapOf(
+            "feature-task" to listOf(
+                NoteSchemaEntry(key = "task-scope", role = "queue", required = true, description = "What to build — target files, acceptance criteria, constraints"),
+                NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Context handoff — deviations, surprises, decisions"),
+                NoteSchemaEntry(key = "review-checklist", role = "review", required = true, description = "Task-level quality gate — scope alignment and test coverage"),
+                NoteSchemaEntry(key = "session-tracking", role = "work", required = true, description = "Session context for retrospective")
+            )
+        ))
+
         /** Bug fix schema — queue and work only, no review phase. */
         val BUG_FIX = TestNoteSchemaService(mapOf(
             "bug-fix" to listOf(

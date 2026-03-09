@@ -81,9 +81,9 @@ Read `.taskorchestrator/config.yaml` to discover available note schemas (this is
 
 | Context signal | Schema to apply |
 |----------------|-----------------|
-| Feature, enhancement, new capability | `feature-implementation` (if it exists in config) |
-| Bug, error, crash, unexpected behavior | `bug-fix` (if it exists in config) |
-| Observation, friction, optimization, missing capability | `agent-observation` (if it exists in config) |
+| Feature, enhancement, new capability | Match against feature-related schema keys in config (if any exist) |
+| Bug, error, crash, unexpected behavior | Match against bug-related schema keys in config (if any exist) |
+| Observation, friction, optimization, missing capability | Match against observation-related schema keys in config (if any exist) |
 
 If the inferred schema key exists in the config, apply it as the item's `tags` value. If the key does not exist in the config (e.g., no `bug-fix` schema defined), leave tags empty — do not apply a tag that has no matching schema.
 
