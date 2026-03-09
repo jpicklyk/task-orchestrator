@@ -3,6 +3,17 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ktlint)
+}
+
+ktlint {
+    version.set("1.5.0")
+    android.set(false)
+    outputToConsole.set(true)
+    ignoreFailures.set(false)
+    filter {
+        exclude("**/generated/**")
+    }
 }
 
 // Load version from centralized version.properties
@@ -23,17 +34,18 @@ tasks.register("printTagVersion") {
 }
 
 // Generate build-info resource so the app can read its version at runtime
-val generateBuildInfo = tasks.register("generateBuildInfo") {
-    val outputDir = layout.buildDirectory.dir("generated/resources/build-info")
-    val versionValue = version.toString()
-    inputs.property("version", versionValue)
-    outputs.dir(outputDir)
-    doLast {
-        val dir = outputDir.get().asFile.resolve("build-info")
-        dir.mkdirs()
-        dir.resolve("version.properties").writeText("version=$versionValue\n")
+val generateBuildInfo =
+    tasks.register("generateBuildInfo") {
+        val outputDir = layout.buildDirectory.dir("generated/resources/build-info")
+        val versionValue = version.toString()
+        inputs.property("version", versionValue)
+        outputs.dir(outputDir)
+        doLast {
+            val dir = outputDir.get().asFile.resolve("build-info")
+            dir.mkdirs()
+            dir.resolve("version.properties").writeText("version=$versionValue\n")
+        }
     }
-}
 sourceSets.main { resources.srcDir(generateBuildInfo) }
 
 group = "io.github.jpicklyk"
@@ -105,7 +117,8 @@ tasks.jar {
 
     dependsOn(configurations.runtimeClasspath)
     from({
-        configurations.runtimeClasspath.get()
+        configurations.runtimeClasspath
+            .get()
             .filter { it.name.endsWith("jar") }
             .map { zipTree(it) }
     })

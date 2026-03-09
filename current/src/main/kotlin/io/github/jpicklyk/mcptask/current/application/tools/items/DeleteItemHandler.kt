@@ -14,7 +14,6 @@ import java.util.UUID
  * foreign key constraints.
  */
 class DeleteItemHandler {
-
     /**
      * Executes a batch delete of WorkItems by ID.
      *
@@ -23,7 +22,11 @@ class DeleteItemHandler {
      * @param context The tool execution context providing repository access
      * @return A JSON response envelope with deleted IDs, counts, and any failures
      */
-    suspend fun execute(idsArray: JsonArray, recursive: Boolean, context: ToolExecutionContext): JsonElement {
+    suspend fun execute(
+        idsArray: JsonArray,
+        recursive: Boolean,
+        context: ToolExecutionContext
+    ): JsonElement {
         val repo = context.workItemRepository()
 
         val deletedIds = mutableListOf<String>()
@@ -33,31 +36,38 @@ class DeleteItemHandler {
         for (element in idsArray) {
             val idStr = (element as? JsonPrimitive)?.content
             if (idStr == null) {
-                failures.add(buildJsonObject {
-                    put("id", JsonPrimitive("null"))
-                    put("error", JsonPrimitive("Each ID must be a string"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("id", JsonPrimitive("null"))
+                        put("error", JsonPrimitive("Each ID must be a string"))
+                    }
+                )
                 continue
             }
 
-            val id = try {
-                UUID.fromString(idStr)
-            } catch (_: IllegalArgumentException) {
-                failures.add(buildJsonObject {
-                    put("id", JsonPrimitive(idStr))
-                    put("error", JsonPrimitive("Invalid UUID format: $idStr"))
-                })
-                continue
-            }
+            val id =
+                try {
+                    UUID.fromString(idStr)
+                } catch (_: IllegalArgumentException) {
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put("error", JsonPrimitive("Invalid UUID format: $idStr"))
+                        }
+                    )
+                    continue
+                }
 
             if (recursive) {
                 // Find all descendants, delete leaves-first, then the root
                 val descendantsResult = repo.findDescendants(id)
                 if (descendantsResult is Result.Error) {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive(idStr))
-                        put("error", JsonPrimitive("Failed to find descendants: ${descendantsResult.error.message}"))
-                    })
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put("error", JsonPrimitive("Failed to find descendants: ${descendantsResult.error.message}"))
+                        }
+                    )
                     continue
                 }
                 val descendants = (descendantsResult as Result.Success).data
@@ -71,10 +81,15 @@ class DeleteItemHandler {
                         when (val delResult = repo.delete(descendant.id)) {
                             is Result.Success -> if (delResult.data) descendantsDeleted++
                             is Result.Error -> {
-                                failures.add(buildJsonObject {
-                                    put("id", JsonPrimitive(idStr))
-                                    put("error", JsonPrimitive("Failed to delete descendant ${descendant.id}: ${delResult.error.message}"))
-                                })
+                                failures.add(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(idStr))
+                                        put(
+                                            "error",
+                                            JsonPrimitive("Failed to delete descendant ${descendant.id}: ${delResult.error.message}")
+                                        )
+                                    }
+                                )
                                 descendantDeleteFailed = true
                                 break
                             }
@@ -86,53 +101,66 @@ class DeleteItemHandler {
                 // Non-recursive: guard against FK constraint violation by checking for children first
                 val childrenResult = repo.findChildren(id)
                 if (childrenResult is Result.Success && childrenResult.data.isNotEmpty()) {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive(idStr))
-                        put("error", JsonPrimitive(
-                            "Item '$idStr' has ${childrenResult.data.size} child item(s). " +
-                            "Use recursive=true to delete the item and all its descendants."
-                        ))
-                    })
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put(
+                                "error",
+                                JsonPrimitive(
+                                    "Item '$idStr' has ${childrenResult.data.size} child item(s). " +
+                                        "Use recursive=true to delete the item and all its descendants."
+                                )
+                            )
+                        }
+                    )
                     continue
                 }
                 if (childrenResult is Result.Error) {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive(idStr))
-                        put("error", JsonPrimitive("Failed to check children: ${childrenResult.error.message}"))
-                    })
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put("error", JsonPrimitive("Failed to check children: ${childrenResult.error.message}"))
+                        }
+                    )
                     continue
                 }
             }
 
             when (val result = repo.delete(id)) {
-                is Result.Success -> if (result.data) {
-                    deletedIds.add(idStr)
-                } else {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive(idStr))
-                        put("error", JsonPrimitive("Item '$idStr' not found"))
-                    })
-                }
+                is Result.Success ->
+                    if (result.data) {
+                        deletedIds.add(idStr)
+                    } else {
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(idStr))
+                                put("error", JsonPrimitive("Item '$idStr' not found"))
+                            }
+                        )
+                    }
                 is Result.Error -> {
-                    failures.add(buildJsonObject {
-                        put("id", JsonPrimitive(idStr))
-                        put("error", JsonPrimitive(result.error.message))
-                    })
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put("error", JsonPrimitive(result.error.message))
+                        }
+                    )
                 }
             }
         }
 
-        val data = buildJsonObject {
-            put("ids", JsonArray(deletedIds.map { JsonPrimitive(it) }))
-            put("deleted", JsonPrimitive(deletedIds.size + descendantsDeleted))
-            put("failed", JsonPrimitive(failures.size))
-            if (descendantsDeleted > 0) {
-                put("descendantsDeleted", JsonPrimitive(descendantsDeleted))
+        val data =
+            buildJsonObject {
+                put("ids", JsonArray(deletedIds.map { JsonPrimitive(it) }))
+                put("deleted", JsonPrimitive(deletedIds.size + descendantsDeleted))
+                put("failed", JsonPrimitive(failures.size))
+                if (descendantsDeleted > 0) {
+                    put("descendantsDeleted", JsonPrimitive(descendantsDeleted))
+                }
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
             }
-            if (failures.isNotEmpty()) {
-                put("failures", JsonArray(failures))
-            }
-        }
 
         return ResponseUtil.createSuccessResponse(data)
     }

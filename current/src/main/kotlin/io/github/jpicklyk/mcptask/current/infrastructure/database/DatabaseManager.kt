@@ -38,46 +38,48 @@ class DatabaseManager(
             logger.info("Initializing database at: $databasePath")
 
             // Determine if this is a JDBC URL, SQLite memory URL, or file path
-            val jdbcUrl = when {
-                databasePath.startsWith("jdbc:") -> {
-                    logger.info("Using provided JDBC URL: $databasePath")
-                    databasePath
-                }
-                databasePath.contains("?mode=memory") -> {
-                    logger.info("Using in-memory SQLite database: $databasePath")
-                    databasePath
-                }
-                else -> {
-                    // For file-based database, ensure parent directories exist
-                    val file = File(databasePath)
-                    file.parentFile?.mkdirs()
+            val jdbcUrl =
+                when {
+                    databasePath.startsWith("jdbc:") -> {
+                        logger.info("Using provided JDBC URL: $databasePath")
+                        databasePath
+                    }
+                    databasePath.contains("?mode=memory") -> {
+                        logger.info("Using in-memory SQLite database: $databasePath")
+                        databasePath
+                    }
+                    else -> {
+                        // For file-based database, ensure parent directories exist
+                        val file = File(databasePath)
+                        file.parentFile?.mkdirs()
 
-                    logger.info("Using file-based SQLite database at: $databasePath")
-                    "jdbc:sqlite:$databasePath"
-                }
-            }
-
-            // Create a database connection
-            database = Database.connect(
-                url = jdbcUrl,
-                driver = "org.sqlite.JDBC",
-                setupConnection = { connection ->
-                    // Use a single statement with `use` to ensure proper cleanup.
-                    // PRAGMA journal_mode=WAL returns a result row — if the Statement is not
-                    // closed, the open prepared statement causes SQLITE_BUSY ("SQL statements
-                    // in progress") when Exposed calls setTransactionIsolation on the same
-                    // connection shortly after. Closing the statement via `use` prevents this.
-                    connection.createStatement().use { stmt ->
-                        // Enable foreign key constraints - critical for data integrity
-                        stmt.execute("PRAGMA foreign_keys = ON")
-                        // WAL mode allows concurrent reads + write without full file locking.
-                        // Returns the active journal mode as a result row — must close statement.
-                        stmt.execute("PRAGMA journal_mode=WAL")
-                        // Avoid indefinite blocking when another process holds a write lock.
-                        stmt.execute("PRAGMA busy_timeout = 5000")
+                        logger.info("Using file-based SQLite database at: $databasePath")
+                        "jdbc:sqlite:$databasePath"
                     }
                 }
-            )
+
+            // Create a database connection
+            database =
+                Database.connect(
+                    url = jdbcUrl,
+                    driver = "org.sqlite.JDBC",
+                    setupConnection = { connection ->
+                        // Use a single statement with `use` to ensure proper cleanup.
+                        // PRAGMA journal_mode=WAL returns a result row — if the Statement is not
+                        // closed, the open prepared statement causes SQLITE_BUSY ("SQL statements
+                        // in progress") when Exposed calls setTransactionIsolation on the same
+                        // connection shortly after. Closing the statement via `use` prevents this.
+                        connection.createStatement().use { stmt ->
+                            // Enable foreign key constraints - critical for data integrity
+                            stmt.execute("PRAGMA foreign_keys = ON")
+                            // WAL mode allows concurrent reads + write without full file locking.
+                            // Returns the active journal mode as a result row — must close statement.
+                            stmt.execute("PRAGMA journal_mode=WAL")
+                            // Avoid indefinite blocking when another process holds a write lock.
+                            stmt.execute("PRAGMA busy_timeout = 5000")
+                        }
+                    }
+                )
             TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
 
             logger.info("Database connection established successfully")
@@ -177,9 +179,7 @@ class DatabaseManager(
      * @return The database connection
      * @throws IllegalStateException if the database has not been initialized
      */
-    fun getDatabase(): Database {
-        return database ?: throw IllegalStateException("Database has not been initialized")
-    }
+    fun getDatabase(): Database = database ?: throw IllegalStateException("Database has not been initialized")
 
     /**
      * Shuts down the database connection.

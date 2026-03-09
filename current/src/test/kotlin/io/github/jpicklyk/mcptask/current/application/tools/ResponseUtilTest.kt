@@ -9,7 +9,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ResponseUtilTest {
-
     // ────────────────────────────────────────────────────────
     // createSuccessResponse
     // ────────────────────────────────────────────────────────
@@ -63,12 +62,13 @@ class ResponseUtilTest {
     @Test
     fun `createErrorResponse with all fields`() {
         val extraData = buildJsonObject { put("field", JsonPrimitive("title")) }
-        val response = ResponseUtil.createErrorResponse(
-            message = "Validation failed",
-            code = ErrorCodes.VALIDATION_ERROR,
-            details = "Title is required",
-            additionalData = extraData
-        )
+        val response =
+            ResponseUtil.createErrorResponse(
+                message = "Validation failed",
+                code = ErrorCodes.VALIDATION_ERROR,
+                details = "Title is required",
+                additionalData = extraData
+            )
 
         assertFalse(response["success"]!!.jsonPrimitive.boolean)
         val error = response["error"]!!.jsonObject
@@ -81,10 +81,11 @@ class ResponseUtilTest {
 
     @Test
     fun `createErrorResponse with message and code only omits details and data`() {
-        val response = ResponseUtil.createErrorResponse(
-            message = "Not found",
-            code = ErrorCodes.RESOURCE_NOT_FOUND
-        )
+        val response =
+            ResponseUtil.createErrorResponse(
+                message = "Not found",
+                code = ErrorCodes.RESOURCE_NOT_FOUND
+            )
 
         assertFalse(response["success"]!!.jsonPrimitive.boolean)
         val error = response["error"]!!.jsonObject

@@ -31,7 +31,6 @@ import java.nio.file.Path
 class YamlStatusLabelService(
     private val configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath()
 ) : StatusLabelService {
-
     private val logger = LoggerFactory.getLogger(YamlStatusLabelService::class.java)
 
     /** Lazily loaded label mappings. Falls back to NoOp defaults if config missing. */
@@ -40,19 +39,22 @@ class YamlStatusLabelService(
     /** Whether custom labels were loaded from config (vs. using defaults). */
     private val hasCustomConfig: Boolean by lazy { loadHasCustomConfig() }
 
+    @Suppress("ktlint:standard:backing-property-naming")
     private var _hasCustomConfig: Boolean? = null
 
-    override fun resolveLabel(trigger: String): String? {
-        return if (hasCustomConfig) {
+    override fun resolveLabel(trigger: String): String? =
+        if (hasCustomConfig) {
             // Config explicitly maps this trigger — use it (even if null)
-            if (labels.containsKey(trigger)) labels[trigger]
-            // Trigger not in config — no label override
-            else null
+            if (labels.containsKey(trigger)) {
+                labels[trigger]
+            } else {
+                // Trigger not in config — no label override
+                null
+            }
         } else {
             // No custom config — delegate to hardcoded defaults
             NoOpStatusLabelService.resolveLabel(trigger)
         }
-    }
 
     @Suppress("UNCHECKED_CAST")
     private fun loadLabels(): Map<String, String?> {
@@ -65,15 +67,17 @@ class YamlStatusLabelService(
         return try {
             val yaml = Yaml()
             FileReader(configPath.toFile()).use { reader ->
-                val root = yaml.load<Map<String, Any>>(reader) ?: run {
-                    _hasCustomConfig = false
-                    return emptyMap()
-                }
-                val statusLabels = root["status_labels"] as? Map<String, Any?> ?: run {
-                    logger.debug("No status_labels section in config; using defaults")
-                    _hasCustomConfig = false
-                    return emptyMap()
-                }
+                val root =
+                    yaml.load<Map<String, Any>>(reader) ?: run {
+                        _hasCustomConfig = false
+                        return emptyMap()
+                    }
+                val statusLabels =
+                    root["status_labels"] as? Map<String, Any?> ?: run {
+                        logger.debug("No status_labels section in config; using defaults")
+                        _hasCustomConfig = false
+                        return emptyMap()
+                    }
 
                 _hasCustomConfig = true
                 logger.info("Loaded custom status labels from config: {}", statusLabels.keys)

@@ -54,11 +54,12 @@ data class WorkItem(
     }
 
     /** Parse comma-separated tags into a list. */
-    fun tagList(): List<String> = tags
-        ?.split(",")
-        ?.map { it.trim() }
-        ?.filter { it.isNotEmpty() }
-        ?: emptyList()
+    fun tagList(): List<String> =
+        tags
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
 
     companion object {
         private val TAG_PATTERN = Regex("^[a-z0-9][a-z0-9-]*$")

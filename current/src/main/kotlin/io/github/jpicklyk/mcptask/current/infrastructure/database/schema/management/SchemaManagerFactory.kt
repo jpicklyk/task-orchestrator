@@ -14,11 +14,13 @@ object SchemaManagerFactory {
      * @param jdbcUrl JDBC URL required for Flyway mode; ignored for Direct mode
      * @return An instance of DatabaseSchemaManager
      */
-    fun create(useFlyway: Boolean, jdbcUrl: String? = null): DatabaseSchemaManager {
-        return if (useFlyway && jdbcUrl != null) {
+    fun create(
+        useFlyway: Boolean,
+        jdbcUrl: String? = null
+    ): DatabaseSchemaManager =
+        if (useFlyway && jdbcUrl != null) {
             FlywayDatabaseSchemaManager(jdbcUrl)
         } else {
             DirectDatabaseSchemaManager()
         }
-    }
 }

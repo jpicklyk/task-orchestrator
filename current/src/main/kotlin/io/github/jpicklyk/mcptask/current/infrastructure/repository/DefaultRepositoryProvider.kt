@@ -15,8 +15,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeS
  *
  * @param databaseManager The database manager providing the connection.
  */
-class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : RepositoryProvider {
-
+class DefaultRepositoryProvider(
+    private val databaseManager: DatabaseManager
+) : RepositoryProvider {
     private val workItemRepo by lazy { SQLiteWorkItemRepository(databaseManager) }
     private val noteRepo by lazy { SQLiteNoteRepository(databaseManager) }
     private val dependencyRepo by lazy { SQLiteDependencyRepository(databaseManager) }
@@ -24,9 +25,14 @@ class DefaultRepositoryProvider(private val databaseManager: DatabaseManager) : 
     private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
+
     override fun noteRepository(): NoteRepository = noteRepo
+
     override fun dependencyRepository(): DependencyRepository = dependencyRepo
+
     override fun roleTransitionRepository(): RoleTransitionRepository = roleTransitionRepo
+
     override fun database(): org.jetbrains.exposed.v1.jdbc.Database? = databaseManager.getDatabase()
+
     override fun workTreeExecutor(): WorkTreeExecutor = workTreeExecutorInstance
 }

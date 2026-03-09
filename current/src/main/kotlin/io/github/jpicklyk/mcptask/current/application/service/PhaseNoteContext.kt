@@ -45,10 +45,11 @@ fun computePhaseNoteContext(
 
     val roleStr = role.name.lowercase()
     val required = schema.filter { it.role == roleStr && it.required }
-    val missing = required.filter { entry ->
-        val note = notesByKey[entry.key]
-        note == null || note.body.isBlank()
-    }
+    val missing =
+        required.filter { entry ->
+            val note = notesByKey[entry.key]
+            note == null || note.body.isBlank()
+        }
 
     return PhaseNoteContext(
         guidancePointer = missing.firstOrNull()?.guidance,

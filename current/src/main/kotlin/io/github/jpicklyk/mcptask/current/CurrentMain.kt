@@ -28,10 +28,12 @@ fun main() {
         SignalHandler.install(coordinator)
 
         // Register JVM shutdown hook as fallback
-        Runtime.getRuntime().addShutdownHook(Thread {
-            coordinator.initiateShutdown("JVM shutdown hook")
-            coordinator.awaitCompletion(5000)
-        })
+        Runtime.getRuntime().addShutdownHook(
+            Thread {
+                coordinator.initiateShutdown("JVM shutdown hook")
+                coordinator.awaitCompletion(5000)
+            }
+        )
 
         // Create and run the MCP server (blocks until server closes)
         val mcpServer = CurrentMcpServer(version, coordinator)

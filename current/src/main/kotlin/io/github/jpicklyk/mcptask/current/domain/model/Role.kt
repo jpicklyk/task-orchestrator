@@ -6,7 +6,11 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * Ordering: QUEUE < WORK < REVIEW < TERMINAL. BLOCKED is orthogonal.
  */
 enum class Role {
-    QUEUE, WORK, REVIEW, BLOCKED, TERMINAL;
+    QUEUE,
+    WORK,
+    REVIEW,
+    BLOCKED,
+    TERMINAL;
 
     companion object {
         /** Parse from string, case-insensitive. Returns null if not recognized. */
@@ -23,7 +27,10 @@ enum class Role {
          * BLOCKED never satisfies a sequential threshold.
          * Used for unblockAt dependency gating.
          */
-        fun isAtOrBeyond(current: Role, threshold: Role): Boolean {
+        fun isAtOrBeyond(
+            current: Role,
+            threshold: Role
+        ): Boolean {
             if (current == BLOCKED) return false
             val currentIndex = PROGRESSION.indexOf(current)
             val thresholdIndex = PROGRESSION.indexOf(threshold)

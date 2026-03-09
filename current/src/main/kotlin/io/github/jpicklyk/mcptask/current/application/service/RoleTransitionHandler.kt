@@ -62,7 +62,6 @@ data class TransitionApplyResult(
  * so that the handler does not hold references to infrastructure.
  */
 class RoleTransitionHandler {
-
     companion object {
         val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
     }
@@ -78,24 +77,29 @@ class RoleTransitionHandler {
      * needs the item's [WorkItem.previousRole]. Use [resolveTransition(WorkItem, String)]
      * for full context.
      */
-    fun resolveTransition(currentRole: Role, trigger: String): TransitionResolution {
-        return when (trigger.lowercase()) {
+    fun resolveTransition(
+        currentRole: Role,
+        trigger: String
+    ): TransitionResolution =
+        when (trigger.lowercase()) {
             "start" -> resolveStart(currentRole)
             "complete" -> resolveComplete(currentRole)
             "block", "hold" -> resolveBlock(currentRole)
-            "resume" -> TransitionResolution(
-                success = false,
-                error = "Cannot resolve 'resume' without full WorkItem context (previousRole needed). " +
-                        "Use resolveTransition(item, trigger) instead."
-            )
+            "resume" ->
+                TransitionResolution(
+                    success = false,
+                    error =
+                        "Cannot resolve 'resume' without full WorkItem context (previousRole needed). " +
+                            "Use resolveTransition(item, trigger) instead."
+                )
             "cancel" -> resolveCancel(currentRole)
             "reopen" -> resolveReopen(currentRole)
-            else -> TransitionResolution(
-                success = false,
-                error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
-            )
+            else ->
+                TransitionResolution(
+                    success = false,
+                    error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
+                )
         }
-    }
 
     /**
      * Resolve a trigger to a target role with full WorkItem context.
@@ -105,62 +109,79 @@ class RoleTransitionHandler {
      *   advances directly to TERMINAL instead of REVIEW. This allows schema-driven
      *   workflows to skip the REVIEW phase when no review notes are defined.
      */
-    fun resolveTransition(item: WorkItem, trigger: String, hasReviewPhase: Boolean = true): TransitionResolution {
-        return when (trigger.lowercase()) {
+    fun resolveTransition(
+        item: WorkItem,
+        trigger: String,
+        hasReviewPhase: Boolean = true
+    ): TransitionResolution =
+        when (trigger.lowercase()) {
             "start" -> resolveStart(item.role, hasReviewPhase)
             "complete" -> resolveComplete(item.role)
             "block", "hold" -> resolveBlock(item.role)
             "resume" -> resolveResume(item)
             "cancel" -> resolveCancel(item.role)
             "reopen" -> resolveReopen(item.role)
-            else -> TransitionResolution(
-                success = false,
-                error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
-            )
+            else ->
+                TransitionResolution(
+                    success = false,
+                    error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
+                )
         }
-    }
 
-    private fun resolveStart(currentRole: Role, hasReviewPhase: Boolean = true): TransitionResolution = when (currentRole) {
-        Role.QUEUE -> TransitionResolution(success = true, targetRole = Role.WORK)
-        Role.WORK -> if (hasReviewPhase) {
-            TransitionResolution(success = true, targetRole = Role.REVIEW)
-        } else {
-            TransitionResolution(success = true, targetRole = Role.TERMINAL)
+    private fun resolveStart(
+        currentRole: Role,
+        hasReviewPhase: Boolean = true
+    ): TransitionResolution =
+        when (currentRole) {
+            Role.QUEUE -> TransitionResolution(success = true, targetRole = Role.WORK)
+            Role.WORK ->
+                if (hasReviewPhase) {
+                    TransitionResolution(success = true, targetRole = Role.REVIEW)
+                } else {
+                    TransitionResolution(success = true, targetRole = Role.TERMINAL)
+                }
+            Role.REVIEW -> TransitionResolution(success = true, targetRole = Role.TERMINAL)
+            Role.TERMINAL ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot start: item is already terminal"
+                )
+            Role.BLOCKED ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot start: item is blocked. Use 'resume' trigger first"
+                )
         }
-        Role.REVIEW -> TransitionResolution(success = true, targetRole = Role.TERMINAL)
-        Role.TERMINAL -> TransitionResolution(
-            success = false,
-            error = "Cannot start: item is already terminal"
-        )
-        Role.BLOCKED -> TransitionResolution(
-            success = false,
-            error = "Cannot start: item is blocked. Use 'resume' trigger first"
-        )
-    }
 
-    private fun resolveComplete(currentRole: Role): TransitionResolution = when (currentRole) {
-        Role.TERMINAL -> TransitionResolution(
-            success = false,
-            error = "Cannot complete: item is already terminal"
-        )
-        Role.BLOCKED -> TransitionResolution(
-            success = false,
-            error = "Cannot complete: item is blocked. Use 'resume' trigger first"
-        )
-        else -> TransitionResolution(success = true, targetRole = Role.TERMINAL)
-    }
+    private fun resolveComplete(currentRole: Role): TransitionResolution =
+        when (currentRole) {
+            Role.TERMINAL ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot complete: item is already terminal"
+                )
+            Role.BLOCKED ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot complete: item is blocked. Use 'resume' trigger first"
+                )
+            else -> TransitionResolution(success = true, targetRole = Role.TERMINAL)
+        }
 
-    private fun resolveBlock(currentRole: Role): TransitionResolution = when (currentRole) {
-        Role.BLOCKED -> TransitionResolution(
-            success = false,
-            error = "Cannot block: item is already blocked"
-        )
-        Role.TERMINAL -> TransitionResolution(
-            success = false,
-            error = "Cannot block: item is already terminal"
-        )
-        else -> TransitionResolution(success = true, targetRole = Role.BLOCKED)
-    }
+    private fun resolveBlock(currentRole: Role): TransitionResolution =
+        when (currentRole) {
+            Role.BLOCKED ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot block: item is already blocked"
+                )
+            Role.TERMINAL ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot block: item is already terminal"
+                )
+            else -> TransitionResolution(success = true, targetRole = Role.BLOCKED)
+        }
 
     private fun resolveResume(item: WorkItem): TransitionResolution {
         if (item.role != Role.BLOCKED) {
@@ -169,29 +190,34 @@ class RoleTransitionHandler {
                 error = "Cannot resume: item is not blocked (current role: ${item.role.name.lowercase()})"
             )
         }
-        val restoreRole = item.previousRole
-            ?: return TransitionResolution(
-                success = false,
-                error = "Cannot resume: item is blocked but has no previousRole to restore"
-            )
+        val restoreRole =
+            item.previousRole
+                ?: return TransitionResolution(
+                    success = false,
+                    error = "Cannot resume: item is blocked but has no previousRole to restore"
+                )
         return TransitionResolution(success = true, targetRole = restoreRole)
     }
 
-    private fun resolveCancel(currentRole: Role): TransitionResolution = when (currentRole) {
-        Role.TERMINAL -> TransitionResolution(
-            success = false,
-            error = "Cannot cancel: item is already terminal"
-        )
-        else -> TransitionResolution(success = true, targetRole = Role.TERMINAL, statusLabel = "cancelled")
-    }
+    private fun resolveCancel(currentRole: Role): TransitionResolution =
+        when (currentRole) {
+            Role.TERMINAL ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot cancel: item is already terminal"
+                )
+            else -> TransitionResolution(success = true, targetRole = Role.TERMINAL, statusLabel = "cancelled")
+        }
 
-    private fun resolveReopen(currentRole: Role): TransitionResolution = when (currentRole) {
-        Role.TERMINAL -> TransitionResolution(success = true, targetRole = Role.QUEUE, statusLabel = null)
-        else -> TransitionResolution(
-            success = false,
-            error = "Cannot reopen: item is not terminal (current role: ${currentRole.name.lowercase()})"
-        )
-    }
+    private fun resolveReopen(currentRole: Role): TransitionResolution =
+        when (currentRole) {
+            Role.TERMINAL -> TransitionResolution(success = true, targetRole = Role.QUEUE, statusLabel = null)
+            else ->
+                TransitionResolution(
+                    success = false,
+                    error = "Cannot reopen: item is not terminal (current role: ${currentRole.name.lowercase()})"
+                )
+        }
 
     // -----------------------------------------------------------------------
     // Phase 2: Validation (reads dependencies, suspend for WorkItem lookups)
@@ -247,21 +273,22 @@ class RoleTransitionHandler {
 
                 // Fetch the blocker's current state
                 val blockerResult = workItemRepository.getById(blockerItemId)
-                val blockerItem = when (blockerResult) {
-                    is Result.Success -> blockerResult.data
-                    is Result.Error -> {
-                        // If the blocker item is missing, treat as unsatisfied
-                        blockers.add(
-                            BlockerInfo(
-                                itemId = item.id,
-                                fromItemId = blockerItemId,
-                                currentRole = Role.QUEUE, // unknown, assume worst
-                                requiredRole = threshold
+                val blockerItem =
+                    when (blockerResult) {
+                        is Result.Success -> blockerResult.data
+                        is Result.Error -> {
+                            // If the blocker item is missing, treat as unsatisfied
+                            blockers.add(
+                                BlockerInfo(
+                                    itemId = item.id,
+                                    fromItemId = blockerItemId,
+                                    currentRole = Role.QUEUE, // unknown, assume worst
+                                    requiredRole = threshold
+                                )
                             )
-                        )
-                        continue
+                            continue
+                        }
                     }
-                }
 
                 // Check whether the blocker has reached the threshold
                 if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
@@ -294,7 +321,10 @@ class RoleTransitionHandler {
      * Also returns true for jumps (e.g., QUEUE -> TERMINAL via "complete").
      * BLOCKED is orthogonal and always returns false.
      */
-    internal fun isForwardProgression(from: Role, to: Role): Boolean {
+    internal fun isForwardProgression(
+        from: Role,
+        to: Role
+    ): Boolean {
         if (from == Role.BLOCKED || to == Role.BLOCKED) return false
         val fromIndex = Role.PROGRESSION.indexOf(from)
         val toIndex = Role.PROGRESSION.indexOf(to)
@@ -330,42 +360,46 @@ class RoleTransitionHandler {
         val previousRole = item.role
 
         // Build the updated item via the update builder
-        val updatedItem = item.update { current ->
-            current.copy(
-                role = targetRole,
-                previousRole = when {
-                    // When entering BLOCKED, save the current role for later resume
-                    targetRole == Role.BLOCKED -> previousRole
-                    // When leaving BLOCKED (resume), clear previousRole
-                    previousRole == Role.BLOCKED -> null
-                    // Otherwise preserve existing previousRole
-                    else -> current.previousRole
-                },
-                statusLabel = when {
-                    // Explicit statusLabel from resolution (e.g., "cancelled")
-                    statusLabel != null -> statusLabel
-                    // When entering BLOCKED, preserve existing statusLabel
-                    targetRole == Role.BLOCKED -> current.statusLabel
-                    // Normal forward progression clears statusLabel
-                    else -> null
-                },
-                roleChangedAt = Instant.now()
-            )
-        }
+        val updatedItem =
+            item.update { current ->
+                current.copy(
+                    role = targetRole,
+                    previousRole =
+                        when {
+                            // When entering BLOCKED, save the current role for later resume
+                            targetRole == Role.BLOCKED -> previousRole
+                            // When leaving BLOCKED (resume), clear previousRole
+                            previousRole == Role.BLOCKED -> null
+                            // Otherwise preserve existing previousRole
+                            else -> current.previousRole
+                        },
+                    statusLabel =
+                        when {
+                            // Explicit statusLabel from resolution (e.g., "cancelled")
+                            statusLabel != null -> statusLabel
+                            // When entering BLOCKED, preserve existing statusLabel
+                            targetRole == Role.BLOCKED -> current.statusLabel
+                            // Normal forward progression clears statusLabel
+                            else -> null
+                        },
+                    roleChangedAt = Instant.now()
+                )
+            }
 
         // Persist the item update
         return when (val result = workItemRepository.update(updatedItem)) {
             is Result.Success -> {
                 // Record the audit trail
-                val transition = RoleTransition(
-                    itemId = item.id,
-                    fromRole = previousRole.name.lowercase(),
-                    toRole = targetRole.name.lowercase(),
-                    fromStatusLabel = item.statusLabel,
-                    toStatusLabel = statusLabel,
-                    trigger = trigger,
-                    summary = summary
-                )
+                val transition =
+                    RoleTransition(
+                        itemId = item.id,
+                        fromRole = previousRole.name.lowercase(),
+                        toRole = targetRole.name.lowercase(),
+                        fromStatusLabel = item.statusLabel,
+                        toStatusLabel = statusLabel,
+                        trigger = trigger,
+                        summary = summary
+                    )
                 roleTransitionRepository.create(transition)
 
                 TransitionApplyResult(

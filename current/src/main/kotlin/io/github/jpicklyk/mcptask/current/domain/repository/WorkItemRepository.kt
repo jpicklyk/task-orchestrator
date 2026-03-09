@@ -8,15 +8,37 @@ import java.util.UUID
 
 interface WorkItemRepository {
     suspend fun getById(id: UUID): Result<WorkItem>
+
     suspend fun create(item: WorkItem): Result<WorkItem>
+
     suspend fun update(item: WorkItem): Result<WorkItem>
+
     suspend fun delete(id: UUID): Result<Boolean>
-    suspend fun findByParent(parentId: UUID, limit: Int = 50): Result<List<WorkItem>>
-    suspend fun findByRole(role: Role, limit: Int = 50): Result<List<WorkItem>>
-    suspend fun findByDepth(depth: Int, limit: Int = 50): Result<List<WorkItem>>
+
+    suspend fun findByParent(
+        parentId: UUID,
+        limit: Int = 50
+    ): Result<List<WorkItem>>
+
+    suspend fun findByRole(
+        role: Role,
+        limit: Int = 50
+    ): Result<List<WorkItem>>
+
+    suspend fun findByDepth(
+        depth: Int,
+        limit: Int = 50
+    ): Result<List<WorkItem>>
+
     suspend fun findRoot(): Result<WorkItem?>
-    suspend fun search(query: String, limit: Int = 20): Result<List<WorkItem>>
+
+    suspend fun search(
+        query: String,
+        limit: Int = 20
+    ): Result<List<WorkItem>>
+
     suspend fun count(): Result<Long>
+
     suspend fun findChildren(parentId: UUID): Result<List<WorkItem>>
 
     /**
@@ -93,7 +115,10 @@ interface WorkItemRepository {
      * Find work items whose ID starts with the given hex prefix.
      * Used for short UUID prefix resolution.
      */
-    suspend fun findByIdPrefix(prefix: String, limit: Int = 10): Result<List<WorkItem>>
+    suspend fun findByIdPrefix(
+        prefix: String,
+        limit: Int = 10
+    ): Result<List<WorkItem>>
 
     /**
      * For each itemId, resolve its full ancestor chain (root -> direct parent).

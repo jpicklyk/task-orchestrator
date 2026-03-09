@@ -20,7 +20,10 @@ object SignalHandler {
         installSignal("INT", coordinator)
     }
 
-    private fun installSignal(signalName: String, coordinator: ShutdownCoordinator) {
+    private fun installSignal(
+        signalName: String,
+        coordinator: ShutdownCoordinator
+    ) {
         try {
             sun.misc.Signal.handle(sun.misc.Signal(signalName)) {
                 coordinator.initiateShutdown("Received SIG$signalName")

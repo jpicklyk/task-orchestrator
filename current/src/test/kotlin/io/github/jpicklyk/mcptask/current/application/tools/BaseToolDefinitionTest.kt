@@ -7,42 +7,100 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.assertFalse
 
 class BaseToolDefinitionTest {
-
     /**
      * Concrete test subclass that exposes protected BaseToolDefinition methods for testing.
      */
-    private val tool = object : BaseToolDefinition() {
-        override val name = "test_tool"
-        override val description = "Test tool for unit testing BaseToolDefinition helpers"
-        override val parameterSchema = ToolSchema(
-            properties = buildJsonObject {},
-            required = emptyList()
-        )
-        override val category = ToolCategory.SYSTEM
-        override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement = JsonNull
+    private val tool =
+        object : BaseToolDefinition() {
+            override val name = "test_tool"
+            override val description = "Test tool for unit testing BaseToolDefinition helpers"
+            override val parameterSchema =
+                ToolSchema(
+                    properties = buildJsonObject {},
+                    required = emptyList()
+                )
+            override val category = ToolCategory.SYSTEM
 
-        // Expose protected methods for testing
-        fun testRequireString(params: JsonElement, name: String) = requireString(params, name)
-        fun testOptionalString(params: JsonElement, name: String) = optionalString(params, name)
-        fun testOptionalStringDefault(params: JsonElement, name: String, default: String) = optionalString(params, name, default)
-        fun testOptionalBoolean(params: JsonElement, name: String, default: Boolean = false) = optionalBoolean(params, name, default)
-        fun testRequireInt(params: JsonElement, name: String) = requireInt(params, name)
-        fun testOptionalInt(params: JsonElement, name: String, default: Int? = null) = optionalInt(params, name, default)
-        fun testOptionalJsonArray(params: JsonElement, name: String) = optionalJsonArray(params, name)
-        fun testRequireJsonArray(params: JsonElement, name: String) = requireJsonArray(params, name)
-        fun testExtractUUID(params: JsonElement, name: String, required: Boolean = true) = extractUUID(params, name, required)
-        fun testParseInstant(params: JsonElement, name: String) = parseInstant(params, name)
-        fun testShortId(uuid: String) = shortId(uuid)
-        fun testSuccessResponseData(data: JsonElement, msg: String? = null) = successResponse(data, msg)
-        fun testSuccessResponseMsg(msg: String) = successResponse(msg)
-        fun testErrorResponse(msg: String, code: String = ErrorCodes.VALIDATION_ERROR) = errorResponse(msg, code)
-    }
+            override suspend fun execute(
+                params: JsonElement,
+                context: ToolExecutionContext
+            ): JsonElement = JsonNull
+
+            // Expose protected methods for testing
+            fun testRequireString(
+                params: JsonElement,
+                name: String
+            ) = requireString(params, name)
+
+            fun testOptionalString(
+                params: JsonElement,
+                name: String
+            ) = optionalString(params, name)
+
+            fun testOptionalStringDefault(
+                params: JsonElement,
+                name: String,
+                default: String
+            ) = optionalString(params, name, default)
+
+            fun testOptionalBoolean(
+                params: JsonElement,
+                name: String,
+                default: Boolean = false
+            ) = optionalBoolean(params, name, default)
+
+            fun testRequireInt(
+                params: JsonElement,
+                name: String
+            ) = requireInt(params, name)
+
+            fun testOptionalInt(
+                params: JsonElement,
+                name: String,
+                default: Int? = null
+            ) = optionalInt(params, name, default)
+
+            fun testOptionalJsonArray(
+                params: JsonElement,
+                name: String
+            ) = optionalJsonArray(params, name)
+
+            fun testRequireJsonArray(
+                params: JsonElement,
+                name: String
+            ) = requireJsonArray(params, name)
+
+            fun testExtractUUID(
+                params: JsonElement,
+                name: String,
+                required: Boolean = true
+            ) = extractUUID(params, name, required)
+
+            fun testParseInstant(
+                params: JsonElement,
+                name: String
+            ) = parseInstant(params, name)
+
+            fun testShortId(uuid: String) = shortId(uuid)
+
+            fun testSuccessResponseData(
+                data: JsonElement,
+                msg: String? = null
+            ) = successResponse(data, msg)
+
+            fun testSuccessResponseMsg(msg: String) = successResponse(msg)
+
+            fun testErrorResponse(
+                msg: String,
+                code: String = ErrorCodes.VALIDATION_ERROR
+            ) = errorResponse(msg, code)
+        }
 
     /** Helper to build a JsonObject from pairs. */
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
@@ -60,9 +118,10 @@ class BaseToolDefinitionTest {
     @Test
     fun `requireString throws on missing parameter`() {
         val p = params()
-        val ex = assertFailsWith<ToolValidationException> {
-            tool.testRequireString(p, "name")
-        }
+        val ex =
+            assertFailsWith<ToolValidationException> {
+                tool.testRequireString(p, "name")
+            }
         assertTrue(ex.message!!.contains("name"))
     }
 

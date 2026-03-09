@@ -18,7 +18,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RoleTransitionHandlerTest {
-
     private val handler = RoleTransitionHandler()
 
     // Helper to create a WorkItem with sensible defaults
@@ -42,7 +41,6 @@ class RoleTransitionHandlerTest {
 
     @Nested
     inner class ResolveTransition {
-
         // --- start trigger ---
 
         @Test
@@ -237,138 +235,151 @@ class RoleTransitionHandlerTest {
 
     @Nested
     inner class ValidateTransition {
-
         private val depRepo: DependencyRepository = mockk()
         private val workItemRepo: WorkItemRepository = mockk()
 
         @Test
-        fun `forward transition with no deps validates successfully`() = runBlocking {
-            val item = testItem(role = Role.QUEUE)
-            every { depRepo.findByToItemId(item.id) } returns emptyList()
+        fun `forward transition with no deps validates successfully`() =
+            runBlocking {
+                val item = testItem(role = Role.QUEUE)
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
 
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertTrue(result.valid)
-            assertNull(result.error)
-            assertTrue(result.blockers.isEmpty())
-        }
-
-        @Test
-        fun `forward transition with satisfied dep validates successfully`() = runBlocking {
-            val blockerId = UUID.randomUUID()
-            val item = testItem(role = Role.QUEUE)
-            val blockerItem = testItem(id = blockerId, role = Role.TERMINAL)
-            val dep = Dependency(
-                fromItemId = blockerId,
-                toItemId = item.id,
-                type = DependencyType.BLOCKS
-            )
-
-            every { depRepo.findByToItemId(item.id) } returns listOf(dep)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
-
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertTrue(result.valid)
-            assertTrue(result.blockers.isEmpty())
-        }
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertTrue(result.valid)
+                assertNull(result.error)
+                assertTrue(result.blockers.isEmpty())
+            }
 
         @Test
-        fun `forward transition with unsatisfied dep returns invalid with blockers`() = runBlocking {
-            val blockerId = UUID.randomUUID()
-            val item = testItem(role = Role.QUEUE)
-            val blockerItem = testItem(id = blockerId, role = Role.QUEUE)
-            val dep = Dependency(
-                fromItemId = blockerId,
-                toItemId = item.id,
-                type = DependencyType.BLOCKS
-            )
+        fun `forward transition with satisfied dep validates successfully`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.TERMINAL)
+                val dep =
+                    Dependency(
+                        fromItemId = blockerId,
+                        toItemId = item.id,
+                        type = DependencyType.BLOCKS
+                    )
 
-            every { depRepo.findByToItemId(item.id) } returns listOf(dep)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+                every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
 
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertFalse(result.valid)
-            assertEquals(1, result.blockers.size)
-            assertEquals(blockerId, result.blockers[0].fromItemId)
-            assertEquals(Role.QUEUE, result.blockers[0].currentRole)
-            assertEquals("terminal", result.blockers[0].requiredRole)
-        }
-
-        @Test
-        fun `transition to BLOCKED always validates regardless of deps`() = runBlocking {
-            val item = testItem(role = Role.WORK)
-            // No repo calls should be needed — BLOCKED skips dep check
-            val result = handler.validateTransition(item, Role.BLOCKED, depRepo, workItemRepo)
-            assertTrue(result.valid)
-        }
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertTrue(result.valid)
+                assertTrue(result.blockers.isEmpty())
+            }
 
         @Test
-        fun `TERMINAL item returns invalid`() = runBlocking {
-            val item = testItem(role = Role.TERMINAL)
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertFalse(result.valid)
-            assertNotNull(result.error)
-            assertTrue(result.error!!.contains("terminal", ignoreCase = true))
-        }
+        fun `forward transition with unsatisfied dep returns invalid with blockers`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.QUEUE)
+                val dep =
+                    Dependency(
+                        fromItemId = blockerId,
+                        toItemId = item.id,
+                        type = DependencyType.BLOCKS
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertFalse(result.valid)
+                assertEquals(1, result.blockers.size)
+                assertEquals(blockerId, result.blockers[0].fromItemId)
+                assertEquals(Role.QUEUE, result.blockers[0].currentRole)
+                assertEquals("terminal", result.blockers[0].requiredRole)
+            }
 
         @Test
-        fun `RELATES_TO dep is ignored in validation`() = runBlocking {
-            val relatedId = UUID.randomUUID()
-            val item = testItem(role = Role.QUEUE)
-            val dep = Dependency(
-                fromItemId = relatedId,
-                toItemId = item.id,
-                type = DependencyType.RELATES_TO
-            )
-
-            every { depRepo.findByToItemId(item.id) } returns listOf(dep)
-            // No workItemRepo.getById call should happen for RELATES_TO
-
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertTrue(result.valid)
-            assertTrue(result.blockers.isEmpty())
-        }
+        fun `transition to BLOCKED always validates regardless of deps`() =
+            runBlocking {
+                val item = testItem(role = Role.WORK)
+                // No repo calls should be needed — BLOCKED skips dep check
+                val result = handler.validateTransition(item, Role.BLOCKED, depRepo, workItemRepo)
+                assertTrue(result.valid)
+            }
 
         @Test
-        fun `missing blocker item treated as unsatisfied`() = runBlocking {
-            val blockerId = UUID.randomUUID()
-            val item = testItem(role = Role.QUEUE)
-            val dep = Dependency(
-                fromItemId = blockerId,
-                toItemId = item.id,
-                type = DependencyType.BLOCKS
-            )
-
-            every { depRepo.findByToItemId(item.id) } returns listOf(dep)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Error(
-                RepositoryError.NotFound(blockerId, "Item not found")
-            )
-
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertFalse(result.valid)
-            assertEquals(1, result.blockers.size)
-            assertEquals(blockerId, result.blockers[0].fromItemId)
-            assertEquals(Role.QUEUE, result.blockers[0].currentRole) // assumed worst
-        }
+        fun `TERMINAL item returns invalid`() =
+            runBlocking {
+                val item = testItem(role = Role.TERMINAL)
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertFalse(result.valid)
+                assertNotNull(result.error)
+                assertTrue(result.error!!.contains("terminal", ignoreCase = true))
+            }
 
         @Test
-        fun `unblockAt work with blocker at WORK validates successfully`() = runBlocking {
-            val blockerId = UUID.randomUUID()
-            val item = testItem(role = Role.QUEUE)
-            val blockerItem = testItem(id = blockerId, role = Role.WORK)
-            val dep = Dependency(
-                fromItemId = blockerId,
-                toItemId = item.id,
-                type = DependencyType.BLOCKS,
-                unblockAt = "work"
-            )
+        fun `RELATES_TO dep is ignored in validation`() =
+            runBlocking {
+                val relatedId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val dep =
+                    Dependency(
+                        fromItemId = relatedId,
+                        toItemId = item.id,
+                        type = DependencyType.RELATES_TO
+                    )
 
-            every { depRepo.findByToItemId(item.id) } returns listOf(dep)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+                every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                // No workItemRepo.getById call should happen for RELATES_TO
 
-            val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
-            assertTrue(result.valid)
-            assertTrue(result.blockers.isEmpty())
-        }
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertTrue(result.valid)
+                assertTrue(result.blockers.isEmpty())
+            }
+
+        @Test
+        fun `missing blocker item treated as unsatisfied`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val dep =
+                    Dependency(
+                        fromItemId = blockerId,
+                        toItemId = item.id,
+                        type = DependencyType.BLOCKS
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns
+                    Result.Error(
+                        RepositoryError.NotFound(blockerId, "Item not found")
+                    )
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertFalse(result.valid)
+                assertEquals(1, result.blockers.size)
+                assertEquals(blockerId, result.blockers[0].fromItemId)
+                assertEquals(Role.QUEUE, result.blockers[0].currentRole) // assumed worst
+            }
+
+        @Test
+        fun `unblockAt work with blocker at WORK validates successfully`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.WORK)
+                val dep =
+                    Dependency(
+                        fromItemId = blockerId,
+                        toItemId = item.id,
+                        type = DependencyType.BLOCKS,
+                        unblockAt = "work"
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertTrue(result.valid)
+                assertTrue(result.blockers.isEmpty())
+            }
     }
 
     // -----------------------------------------------------------------------
@@ -377,127 +388,137 @@ class RoleTransitionHandlerTest {
 
     @Nested
     inner class ApplyTransition {
-
         private val workItemRepo: WorkItemRepository = mockk()
         private val roleTransitionRepo: RoleTransitionRepository = mockk()
 
         @Test
-        fun `apply QUEUE to WORK updates item role and creates audit transition`() = runBlocking {
-            val item = testItem(role = Role.QUEUE)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+        fun `apply QUEUE to WORK updates item role and creates audit transition`() =
+            runBlocking {
+                val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
 
-            val result = handler.applyTransition(
-                item = item,
-                targetRole = Role.WORK,
-                trigger = "start",
-                summary = "Beginning work",
-                statusLabel = null,
-                workItemRepository = workItemRepo,
-                roleTransitionRepository = roleTransitionRepo
-            )
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = "Beginning work",
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
 
-            assertTrue(result.success)
-            assertNotNull(result.item)
-            assertEquals(Role.WORK, result.item!!.role)
-            assertEquals(Role.QUEUE, result.previousRole)
-            assertEquals(Role.WORK, result.newRole)
-            assertNotNull(result.transition)
-            assertEquals("queue", result.transition!!.fromRole)
-            assertEquals("work", result.transition!!.toRole)
-            assertEquals("start", result.transition!!.trigger)
-            assertEquals("Beginning work", result.transition!!.summary)
+                assertTrue(result.success)
+                assertNotNull(result.item)
+                assertEquals(Role.WORK, result.item!!.role)
+                assertEquals(Role.QUEUE, result.previousRole)
+                assertEquals(Role.WORK, result.newRole)
+                assertNotNull(result.transition)
+                assertEquals("queue", result.transition!!.fromRole)
+                assertEquals("work", result.transition!!.toRole)
+                assertEquals("start", result.transition!!.trigger)
+                assertEquals("Beginning work", result.transition!!.summary)
 
-            coVerify { workItemRepo.update(match { it.role == Role.WORK }) }
-            coVerify { roleTransitionRepo.create(any()) }
-        }
-
-        @Test
-        fun `apply to BLOCKED saves previousRole on item`() = runBlocking {
-            val item = testItem(role = Role.WORK)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
-
-            val result = handler.applyTransition(
-                item = item,
-                targetRole = Role.BLOCKED,
-                trigger = "block",
-                summary = null,
-                statusLabel = null,
-                workItemRepository = workItemRepo,
-                roleTransitionRepository = roleTransitionRepo
-            )
-
-            assertTrue(result.success)
-            assertEquals(Role.BLOCKED, result.item!!.role)
-            assertEquals(Role.WORK, result.item!!.previousRole)
-        }
+                coVerify { workItemRepo.update(match { it.role == Role.WORK }) }
+                coVerify { roleTransitionRepo.create(any()) }
+            }
 
         @Test
-        fun `apply resume from BLOCKED clears previousRole`() = runBlocking {
-            val item = testItem(role = Role.BLOCKED, previousRole = Role.WORK)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+        fun `apply to BLOCKED saves previousRole on item`() =
+            runBlocking {
+                val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
 
-            val result = handler.applyTransition(
-                item = item,
-                targetRole = Role.WORK,
-                trigger = "resume",
-                summary = "Unblocked",
-                statusLabel = null,
-                workItemRepository = workItemRepo,
-                roleTransitionRepository = roleTransitionRepo
-            )
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.BLOCKED,
+                        trigger = "block",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
 
-            assertTrue(result.success)
-            assertEquals(Role.WORK, result.item!!.role)
-            // previousRole should be cleared when leaving BLOCKED
-            assertNull(result.item!!.previousRole)
-        }
-
-        @Test
-        fun `apply cancel sets statusLabel to cancelled`() = runBlocking {
-            val item = testItem(role = Role.WORK)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
-
-            val result = handler.applyTransition(
-                item = item,
-                targetRole = Role.TERMINAL,
-                trigger = "cancel",
-                summary = "No longer needed",
-                statusLabel = "cancelled",
-                workItemRepository = workItemRepo,
-                roleTransitionRepository = roleTransitionRepo
-            )
-
-            assertTrue(result.success)
-            assertEquals(Role.TERMINAL, result.item!!.role)
-            assertEquals("cancelled", result.item!!.statusLabel)
-        }
+                assertTrue(result.success)
+                assertEquals(Role.BLOCKED, result.item!!.role)
+                assertEquals(Role.WORK, result.item!!.previousRole)
+            }
 
         @Test
-        fun `workItemRepo update failure returns error result`() = runBlocking {
-            val item = testItem(role = Role.QUEUE)
-            coEvery { workItemRepo.update(any()) } returns Result.Error(
-                RepositoryError.DatabaseError("Connection lost")
-            )
+        fun `apply resume from BLOCKED clears previousRole`() =
+            runBlocking {
+                val item = testItem(role = Role.BLOCKED, previousRole = Role.WORK)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
 
-            val result = handler.applyTransition(
-                item = item,
-                targetRole = Role.WORK,
-                trigger = "start",
-                summary = null,
-                statusLabel = null,
-                workItemRepository = workItemRepo,
-                roleTransitionRepository = roleTransitionRepo
-            )
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "resume",
+                        summary = "Unblocked",
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
 
-            assertFalse(result.success)
-            assertNotNull(result.error)
-            assertTrue(result.error!!.contains("Connection lost"))
-            assertNull(result.item)
-            assertNull(result.transition)
-        }
+                assertTrue(result.success)
+                assertEquals(Role.WORK, result.item!!.role)
+                // previousRole should be cleared when leaving BLOCKED
+                assertNull(result.item!!.previousRole)
+            }
+
+        @Test
+        fun `apply cancel sets statusLabel to cancelled`() =
+            runBlocking {
+                val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.TERMINAL,
+                        trigger = "cancel",
+                        summary = "No longer needed",
+                        statusLabel = "cancelled",
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success)
+                assertEquals(Role.TERMINAL, result.item!!.role)
+                assertEquals("cancelled", result.item!!.statusLabel)
+            }
+
+        @Test
+        fun `workItemRepo update failure returns error result`() =
+            runBlocking {
+                val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.update(any()) } returns
+                    Result.Error(
+                        RepositoryError.DatabaseError("Connection lost")
+                    )
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertFalse(result.success)
+                assertNotNull(result.error)
+                assertTrue(result.error!!.contains("Connection lost"))
+                assertNull(result.item)
+                assertNull(result.transition)
+            }
     }
 }

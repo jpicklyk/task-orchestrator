@@ -12,11 +12,10 @@ import java.util.UUID
 import kotlin.test.*
 
 class TestInfrastructureTest {
-
     // ── TestFixtures: makeItem ──
 
     @Test
-    fun `makeItem creates valid WorkItem with defaults`(): Unit {
+    fun `makeItem creates valid WorkItem with defaults`() {
         val item = makeItem()
         assertEquals("Test Item", item.title)
         assertEquals(Role.QUEUE, item.role)
@@ -33,7 +32,7 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `makeItem with parentId sets depth to 1 by default`(): Unit {
+    fun `makeItem with parentId sets depth to 1 by default`() {
         val parentId = UUID.randomUUID()
         val item = makeItem(parentId = parentId)
         assertEquals(parentId, item.parentId)
@@ -41,25 +40,26 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `makeItem allows overriding all fields`(): Unit {
+    fun `makeItem allows overriding all fields`() {
         val id = UUID.randomUUID()
         val parentId = UUID.randomUUID()
-        val item = makeItem(
-            id = id,
-            title = "Custom Title",
-            role = Role.WORK,
-            previousRole = Role.QUEUE,
-            parentId = parentId,
-            depth = 2,
-            priority = Priority.HIGH,
-            complexity = 7,
-            tags = "feature,urgent",
-            statusLabel = "in-progress",
-            description = "A description",
-            summary = "A summary",
-            metadata = """{"key":"val"}""",
-            requiresVerification = true
-        )
+        val item =
+            makeItem(
+                id = id,
+                title = "Custom Title",
+                role = Role.WORK,
+                previousRole = Role.QUEUE,
+                parentId = parentId,
+                depth = 2,
+                priority = Priority.HIGH,
+                complexity = 7,
+                tags = "feature,urgent",
+                statusLabel = "in-progress",
+                description = "A description",
+                summary = "A summary",
+                metadata = """{"key":"val"}""",
+                requiresVerification = true
+            )
         assertEquals(id, item.id)
         assertEquals("Custom Title", item.title)
         assertEquals(Role.WORK, item.role)
@@ -79,7 +79,7 @@ class TestInfrastructureTest {
     // ── TestFixtures: Dependency builders ──
 
     @Test
-    fun `blocksDep creates BLOCKS dependency`(): Unit {
+    fun `blocksDep creates BLOCKS dependency`() {
         val from = UUID.randomUUID()
         val to = UUID.randomUUID()
         val dep = blocksDep(from, to)
@@ -90,7 +90,7 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `blocksDep with unblockAt`(): Unit {
+    fun `blocksDep with unblockAt`() {
         val from = UUID.randomUUID()
         val to = UUID.randomUUID()
         val dep = blocksDep(from, to, unblockAt = "work")
@@ -98,7 +98,7 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `relatesDep creates RELATES_TO dependency`(): Unit {
+    fun `relatesDep creates RELATES_TO dependency`() {
         val from = UUID.randomUUID()
         val to = UUID.randomUUID()
         val dep = relatesDep(from, to)
@@ -109,7 +109,7 @@ class TestInfrastructureTest {
     // ── TestFixtures: Note builder ──
 
     @Test
-    fun `makeNote creates valid Note`(): Unit {
+    fun `makeNote creates valid Note`() {
         val itemId = UUID.randomUUID()
         val note = makeNote(itemId = itemId, key = "design", role = "work", body = "Design details")
         assertEquals(itemId, note.itemId)
@@ -119,7 +119,7 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `makeNote uses defaults`(): Unit {
+    fun `makeNote uses defaults`() {
         val itemId = UUID.randomUUID()
         val note = makeNote(itemId = itemId)
         assertEquals("test-note", note.key)
@@ -130,17 +130,18 @@ class TestInfrastructureTest {
     // ── TestFixtures: JSON helpers ──
 
     @Test
-    fun `params creates JsonObject`(): Unit {
-        val obj = params(
-            "name" to JsonPrimitive("test"),
-            "count" to JsonPrimitive(42)
-        )
+    fun `params creates JsonObject`() {
+        val obj =
+            params(
+                "name" to JsonPrimitive("test"),
+                "count" to JsonPrimitive(42)
+            )
         assertEquals("test", obj["name"]?.jsonPrimitive?.content)
         assertEquals(42, obj["count"]?.jsonPrimitive?.int)
     }
 
     @Test
-    fun `transitionObj creates transition JSON`(): Unit {
+    fun `transitionObj creates transition JSON`() {
         val id = UUID.randomUUID()
         val obj = transitionObj(id, "start", summary = "Starting work")
         assertEquals(id.toString(), obj["itemId"]?.jsonPrimitive?.content)
@@ -149,20 +150,21 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `transitionObj without summary omits it`(): Unit {
+    fun `transitionObj without summary omits it`() {
         val id = UUID.randomUUID()
         val obj = transitionObj(id, "complete")
         assertNull(obj["summary"])
     }
 
     @Test
-    fun `buildTransitionParams wraps transitions in array`(): Unit {
+    fun `buildTransitionParams wraps transitions in array`() {
         val id1 = UUID.randomUUID()
         val id2 = UUID.randomUUID()
-        val result = buildTransitionParams(
-            transitionObj(id1, "start"),
-            transitionObj(id2, "complete")
-        )
+        val result =
+            buildTransitionParams(
+                transitionObj(id1, "start"),
+                transitionObj(id2, "complete")
+            )
         val transitions = result["transitions"]?.jsonArray
         assertNotNull(transitions)
         assertEquals(2, transitions.size)
@@ -171,69 +173,89 @@ class TestInfrastructureTest {
     // ── TestFixtures: Response extraction ──
 
     @Test
-    fun `extractSuccessData returns data from success response`(): Unit {
-        val response = buildJsonObject {
-            put("success", true)
-            put("data", buildJsonObject {
-                put("id", "abc")
-            })
-        }
+    fun `extractSuccessData returns data from success response`() {
+        val response =
+            buildJsonObject {
+                put("success", true)
+                put(
+                    "data",
+                    buildJsonObject {
+                        put("id", "abc")
+                    }
+                )
+            }
         val data = extractSuccessData(response)
         assertEquals("abc", data["id"]?.jsonPrimitive?.content)
     }
 
     @Test
-    fun `extractResults returns results array`(): Unit {
-        val response = buildJsonObject {
-            put("success", true)
-            put("data", buildJsonObject {
-                put("results", buildJsonArray {
-                    add(buildJsonObject { put("x", 1) })
-                    add(buildJsonObject { put("x", 2) })
-                })
-            })
-        }
+    fun `extractResults returns results array`() {
+        val response =
+            buildJsonObject {
+                put("success", true)
+                put(
+                    "data",
+                    buildJsonObject {
+                        put(
+                            "results",
+                            buildJsonArray {
+                                add(buildJsonObject { put("x", 1) })
+                                add(buildJsonObject { put("x", 2) })
+                            }
+                        )
+                    }
+                )
+            }
         val results = extractResults(response)
         assertEquals(2, results.size)
     }
 
     @Test
-    fun `extractSummary returns summary object`(): Unit {
-        val response = buildJsonObject {
-            put("success", true)
-            put("data", buildJsonObject {
-                put("summary", buildJsonObject {
-                    put("total", 5)
-                })
-            })
-        }
+    fun `extractSummary returns summary object`() {
+        val response =
+            buildJsonObject {
+                put("success", true)
+                put(
+                    "data",
+                    buildJsonObject {
+                        put(
+                            "summary",
+                            buildJsonObject {
+                                put("total", 5)
+                            }
+                        )
+                    }
+                )
+            }
         val summary = extractSummary(response)
         assertEquals(5, summary["total"]?.jsonPrimitive?.int)
     }
 
     @Test
-    fun `assertErrorResponse validates error response`(): Unit {
-        val response = buildJsonObject {
-            put("success", false)
-            put("error", "Item not found")
-        }
+    fun `assertErrorResponse validates error response`() {
+        val response =
+            buildJsonObject {
+                put("success", false)
+                put("error", "Item not found")
+            }
         val obj = assertErrorResponse(response, "not found")
         assertEquals(false, obj["success"]?.jsonPrimitive?.boolean)
     }
 
     @Test
-    fun `assertErrorResponse without expectedMessage`(): Unit {
-        val response = buildJsonObject {
-            put("success", false)
-            put("error", "Something went wrong")
-        }
+    fun `assertErrorResponse without expectedMessage`() {
+        val response =
+            buildJsonObject {
+                put("success", false)
+                put("error", "Something went wrong")
+            }
         assertErrorResponse(response)
     }
 
     // ── MockRepositoryProvider ──
 
     @Test
-    fun `MockRepositoryProvider wires up correctly`(): Unit {
+    fun `MockRepositoryProvider wires up correctly`() {
         val mock = MockRepositoryProvider()
         // Verify provider returns the correct mock instances
         assertSame(mock.workItemRepo, mock.provider.workItemRepository())
@@ -245,7 +267,7 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `MockRepositoryProvider context uses NoOp schema by default`(): Unit {
+    fun `MockRepositoryProvider context uses NoOp schema by default`() {
         val mock = MockRepositoryProvider()
         val ctx = mock.context()
         assertNotNull(ctx)
@@ -253,7 +275,7 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `MockRepositoryProvider context with custom schema service`(): Unit {
+    fun `MockRepositoryProvider context with custom schema service`() {
         val mock = MockRepositoryProvider()
         val ctx = mock.context(TestNoteSchemaService.FEATURE_IMPLEMENTATION)
         assertNotNull(ctx)
@@ -264,17 +286,18 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `MockRepositoryProvider noteRepo default returns empty lists`(): Unit = runBlocking {
-        val mock = MockRepositoryProvider()
-        val result = mock.noteRepo.findByItemId(UUID.randomUUID())
-        assertIs<Result.Success<*>>(result)
-        assertTrue((result as Result.Success).data.isEmpty())
-    }
+    fun `MockRepositoryProvider noteRepo default returns empty lists`(): Unit =
+        runBlocking {
+            val mock = MockRepositoryProvider()
+            val result = mock.noteRepo.findByItemId(UUID.randomUUID())
+            assertIs<Result.Success<*>>(result)
+            assertTrue((result as Result.Success).data.isEmpty())
+        }
 
     // ── TestNoteSchemaService ──
 
     @Test
-    fun `FEATURE_IMPLEMENTATION returns correct schema for matching tag`(): Unit {
+    fun `FEATURE_IMPLEMENTATION returns correct schema for matching tag`() {
         val schema = TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("feature-implementation"))
         assertNotNull(schema)
         assertEquals(4, schema.size)
@@ -286,12 +309,12 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `FEATURE_IMPLEMENTATION has review phase`(): Unit {
+    fun `FEATURE_IMPLEMENTATION has review phase`() {
         assertTrue(TestNoteSchemaService.FEATURE_IMPLEMENTATION.hasReviewPhase(listOf("feature-implementation")))
     }
 
     @Test
-    fun `BUG_FIX returns correct schema for matching tag`(): Unit {
+    fun `BUG_FIX returns correct schema for matching tag`() {
         val schema = TestNoteSchemaService.BUG_FIX.getSchemaForTags(listOf("bug-fix"))
         assertNotNull(schema)
         assertEquals(2, schema.size)
@@ -301,19 +324,19 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `BUG_FIX has no review phase`(): Unit {
+    fun `BUG_FIX has no review phase`() {
         assertFalse(TestNoteSchemaService.BUG_FIX.hasReviewPhase(listOf("bug-fix")))
     }
 
     @Test
-    fun `NONE returns null for any tags`(): Unit {
+    fun `NONE returns null for any tags`() {
         assertNull(TestNoteSchemaService.NONE.getSchemaForTags(listOf("feature-implementation")))
         assertNull(TestNoteSchemaService.NONE.getSchemaForTags(listOf("bug-fix")))
         assertNull(TestNoteSchemaService.NONE.getSchemaForTags(emptyList()))
     }
 
     @Test
-    fun `schema service returns null for unrecognized tags`(): Unit {
+    fun `schema service returns null for unrecognized tags`() {
         assertNull(TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("unrelated-tag")))
     }
 
@@ -321,51 +344,54 @@ class TestInfrastructureTest {
 
     @Nested
     inner class BaseRepositoryTestValidation : BaseRepositoryTest() {
+        @Test
+        fun `can create and read back items`(): Unit =
+            runBlocking {
+                val item = createPersistedItem(title = "Persisted Item")
+                assertEquals("Persisted Item", item.title)
+                assertEquals(Role.QUEUE, item.role)
+
+                // Read back via repository
+                val result = repositoryProvider.workItemRepository().getById(item.id)
+                assertIs<Result.Success<*>>(result)
+                assertEquals("Persisted Item", (result as Result.Success).data.title)
+            }
 
         @Test
-        fun `can create and read back items`(): Unit = runBlocking {
-            val item = createPersistedItem(title = "Persisted Item")
-            assertEquals("Persisted Item", item.title)
-            assertEquals(Role.QUEUE, item.role)
-
-            // Read back via repository
-            val result = repositoryProvider.workItemRepository().getById(item.id)
-            assertIs<Result.Success<*>>(result)
-            assertEquals("Persisted Item", (result as Result.Success).data.title)
-        }
+        fun `can create item with parent`(): Unit =
+            runBlocking {
+                val parent = createPersistedItem(title = "Parent")
+                val child = createPersistedItem(title = "Child", parentId = parent.id)
+                assertEquals(parent.id, child.parentId)
+                assertEquals(1, child.depth)
+            }
 
         @Test
-        fun `can create item with parent`(): Unit = runBlocking {
-            val parent = createPersistedItem(title = "Parent")
-            val child = createPersistedItem(title = "Child", parentId = parent.id)
-            assertEquals(parent.id, child.parentId)
-            assertEquals(1, child.depth)
-        }
+        fun `can create and read back notes`(): Unit =
+            runBlocking {
+                val item = createPersistedItem(title = "Item with note")
+                val note = createPersistedNote(itemId = item.id, key = "design", role = "work", body = "Design doc")
+                assertEquals("design", note.key)
+                assertEquals("work", note.role)
+                assertEquals("Design doc", note.body)
+
+                val result = repositoryProvider.noteRepository().findByItemId(item.id)
+                assertIs<Result.Success<*>>(result)
+                assertEquals(1, (result as Result.Success).data.size)
+            }
 
         @Test
-        fun `can create and read back notes`(): Unit = runBlocking {
-            val item = createPersistedItem(title = "Item with note")
-            val note = createPersistedNote(itemId = item.id, key = "design", role = "work", body = "Design doc")
-            assertEquals("design", note.key)
-            assertEquals("work", note.role)
-            assertEquals("Design doc", note.body)
+        fun `can create and read back dependencies`(): Unit =
+            runBlocking {
+                val item1 = createPersistedItem(title = "Item 1")
+                val item2 = createPersistedItem(title = "Item 2")
+                val dep = createPersistedDependency(fromItemId = item1.id, toItemId = item2.id)
+                assertEquals(item1.id, dep.fromItemId)
+                assertEquals(item2.id, dep.toItemId)
+                assertEquals(DependencyType.BLOCKS, dep.type)
 
-            val result = repositoryProvider.noteRepository().findByItemId(item.id)
-            assertIs<Result.Success<*>>(result)
-            assertEquals(1, (result as Result.Success).data.size)
-        }
-
-        @Test
-        fun `can create and read back dependencies`(): Unit = runBlocking {
-            val item1 = createPersistedItem(title = "Item 1")
-            val item2 = createPersistedItem(title = "Item 2")
-            val dep = createPersistedDependency(fromItemId = item1.id, toItemId = item2.id)
-            assertEquals(item1.id, dep.fromItemId)
-            assertEquals(item2.id, dep.toItemId)
-            assertEquals(DependencyType.BLOCKS, dep.type)
-
-            val deps = repositoryProvider.dependencyRepository().findByItemId(item1.id)
-            assertEquals(1, deps.size)
-        }
+                val deps = repositoryProvider.dependencyRepository().findByItemId(item1.id)
+                assertEquals(1, deps.size)
+            }
     }
 }

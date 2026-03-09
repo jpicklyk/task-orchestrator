@@ -10,7 +10,9 @@ import org.slf4j.LoggerFactory
  *
  * @param jdbcUrl The JDBC URL for the database connection.
  */
-class FlywayDatabaseSchemaManager(private val jdbcUrl: String) : DatabaseSchemaManager {
+class FlywayDatabaseSchemaManager(
+    private val jdbcUrl: String
+) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java)
 
     override fun updateSchema(): Boolean {
@@ -27,14 +29,16 @@ class FlywayDatabaseSchemaManager(private val jdbcUrl: String) : DatabaseSchemaM
             logger.info("Using database URL for Flyway: $jdbcUrl")
 
             // Create Flyway instance with SQLite-specific configuration
-            val flyway = Flyway.configure()
-                .dataSource(jdbcUrl, null, null) // SQLite: no username/password needed
-                .locations("classpath:db/migration")
-                .validateMigrationNaming(true)
-                .cleanDisabled(false) // Allow clean for development
-                .baselineOnMigrate(true) // Create baseline for existing databases
-                .baselineVersion("0") // Start baseline at version 0
-                .load()
+            val flyway =
+                Flyway
+                    .configure()
+                    .dataSource(jdbcUrl, null, null) // SQLite: no username/password needed
+                    .locations("classpath:db/migration")
+                    .validateMigrationNaming(true)
+                    .cleanDisabled(false) // Allow clean for development
+                    .baselineOnMigrate(true) // Create baseline for existing databases
+                    .baselineVersion("0") // Start baseline at version 0
+                    .load()
 
             // Apply migrations
             val result = flyway.migrate()
@@ -56,18 +60,20 @@ class FlywayDatabaseSchemaManager(private val jdbcUrl: String) : DatabaseSchemaM
      * to match current migration files. Useful when migration files
      * have been modified after being applied.
      */
-    private fun repair(): Boolean {
-        return try {
+    private fun repair(): Boolean =
+        try {
             logger.info("Starting Flyway repair...")
 
-            val flyway = Flyway.configure()
-                .dataSource(jdbcUrl, null, null)
-                .locations("classpath:db/migration")
-                .validateMigrationNaming(true)
-                .cleanDisabled(false)
-                .baselineOnMigrate(true)
-                .baselineVersion("0")
-                .load()
+            val flyway =
+                Flyway
+                    .configure()
+                    .dataSource(jdbcUrl, null, null)
+                    .locations("classpath:db/migration")
+                    .validateMigrationNaming(true)
+                    .cleanDisabled(false)
+                    .baselineOnMigrate(true)
+                    .baselineVersion("0")
+                    .load()
 
             flyway.repair()
             logger.info("Flyway repair completed successfully")
@@ -77,5 +83,4 @@ class FlywayDatabaseSchemaManager(private val jdbcUrl: String) : DatabaseSchemaM
             logger.error("Flyway repair failed: ${e.message}", e)
             false
         }
-    }
 }

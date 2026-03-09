@@ -13,7 +13,6 @@ import java.time.Instant
  * This ensures AI agents can reliably parse tool responses regardless of which tool produced them.
  */
 object ResponseUtil {
-
     private const val CURRENT_VERSION = "0.1.0"
 
     /**
@@ -23,8 +22,11 @@ object ResponseUtil {
      * @param message Optional human-readable success message
      * @return A JsonObject with the standard success envelope format
      */
-    fun createSuccessResponse(data: JsonElement? = null, message: String? = null): JsonObject {
-        return buildJsonObject {
+    fun createSuccessResponse(
+        data: JsonElement? = null,
+        message: String? = null
+    ): JsonObject =
+        buildJsonObject {
             put("success", JsonPrimitive(true))
             if (message != null) {
                 put("message", JsonPrimitive(message))
@@ -34,7 +36,6 @@ object ResponseUtil {
             }
             put("metadata", createMetadata())
         }
-    }
 
     /**
      * Creates an error response envelope.
@@ -50,22 +51,24 @@ object ResponseUtil {
         code: String = ErrorCodes.VALIDATION_ERROR,
         details: String? = null,
         additionalData: JsonElement? = null
-    ): JsonObject {
-        return buildJsonObject {
+    ): JsonObject =
+        buildJsonObject {
             put("success", JsonPrimitive(false))
-            put("error", buildJsonObject {
-                put("message", JsonPrimitive(message))
-                put("code", JsonPrimitive(code))
-                if (details != null) {
-                    put("details", JsonPrimitive(details))
+            put(
+                "error",
+                buildJsonObject {
+                    put("message", JsonPrimitive(message))
+                    put("code", JsonPrimitive(code))
+                    if (details != null) {
+                        put("details", JsonPrimitive(details))
+                    }
                 }
-            })
+            )
             if (additionalData != null) {
                 put("data", additionalData)
             }
             put("metadata", createMetadata())
         }
-    }
 
     /**
      * Checks whether a JSON response is an error envelope.
@@ -95,10 +98,9 @@ object ResponseUtil {
      *
      * @return A JsonObject with timestamp (ISO 8601) and version fields
      */
-    fun createMetadata(): JsonObject {
-        return buildJsonObject {
+    fun createMetadata(): JsonObject =
+        buildJsonObject {
             put("timestamp", JsonPrimitive(Instant.now().toString()))
             put("version", JsonPrimitive(CURRENT_VERSION))
         }
-    }
 }

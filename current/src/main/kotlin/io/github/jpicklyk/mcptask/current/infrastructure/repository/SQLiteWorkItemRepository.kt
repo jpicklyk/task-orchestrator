@@ -8,6 +8,8 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.CustomFunction
+import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -18,12 +20,13 @@ import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.castTo
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.vendors.H2Dialect
+import org.jetbrains.exposed.v1.core.vendors.currentDialect
+import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
-import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
@@ -33,8 +36,9 @@ import java.util.UUID
 /**
  * SQLite implementation of WorkItemRepository.
  */
-class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : WorkItemRepository {
-
+class SQLiteWorkItemRepository(
+    private val databaseManager: DatabaseManager
+) : WorkItemRepository {
     private val logger = LoggerFactory.getLogger(SQLiteWorkItemRepository::class.java)
 
     override suspend fun getById(id: UUID): Result<WorkItem> =
@@ -76,26 +80,27 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
     override suspend fun update(item: WorkItem): Result<WorkItem> =
         databaseManager.suspendedTransaction("Failed to update WorkItem") {
             item.validate()
-            val updatedCount = WorkItemsTable.update({
-                (WorkItemsTable.id eq item.id) and (WorkItemsTable.version eq item.version)
-            }) {
-                it[parentId] = item.parentId
-                it[title] = item.title
-                it[description] = item.description
-                it[summary] = item.summary
-                it[role] = item.role.name.lowercase()
-                it[statusLabel] = item.statusLabel
-                it[previousRole] = item.previousRole?.name?.lowercase()
-                it[priority] = item.priority.name.lowercase()
-                it[complexity] = item.complexity
-                it[requiresVerification] = item.requiresVerification
-                it[depth] = item.depth
-                it[metadata] = item.metadata
-                it[tags] = item.tags
-                it[modifiedAt] = item.modifiedAt
-                it[roleChangedAt] = item.roleChangedAt
-                it[version] = item.version + 1
-            }
+            val updatedCount =
+                WorkItemsTable.update({
+                    (WorkItemsTable.id eq item.id) and (WorkItemsTable.version eq item.version)
+                }) {
+                    it[parentId] = item.parentId
+                    it[title] = item.title
+                    it[description] = item.description
+                    it[summary] = item.summary
+                    it[role] = item.role.name.lowercase()
+                    it[statusLabel] = item.statusLabel
+                    it[previousRole] = item.previousRole?.name?.lowercase()
+                    it[priority] = item.priority.name.lowercase()
+                    it[complexity] = item.complexity
+                    it[requiresVerification] = item.requiresVerification
+                    it[depth] = item.depth
+                    it[metadata] = item.metadata
+                    it[tags] = item.tags
+                    it[modifiedAt] = item.modifiedAt
+                    it[roleChangedAt] = item.roleChangedAt
+                    it[version] = item.version + 1
+                }
             if (updatedCount > 0) {
                 Result.Success(item.copy(version = item.version + 1))
             } else {
@@ -115,50 +120,71 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             Result.Success(deletedCount > 0)
         }
 
-    override suspend fun findByParent(parentId: UUID, limit: Int): Result<List<WorkItem>> =
+    override suspend fun findByParent(
+        parentId: UUID,
+        limit: Int
+    ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by parent") {
-            val items = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.parentId eq parentId }
-                .limit(limit)
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.parentId eq parentId }
+                    .limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
-    override suspend fun findByRole(role: Role, limit: Int): Result<List<WorkItem>> =
+    override suspend fun findByRole(
+        role: Role,
+        limit: Int
+    ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by role") {
-            val items = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.role eq role.name.lowercase() }
-                .limit(limit)
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.role eq role.name.lowercase() }
+                    .limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
-    override suspend fun findByDepth(depth: Int, limit: Int): Result<List<WorkItem>> =
+    override suspend fun findByDepth(
+        depth: Int,
+        limit: Int
+    ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by depth") {
-            val items = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.depth eq depth }
-                .limit(limit)
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.depth eq depth }
+                    .limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
     override suspend fun findRoot(): Result<WorkItem?> =
         databaseManager.suspendedTransaction("Failed to find root WorkItem") {
-            val row = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.parentId.isNull() and (WorkItemsTable.depth eq 0) }
-                .singleOrNull()
+            val row =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.parentId.isNull() and (WorkItemsTable.depth eq 0) }
+                    .singleOrNull()
             Result.Success(row?.let { toWorkItemOrNull(it) })
         }
 
-    override suspend fun search(query: String, limit: Int): Result<List<WorkItem>> =
+    override suspend fun search(
+        query: String,
+        limit: Int
+    ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to search WorkItems") {
             val pattern = "%$query%"
-            val items = WorkItemsTable.selectAll()
-                .where {
-                    (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
-                }
-                .limit(limit)
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where {
+                        (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
+                    }.limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -170,9 +196,11 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
 
     override suspend fun findChildren(parentId: UUID): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find children of WorkItem") {
-            val items = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.parentId eq parentId }
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.parentId eq parentId }
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -195,30 +223,43 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         offset: Int
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
-            val baseQuery = buildFilteredQuery(
-                parentId, depth, role, priority, tags, query,
-                createdAfter, createdBefore, modifiedAfter, modifiedBefore,
-                roleChangedAfter, roleChangedBefore
-            )
+            val baseQuery =
+                buildFilteredQuery(
+                    parentId,
+                    depth,
+                    role,
+                    priority,
+                    tags,
+                    query,
+                    createdAfter,
+                    createdBefore,
+                    modifiedAfter,
+                    modifiedBefore,
+                    roleChangedAfter,
+                    roleChangedBefore
+                )
 
             // Determine sort column and order
-            val sortColumn = when (sortBy?.lowercase()) {
-                "created" -> WorkItemsTable.createdAt
-                "modified" -> WorkItemsTable.modifiedAt
-                "priority" -> WorkItemsTable.priority
-                else -> WorkItemsTable.createdAt
-            }
-            val order = when (sortOrder?.lowercase()) {
-                "asc" -> SortOrder.ASC
-                "desc" -> SortOrder.DESC
-                else -> SortOrder.DESC
-            }
+            val sortColumn =
+                when (sortBy?.lowercase()) {
+                    "created" -> WorkItemsTable.createdAt
+                    "modified" -> WorkItemsTable.modifiedAt
+                    "priority" -> WorkItemsTable.priority
+                    else -> WorkItemsTable.createdAt
+                }
+            val order =
+                when (sortOrder?.lowercase()) {
+                    "asc" -> SortOrder.ASC
+                    "desc" -> SortOrder.DESC
+                    else -> SortOrder.DESC
+                }
 
-            val items = baseQuery
-                .orderBy(sortColumn, order)
-                .limit(limit)
-                .offset(offset.coerceAtLeast(0).toLong())
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                baseQuery
+                    .orderBy(sortColumn, order)
+                    .limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
+                    .mapNotNull { toWorkItemOrNull(it) }
 
             Result.Success(items)
         }
@@ -238,31 +279,45 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         roleChangedBefore: Instant?
     ): Result<Int> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
-            val count = buildFilteredQuery(
-                parentId, depth, role, priority, tags, query,
-                createdAfter, createdBefore, modifiedAfter, modifiedBefore,
-                roleChangedAfter, roleChangedBefore
-            ).count()
+            val count =
+                buildFilteredQuery(
+                    parentId,
+                    depth,
+                    role,
+                    priority,
+                    tags,
+                    query,
+                    createdAfter,
+                    createdBefore,
+                    modifiedAfter,
+                    modifiedBefore,
+                    roleChangedAfter,
+                    roleChangedBefore
+                ).count()
 
             Result.Success(count.toInt())
         }
 
     override suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>> =
         databaseManager.suspendedTransaction("Failed to count children by role") {
-            val counts = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.parentId eq parentId }
-                .mapNotNull { toWorkItemOrNull(it) }
-                .groupBy { it.role }
-                .mapValues { (_, items) -> items.size }
+            val counts =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.parentId eq parentId }
+                    .mapNotNull { toWorkItemOrNull(it) }
+                    .groupBy { it.role }
+                    .mapValues { (_, items) -> items.size }
             Result.Success(counts)
         }
 
     override suspend fun findRootItems(limit: Int): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find root items") {
-            val items = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.parentId.isNull() }
-                .limit(limit)
-                .mapNotNull { toWorkItemOrNull(it) }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.parentId.isNull() }
+                    .limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
 
@@ -274,9 +329,11 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
 
             while (queue.isNotEmpty()) {
                 val current = queue.removeFirst()
-                val children = WorkItemsTable.selectAll()
-                    .where { WorkItemsTable.parentId eq current }
-                    .mapNotNull { toWorkItemOrNull(it) }
+                val children =
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.parentId eq current }
+                        .mapNotNull { toWorkItemOrNull(it) }
                 results.addAll(children)
                 queue.addAll(children.map { it.id })
             }
@@ -289,7 +346,8 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         return databaseManager.suspendedTransaction("Failed to find items by IDs") {
             val entityIds = ids.map { EntityID(it, WorkItemsTable) }
             Result.Success(
-                WorkItemsTable.selectAll()
+                WorkItemsTable
+                    .selectAll()
                     .where { WorkItemsTable.id inList entityIds }
                     .mapNotNull { toWorkItemOrNull(it) }
             )
@@ -305,38 +363,28 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
         }
     }
 
-    override suspend fun findByIdPrefix(prefix: String, limit: Int): Result<List<WorkItem>> {
-        // Convert a hex-only prefix into a UUID-formatted prefix for LIKE matching.
-        // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (8-4-4-4-12)
-        // Dash positions in the hex string: after 8, 12, 16, 20
-        val formattedPrefix = formatHexAsUuidPrefix(prefix.lowercase())
+    override suspend fun findByIdPrefix(
+        prefix: String,
+        limit: Int
+    ): Result<List<WorkItem>> {
+        val normalizedPrefix = prefix.lowercase()
         return databaseManager.suspendedTransaction("Failed to find WorkItems by ID prefix") {
-            val items = WorkItemsTable.selectAll()
-                .where {
-                    WorkItemsTable.id.castTo<String>(VarCharColumnType(36)).like("$formattedPrefix%")
-                }
-                .limit(limit)
-                .mapNotNull { toWorkItemOrNull(it) }
+            // Convert UUID id column to lowercase hex string (no dashes) for prefix matching.
+            // H2 uses RAWTOHEX() for native UUID columns; SQLite uses HEX() for BLOB columns.
+            // Both produce uppercase hex without dashes — wrap in LOWER for case-insensitive match.
+            val hexFunctionName = if (currentDialect is H2Dialect) "RAWTOHEX" else "HEX"
+            val hexId =
+                LowerCase(
+                    CustomFunction(hexFunctionName, VarCharColumnType(32), WorkItemsTable.id),
+                )
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { hexId like "$normalizedPrefix%" }
+                    .limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
-    }
-
-    /**
-     * Converts a hex-only prefix string into UUID-formatted prefix with dashes
-     * inserted at the correct positions (after hex positions 8, 12, 16, 20).
-     */
-    private fun formatHexAsUuidPrefix(hexPrefix: String): String {
-        val dashPositions = listOf(8, 12, 16, 20)
-        val sb = StringBuilder()
-        var hexIndex = 0
-        for (ch in hexPrefix) {
-            if (hexIndex in dashPositions) {
-                sb.append('-')
-            }
-            sb.append(ch)
-            hexIndex++
-        }
-        return sb.toString()
     }
 
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
@@ -347,40 +395,45 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
 
             // Fetch the input items themselves first
             val inputEntityIds = itemIds.map { EntityID(it, WorkItemsTable) }
-            val inputItems = WorkItemsTable.selectAll()
-                .where { WorkItemsTable.id inList inputEntityIds }
-                .mapNotNull { toWorkItemOrNull(it) }
+            val inputItems =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.id inList inputEntityIds }
+                    .mapNotNull { toWorkItemOrNull(it) }
             inputItems.forEach { cache[it.id.toString()] = it }
 
             // BFS upward: collect all parentIds that need fetching
             var toFetch = inputItems.mapNotNull { it.parentId }.map { it.toString() }.toSet() - cache.keys
             while (toFetch.isNotEmpty()) {
                 val fetchEntityIds = toFetch.map { EntityID(UUID.fromString(it), WorkItemsTable) }
-                val fetched = WorkItemsTable.selectAll()
-                    .where { WorkItemsTable.id inList fetchEntityIds }
-                    .mapNotNull { toWorkItemOrNull(it) }
+                val fetched =
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.id inList fetchEntityIds }
+                        .mapNotNull { toWorkItemOrNull(it) }
                 fetched.forEach { cache[it.id.toString()] = it }
                 toFetch = fetched.mapNotNull { it.parentId }.map { it.toString() }.toSet() - cache.keys
             }
 
             // Build ancestor chains for each input itemId
-            val result = itemIds.associateWith { itemId ->
-                val chain = mutableListOf<WorkItem>()
-                val visited = mutableSetOf<String>()
-                var current = cache[itemId.toString()]
-                var parentIdStr = current?.parentId?.toString()
-                while (parentIdStr != null) {
-                    if (parentIdStr in visited) {
-                        logger.warn("Cycle detected in ancestor chain for item $itemId at parent $parentIdStr — breaking")
-                        break
+            val result =
+                itemIds.associateWith { itemId ->
+                    val chain = mutableListOf<WorkItem>()
+                    val visited = mutableSetOf<String>()
+                    var current = cache[itemId.toString()]
+                    var parentIdStr = current?.parentId?.toString()
+                    while (parentIdStr != null) {
+                        if (parentIdStr in visited) {
+                            logger.warn("Cycle detected in ancestor chain for item $itemId at parent $parentIdStr — breaking")
+                            break
+                        }
+                        visited.add(parentIdStr)
+                        val ancestor = cache[parentIdStr] ?: break
+                        chain.add(0, ancestor) // prepend so order is root -> direct parent
+                        parentIdStr = ancestor.parentId?.toString()
                     }
-                    visited.add(parentIdStr)
-                    val ancestor = cache[parentIdStr] ?: break
-                    chain.add(0, ancestor) // prepend so order is root -> direct parent
-                    parentIdStr = ancestor.parentId?.toString()
+                    chain as List<WorkItem>
                 }
-                chain as List<WorkItem>
-            }
             Result.Success(result)
         }
     }
@@ -435,18 +488,18 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
     /**
      * Handles: tag alone ("bug"), at start ("bug,feature"), in middle ("alpha,bug,beta"), at end ("alpha,bug").
      */
-    private fun buildTagFilter(tags: List<String>): Op<Boolean> {
-        return tags.map { tag ->
-            val t = tag.trim().lowercase()
-            (WorkItemsTable.tags eq t) or
-                (WorkItemsTable.tags like "$t,%") or
-                (WorkItemsTable.tags like "%,$t,%") or
-                (WorkItemsTable.tags like "%,$t")
-        }.reduce { acc, op -> acc or op }
-    }
+    private fun buildTagFilter(tags: List<String>): Op<Boolean> =
+        tags
+            .map { tag ->
+                val t = tag.trim().lowercase()
+                (WorkItemsTable.tags eq t) or
+                    (WorkItemsTable.tags like "$t,%") or
+                    (WorkItemsTable.tags like "%,$t,%") or
+                    (WorkItemsTable.tags like "%,$t")
+            }.reduce { acc, op -> acc or op }
 
-    private fun toWorkItem(row: ResultRow): WorkItem {
-        return WorkItem(
+    private fun toWorkItem(row: ResultRow): WorkItem =
+        WorkItem(
             id = row[WorkItemsTable.id].value,
             parentId = row[WorkItemsTable.parentId],
             title = row[WorkItemsTable.title],
@@ -466,7 +519,6 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             roleChangedAt = row[WorkItemsTable.roleChangedAt],
             version = row[WorkItemsTable.version]
         )
-    }
 
     /**
      * Safe variant of [toWorkItem] that returns null on failure, for bulk-read operations.
@@ -475,8 +527,8 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
      * (e.g. an oversized title written by an older version of the server). This prevents
      * a single corrupt row from crashing an entire list query.
      */
-    private fun toWorkItemOrNull(row: ResultRow): WorkItem? {
-        return try {
+    private fun toWorkItemOrNull(row: ResultRow): WorkItem? =
+        try {
             toWorkItem(row)
         } catch (e: Exception) {
             logger.warn(
@@ -486,5 +538,4 @@ class SQLiteWorkItemRepository(private val databaseManager: DatabaseManager) : W
             )
             null
         }
-    }
 }

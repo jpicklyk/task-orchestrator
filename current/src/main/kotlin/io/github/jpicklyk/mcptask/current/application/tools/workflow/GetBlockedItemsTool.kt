@@ -24,10 +24,10 @@ import java.util.UUID
  * enabling agents to identify bottlenecks and plan unblocking actions.
  */
 class GetBlockedItemsTool : BaseToolDefinition() {
-
     override val name = "get_blocked_items"
 
-    override val description = """
+    override val description =
+        """
 Identifies WorkItems blocked by dependencies or explicitly in BLOCKED role.
 
 **Parameters:**
@@ -69,36 +69,56 @@ Items in TERMINAL role are never included.
   "total": N
 }
 ```
-    """.trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = true,
-        destructiveHint = false,
-        idempotentHint = true,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = true,
+            destructiveHint = false,
+            idempotentHint = true,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("parentId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Scope results to items under this parent UUID"))
-            })
-            put("includeItemDetails", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("Include summary and tags for each blocked item (default: false)"))
-            })
-            put("includeAncestors", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("When true, each blocked item includes an ancestors array ordered root-first (default: false)"))
-            })
-        },
-        required = emptyList()
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "parentId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Scope results to items under this parent UUID"))
+                        }
+                    )
+                    put(
+                        "includeItemDetails",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put("description", JsonPrimitive("Include summary and tags for each blocked item (default: false)"))
+                        }
+                    )
+                    put(
+                        "includeAncestors",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "When true, each blocked item includes an ancestors array ordered root-first (default: false)"
+                                )
+                            )
+                        }
+                    )
+                },
+            required = emptyList()
+        )
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val parentId = extractUUID(params, "parentId", required = false)
         val includeDetails = optionalBoolean(params, "includeItemDetails", false)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
@@ -111,23 +131,24 @@ Items in TERMINAL role are never included.
         val allCandidates = mutableListOf<WorkItem>()
 
         for (role in candidateRoles) {
-            val items = if (parentId != null) {
-                when (val result = workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500)) {
-                    is Result.Success -> result.data
-                    is Result.Error -> {
-                        logger.warn("Failed to query items for role $role: ${result.error.message}")
-                        emptyList()
+            val items =
+                if (parentId != null) {
+                    when (val result = workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> {
+                            logger.warn("Failed to query items for role $role: ${result.error.message}")
+                            emptyList()
+                        }
+                    }
+                } else {
+                    when (val result = workItemRepo.findByRole(role, limit = 500)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> {
+                            logger.warn("Failed to query items for role $role: ${result.error.message}")
+                            emptyList()
+                        }
                     }
                 }
-            } else {
-                when (val result = workItemRepo.findByRole(role, limit = 500)) {
-                    is Result.Success -> result.data
-                    is Result.Error -> {
-                        logger.warn("Failed to query items for role $role: ${result.error.message}")
-                        emptyList()
-                    }
-                }
-            }
             allCandidates.addAll(items)
         }
 
@@ -187,49 +208,62 @@ Items in TERMINAL role are never included.
 
             if (unsatisfiedCount > 0) {
                 blockedItemsList.add(
-                    item to buildBlockedItemJson(
-                        item, "dependency",
-                        blockedByArray, includeDetails,
-                        blockerCount = unsatisfiedCount
-                    )
+                    item to
+                        buildBlockedItemJson(
+                            item,
+                            "dependency",
+                            blockedByArray,
+                            includeDetails,
+                            blockerCount = unsatisfiedCount
+                        )
                 )
             }
         }
 
         // Resolve ancestor chains once for all blocked items if requested
-        val ancestorChains: Map<UUID, List<WorkItem>> = if (includeAncestors && blockedItemsList.isNotEmpty()) {
-            val allIds = blockedItemsList.map { (item, _) -> item.id }.toSet()
-            when (val r = workItemRepo.findAncestorChains(allIds)) {
-                is Result.Success -> r.data
-                is Result.Error -> emptyMap()
+        val ancestorChains: Map<UUID, List<WorkItem>> =
+            if (includeAncestors && blockedItemsList.isNotEmpty()) {
+                val allIds = blockedItemsList.map { (item, _) -> item.id }.toSet()
+                when (val r = workItemRepo.findAncestorChains(allIds)) {
+                    is Result.Success -> r.data
+                    is Result.Error -> emptyMap()
+                }
+            } else {
+                emptyMap()
             }
-        } else emptyMap()
 
         // Build final blocked items JSON, appending ancestors if needed
-        val blockedItemsJson = blockedItemsList.map { (item, json) ->
-            if (includeAncestors) {
-                val ancestors = ancestorChains[item.id] ?: emptyList()
-                val ancestorsArray = buildAncestorsArray(ancestors)
-                JsonObject(json.toMap() + ("ancestors" to ancestorsArray))
-            } else {
-                json
+        val blockedItemsJson =
+            blockedItemsList.map { (item, json) ->
+                if (includeAncestors) {
+                    val ancestors = ancestorChains[item.id] ?: emptyList()
+                    val ancestorsArray = buildAncestorsArray(ancestors)
+                    JsonObject(json.toMap() + ("ancestors" to ancestorsArray))
+                } else {
+                    json
+                }
             }
-        }
 
-        val data = buildJsonObject {
-            put("blockedItems", JsonArray(blockedItemsJson))
-            put("total", JsonPrimitive(blockedItemsJson.size))
-        }
+        val data =
+            buildJsonObject {
+                put("blockedItems", JsonArray(blockedItemsJson))
+                put("total", JsonPrimitive(blockedItemsJson.size))
+            }
 
         return successResponse(data)
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
         if (isError) return "get_blocked_items failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val total = data?.get("total")?.let {
-            if (it is JsonPrimitive) it.intOrNull else null
-        } ?: 0
+        val total =
+            data?.get("total")?.let {
+                if (it is JsonPrimitive) it.intOrNull else null
+            } ?: 0
         return "Found $total blocked item(s)"
     }
 
@@ -244,24 +278,26 @@ Items in TERMINAL role are never included.
         blockerInfos: List<BlockerInfo>,
         workItemRepo: WorkItemRepository
     ): JsonArray {
-        val entries = blockerInfos.map { info ->
-            val blockerItem = when (val result = workItemRepo.getById(info.blockerItemId)) {
-                is Result.Success -> result.data
-                is Result.Error -> null
-            }
-            val blockerRole = blockerItem?.role ?: Role.QUEUE
-            val thresholdRole = info.effectiveUnblockRole?.let { Role.fromString(it) } ?: Role.TERMINAL
-            val satisfied = Role.isAtOrBeyond(blockerRole, thresholdRole)
+        val entries =
+            blockerInfos.map { info ->
+                val blockerItem =
+                    when (val result = workItemRepo.getById(info.blockerItemId)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> null
+                    }
+                val blockerRole = blockerItem?.role ?: Role.QUEUE
+                val thresholdRole = info.effectiveUnblockRole?.let { Role.fromString(it) } ?: Role.TERMINAL
+                val satisfied = Role.isAtOrBeyond(blockerRole, thresholdRole)
 
-            buildJsonObject {
-                put("itemId", JsonPrimitive(info.blockerItemId.toString()))
-                put("title", JsonPrimitive(blockerItem?.title ?: "Unknown"))
-                put("role", JsonPrimitive(blockerRole.toJsonString()))
-                info.unblockAt?.let { put("unblockAt", JsonPrimitive(it)) }
-                info.effectiveUnblockRole?.let { put("effectiveUnblockRole", JsonPrimitive(it)) }
-                put("satisfied", JsonPrimitive(satisfied))
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(info.blockerItemId.toString()))
+                    put("title", JsonPrimitive(blockerItem?.title ?: "Unknown"))
+                    put("role", JsonPrimitive(blockerRole.toJsonString()))
+                    info.unblockAt?.let { put("unblockAt", JsonPrimitive(it)) }
+                    info.effectiveUnblockRole?.let { put("effectiveUnblockRole", JsonPrimitive(it)) }
+                    put("satisfied", JsonPrimitive(satisfied))
+                }
             }
-        }
         return JsonArray(entries)
     }
 
@@ -292,13 +328,12 @@ Items in TERMINAL role are never included.
         }
     }
 
-    private fun countUnsatisfied(blockedBy: JsonArray): Int {
-        return blockedBy.count { entry ->
+    private fun countUnsatisfied(blockedBy: JsonArray): Int =
+        blockedBy.count { entry ->
             val entryObj = entry as? JsonObject
             val satisfied = entryObj?.get("satisfied")?.jsonPrimitive?.boolean ?: true
             !satisfied
         }
-    }
 
     /**
      * Internal data holder for collected blocker information before resolution.
