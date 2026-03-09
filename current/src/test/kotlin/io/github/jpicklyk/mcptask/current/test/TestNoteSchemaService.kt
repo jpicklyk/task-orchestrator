@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 
 /**
  * Test-only NoteSchemaService backed by an in-memory map.
@@ -21,15 +22,25 @@ class TestNoteSchemaService(
                 mapOf(
                     "feature-implementation" to
                         listOf(
-                            NoteSchemaEntry(key = "requirements", role = "queue", required = true, description = "Functional requirements"),
-                            NoteSchemaEntry(key = "design", role = "queue", required = true, description = "Design decisions"),
+                            NoteSchemaEntry(
+                                key = "requirements",
+                                role = Role.QUEUE,
+                                required = true,
+                                description = "Functional requirements",
+                            ),
+                            NoteSchemaEntry(
+                                key = "design",
+                                role = Role.QUEUE,
+                                required = true,
+                                description = "Design decisions",
+                            ),
                             NoteSchemaEntry(
                                 key = "implementation-notes",
-                                role = "work",
+                                role = Role.WORK,
                                 required = true,
                                 description = "Implementation details"
                             ),
-                            NoteSchemaEntry(key = "review-checklist", role = "review", required = true, description = "Review findings")
+                            NoteSchemaEntry(key = "review-checklist", role = Role.REVIEW, required = true, description = "Review findings")
                         )
                 )
             )
@@ -42,25 +53,25 @@ class TestNoteSchemaService(
                         listOf(
                             NoteSchemaEntry(
                                 key = "task-scope",
-                                role = "queue",
+                                role = Role.QUEUE,
                                 required = true,
                                 description = "What to build — target files, acceptance criteria, constraints"
                             ),
                             NoteSchemaEntry(
                                 key = "implementation-notes",
-                                role = "work",
+                                role = Role.WORK,
                                 required = true,
                                 description = "Context handoff — deviations, surprises, decisions"
                             ),
                             NoteSchemaEntry(
                                 key = "review-checklist",
-                                role = "review",
+                                role = Role.REVIEW,
                                 required = true,
                                 description = "Task-level quality gate — scope alignment and test coverage"
                             ),
                             NoteSchemaEntry(
                                 key = "session-tracking",
-                                role = "work",
+                                role = Role.WORK,
                                 required = true,
                                 description = "Session context for retrospective"
                             )
@@ -74,8 +85,18 @@ class TestNoteSchemaService(
                 mapOf(
                     "bug-fix" to
                         listOf(
-                            NoteSchemaEntry(key = "root-cause", role = "queue", required = true, description = "Root cause analysis"),
-                            NoteSchemaEntry(key = "fix-details", role = "work", required = true, description = "Fix implementation details")
+                            NoteSchemaEntry(
+                                key = "root-cause",
+                                role = Role.QUEUE,
+                                required = true,
+                                description = "Root cause analysis",
+                            ),
+                            NoteSchemaEntry(
+                                key = "fix-details",
+                                role = Role.WORK,
+                                required = true,
+                                description = "Fix implementation details",
+                            )
                         )
                 )
             )

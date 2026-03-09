@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
@@ -60,7 +61,7 @@ note_schemas:
         assertNotNull(schema)
         assertEquals(1, schema.size)
         assertEquals("acceptance-criteria", schema[0].key)
-        assertEquals("queue", schema[0].role)
+        assertEquals(Role.QUEUE, schema[0].role)
         assertEquals(true, schema[0].required)
         assertEquals("Acceptance criteria", schema[0].description)
     }
@@ -193,9 +194,9 @@ note_schemas:
         assertNotNull(schema)
         assertEquals(2, schema.size)
         assertEquals("note-one", schema[0].key)
-        assertEquals("queue", schema[0].role)
+        assertEquals(Role.QUEUE, schema[0].role)
         assertEquals("note-two", schema[1].key)
-        assertEquals("work", schema[1].role)
+        assertEquals(Role.WORK, schema[1].role)
         assertEquals("Detailed guidance here", schema[1].guidance)
     }
 
@@ -252,7 +253,7 @@ note_schemas:
         assertNotNull(schema)
         assertEquals(1, schema.size)
         assertEquals("good-note", schema[0].key)
-        assertEquals("queue", schema[0].role)
+        assertEquals(Role.QUEUE, schema[0].role)
     }
 
     @Test
@@ -311,9 +312,9 @@ note_schemas:
         assertNotNull(schema)
         assertEquals(2, schema.size)
         assertEquals("implementation-notes", schema[0].key)
-        assertEquals("work", schema[0].role)
+        assertEquals(Role.WORK, schema[0].role)
         assertEquals("review-checklist", schema[1].key)
-        assertEquals("review", schema[1].role)
+        assertEquals(Role.REVIEW, schema[1].role)
     }
 
     @Test

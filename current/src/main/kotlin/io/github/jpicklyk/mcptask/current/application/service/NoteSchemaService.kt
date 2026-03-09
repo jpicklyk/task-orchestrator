@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 
 /**
  * Provides note schemas derived from `.taskorchestrator/config.yaml`.
@@ -23,7 +24,7 @@ interface NoteSchemaService {
      * Used to determine whether `start` from WORK should advance to REVIEW or jump to TERMINAL.
      * Returns false when no schema matches (schema-free mode — skip REVIEW).
      */
-    fun hasReviewPhase(tags: List<String>): Boolean = getSchemaForTags(tags)?.any { it.role == "review" } ?: false
+    fun hasReviewPhase(tags: List<String>): Boolean = getSchemaForTags(tags)?.any { it.role == Role.REVIEW } ?: false
 }
 
 /**

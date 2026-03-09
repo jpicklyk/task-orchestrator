@@ -224,8 +224,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             if (trigger == "start") {
                 val schema = noteSchemaService.getSchemaForTags(itemTags)
                 if (schema != null) {
-                    val currentRoleStr = item.role.toJsonString()
-                    val requiredForCurrentPhase = schema.filter { it.role == currentRoleStr && it.required }
+                    val requiredForCurrentPhase = schema.filter { it.role == item.role && it.required }
                     if (requiredForCurrentPhase.isNotEmpty()) {
                         val notesResult = context.noteRepository().findByItemId(item.id)
                         val existingNotes =
@@ -242,7 +241,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                                 buildErrorResult(
                                     itemId,
                                     trigger,
-                                    "Gate check failed: required notes not filled for $currentRoleStr phase: ${missingKeys.joinToString()}",
+                                    "Gate check failed: required notes not filled for ${item.role.toJsonString()} phase: ${missingKeys.joinToString()}",
                                     missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries)
                                 )
                             )
@@ -435,8 +434,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Schema-driven response fields: expectedNotes, guidancePointer, noteProgress
             val schema = noteSchemaService.getSchemaForTags(itemTags)
-            val newRoleStr = targetRole.toJsonString()
-
             // Only query notes when a schema exists (avoids unnecessary DB call)
             val expectedNotesJson: JsonArray
             val guidancePointer: String?
@@ -456,13 +453,13 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 val existingKeys = notesByKey.keys
 
                 // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
-                val forNewRole = schema.filter { it.role == newRoleStr }
+                val forNewRole = schema.filter { it.role == targetRole }
                 expectedNotesJson =
                     JsonArray(
                         forNewRole.map { entry ->
                             buildJsonObject {
                                 put("key", JsonPrimitive(entry.key))
-                                put("role", JsonPrimitive(entry.role))
+                                put("role", JsonPrimitive(entry.role.toJsonString()))
                                 put("required", JsonPrimitive(entry.required))
                                 put("description", JsonPrimitive(entry.description))
                                 entry.guidance?.let { put("guidance", JsonPrimitive(it)) }

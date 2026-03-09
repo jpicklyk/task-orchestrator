@@ -26,14 +26,14 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * ```
  *
  * @property key Unique identifier for the note within a schema (e.g., "acceptance-criteria")
- * @property role Workflow phase this note belongs to: "queue", "work", or "review"
+ * @property role Workflow phase this note belongs to (QUEUE, WORK, or REVIEW)
  * @property required Whether this note must be filled before advancing past its phase
  * @property description Human-readable description of what the note should contain
  * @property guidance Optional detailed instructions for filling the note
  */
 data class NoteSchemaEntry(
     val key: String,
-    val role: String,
+    val role: Role,
     val required: Boolean = false,
     val description: String = "",
     val guidance: String? = null

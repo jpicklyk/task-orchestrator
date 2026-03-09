@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.io.FileReader
@@ -75,19 +76,31 @@ class YamlNoteSchemaService(
         val key = raw["key"] as? String ?: return null
         val role = raw["role"] as? String ?: return null
 
-        if (role !in VALID_SCHEMA_ROLES) {
-            logger.warn("Skipping schema entry '{}': invalid role '{}' (valid: {})", key, role, VALID_SCHEMA_ROLES)
+        val parsedRole = VALID_SCHEMA_ROLES[role]
+        if (parsedRole == null) {
+            logger.warn("Skipping schema entry '{}': invalid role '{}' (valid: {})", key, role, VALID_SCHEMA_ROLES.keys)
             return null
         }
 
         val required = raw["required"] as? Boolean ?: false
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
-        return NoteSchemaEntry(key = key, role = role, required = required, description = description, guidance = guidance)
+        return NoteSchemaEntry(
+            key = key,
+            role = parsedRole,
+            required = required,
+            description = description,
+            guidance = guidance,
+        )
     }
 
     companion object {
-        private val VALID_SCHEMA_ROLES = setOf("queue", "work", "review")
+        private val VALID_SCHEMA_ROLES =
+            mapOf(
+                "queue" to Role.QUEUE,
+                "work" to Role.WORK,
+                "review" to Role.REVIEW,
+            )
 
         fun resolveDefaultConfigPath(): java.nio.file.Path {
             val projectRoot =

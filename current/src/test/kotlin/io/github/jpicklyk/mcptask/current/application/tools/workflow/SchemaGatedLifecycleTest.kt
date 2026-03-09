@@ -42,19 +42,19 @@ class SchemaGatedLifecycleTest {
                             listOf(
                                 NoteSchemaEntry(
                                     key = "specification",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "Problem statement, approach, and implementation plan."
                                 ),
                                 NoteSchemaEntry(
                                     key = "implementation-notes",
-                                    role = "work",
+                                    role = Role.WORK,
                                     required = true,
                                     description = "Context handoff for downstream agents."
                                 ),
                                 NoteSchemaEntry(
                                     key = "review-checklist",
-                                    role = "review",
+                                    role = Role.REVIEW,
                                     required = true,
                                     description = "Quality gate - plan alignment, test quality, and simplification review."
                                 )
@@ -63,19 +63,19 @@ class SchemaGatedLifecycleTest {
                             listOf(
                                 NoteSchemaEntry(
                                     key = "diagnosis",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "Reproduction, root cause, and fix approach."
                                 ),
                                 NoteSchemaEntry(
                                     key = "implementation-notes",
-                                    role = "work",
+                                    role = Role.WORK,
                                     required = true,
                                     description = "Context handoff for downstream agents."
                                 ),
                                 NoteSchemaEntry(
                                     key = "review-checklist",
-                                    role = "review",
+                                    role = Role.REVIEW,
                                     required = true,
                                     description = "Quality gate - fix alignment, test quality, and simplification review."
                                 )
@@ -85,40 +85,40 @@ class SchemaGatedLifecycleTest {
                                 // Queue phase: one required, one optional
                                 NoteSchemaEntry(
                                     key = "requirements",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "Required requirements."
                                 ),
-                                NoteSchemaEntry(key = "context", role = "queue", required = false, description = "Optional context."),
+                                NoteSchemaEntry(key = "context", role = Role.QUEUE, required = false, description = "Optional context."),
                                 // Work phase: one required, two optional
                                 NoteSchemaEntry(
                                     key = "design-decisions",
-                                    role = "work",
+                                    role = Role.WORK,
                                     required = true,
                                     description = "Required design decisions."
                                 ),
                                 NoteSchemaEntry(
                                     key = "alternatives",
-                                    role = "work",
+                                    role = Role.WORK,
                                     required = false,
                                     description = "Optional alternatives considered."
                                 ),
                                 NoteSchemaEntry(
                                     key = "open-questions",
-                                    role = "work",
+                                    role = Role.WORK,
                                     required = false,
                                     description = "Optional open questions."
                                 ),
                                 // Review phase: only optional (no required notes)
                                 NoteSchemaEntry(
                                     key = "review-notes",
-                                    role = "review",
+                                    role = Role.REVIEW,
                                     required = false,
                                     description = "Optional review observations."
                                 ),
                                 NoteSchemaEntry(
                                     key = "follow-ups",
-                                    role = "review",
+                                    role = Role.REVIEW,
                                     required = false,
                                     description = "Optional follow-up items."
                                 )
@@ -156,10 +156,10 @@ class SchemaGatedLifecycleTest {
     private suspend fun createNote(
         itemId: UUID,
         key: String,
-        role: String,
+        role: Role,
         body: String = "Filled content for $key"
     ): Note {
-        val note = Note(itemId = itemId, key = key, role = role, body = body)
+        val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = body)
         val result = context.noteRepository().upsert(note)
         return (result as Result.Success).data
     }
@@ -264,7 +264,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(start1, "specification")
 
             // Fill the queue-phase note
-            createNote(item.id, key = "specification", role = "queue")
+            createNote(item.id, key = "specification", role = Role.QUEUE)
 
             // Retry QUEUE -> WORK -> success
             val start2 =
@@ -283,7 +283,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(start3, "implementation-notes")
 
             // Fill the work-phase note
-            createNote(item.id, key = "implementation-notes", role = "work")
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
 
             // Retry WORK -> REVIEW -> success
             val start4 =
@@ -302,7 +302,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(start5, "review-checklist")
 
             // Fill the review-phase note
-            createNote(item.id, key = "review-checklist", role = "review")
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
 
             // Retry REVIEW -> TERMINAL -> success
             val start6 =
@@ -335,7 +335,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(start1, "diagnosis")
 
             // Fill the queue-phase note
-            createNote(item.id, key = "diagnosis", role = "queue")
+            createNote(item.id, key = "diagnosis", role = Role.QUEUE)
 
             // Retry QUEUE -> WORK -> success
             val start2 =
@@ -354,7 +354,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(start3, "implementation-notes")
 
             // Fill the work-phase note
-            createNote(item.id, key = "implementation-notes", role = "work")
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
 
             // Retry WORK -> REVIEW -> success
             val start4 =
@@ -373,7 +373,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(start5, "review-checklist")
 
             // Fill the review-phase note
-            createNote(item.id, key = "review-checklist", role = "review")
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
 
             // Retry REVIEW -> TERMINAL -> success
             val start6 =
@@ -428,7 +428,7 @@ class SchemaGatedLifecycleTest {
             val item = createItem("Feature with empty note", tags = "feature-implementation")
 
             // Create a note with empty body
-            createNote(item.id, key = "specification", role = "queue", body = "")
+            createNote(item.id, key = "specification", role = Role.QUEUE, body = "")
 
             // Attempt QUEUE -> WORK -> gate rejection (empty body should not satisfy)
             val start1 =
@@ -457,7 +457,7 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(complete1, "specification")
 
             // Fill only the queue-phase note
-            createNote(item.id, key = "specification", role = "queue")
+            createNote(item.id, key = "specification", role = Role.QUEUE)
 
             // Attempt complete again -> still fails (work and review notes missing)
             val complete2 =
@@ -468,8 +468,8 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(complete2, "implementation-notes")
 
             // Fill all 3 notes
-            createNote(item.id, key = "implementation-notes", role = "work")
-            createNote(item.id, key = "review-checklist", role = "review")
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
 
             // Attempt complete -> succeeds, role is TERMINAL
             val complete3 =
@@ -499,7 +499,7 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Child feature", tags = "feature-implementation", parentId = parent.id)
 
             // Fill child's queue-phase note so it can advance
-            createNote(child.id, key = "specification", role = "queue")
+            createNote(child.id, key = "specification", role = Role.QUEUE)
 
             // Advance child: queue -> work (should cascade parent: queue -> work)
             val result =
@@ -539,7 +539,7 @@ class SchemaGatedLifecycleTest {
 
             // Child with schema tag
             val child = createItem("Schema child", tags = "feature-implementation", parentId = parent.id)
-            createNote(child.id, key = "specification", role = "queue")
+            createNote(child.id, key = "specification", role = Role.QUEUE)
 
             // Advance child: should cascade parent to WORK
             // The cascade trigger is "cascade" not "start", so the gate check at line 196
@@ -565,7 +565,7 @@ class SchemaGatedLifecycleTest {
         runBlocking {
             // Item A: has spec note filled (should pass gate)
             val itemA = createItem("Batch item A", tags = "feature-implementation")
-            createNote(itemA.id, key = "specification", role = "queue")
+            createNote(itemA.id, key = "specification", role = Role.QUEUE)
 
             // Item B: missing spec note (should fail gate)
             val itemB = createItem("Batch item B", tags = "feature-implementation")
@@ -637,7 +637,7 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.QUEUE, getItem(parent.id).role) // no cascade on failure
 
             // Step 2: Fill spec, advance queue→work (cascades parent)
-            createNote(child.id, key = "specification", role = "queue")
+            createNote(child.id, key = "specification", role = Role.QUEUE)
             val r2 =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(child.id, "start")),
@@ -659,7 +659,7 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.WORK, getItem(child.id).role) // unchanged
 
             // Step 4: Fill impl notes, advance work→review
-            createNote(child.id, key = "implementation-notes", role = "work")
+            createNote(child.id, key = "implementation-notes", role = Role.WORK)
             val r4 =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(child.id, "start")),
@@ -680,7 +680,7 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.REVIEW, getItem(child.id).role) // unchanged
 
             // Step 6: Fill review note, advance review→terminal
-            createNote(child.id, key = "review-checklist", role = "review")
+            createNote(child.id, key = "review-checklist", role = Role.REVIEW)
             val r6 =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(child.id, "start")),
@@ -707,7 +707,7 @@ class SchemaGatedLifecycleTest {
             // Rapid sequence: fill + advance, fill + advance, fill + advance
             // No pause between operations — tests that responses stay consistent
 
-            createNote(item.id, key = "diagnosis", role = "queue")
+            createNote(item.id, key = "diagnosis", role = Role.QUEUE)
             val r1 =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(item.id, "start")),
@@ -716,7 +716,7 @@ class SchemaGatedLifecycleTest {
             assertTransitionSuccess(r1, "work")
             assertResponseMatchesDb(r1, item.id)
 
-            createNote(item.id, key = "implementation-notes", role = "work")
+            createNote(item.id, key = "implementation-notes", role = Role.WORK)
             val r2 =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(item.id, "start")),
@@ -725,7 +725,7 @@ class SchemaGatedLifecycleTest {
             assertTransitionSuccess(r2, "review")
             assertResponseMatchesDb(r2, item.id)
 
-            createNote(item.id, key = "review-checklist", role = "review")
+            createNote(item.id, key = "review-checklist", role = Role.REVIEW)
             val r3 =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(item.id, "start")),
@@ -752,8 +752,8 @@ class SchemaGatedLifecycleTest {
             val untagged = createItem("Untagged child", parentId = parent.id)
 
             // Fill required notes for each
-            createNote(feature.id, key = "specification", role = "queue")
-            createNote(bugfix.id, key = "diagnosis", role = "queue")
+            createNote(feature.id, key = "specification", role = Role.QUEUE)
+            createNote(bugfix.id, key = "diagnosis", role = Role.QUEUE)
 
             // Batch advance all three children: queue → work
             val r1 =
@@ -796,15 +796,15 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.WORK, getItem(parent.id).role)
 
             // Complete feature child through full lifecycle
-            createNote(feature.id, key = "implementation-notes", role = "work")
+            createNote(feature.id, key = "implementation-notes", role = Role.WORK)
             transitionTool.execute(buildTransitionParams(transitionObj(feature.id, "start")), context) // → review
-            createNote(feature.id, key = "review-checklist", role = "review")
+            createNote(feature.id, key = "review-checklist", role = Role.REVIEW)
             transitionTool.execute(buildTransitionParams(transitionObj(feature.id, "start")), context) // → terminal
 
             // Complete bugfix child through full lifecycle
-            createNote(bugfix.id, key = "implementation-notes", role = "work")
+            createNote(bugfix.id, key = "implementation-notes", role = Role.WORK)
             transitionTool.execute(buildTransitionParams(transitionObj(bugfix.id, "start")), context) // → review
-            createNote(bugfix.id, key = "review-checklist", role = "review")
+            createNote(bugfix.id, key = "review-checklist", role = Role.REVIEW)
             val rLast =
                 transitionTool.execute(
                     buildTransitionParams(transitionObj(bugfix.id, "start")),
@@ -842,7 +842,7 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.QUEUE, getItem(item.id).role)
 
             // Fill only the required note (skip optional "context")
-            createNote(item.id, key = "requirements", role = "queue")
+            createNote(item.id, key = "requirements", role = Role.QUEUE)
 
             // Advance should succeed — optional "context" note is NOT required
             val r2 =
@@ -866,12 +866,12 @@ class SchemaGatedLifecycleTest {
             val item = createItem("Optional review item", tags = "mixed-schema")
 
             // Fill required queue note and advance to work
-            createNote(item.id, key = "requirements", role = "queue")
+            createNote(item.id, key = "requirements", role = Role.QUEUE)
             transitionTool.execute(buildTransitionParams(transitionObj(item.id, "start")), context)
             assertEquals(Role.WORK, getItem(item.id).role)
 
             // Fill required work note and advance to review
-            createNote(item.id, key = "design-decisions", role = "work")
+            createNote(item.id, key = "design-decisions", role = Role.WORK)
             transitionTool.execute(buildTransitionParams(transitionObj(item.id, "start")), context)
             assertEquals(Role.REVIEW, getItem(item.id).role)
 
@@ -906,8 +906,8 @@ class SchemaGatedLifecycleTest {
             assertGateRejection(r1, "requirements")
 
             // Fill only the two required notes (skip all optional)
-            createNote(item.id, key = "requirements", role = "queue")
-            createNote(item.id, key = "design-decisions", role = "work")
+            createNote(item.id, key = "requirements", role = Role.QUEUE)
+            createNote(item.id, key = "design-decisions", role = Role.WORK)
 
             // Complete should succeed — no required notes in review phase
             val r2 =
@@ -931,7 +931,7 @@ class SchemaGatedLifecycleTest {
             val item = createItem("Optional not enough", tags = "mixed-schema")
 
             // Fill only the optional queue note, skip the required one
-            createNote(item.id, key = "context", role = "queue", body = "Optional context filled")
+            createNote(item.id, key = "context", role = Role.QUEUE, body = "Optional context filled")
 
             // Advance should still fail — "requirements" (required) is missing
             val r =
@@ -1053,9 +1053,9 @@ class SchemaGatedLifecycleTest {
         runBlocking {
             // Parent with schema tag — fill ALL required notes upfront
             val parent = createItem("Fully noted parent", tags = "feature-implementation")
-            createNote(parent.id, key = "specification", role = "queue")
-            createNote(parent.id, key = "implementation-notes", role = "work")
-            createNote(parent.id, key = "review-checklist", role = "review")
+            createNote(parent.id, key = "specification", role = Role.QUEUE)
+            createNote(parent.id, key = "implementation-notes", role = Role.WORK)
+            createNote(parent.id, key = "review-checklist", role = Role.REVIEW)
 
             // Single child (schema-free)
             val child = createItem("Only child", parentId = parent.id)
@@ -1090,7 +1090,7 @@ class SchemaGatedLifecycleTest {
         runBlocking {
             // Parent with schema tag — fill only ONE of three required notes
             val parent = createItem("Partial parent", tags = "feature-implementation")
-            createNote(parent.id, key = "specification", role = "queue")
+            createNote(parent.id, key = "specification", role = Role.QUEUE)
             // Missing: implementation-notes, review-checklist
 
             // Single child (schema-free)

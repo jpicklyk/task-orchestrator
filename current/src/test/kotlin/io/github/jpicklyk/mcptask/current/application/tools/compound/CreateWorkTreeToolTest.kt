@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -216,7 +217,7 @@ class CreateWorkTreeToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true)
+                    NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
                 )
             val noteSchemaService =
                 object : NoteSchemaService {
@@ -696,14 +697,14 @@ class CreateWorkTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Criteria for acceptance",
                         guidance = "List each criterion as a bullet"
                     ),
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = false,
                         description = "Notes on implementation approach"
                     )
@@ -772,7 +773,7 @@ class CreateWorkTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "test-plan",
-                        role = "review",
+                        role = Role.REVIEW,
                         required = true,
                         description = "Test plan for this child"
                     )

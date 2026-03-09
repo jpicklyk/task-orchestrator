@@ -132,7 +132,12 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Notes on implementation")
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Notes on implementation"
+                    )
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -175,7 +180,12 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "implementation-notes", role = "work", required = true, description = "Notes on implementation")
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Notes on implementation"
+                    )
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -679,14 +689,14 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "AC for the task",
                         guidance = "List each criterion as a bullet"
                     ),
                     NoteSchemaEntry(
                         key = "effort-estimate",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Estimate effort",
                         guidance = "Use T-shirt sizing: XS/S/M/L/XL"
@@ -720,14 +730,14 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "AC for the task",
                         guidance = "List each criterion as a bullet"
                     ),
                     NoteSchemaEntry(
                         key = "effort-estimate",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Estimate effort",
                         guidance = "Use T-shirt sizing: XS/S/M/L/XL"
@@ -770,14 +780,14 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "AC for the task",
                         guidance = "List each criterion as a bullet"
                     ),
                     NoteSchemaEntry(
                         key = "effort-estimate",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Estimate effort",
                         guidance = "Use T-shirt sizing: XS/S/M/L/XL"
@@ -822,7 +832,7 @@ class GetContextToolTest {
                     // Queue phase note (filled — item advanced past queue)
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "AC",
                         guidance = "Queue-phase guidance — must NOT appear after advancing"
@@ -830,7 +840,7 @@ class GetContextToolTest {
                     // Work phase note (missing — should be the guidancePointer)
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl notes",
                         guidance = "Work-phase guidance — this should be the pointer"
@@ -880,14 +890,14 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "AC",
                         guidance = "Queue guidance"
                     ),
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl",
                         guidance = "Work guidance"
@@ -954,7 +964,13 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "acceptance-criteria", role = "queue", required = true, description = "AC", guidance = "Guidance")
+                    NoteSchemaEntry(
+                        key = "acceptance-criteria",
+                        role = Role.QUEUE,
+                        required = true,
+                        description = "AC",
+                        guidance = "Guidance"
+                    )
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -992,7 +1008,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl notes",
                         guidance = "Write the implementation approach here"
@@ -1038,7 +1054,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl notes",
                         guidance = null
@@ -1076,7 +1092,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl notes",
                         guidance = "Describe the implementation"
@@ -1122,14 +1138,14 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl notes",
                         guidance = "First guidance"
                     ),
                     NoteSchemaEntry(
                         key = "effort-estimate",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Effort",
                         guidance = "Second guidance"
@@ -1182,7 +1198,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl",
                         guidance = "Write impl"
@@ -1236,7 +1252,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Impl",
                         guidance = "Write impl"
@@ -1281,7 +1297,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "AC for the task",
                         guidance = null
@@ -1319,9 +1335,9 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "design-notes", role = "work", required = true, description = "Design notes"),
-                    NoteSchemaEntry(key = "test-plan", role = "work", required = true, description = "Test plan")
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
+                    NoteSchemaEntry(key = "design-notes", role = Role.WORK, required = true, description = "Design notes"),
+                    NoteSchemaEntry(key = "test-plan", role = Role.WORK, required = true, description = "Test plan")
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -1349,9 +1365,9 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "design-notes", role = "work", required = true, description = "Design notes"),
-                    NoteSchemaEntry(key = "test-plan", role = "work", required = true, description = "Test plan")
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
+                    NoteSchemaEntry(key = "design-notes", role = Role.WORK, required = true, description = "Design notes"),
+                    NoteSchemaEntry(key = "test-plan", role = Role.WORK, required = true, description = "Test plan")
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -1401,7 +1417,7 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes")
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes")
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -1426,9 +1442,9 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "design-notes", role = "work", required = true, description = "Design notes"),
-                    NoteSchemaEntry(key = "optional-context", role = "work", required = false, description = "Optional context")
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
+                    NoteSchemaEntry(key = "design-notes", role = Role.WORK, required = true, description = "Design notes"),
+                    NoteSchemaEntry(key = "optional-context", role = Role.WORK, required = false, description = "Optional context")
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -1456,9 +1472,9 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "review-checklist", role = "review", required = true, description = "Review checklist"),
-                    NoteSchemaEntry(key = "review-feedback", role = "review", required = true, description = "Review feedback")
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
+                    NoteSchemaEntry(key = "review-checklist", role = Role.REVIEW, required = true, description = "Review checklist"),
+                    NoteSchemaEntry(key = "review-feedback", role = Role.REVIEW, required = true, description = "Review feedback")
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
@@ -1486,7 +1502,7 @@ class GetContextToolTest {
 
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = "work", required = true, description = "Impl notes")
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes")
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
