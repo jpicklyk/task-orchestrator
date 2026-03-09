@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-03-09
+
+### Added
+- Added config-driven status labels to `advance_item` — custom label names per role transition surfaced in responses and `query_items` results
+- Added session tracking notes as a schema-enforced work-phase gate — agents fill context that `/session-retrospective` aggregates across the feature tree
+- Added cascade gate enforcement to `advance_item` — parent items now verify child note gates before cascading to terminal
+- Added `NoteSchemaEntry.role` type safety — role field changed from `String` to `Role` enum, eliminating stringly-typed comparisons across the gate layer
+- Added ktlint enforcement with `.editorconfig` and CI integration
+
+### Fixed
+- Fixed short UUID prefix lookup failing in SQLite — `CAST(blob AS VARCHAR)` produced raw bytes instead of hex; now uses `HEX()`/`RAWTOHEX()` for correct cross-dialect behavior
+- Fixed `RELATES_TO` edges incorrectly blocking cycle detection in dependency validation
+- Fixed input validation hardening across multiple tools
+
+### Changed
+- Upgraded MCP SDK to 0.9.0 with Ktor Streamable HTTP transport
+- Improved plugin worktree reliability — SubagentStart hook now injects commit, scope, and cd-discipline rules; orchestrator output style includes Worktree Dispatch checklist
+- Bumped plugin version to 2.6.0 (new hook content, updated skills and output styles)
+
+---
+
 ## [2.3.0] - 2026-03-07
 
 ### Added
