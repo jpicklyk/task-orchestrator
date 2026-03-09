@@ -373,9 +373,10 @@ class SQLiteWorkItemRepository(
             // H2 uses RAWTOHEX() for native UUID columns; SQLite uses HEX() for BLOB columns.
             // Both produce uppercase hex without dashes — wrap in LOWER for case-insensitive match.
             val hexFunctionName = if (currentDialect is H2Dialect) "RAWTOHEX" else "HEX"
-            val hexId = LowerCase(
-                CustomFunction(hexFunctionName, VarCharColumnType(32), WorkItemsTable.id)
-            )
+            val hexId =
+                LowerCase(
+                    CustomFunction(hexFunctionName, VarCharColumnType(32), WorkItemsTable.id),
+                )
             val items =
                 WorkItemsTable
                     .selectAll()
