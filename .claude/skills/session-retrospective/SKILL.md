@@ -1,7 +1,7 @@
 ---
 name: session-retrospective
 description: "Analyze the current implementation run — evaluate schema effectiveness, delegation alignment, note quality, plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use when the output style's retrospective nudge fires after complete_tree."
-argument-hint: "[optional: --dry-run to preview without creating items]"
+argument-hint: "[optional: root item UUID] [--dry-run to preview without creating items]"
 ---
 
 # Session Retrospective
@@ -16,48 +16,66 @@ If `$ARGUMENTS` contains `--dry-run`, set **DRY_RUN = true**. In dry-run mode, p
 
 ---
 
-## Step 1 — Load the Manifest
+## Step 1 — Gather Scope
 
-Search for the run manifest session task:
+Determine which items to analyze by collecting distributed `session-tracking` notes.
+
+### 1a. Identify items in scope
+
+**If `$ARGUMENTS` contains a UUID (root item ID):**
 
 ```
-TaskList — scan for tasks named `run-manifest:*`
-TaskGet — read the most recent one
+query_items(operation="overview", itemId="<root-uuid>")
 ```
 
-Parse the JSON manifest. Extract: `runId`, `scope`, `delegations`, `schemaInteractions`, `observations`, `friction`, `extensions`.
+This returns the root item and its children. Collect all item UUIDs from the overview.
 
-**If no manifest exists (fallback):** Query MCP for recently active items:
+**If no root item ID provided:**
 
 ```
 get_context() — active, blocked, stalled items
-query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20) — recently completed items
+query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20)
 ```
 
-Build a synthetic scope from items modified today (compare `modifiedAt` to current date). Discard items that appear stale. Note in the report: `**Fallback mode** — no run manifest found. Analysis based on MCP state queries.`
+Build scope from recently completed items (compare `modifiedAt` to current date). Discard items that appear stale (modified more than 24 hours ago).
 
-**If neither manifest nor fallback produces any items in scope:** Exit early with:
+### 1b. Collect distributed notes
+
+For each item in scope (up to 20):
+
 ```
-◆ No implementation run data found. Nothing to retrospect — run `/implement` first, then try again.
+query_notes(itemId="<uuid>", includeBody=true)
+```
+
+Extract:
+- Notes with key `session-tracking` — these contain per-item outcome, files changed, deviations, friction, observations, and test results
+- Notes with key `delegation-metadata` (optional) — orchestrator-recorded model and isolation data
+
+### 1c. Early exit
+
+**If no items are found in scope, or no `session-tracking` notes exist on any item:** Exit early with:
+```
+No implementation run data found. Nothing to retrospect — run `/implement` first, then try again.
 ```
 
 ---
 
-## Step 2 — Gather Retrospective Data
+## Step 2 — Aggregate Note Data
 
-Run these calls in parallel:
+From the collected `session-tracking` notes, aggregate across all items:
 
-1. For each item in `scope.preExistingItems` + `scope.adHocItems` (up to 20):
-   ```
-   query_notes(itemId="<uuid>", includeBody=true)
-   ```
-2. `get_context()` — current state snapshot
+- **Total item count** and **outcome distribution** (success, partial, failed, skipped)
+- **Combined files list** — all files changed across items, deduplicated
+- **Combined friction list** — all friction entries from all items
+- **Combined observations** — notable observations from all items
+- **Test results summary** — pass/fail counts across items
 
-Cross-reference:
-- Match `delegations[].itemId` to items — verify outcomes
-- Match `schemaInteractions[].itemId` to notes — evaluate content quality
-- Identify items in scope with no delegation entry → self-implemented
-- Identify items with delegations but no notes → incomplete work
+If `delegation-metadata` notes exist on any items, extract:
+- Model used per delegation (haiku, sonnet, opus)
+- Isolation mode (inline, worktree)
+- These feed into delegation alignment analysis (step 3b)
+
+Run `get_context()` in parallel for the current state snapshot.
 
 ---
 
@@ -65,15 +83,15 @@ Cross-reference:
 
 ### 3a. Schema Effectiveness
 
-For each `schemaInteraction` entry:
-- Was `guidanceFollowed: true` for all notes?
+For each item in scope, examine its actual notes (from step 1b):
+- Which schema-required notes exist? Check for non-empty content.
 - Token count per note: **<50 = sparse** (flag), **50-500 = appropriate**, **>500 = potentially verbose** (flag for status-type notes; specification notes are exempt from the upper bound)
-- Were gate failures recorded? What caused them?
-- **Score:** Fraction of notes where guidance was followed and content was appropriately sized
+- Were any items missing required notes (indicating gate failures or schema-free items)?
+- **Score:** Fraction of expected schema notes that exist with appropriately sized content
 
 ### 3b. Delegation Alignment
 
-Cross-reference `delegations[]` against the output style delegation table:
+**If `delegation-metadata` notes exist on items**, cross-reference against the delegation table:
 
 | Task type | Expected model |
 |-----------|---------------|
@@ -82,27 +100,28 @@ Cross-reference `delegations[]` against the output style delegation table:
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` |
 
 - Flag misalignments (e.g., opus for bulk MCP ops, haiku for architecture)
-- Flag `selfImplemented: true` entries — the orchestrator should delegate, not implement directly
-- **Score:** Fraction of delegations matching expected model for their rationale
+- **Score:** Fraction of delegations matching expected model for their task type
+
+**If no `delegation-metadata` notes exist:** Note "delegation metadata not recorded" and skip scoring for this dimension.
 
 ### 3c. Note Effectiveness
 
 For items with both queue-phase notes (specs) and work-phase notes (implementation):
 - Compare spec content themes to implementation note themes
-- If implementation notes mention "deviated from spec", "unexpected", or "assumption was wrong" → flag as a spec gap
-- If work-phase notes are nearly empty (<30 tokens) → flag as context loss for downstream agents
+- If implementation notes mention "deviated from spec", "unexpected", or "assumption was wrong" -> flag as a spec gap
+- If work-phase notes are nearly empty (<30 tokens) -> flag as context loss for downstream agents
 - **Score:** Qualitative (effective / mixed / ineffective)
 
 ### 3d. Plan-to-Execution Alignment
 
-From `scope`:
-- `adHocItems` not in `preExistingItems` = scope change (may be necessary or scope creep)
-- Items in `preExistingItems` still in queue role = planned but skipped
+Compare item creation timestamps to the root item's creation time (or the earliest item in scope if no root provided):
+- Items created significantly after the root (>1 hour) = ad-hoc additions (may be necessary or scope creep)
+- Items still in queue role under the root = planned but skipped
 - **Score:** Fraction of planned items that reached terminal
 
 ### 3e. Friction Synthesis
 
-Group `friction[]` entries and `observations[]` by type:
+Extract friction entries from each item's `session-tracking` note. Group by type:
 - `tool-error` — MCP or tool failures
 - `excessive-roundtrips` — more calls than necessary
 - `workaround` — agent had to work around a limitation
@@ -166,7 +185,7 @@ manage_notes(operation="upsert", notes=[
     itemId: "<retro-uuid>",
     key: "session-metrics",
     role: "queue",
-    body: "<Step 3 quantitative data: item counts, delegation breakdown, schema usage, token estimates>"
+    body: "<Step 3 quantitative data: item counts, outcome distribution, schema usage, token estimates, files changed>"
   },
   {
     itemId: "<retro-uuid>",
@@ -178,7 +197,7 @@ manage_notes(operation="upsert", notes=[
     itemId: "<retro-uuid>",
     key: "improvement-signals",
     role: "queue",
-    body: "<Step 4 trend analysis: new trends, reinforced trends, proposals, extension promotions>"
+    body: "<Step 4 trend analysis: new trends, reinforced trends, proposals>"
   }
 ])
 ```
@@ -202,7 +221,6 @@ Read `memory/retrospectives.md` from the auto memory directory. Update each sect
 - **Schema Effectiveness:** Add or update entries from dimension 3a findings. Format: `- <schema-note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
 - **Delegation Patterns:** Add or update from dimension 3b. Format: `- <pattern>. Sessions: N. Last seen: YYYY-MM-DD`
 - **Note Quality:** Add or update from dimension 3c. Format: `- <note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
-- **Extension Candidates:** Add entries from `manifest.extensions[]` that appeared in this run. Format: `- <key>: <value pattern>. Sessions: N. Promoted: no`
 - **Improvement Proposals:** Add new proposal references if created in step 7.
 
 Write the updated file.
@@ -243,14 +261,6 @@ The proposal should include a **concrete suggestion** — not just "this is a pr
 - Output style adjustments: specify the zone and content
 - Hook additions: specify the event, matcher, and purpose
 
-### 7c. Extension promotions
-
-If any `extensions[]` keys from the trend memory have `Sessions >= 2`:
-- Create a proposal item with the proposed JSON schema addition (field name, type, enum values if applicable)
-- Note which runs used the extension and what values they recorded
-
-Update the Extension Candidates section in trend memory: set `Promoted: yes` for graduated entries.
-
 ---
 
 ## Step 8 — Meta-Evaluation
@@ -287,16 +297,16 @@ manage_notes(operation="upsert", notes=[{
 Render a dashboard using the output style visual conventions:
 
 ```
-## ◆ Session Retrospective — <root-item-title>
+## Session Retrospective — <root-item-title>
 
-**<YYYY-MM-DD> · <N> items · <N> delegations · <N> schemas used**
+**<YYYY-MM-DD> · <N> items · <N> schemas used**
 
 ### Dimension Scores
 
 | Dimension | Score | Key Finding |
 |-----------|-------|-------------|
 | Schema effectiveness | <fraction or qualitative> | <one-line summary> |
-| Delegation alignment | <fraction> | <one-line summary> |
+| Delegation alignment | <fraction or "not recorded"> | <one-line summary> |
 | Note effectiveness | <qualitative> | <one-line summary> |
 | Plan-to-execution | <fraction> | <one-line summary> |
 | Friction | <count> entries, <N> themes | <top theme> |
@@ -312,27 +322,20 @@ Render a dashboard using the output style visual conventions:
 | ID | Proposal | Trigger |
 |----|----------|---------|
 | `<short-id>` | <description> | <trend that graduated> |
-
-### Extension Promotions
-
-| Key | Value Pattern | Sessions | Recommendation |
-|-----|---------------|----------|----------------|
-| <key> | <typical value> | N | promote to core / keep observing |
 ```
 
-**Conditional prefixes:**
+**Conditional prefix:**
 - Dry-run: `**Dry run** — no items created, no memory updated.`
-- Fallback: `**Fallback mode** — no run manifest found. Analysis based on MCP state queries.`
 
-Omit sections with no data (e.g., no extension promotions → omit that table).
+Omit sections with no data (e.g., no improvement proposals -> omit that table). If `delegation-metadata` notes were present, include a delegations count in the header line.
 
 ---
 
 ## Troubleshooting
 
-**No manifest found**
-- Cause: Implementation run did not maintain a run manifest (output style not active, or short session)
-- Solution: Skill falls back to MCP queries. Less precise but functional. The report notes fallback mode.
+**No session-tracking notes found**
+- Cause: Implementing agents did not fill their `session-tracking` notes. This happens when items have no matching note schema (schema-free items skip gate enforcement).
+- Solution: Check `.taskorchestrator/config.yaml` for a `default` schema that includes `session-tracking` as a required note. Adding it ensures agents are prompted to fill tracking data.
 
 **Schema not recognized (`expectedNotes` empty)**
 - Cause: `session-retrospective` tag not in `.taskorchestrator/config.yaml`, or MCP not reconnected after config edit

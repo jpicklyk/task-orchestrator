@@ -42,7 +42,7 @@ class YamlNoteSchemaService(
             val schema = schemas[tag]
             if (schema != null) return schema
         }
-        return null
+        return schemas["default"]
     }
 
     @Suppress("UNCHECKED_CAST")

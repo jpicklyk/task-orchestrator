@@ -62,80 +62,18 @@ Every delegation prompt must include: entity IDs, exact tool operations, expecte
 
 Session tasks are ephemeral — they exist for the current session only. Do NOT use them for items that need to persist across sessions.
 
-## Implementation Run Manifest
+## Delegation Metadata
 
-During any implementation run (triggered by `/implement` or `post-plan-workflow`), maintain a structured run manifest as a **session task** using `TaskCreate`/`TaskUpdate`. This provides durable in-session storage that survives context compaction.
+After dispatching a subagent and receiving its return, optionally record delegation context on the work item via `manage_notes(operation="upsert")`:
 
-**Lifecycle:**
-1. At run start, `TaskCreate` a session task named `run-manifest:<root-item-short-id>` with the initial JSON
-2. After each delegation return, `TaskUpdate` to append to `delegations[]`
-3. After each schema interaction (note fill, gate failure), `TaskUpdate` to append to `schemaInteractions[]`
-4. After each observation logged, `TaskUpdate` to append the UUID to `observations[]`
-5. When friction is encountered, `TaskUpdate` to append to `friction[]`
-6. For data worth tracking that does not fit core fields, append to `extensions[]` with a reason
+- **key:** `delegation-metadata`, **role:** `work`
+- **body:** Model used, isolation mode, rationale, outcome
 
-**Manifest schema (fixed core + extensions):**
-
-```json
-{
-  "runId": "<root-item-uuid>",
-  "startedAt": "<ISO-8601>",
-  "scope": {
-    "rootItemId": "<uuid>",
-    "rootItemTitle": "<string>",
-    "preExistingItems": ["<uuid>"],
-    "adHocItems": ["<uuid>"]
-  },
-  "delegations": [
-    {
-      "itemId": "<uuid>",
-      "model": "sonnet | haiku | opus",
-      "rationale": "bulk-mcp-ops | code-implementation | test-writing | architecture-review | research | materialization",
-      "isolation": "worktree | none",
-      "selfImplemented": false,
-      "outcome": "success | failure | partial"
-    }
-  ],
-  "schemaInteractions": [
-    {
-      "itemId": "<uuid>",
-      "schemaTag": "<string>",
-      "notesFilled": [
-        { "key": "<string>", "phase": "queue | work | review", "approxTokens": 0, "guidanceFollowed": true }
-      ],
-      "gateFailures": 0
-    }
-  ],
-  "observations": ["<observation-uuid>"],
-  "friction": [
-    { "type": "tool-error | excessive-roundtrips | workaround | api-confusion", "brief": "<string>" }
-  ],
-  "extensions": [
-    {
-      "key": "<agent-suggested-key>",
-      "value": "<typed value>",
-      "reason": "<why this was worth tracking>",
-      "sessionCount": 1
-    }
-  ]
-}
-```
-
-**Rules:**
-- `model` and `rationale` use closed enums. Unknown rationales go in `extensions[]`.
-- `selfImplemented: true` when the orchestrator implements directly instead of delegating.
-- The manifest is consumed by `/session-retrospective` — do not display it to the user directly.
-- If no implementation run is active, do not create a manifest.
+This is orchestrator-side data that agents cannot self-report. The `/session-retrospective` skill uses it for delegation alignment analysis when present.
 
 ## Retrospective Nudge
 
-When **any** item that was part of an `/implement` run reaches terminal — whether via `advance_item`, `complete_tree`, or auto-cascade — check if the run is complete:
-
-- **Single-item run:** The item reaching terminal = run complete.
-- **Multi-item run (manifest exists):** All items in `scope.preExistingItems` are terminal = run complete.
-- **No manifest fallback:** 3+ items transition to terminal during a session = likely run complete.
-
-When the run is complete, append a one-line suggestion:
+When items reach terminal after an implementation run — whether via `advance_item`, `complete_tree`, or auto-cascade — suggest running `/session-retrospective` to capture learnings.
 
 ```
 ↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
