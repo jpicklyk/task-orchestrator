@@ -12,7 +12,7 @@ Plan approval is the green light for the full pipeline. Proceed through all thre
 
 Complete materialization **before** any implementation begins.
 
-1. **Create MCP items** from the approved plan using `create_work_tree` (preferred for structured work with dependencies) or `manage_items` (for individual items). Apply appropriate schema tags (e.g., `tags: "feature-implementation"`) based on the plan — this activates gate enforcement for the item.
+1. **Create MCP items** from the approved plan using `create_work_tree` (preferred for structured work with dependencies) or `manage_items` (for individual items). Apply appropriate schema tags based on the plan and the project's `.taskorchestrator/config.yaml` — this activates gate enforcement for each item. If the config defines separate schemas for containers vs. child tasks, apply the appropriate tag at each level.
 2. **Wire dependency edges** between items — use `BLOCKS` for sequencing, `fan-out`/`fan-in` patterns for parallel work
 3. **Check `expectedNotes` in create responses** — if the item's tags match a schema, the response includes the expected note keys and phases. Fill required queue-phase notes (`requirements`, `acceptance-criteria`, etc.) with content from the plan before advancing.
 4. **Verify all item UUIDs exist** — confirm the full item graph is materialized before proceeding

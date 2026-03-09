@@ -69,7 +69,7 @@ its own isolated branch automatically. See Worktree Isolation below. Worktree
 branches are also local-only and get squash-merged into `main` after review.
 
 **Branch naming** (for local working branches):
-- `feat/<short-description>` — feature-implementation items
+- `feat/<short-description>` — feature-implementation / feature-task items
 - `fix/<short-description>` — bug-fix items
 - `fix/<grouped-description>` — batch of related bug fixes
 - `chore/<short-description>` — tech debt, refactoring, observations

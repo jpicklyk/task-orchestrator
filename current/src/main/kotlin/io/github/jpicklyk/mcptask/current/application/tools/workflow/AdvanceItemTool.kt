@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.CascadeDetector
 import io.github.jpicklyk.mcptask.current.application.service.CascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -386,10 +387,10 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     is Result.Success -> notesResult.data
                     is Result.Error -> emptyList()
                 }
-                val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(existingNotes)
-                val existingKeys = existingNotes.map { it.key }.toSet()
+                val notesByKey = existingNotes.associateBy { it.key }
+                val existingKeys = notesByKey.keys
 
-                // Build expectedNotes: schema entries matching the new role
+                // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
                 val forNewRole = schema.filter { it.role == newRoleStr }
                 expectedNotesJson = JsonArray(forNewRole.map { entry ->
                     buildJsonObject {
@@ -402,8 +403,16 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 })
 
-                guidancePointer = NoteSchemaJsonHelpers.findGuidancePointer(schema, newRoleStr, filledKeys)
-                noteProgress = NoteSchemaJsonHelpers.buildNoteProgress(schema, newRoleStr, filledKeys)
+                // Use shared PhaseNoteContext for guidancePointer and noteProgress
+                val phaseContext = computePhaseNoteContext(targetRole, schema, notesByKey)
+                guidancePointer = phaseContext?.guidancePointer
+                noteProgress = phaseContext?.let {
+                    buildJsonObject {
+                        put("filled", JsonPrimitive(it.filled))
+                        put("remaining", JsonPrimitive(it.remaining))
+                        put("total", JsonPrimitive(it.total))
+                    }
+                }
             }
 
             // Build success result

@@ -35,6 +35,34 @@ feature-implementation:
     guidance: "Note whether a rebuild/deploy was done, what version was bumped to, and whether reconnect was required."
 ```
 
+## `feature-task` (queue + work + review, lighter than feature-implementation)
+
+Schema for child work items under a feature container. Lighter queue gate (task scope instead of full specification) and task-scoped review (no `/simplify` — that happens at the container level).
+
+```yaml
+feature-task:
+  - key: task-scope
+    role: queue
+    required: true
+    description: "What to build — target files, acceptance criteria, constraints."
+    guidance: "Define the narrow scope. Include: what to build, target files, acceptance criteria, constraints. The parent feature spec covers the 'why'."
+  - key: implementation-notes
+    role: work
+    required: true
+    description: "Context handoff — deviations, surprises, decisions affecting dependent work."
+    guidance: "Document decisions not in the task scope. Focus on what downstream agents need."
+  - key: review-checklist
+    role: review
+    required: true
+    description: "Task-level quality gate — scope alignment and test coverage."
+    guidance: "Verify scope alignment, test coverage, no unintended side effects. No /simplify here."
+  - key: session-tracking
+    role: work
+    required: true
+    description: "Session context for retrospective."
+    guidance: "Record outcome, files changed, deviations, friction, test results."
+```
+
 ## `bug-fix` (queue + work, no review)
 
 Lightweight schema for bug fixes — root cause before code, verification after.

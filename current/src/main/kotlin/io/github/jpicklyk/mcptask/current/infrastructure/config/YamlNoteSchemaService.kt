@@ -42,7 +42,7 @@ class YamlNoteSchemaService(
             val schema = schemas[tag]
             if (schema != null) return schema
         }
-        return null
+        return schemas["default"]
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -74,6 +74,12 @@ class YamlNoteSchemaService(
     private fun parseEntry(raw: Map<String, Any>): NoteSchemaEntry? {
         val key = raw["key"] as? String ?: return null
         val role = raw["role"] as? String ?: return null
+
+        if (role !in VALID_SCHEMA_ROLES) {
+            logger.warn("Skipping schema entry '{}': invalid role '{}' (valid: {})", key, role, VALID_SCHEMA_ROLES)
+            return null
+        }
+
         val required = raw["required"] as? Boolean ?: false
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
@@ -81,6 +87,8 @@ class YamlNoteSchemaService(
     }
 
     companion object {
+        private val VALID_SCHEMA_ROLES = setOf("queue", "work", "review")
+
         fun resolveDefaultConfigPath(): java.nio.file.Path {
             val projectRoot = Paths.get(
                 System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
