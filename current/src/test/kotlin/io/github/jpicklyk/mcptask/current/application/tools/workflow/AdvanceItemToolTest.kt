@@ -994,13 +994,13 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     ),
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Implementation notes"
                     )
@@ -1040,7 +1040,7 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -1087,7 +1087,7 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -1131,7 +1131,7 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -1180,14 +1180,14 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria for this task",
                         guidance = "List each criterion as a bullet point"
                     ),
                     NoteSchemaEntry(
                         key = "scope-definition",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Scope definition",
                         guidance = "Describe what is in and out of scope"
@@ -1237,7 +1237,7 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria for this task",
                         guidance = null // no guidance
@@ -1281,14 +1281,14 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria",
                         guidance = "List each criterion"
                     ),
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Implementation notes",
                         guidance = null
@@ -1424,21 +1424,21 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria",
                         guidance = "List criteria"
                     ),
                     NoteSchemaEntry(
                         key = "design-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Design notes",
                         guidance = "Do X"
                     ),
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Implementation notes",
                         guidance = "Do Y"
@@ -1494,21 +1494,21 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria",
                         guidance = "List criteria"
                     ),
                     NoteSchemaEntry(
                         key = "design-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Design notes",
                         guidance = "Do X"
                     ),
                     NoteSchemaEntry(
                         key = "implementation-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Implementation notes",
                         guidance = "Do Y"
@@ -1569,14 +1569,14 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria",
                         guidance = "List criteria"
                     ),
                     NoteSchemaEntry(
                         key = "design-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = true,
                         description = "Design notes",
                         guidance = "Do X"
@@ -1661,7 +1661,7 @@ class AdvanceItemToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "optional-notes",
-                        role = "work",
+                        role = Role.WORK,
                         required = false,
                         description = "Optional notes",
                         guidance = "Write if you want"

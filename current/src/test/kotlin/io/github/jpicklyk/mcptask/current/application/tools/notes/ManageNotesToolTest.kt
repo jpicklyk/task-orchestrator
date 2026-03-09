@@ -503,8 +503,8 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec"),
-                    NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write the design")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec"),
+                    NoteSchemaEntry(key = "design", role = Role.QUEUE, required = true, guidance = "Write the design")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val itemId = createTestItemWithTags(tags = "test-schema")
@@ -545,7 +545,7 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val itemId = createTestItemWithTags(tags = "test-schema")
@@ -614,7 +614,7 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val itemId = createTestItemWithTags(tags = "test-schema")
@@ -652,7 +652,7 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val itemId1 = createTestItemWithTags(title = "Item 1", tags = "test-schema")
@@ -726,7 +726,7 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val itemId = createTestItemWithTags(tags = "test-schema", role = Role.TERMINAL)
@@ -761,7 +761,7 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val validItemId = createTestItemWithTags(tags = "test-schema")
@@ -806,9 +806,9 @@ class ManageNotesToolTest {
         runBlocking {
             val schemaEntries =
                 listOf(
-                    NoteSchemaEntry(key = "spec", role = "queue", required = true, guidance = "Write the spec"),
-                    NoteSchemaEntry(key = "design", role = "queue", required = true, guidance = "Write the design"),
-                    NoteSchemaEntry(key = "risks", role = "queue", required = true, guidance = "List the risks")
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec"),
+                    NoteSchemaEntry(key = "design", role = Role.QUEUE, required = true, guidance = "Write the design"),
+                    NoteSchemaEntry(key = "risks", role = Role.QUEUE, required = true, guidance = "List the risks")
                 )
             val schemaContext = contextWithSchema(schemaEntries, "test-schema")
             val itemId = createTestItemWithTags(tags = "test-schema")

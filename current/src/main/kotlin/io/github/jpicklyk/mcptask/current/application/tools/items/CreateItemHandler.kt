@@ -158,7 +158,7 @@ class CreateItemHandler(
                                             schemaEntries.map { entry ->
                                                 buildJsonObject {
                                                     put("key", JsonPrimitive(entry.key))
-                                                    put("role", JsonPrimitive(entry.role))
+                                                    put("role", JsonPrimitive(entry.role.toJsonString()))
                                                     put("required", JsonPrimitive(entry.required))
                                                     put("description", JsonPrimitive(entry.description))
                                                     entry.guidance?.let { put("guidance", JsonPrimitive(it)) }

@@ -158,7 +158,6 @@ Parameters:
                 is Result.Error -> emptyList()
             }
         val notesByKey = notes.associateBy { it.key }
-        val currentRoleStr = item.role.toJsonString()
 
         // Build schema list with exists/filled status
         val schemaEntries =
@@ -166,7 +165,7 @@ Parameters:
                 val note = notesByKey[entry.key]
                 buildJsonObject {
                     put("key", JsonPrimitive(entry.key))
-                    put("role", JsonPrimitive(entry.role))
+                    put("role", JsonPrimitive(entry.role.toJsonString()))
                     put("required", JsonPrimitive(entry.required))
                     put("description", JsonPrimitive(entry.description))
                     entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
@@ -214,7 +213,7 @@ Parameters:
                         // Terminal items can never advance; schema-free items always can; schema items need all notes filled
                         val isTerminal = item.role == Role.TERMINAL
                         put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty()))
-                        put("phase", JsonPrimitive(currentRoleStr))
+                        put("phase", JsonPrimitive(item.role.toJsonString()))
                         put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
                     }
                 )

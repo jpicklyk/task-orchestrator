@@ -179,7 +179,7 @@ class CompleteTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -243,7 +243,7 @@ class CompleteTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -673,7 +673,7 @@ class CompleteTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -751,7 +751,7 @@ class CompleteTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -811,7 +811,7 @@ class CompleteTreeToolTest {
                 listOf(
                     NoteSchemaEntry(
                         key = "acceptance-criteria",
-                        role = "queue",
+                        role = Role.QUEUE,
                         required = true,
                         description = "Acceptance criteria"
                     )
@@ -875,7 +875,7 @@ class CompleteTreeToolTest {
                             listOf(
                                 NoteSchemaEntry(
                                     key = "acceptance-criteria",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "AC"
                                 )

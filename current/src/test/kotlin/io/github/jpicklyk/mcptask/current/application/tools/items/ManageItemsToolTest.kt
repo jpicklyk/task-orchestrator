@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -376,11 +377,16 @@ class ManageItemsToolTest {
                             listOf(
                                 NoteSchemaEntry(
                                     key = "requirements",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "Requirements for this item"
                                 ),
-                                NoteSchemaEntry(key = "done-criteria", role = "work", required = true, description = "Definition of done")
+                                NoteSchemaEntry(
+                                    key = "done-criteria",
+                                    role = Role.WORK,
+                                    required = true,
+                                    description = "Definition of done"
+                                )
                             )
                         } else {
                             null
@@ -1346,7 +1352,7 @@ class ManageItemsToolTest {
                             listOf(
                                 NoteSchemaEntry(
                                     key = "requirements",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "Requirements for this item",
                                     guidance = "List all functional and non-functional requirements"
@@ -1399,7 +1405,7 @@ class ManageItemsToolTest {
                             listOf(
                                 NoteSchemaEntry(
                                     key = "requirements",
-                                    role = "queue",
+                                    role = Role.QUEUE,
                                     required = true,
                                     description = "Requirements for this item",
                                     guidance = null

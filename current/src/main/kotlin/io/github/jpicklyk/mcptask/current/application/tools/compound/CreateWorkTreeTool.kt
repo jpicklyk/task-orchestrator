@@ -311,7 +311,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                         Note(
                             itemId = item.id,
                             key = entry.key,
-                            role = entry.role,
+                            role = entry.role.toJsonString(),
                             body = ""
                         )
                     )
@@ -368,7 +368,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                                 schemaEntries.map { entry ->
                                     buildJsonObject {
                                         put("key", JsonPrimitive(entry.key))
-                                        put("role", JsonPrimitive(entry.role))
+                                        put("role", JsonPrimitive(entry.role.toJsonString()))
                                         put("required", JsonPrimitive(entry.required))
                                         put("description", JsonPrimitive(entry.description))
                                         entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
@@ -402,7 +402,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                                         schemaEntries.map { entry ->
                                             buildJsonObject {
                                                 put("key", JsonPrimitive(entry.key))
-                                                put("role", JsonPrimitive(entry.role))
+                                                put("role", JsonPrimitive(entry.role.toJsonString()))
                                                 put("required", JsonPrimitive(entry.required))
                                                 put("description", JsonPrimitive(entry.description))
                                                 entry.guidance?.let { put("guidance", JsonPrimitive(it)) }

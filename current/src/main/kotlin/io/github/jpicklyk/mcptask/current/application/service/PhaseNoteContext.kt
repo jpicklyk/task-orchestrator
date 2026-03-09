@@ -43,8 +43,7 @@ fun computePhaseNoteContext(
 ): PhaseNoteContext? {
     if (role == Role.TERMINAL || schema == null) return null
 
-    val roleStr = role.name.lowercase()
-    val required = schema.filter { it.role == roleStr && it.required }
+    val required = schema.filter { it.role == role && it.required }
     val missing =
         required.filter { entry ->
             val note = notesByKey[entry.key]
