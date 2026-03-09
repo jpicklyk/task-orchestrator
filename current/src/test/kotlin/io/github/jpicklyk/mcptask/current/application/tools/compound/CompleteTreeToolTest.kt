@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
@@ -10,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -24,6 +26,7 @@ class CompleteTreeToolTest {
 
     private lateinit var tool: CompleteTreeTool
     private lateinit var context: ToolExecutionContext
+    private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyRepository
     private lateinit var noteRepo: NoteRepository
@@ -37,7 +40,7 @@ class CompleteTreeToolTest {
         noteRepo = mockk()
         roleTransitionRepo = mockk()
 
-        val repoProvider = mockk<RepositoryProvider>()
+        repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
@@ -45,6 +48,10 @@ class CompleteTreeToolTest {
 
         context = ToolExecutionContext(repoProvider)
     }
+
+    /** Build a custom context with a specific StatusLabelService, reusing existing mocked repos. */
+    private fun contextWithLabels(labelService: StatusLabelService): ToolExecutionContext =
+        ToolExecutionContext(repoProvider, statusLabelService = labelService)
 
     private fun makeItem(
         id: UUID = UUID.randomUUID(),
@@ -814,5 +821,60 @@ class CompleteTreeToolTest {
 
         val summary = extractSummary(result)
         assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+    }
+
+    // ──────────────────────────────────────────────
+    // Custom StatusLabel integration tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `config-driven custom label applied on complete via itemIds`(): Unit = runBlocking {
+        val customLabels = TestStatusLabelService(mapOf("complete" to "finished", "cancel" to "dropped"))
+        val customContext = contextWithLabels(customLabels)
+
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, title = "Custom Label Item", role = Role.QUEUE)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildItemIdsParams(listOf(itemId))
+        val result = tool.execute(params, customContext)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        // Custom config label "finished" should be used (resolution.statusLabel is null for complete)
+        assertEquals("finished", r["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `cancel label precedence in complete_tree - hardcoded cancelled wins over config`(): Unit = runBlocking {
+        // Config maps cancel→"dropped", but resolution.statusLabel = "cancelled" (hardcoded)
+        // effectiveLabel = "cancelled" ?: "dropped" = "cancelled"
+        val customLabels = TestStatusLabelService(mapOf("cancel" to "dropped"))
+        val customContext = contextWithLabels(customLabels)
+
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, title = "Cancel Precedence Item", role = Role.WORK)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+        val params = buildItemIdsParams(listOf(itemId), trigger = "cancel")
+        val result = tool.execute(params, customContext)
+
+        val results = extractResults(result)
+        assertEquals(1, results.size)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        // Hardcoded "cancelled" from resolution.statusLabel takes precedence over config "dropped"
+        assertEquals("cancelled", r["statusLabel"]!!.jsonPrimitive.content)
     }
 }
