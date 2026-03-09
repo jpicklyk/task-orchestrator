@@ -8,6 +8,8 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.CustomFunction
+import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -18,9 +20,10 @@ import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.castTo
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.vendors.H2Dialect
+import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -364,38 +367,23 @@ class SQLiteWorkItemRepository(
         prefix: String,
         limit: Int
     ): Result<List<WorkItem>> {
-        // Convert a hex-only prefix into a UUID-formatted prefix for LIKE matching.
-        // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (8-4-4-4-12)
-        // Dash positions in the hex string: after 8, 12, 16, 20
-        val formattedPrefix = formatHexAsUuidPrefix(prefix.lowercase())
+        val normalizedPrefix = prefix.lowercase()
         return databaseManager.suspendedTransaction("Failed to find WorkItems by ID prefix") {
+            // Convert UUID id column to lowercase hex string (no dashes) for prefix matching.
+            // H2 uses RAWTOHEX() for native UUID columns; SQLite uses HEX() for BLOB columns.
+            // Both produce uppercase hex without dashes — wrap in LOWER for case-insensitive match.
+            val hexFunctionName = if (currentDialect is H2Dialect) "RAWTOHEX" else "HEX"
+            val hexId = LowerCase(
+                CustomFunction(hexFunctionName, VarCharColumnType(32), WorkItemsTable.id)
+            )
             val items =
                 WorkItemsTable
                     .selectAll()
-                    .where {
-                        WorkItemsTable.id.castTo<String>(VarCharColumnType(36)).like("$formattedPrefix%")
-                    }.limit(limit)
+                    .where { hexId like "$normalizedPrefix%" }
+                    .limit(limit)
                     .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
         }
-    }
-
-    /**
-     * Converts a hex-only prefix string into UUID-formatted prefix with dashes
-     * inserted at the correct positions (after hex positions 8, 12, 16, 20).
-     */
-    private fun formatHexAsUuidPrefix(hexPrefix: String): String {
-        val dashPositions = listOf(8, 12, 16, 20)
-        val sb = StringBuilder()
-        var hexIndex = 0
-        for (ch in hexPrefix) {
-            if (hexIndex in dashPositions) {
-                sb.append('-')
-            }
-            sb.append(ch)
-            hexIndex++
-        }
-        return sb.toString()
     }
 
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
