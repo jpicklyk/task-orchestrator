@@ -21,7 +21,6 @@ import java.util.UUID
 class CreateItemHandler(
     private val hierarchyValidator: ItemHierarchyValidator = ItemHierarchyValidator()
 ) {
-
     /**
      * Executes a batch create of WorkItems.
      *
@@ -30,7 +29,11 @@ class CreateItemHandler(
      * @param context The tool execution context providing repository and schema access
      * @return A JSON response envelope with created items, counts, and any failures
      */
-    suspend fun execute(items: JsonArray, sharedParentId: UUID?, context: ToolExecutionContext): JsonElement {
+    suspend fun execute(
+        items: JsonArray,
+        sharedParentId: UUID?,
+        context: ToolExecutionContext
+    ): JsonElement {
         val repo = context.workItemRepository()
 
         val createdItems = mutableListOf<JsonObject>()
@@ -38,11 +41,13 @@ class CreateItemHandler(
 
         for ((index, element) in items.withIndex()) {
             try {
-                val itemObj = element as? JsonObject
-                    ?: throw ToolValidationException("Item at index $index must be a JSON object")
+                val itemObj =
+                    element as? JsonObject
+                        ?: throw ToolValidationException("Item at index $index must be a JSON object")
 
-                val title = extractItemString(itemObj, "title")
-                    ?: throw ToolValidationException("Item at index $index: 'title' is required")
+                val title =
+                    extractItemString(itemObj, "title")
+                        ?: throw ToolValidationException("Item at index $index: 'title' is required")
 
                 val description = extractItemString(itemObj, "description")
                 val summary = extractItemString(itemObj, "summary") ?: ""
@@ -59,128 +64,148 @@ class CreateItemHandler(
 
                 // Resolve parentId: per-item overrides shared default
                 val itemParentIdStr = extractItemString(itemObj, "parentId")
-                val parentId = if (itemParentIdStr != null) {
-                    try {
-                        UUID.fromString(itemParentIdStr)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Item at index $index: 'parentId' is not a valid UUID")
+                val parentId =
+                    if (itemParentIdStr != null) {
+                        try {
+                            UUID.fromString(itemParentIdStr)
+                        } catch (_: IllegalArgumentException) {
+                            throw ToolValidationException("Item at index $index: 'parentId' is not a valid UUID")
+                        }
+                    } else {
+                        sharedParentId
                     }
-                } else {
-                    sharedParentId
-                }
 
                 // Validate hierarchy and compute depth
-                val depth = hierarchyValidator.validateAndComputeDepth(
-                    itemId = itemId,
-                    parentId = parentId,
-                    repo = repo,
-                    errorPrefix = "Item at index $index"
-                )
+                val depth =
+                    hierarchyValidator.validateAndComputeDepth(
+                        itemId = itemId,
+                        parentId = parentId,
+                        repo = repo,
+                        errorPrefix = "Item at index $index"
+                    )
 
                 // Parse role with default
-                val role = if (roleStr != null) {
-                    Role.fromString(roleStr)
-                        ?: throw ToolValidationException(
-                            "Item at index $index: invalid role '$roleStr'. Valid: ${Role.VALID_NAMES}"
-                        )
-                } else {
-                    Role.QUEUE
-                }
+                val role =
+                    if (roleStr != null) {
+                        Role.fromString(roleStr)
+                            ?: throw ToolValidationException(
+                                "Item at index $index: invalid role '$roleStr'. Valid: ${Role.VALID_NAMES}"
+                            )
+                    } else {
+                        Role.QUEUE
+                    }
 
                 // Parse priority with default
-                val priority = if (priorityStr != null) {
-                    Priority.fromString(priorityStr)
-                        ?: throw ToolValidationException(
-                            "Item at index $index: invalid priority '$priorityStr'. Valid: high, medium, low"
-                        )
-                } else {
-                    Priority.MEDIUM
-                }
+                val priority =
+                    if (priorityStr != null) {
+                        Priority.fromString(priorityStr)
+                            ?: throw ToolValidationException(
+                                "Item at index $index: invalid priority '$priorityStr'. Valid: high, medium, low"
+                            )
+                    } else {
+                        Priority.MEDIUM
+                    }
 
                 // Validate complexity range if provided
                 if (complexity != null && complexity !in 1..10) {
                     throw ToolValidationException("Item at index $index: complexity must be between 1 and 10")
                 }
 
-                val workItem = WorkItem(
-                    id = itemId,
-                    parentId = parentId,
-                    title = title,
-                    description = description,
-                    summary = summary,
-                    role = role,
-                    statusLabel = statusLabel,
-                    priority = priority,
-                    complexity = complexity,
-                    requiresVerification = requiresVerification,
-                    depth = depth,
-                    metadata = metadata,
-                    tags = tags
-                )
+                val workItem =
+                    WorkItem(
+                        id = itemId,
+                        parentId = parentId,
+                        title = title,
+                        description = description,
+                        summary = summary,
+                        role = role,
+                        statusLabel = statusLabel,
+                        priority = priority,
+                        complexity = complexity,
+                        requiresVerification = requiresVerification,
+                        depth = depth,
+                        metadata = metadata,
+                        tags = tags
+                    )
 
                 when (val result = repo.create(workItem)) {
                     is Result.Success -> {
                         val createdTags = result.data.tags
-                        val tagList = createdTags
-                            ?.split(",")
-                            ?.map { it.trim() }
-                            ?.filter { it.isNotBlank() }
-                            ?: emptyList()
+                        val tagList =
+                            createdTags
+                                ?.split(",")
+                                ?.map { it.trim() }
+                                ?.filter { it.isNotBlank() }
+                                ?: emptyList()
                         val schemaEntries = context.noteSchemaService().getSchemaForTags(tagList)
-                        createdItems.add(buildJsonObject {
-                            put("id", JsonPrimitive(result.data.id.toString()))
-                            put("title", JsonPrimitive(result.data.title))
-                            put("depth", JsonPrimitive(result.data.depth))
-                            put("role", JsonPrimitive(result.data.role.toJsonString()))
-                            put("priority", JsonPrimitive(result.data.priority.toJsonString()))
-                            put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
-                            if (createdTags != null) {
-                                put("tags", JsonPrimitive(createdTags))
-                            } else {
-                                put("tags", JsonNull)
+                        createdItems.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(result.data.id.toString()))
+                                put("title", JsonPrimitive(result.data.title))
+                                put("depth", JsonPrimitive(result.data.depth))
+                                put("role", JsonPrimitive(result.data.role.toJsonString()))
+                                put("priority", JsonPrimitive(result.data.priority.toJsonString()))
+                                put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
+                                if (createdTags != null) {
+                                    put("tags", JsonPrimitive(createdTags))
+                                } else {
+                                    put("tags", JsonNull)
+                                }
+                                if (!schemaEntries.isNullOrEmpty()) {
+                                    put(
+                                        "expectedNotes",
+                                        JsonArray(
+                                            schemaEntries.map { entry ->
+                                                buildJsonObject {
+                                                    put("key", JsonPrimitive(entry.key))
+                                                    put("role", JsonPrimitive(entry.role))
+                                                    put("required", JsonPrimitive(entry.required))
+                                                    put("description", JsonPrimitive(entry.description))
+                                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                                                    put("exists", JsonPrimitive(false))
+                                                }
+                                            }
+                                        )
+                                    )
+                                }
                             }
-                            if (!schemaEntries.isNullOrEmpty()) {
-                                put("expectedNotes", JsonArray(schemaEntries.map { entry ->
-                                    buildJsonObject {
-                                        put("key", JsonPrimitive(entry.key))
-                                        put("role", JsonPrimitive(entry.role))
-                                        put("required", JsonPrimitive(entry.required))
-                                        put("description", JsonPrimitive(entry.description))
-                                        entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                        put("exists", JsonPrimitive(false))
-                                    }
-                                }))
-                            }
-                        })
+                        )
                     }
                     is Result.Error -> {
-                        failures.add(buildJsonObject {
-                            put("index", JsonPrimitive(index))
-                            put("error", JsonPrimitive(result.error.message))
-                        })
+                        failures.add(
+                            buildJsonObject {
+                                put("index", JsonPrimitive(index))
+                                put("error", JsonPrimitive(result.error.message))
+                            }
+                        )
                     }
                 }
             } catch (e: ToolValidationException) {
-                failures.add(buildJsonObject {
-                    put("index", JsonPrimitive(index))
-                    put("error", JsonPrimitive(e.message ?: "Validation failed"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(e.message ?: "Validation failed"))
+                    }
+                )
             } catch (e: Exception) {
-                failures.add(buildJsonObject {
-                    put("index", JsonPrimitive(index))
-                    put("error", JsonPrimitive(e.message ?: "Unexpected error"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(e.message ?: "Unexpected error"))
+                    }
+                )
             }
         }
 
-        val data = buildJsonObject {
-            put("items", JsonArray(createdItems))
-            put("created", JsonPrimitive(createdItems.size))
-            put("failed", JsonPrimitive(failures.size))
-            if (failures.isNotEmpty()) {
-                put("failures", JsonArray(failures))
+        val data =
+            buildJsonObject {
+                put("items", JsonArray(createdItems))
+                put("created", JsonPrimitive(createdItems.size))
+                put("failed", JsonPrimitive(failures.size))
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
             }
-        }
 
         return ResponseUtil.createSuccessResponse(data)
     }

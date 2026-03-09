@@ -20,8 +20,9 @@ import java.util.UUID
 /**
  * SQLite implementation of NoteRepository.
  */
-class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteRepository {
-
+class SQLiteNoteRepository(
+    private val databaseManager: DatabaseManager
+) : NoteRepository {
     override suspend fun getById(id: UUID): Result<Note> =
         databaseManager.suspendedTransaction("Failed to get Note by id") {
             val row = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
@@ -36,9 +37,11 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
         databaseManager.suspendedTransaction("Failed to upsert Note") {
             note.validate()
             // Check if a note with the same (itemId, key) already exists
-            val existing = NotesTable.selectAll()
-                .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
-                .singleOrNull()
+            val existing =
+                NotesTable
+                    .selectAll()
+                    .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
+                    .singleOrNull()
 
             if (existing != null) {
                 // Update existing note
@@ -78,38 +81,51 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
             Result.Success(deletedCount)
         }
 
-    override suspend fun findByItemId(itemId: UUID, role: String?): Result<List<Note>> =
+    override suspend fun findByItemId(
+        itemId: UUID,
+        role: String?
+    ): Result<List<Note>> =
         databaseManager.suspendedTransaction("Failed to find Notes by itemId") {
-            val notes = if (role != null) {
-                NotesTable.selectAll()
-                    .where { (NotesTable.itemId eq itemId) and (NotesTable.role eq role) }
-            } else {
-                NotesTable.selectAll()
-                    .where { NotesTable.itemId eq itemId }
-            }.map { mapRowToNote(it) }
+            val notes =
+                if (role != null) {
+                    NotesTable
+                        .selectAll()
+                        .where { (NotesTable.itemId eq itemId) and (NotesTable.role eq role) }
+                } else {
+                    NotesTable
+                        .selectAll()
+                        .where { NotesTable.itemId eq itemId }
+                }.map { mapRowToNote(it) }
             Result.Success(notes)
         }
 
     override suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
         return databaseManager.suspendedTransaction("Failed to find Notes by itemIds") {
-            val notes = NotesTable.selectAll()
-                .where { NotesTable.itemId inList itemIds }
-                .map { mapRowToNote(it) }
+            val notes =
+                NotesTable
+                    .selectAll()
+                    .where { NotesTable.itemId inList itemIds }
+                    .map { mapRowToNote(it) }
             Result.Success(notes.groupBy { it.itemId })
         }
     }
 
-    override suspend fun findByItemIdAndKey(itemId: UUID, key: String): Result<Note?> =
+    override suspend fun findByItemIdAndKey(
+        itemId: UUID,
+        key: String
+    ): Result<Note?> =
         databaseManager.suspendedTransaction("Failed to find Note by itemId and key") {
-            val row = NotesTable.selectAll()
-                .where { (NotesTable.itemId eq itemId) and (NotesTable.key eq key) }
-                .singleOrNull()
+            val row =
+                NotesTable
+                    .selectAll()
+                    .where { (NotesTable.itemId eq itemId) and (NotesTable.key eq key) }
+                    .singleOrNull()
             Result.Success(row?.let { mapRowToNote(it) })
         }
 
-    private fun mapRowToNote(row: ResultRow): Note {
-        return Note(
+    private fun mapRowToNote(row: ResultRow): Note =
+        Note(
             id = row[NotesTable.id].value,
             itemId = row[NotesTable.itemId],
             key = row[NotesTable.key],
@@ -118,5 +134,4 @@ class SQLiteNoteRepository(private val databaseManager: DatabaseManager) : NoteR
             createdAt = row[NotesTable.createdAt],
             modifiedAt = row[NotesTable.modifiedAt]
         )
-    }
 }

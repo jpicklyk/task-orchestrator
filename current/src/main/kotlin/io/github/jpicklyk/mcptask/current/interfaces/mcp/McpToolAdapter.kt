@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
@@ -125,15 +124,16 @@ class McpToolAdapter {
         val paramsObj = params as? JsonObject ?: return params
         val processed = mutableMapOf<String, JsonElement>()
         paramsObj.forEach { (key, value) ->
-            processed[key] = if (value is JsonPrimitive && value.isString) {
-                when (value.content.lowercase()) {
-                    "true" -> JsonPrimitive(true)
-                    "false" -> JsonPrimitive(false)
-                    else -> value
+            processed[key] =
+                if (value is JsonPrimitive && value.isString) {
+                    when (value.content.lowercase()) {
+                        "true" -> JsonPrimitive(true)
+                        "false" -> JsonPrimitive(false)
+                        else -> value
+                    }
+                } else {
+                    value
                 }
-            } else {
-                value
-            }
         }
         return JsonObject(processed)
     }

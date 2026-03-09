@@ -15,8 +15,8 @@ import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.v1.jdbc.update
 import java.time.Instant
 import java.util.UUID
 
@@ -27,8 +27,9 @@ import java.util.UUID
  * all inserts (items, dependencies, notes) are committed atomically. Any exception thrown
  * during execution causes a full rollback — no orphaned rows.
  */
-class SQLiteWorkTreeService(private val databaseManager: DatabaseManager) : WorkTreeExecutor {
-
+class SQLiteWorkTreeService(
+    private val databaseManager: DatabaseManager
+) : WorkTreeExecutor {
     override suspend fun execute(input: WorkTreeInput): WorkTreeResult =
         newSuspendedTransaction(db = databaseManager.getDatabase()) {
             val createdItems = mutableListOf<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>()
@@ -71,16 +72,19 @@ class SQLiteWorkTreeService(private val databaseManager: DatabaseManager) : Work
             }
             val createdDeps = mutableListOf<Dependency>()
             for (spec in input.deps) {
-                val fromId = refToId[spec.fromRef]
-                    ?: throw IllegalStateException("Dependency ref '${spec.fromRef}' not found in created items")
-                val toId = refToId[spec.toRef]
-                    ?: throw IllegalStateException("Dependency ref '${spec.toRef}' not found in created items")
-                val dep = Dependency(
-                    fromItemId = fromId,
-                    toItemId = toId,
-                    type = spec.type,
-                    unblockAt = spec.unblockAt
-                )
+                val fromId =
+                    refToId[spec.fromRef]
+                        ?: throw IllegalStateException("Dependency ref '${spec.fromRef}' not found in created items")
+                val toId =
+                    refToId[spec.toRef]
+                        ?: throw IllegalStateException("Dependency ref '${spec.toRef}' not found in created items")
+                val dep =
+                    Dependency(
+                        fromItemId = fromId,
+                        toItemId = toId,
+                        type = spec.type,
+                        unblockAt = spec.unblockAt
+                    )
                 DependenciesTable.insert {
                     it[id] = dep.id
                     it[fromItemId] = dep.fromItemId
@@ -96,9 +100,11 @@ class SQLiteWorkTreeService(private val databaseManager: DatabaseManager) : Work
             val createdNotes = mutableListOf<Note>()
             for (note in input.notes) {
                 note.validate()
-                val existing = NotesTable.selectAll()
-                    .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
-                    .singleOrNull()
+                val existing =
+                    NotesTable
+                        .selectAll()
+                        .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
+                        .singleOrNull()
                 if (existing != null) {
                     val existingId = existing[NotesTable.id].value
                     val now = Instant.now()
@@ -147,8 +153,8 @@ class SQLiteWorkTreeService(private val databaseManager: DatabaseManager) : Work
         val inStack = mutableSetOf<String>()
 
         fun dfs(node: String): String? {
-            if (node in inStack) return node  // cycle found
-            if (node in visited) return null  // already fully explored
+            if (node in inStack) return node // cycle found
+            if (node in visited) return null // already fully explored
             visited.add(node)
             inStack.add(node)
             for (neighbor in adj[node] ?: emptyList()) {

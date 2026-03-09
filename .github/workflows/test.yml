@@ -28,6 +28,9 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
 
+    - name: Lint check
+      run: ./gradlew :current:ktlintCheck --no-daemon
+
     - name: Run tests
       run: ./gradlew :current:test --no-daemon
 

@@ -16,7 +16,6 @@ import java.util.UUID
 import kotlin.test.*
 
 class QueryNotesToolTest {
-
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryNotesTool
     private lateinit var manageTool: ManageNotesTool
@@ -47,22 +46,34 @@ class QueryNotesToolTest {
     /**
      * Helper to create a note via ManageNotesTool and return its ID.
      */
-    private suspend fun createNote(itemId: String, key: String, role: String, body: String = ""): String {
-        val result = manageTool.execute(
-            params(
-                "operation" to JsonPrimitive("upsert"),
-                "notes" to JsonArray(listOf(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId))
-                        put("key", JsonPrimitive(key))
-                        put("role", JsonPrimitive(role))
-                        if (body.isNotEmpty()) put("body", JsonPrimitive(body))
-                    }
-                ))
-            ),
-            context
-        ) as JsonObject
-        return (result["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+    private suspend fun createNote(
+        itemId: String,
+        key: String,
+        role: String,
+        body: String = ""
+    ): String {
+        val result =
+            manageTool.execute(
+                params(
+                    "operation" to JsonPrimitive("upsert"),
+                    "notes" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId))
+                                    put("key", JsonPrimitive(key))
+                                    put("role", JsonPrimitive(role))
+                                    if (body.isNotEmpty()) put("body", JsonPrimitive(body))
+                                }
+                            )
+                        )
+                ),
+                context
+            ) as JsonObject
+        return (result["data"] as JsonObject)["notes"]!!
+            .jsonArray[0]
+            .jsonObject["id"]!!
+            .jsonPrimitive.content
     }
 
     // ──────────────────────────────────────────────
@@ -70,150 +81,164 @@ class QueryNotesToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `get note by id`(): Unit = runBlocking {
-        val itemId = createTestItem()
-        val noteId = createNote(itemId, "approach", "work", "Approach body text")
+    fun `get note by id`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            val noteId = createNote(itemId, "approach", "work", "Approach body text")
 
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("get"),
-                "id" to JsonPrimitive(noteId)
-            ),
-            context
-        ) as JsonObject
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "id" to JsonPrimitive(noteId)
+                    ),
+                    context
+                ) as JsonObject
 
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        val data = result["data"] as JsonObject
-        assertEquals(noteId, data["id"]!!.jsonPrimitive.content)
-        assertEquals(itemId, data["itemId"]!!.jsonPrimitive.content)
-        assertEquals("approach", data["key"]!!.jsonPrimitive.content)
-        assertEquals("work", data["role"]!!.jsonPrimitive.content)
-        assertEquals("Approach body text", data["body"]!!.jsonPrimitive.content)
-        assertNotNull(data["createdAt"])
-        assertNotNull(data["modifiedAt"])
-    }
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(noteId, data["id"]!!.jsonPrimitive.content)
+            assertEquals(itemId, data["itemId"]!!.jsonPrimitive.content)
+            assertEquals("approach", data["key"]!!.jsonPrimitive.content)
+            assertEquals("work", data["role"]!!.jsonPrimitive.content)
+            assertEquals("Approach body text", data["body"]!!.jsonPrimitive.content)
+            assertNotNull(data["createdAt"])
+            assertNotNull(data["modifiedAt"])
+        }
 
     @Test
-    fun `get nonexistent note returns error`(): Unit = runBlocking {
-        val randomId = UUID.randomUUID().toString()
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("get"),
-                "id" to JsonPrimitive(randomId)
-            ),
-            context
-        ) as JsonObject
+    fun `get nonexistent note returns error`(): Unit =
+        runBlocking {
+            val randomId = UUID.randomUUID().toString()
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "id" to JsonPrimitive(randomId)
+                    ),
+                    context
+                ) as JsonObject
 
-        assertFalse(result["success"]!!.jsonPrimitive.boolean)
-        assertNotNull(result["error"])
-    }
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+            assertNotNull(result["error"])
+        }
 
     // ──────────────────────────────────────────────
     // List operations
     // ──────────────────────────────────────────────
 
     @Test
-    fun `list notes for item`() = runBlocking {
-        val itemId = createTestItem()
-        createNote(itemId, "plan", "queue")
-        createNote(itemId, "approach", "work")
-        createNote(itemId, "verification", "review")
+    fun `list notes for item`() =
+        runBlocking {
+            val itemId = createTestItem()
+            createNote(itemId, "plan", "queue")
+            createNote(itemId, "approach", "work")
+            createNote(itemId, "verification", "review")
 
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("list"),
-                "itemId" to JsonPrimitive(itemId)
-            ),
-            context
-        ) as JsonObject
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    context
+                ) as JsonObject
 
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        val data = result["data"] as JsonObject
-        assertEquals(3, data["total"]!!.jsonPrimitive.int)
-        assertEquals(3, data["notes"]!!.jsonArray.size)
-    }
-
-    @Test
-    fun `list notes with role filter`() = runBlocking {
-        val itemId = createTestItem()
-        createNote(itemId, "plan", "queue")
-        createNote(itemId, "approach", "work")
-        createNote(itemId, "verification", "review")
-
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("list"),
-                "itemId" to JsonPrimitive(itemId),
-                "role" to JsonPrimitive("work")
-            ),
-            context
-        ) as JsonObject
-
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        val data = result["data"] as JsonObject
-        assertEquals(1, data["total"]!!.jsonPrimitive.int)
-        val notes = data["notes"]!!.jsonArray
-        assertEquals("work", notes[0].jsonObject["role"]!!.jsonPrimitive.content)
-    }
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(3, data["total"]!!.jsonPrimitive.int)
+            assertEquals(3, data["notes"]!!.jsonArray.size)
+        }
 
     @Test
-    fun `list notes with includeBody false omits body`(): Unit = runBlocking {
-        val itemId = createTestItem()
-        createNote(itemId, "plan", "queue", "This body should not appear")
+    fun `list notes with role filter`() =
+        runBlocking {
+            val itemId = createTestItem()
+            createNote(itemId, "plan", "queue")
+            createNote(itemId, "approach", "work")
+            createNote(itemId, "verification", "review")
 
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("list"),
-                "itemId" to JsonPrimitive(itemId),
-                "includeBody" to JsonPrimitive(false)
-            ),
-            context
-        ) as JsonObject
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "role" to JsonPrimitive("work")
+                    ),
+                    context
+                ) as JsonObject
 
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
-        assertNull(note["body"])
-        assertNotNull(note["id"])
-        assertNotNull(note["key"])
-        assertNotNull(note["role"])
-    }
-
-    @Test
-    fun `list notes with includeBody true includes body`() = runBlocking {
-        val itemId = createTestItem()
-        createNote(itemId, "plan", "queue", "This body should appear")
-
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("list"),
-                "itemId" to JsonPrimitive(itemId),
-                "includeBody" to JsonPrimitive(true)
-            ),
-            context
-        ) as JsonObject
-
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
-        assertEquals("This body should appear", note["body"]!!.jsonPrimitive.content)
-    }
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["total"]!!.jsonPrimitive.int)
+            val notes = data["notes"]!!.jsonArray
+            assertEquals("work", notes[0].jsonObject["role"]!!.jsonPrimitive.content)
+        }
 
     @Test
-    fun `list notes for item with no notes`() = runBlocking {
-        val itemId = createTestItem()
+    fun `list notes with includeBody false omits body`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            createNote(itemId, "plan", "queue", "This body should not appear")
 
-        val result = tool.execute(
-            params(
-                "operation" to JsonPrimitive("list"),
-                "itemId" to JsonPrimitive(itemId)
-            ),
-            context
-        ) as JsonObject
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "includeBody" to JsonPrimitive(false)
+                    ),
+                    context
+                ) as JsonObject
 
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        val data = result["data"] as JsonObject
-        assertEquals(0, data["total"]!!.jsonPrimitive.int)
-        assertEquals(0, data["notes"]!!.jsonArray.size)
-    }
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
+            assertNull(note["body"])
+            assertNotNull(note["id"])
+            assertNotNull(note["key"])
+            assertNotNull(note["role"])
+        }
+
+    @Test
+    fun `list notes with includeBody true includes body`() =
+        runBlocking {
+            val itemId = createTestItem()
+            createNote(itemId, "plan", "queue", "This body should appear")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "includeBody" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
+            assertEquals("This body should appear", note["body"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `list notes for item with no notes`() =
+        runBlocking {
+            val itemId = createTestItem()
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["total"]!!.jsonPrimitive.int)
+            assertEquals(0, data["notes"]!!.jsonArray.size)
+        }
 
     // ──────────────────────────────────────────────
     // Validation

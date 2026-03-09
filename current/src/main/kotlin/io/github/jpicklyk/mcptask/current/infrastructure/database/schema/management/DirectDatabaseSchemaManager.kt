@@ -22,15 +22,16 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(DirectDatabaseSchemaManager::class.java)
 
     // Tables in foreign-key dependency order
-    private val tables = arrayOf(
-        WorkItemsTable,
-        NotesTable,
-        DependenciesTable,
-        RoleTransitionsTable
-    )
+    private val tables =
+        arrayOf(
+            WorkItemsTable,
+            NotesTable,
+            DependenciesTable,
+            RoleTransitionsTable
+        )
 
-    override fun updateSchema(): Boolean {
-        return try {
+    override fun updateSchema(): Boolean =
+        try {
             logger.info("Creating/updating database schema via Direct mode...")
 
             transaction {
@@ -43,5 +44,4 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
             logger.error("Failed to create/update schema: ${e.message}", e)
             false
         }
-    }
 }

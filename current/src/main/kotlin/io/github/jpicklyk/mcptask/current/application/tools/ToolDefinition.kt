@@ -54,7 +54,10 @@ interface ToolDefinition {
      * @throws ToolValidationException If the parameters are invalid
      * @throws ToolExecutionException If an error occurs during execution
      */
-    suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement
+    suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement
 
     /**
      * Validates the input parameters before execution.
@@ -81,11 +84,16 @@ interface ToolDefinition {
      * @param isError Whether the execution resulted in an error
      * @return A short summary string for display in client UIs
      */
-    fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+    fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
         val obj = result as? JsonObject ?: return if (isError) "Tool execution failed" else "Operation completed"
-        val message = obj["message"]?.let {
-            if (it is JsonPrimitive && it.isString) it.content else null
-        }
+        val message =
+            obj["message"]?.let {
+                if (it is JsonPrimitive && it.isString) it.content else null
+            }
         return message ?: if (isError) "Tool execution failed" else "Operation completed successfully"
     }
 }
@@ -94,7 +102,9 @@ interface ToolDefinition {
  * Categories for organizing tools by functionality.
  * Current (v3) uses a simplified category model reflecting the unified WorkItem entity.
  */
-enum class ToolCategory(val value: String) {
+enum class ToolCategory(
+    val value: String
+) {
     /** WorkItem CRUD and hierarchy operations */
     ITEM_MANAGEMENT("item_management"),
 
@@ -115,10 +125,15 @@ enum class ToolCategory(val value: String) {
  * Exception thrown when tool parameter validation fails.
  * Contains a descriptive message indicating which parameter(s) are invalid and why.
  */
-class ToolValidationException(message: String) : RuntimeException(message)
+class ToolValidationException(
+    message: String
+) : RuntimeException(message)
 
 /**
  * Exception thrown when tool execution fails due to a runtime error.
  * May wrap an underlying cause for debugging.
  */
-class ToolExecutionException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+class ToolExecutionException(
+    message: String,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)

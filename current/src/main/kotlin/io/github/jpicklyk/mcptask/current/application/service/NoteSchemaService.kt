@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
  * return null / false, and transitions proceed without gate enforcement.
  */
 interface NoteSchemaService {
-
     /**
      * Returns the schema entries for the first tag in [tags] that matches a
      * declared schema, or null if no schema matches (schema-free mode).
@@ -24,8 +23,7 @@ interface NoteSchemaService {
      * Used to determine whether `start` from WORK should advance to REVIEW or jump to TERMINAL.
      * Returns false when no schema matches (schema-free mode — skip REVIEW).
      */
-    fun hasReviewPhase(tags: List<String>): Boolean =
-        getSchemaForTags(tags)?.any { it.role == "review" } ?: false
+    fun hasReviewPhase(tags: List<String>): Boolean = getSchemaForTags(tags)?.any { it.role == "review" } ?: false
 }
 
 /**

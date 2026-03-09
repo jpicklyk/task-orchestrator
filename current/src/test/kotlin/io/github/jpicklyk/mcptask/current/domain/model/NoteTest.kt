@@ -8,7 +8,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class NoteTest {
-
     private val testItemId = UUID.randomUUID()
 
     // --- Valid creation ---
@@ -38,13 +37,14 @@ class NoteTest {
     @Test
     fun `valid creation preserves all fields`() {
         val id = UUID.randomUUID()
-        val note = Note(
-            id = id,
-            itemId = testItemId,
-            key = "my-key",
-            role = "work",
-            body = "my body"
-        )
+        val note =
+            Note(
+                id = id,
+                itemId = testItemId,
+                key = "my-key",
+                role = "work",
+                body = "my body"
+            )
         assertEquals(id, note.id)
         assertEquals(testItemId, note.itemId)
         assertEquals("my-key", note.key)
@@ -56,9 +56,10 @@ class NoteTest {
 
     @Test
     fun `blank key throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Note(itemId = testItemId, key = "   ", role = "queue")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Note(itemId = testItemId, key = "   ", role = "queue")
+            }
         assertTrue(ex.message!!.contains("key must not be blank"))
     }
 
@@ -72,9 +73,10 @@ class NoteTest {
     @Test
     fun `key exceeding 200 chars throws ValidationException`() {
         val longKey = "a".repeat(201)
-        val ex = assertFailsWith<ValidationException> {
-            Note(itemId = testItemId, key = longKey, role = "queue")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Note(itemId = testItemId, key = longKey, role = "queue")
+            }
         assertTrue(ex.message!!.contains("key must not exceed 200 characters"))
     }
 
@@ -86,25 +88,28 @@ class NoteTest {
 
     @Test
     fun `role terminal throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Note(itemId = testItemId, key = "test", role = "terminal")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Note(itemId = testItemId, key = "test", role = "terminal")
+            }
         assertTrue(ex.message!!.contains("Note role must be one of"))
     }
 
     @Test
     fun `role blocked throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Note(itemId = testItemId, key = "test", role = "blocked")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Note(itemId = testItemId, key = "test", role = "blocked")
+            }
         assertTrue(ex.message!!.contains("Note role must be one of"))
     }
 
     @Test
     fun `empty role throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            Note(itemId = testItemId, key = "test", role = "")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                Note(itemId = testItemId, key = "test", role = "")
+            }
         assertTrue(ex.message!!.contains("Note role must be one of"))
     }
 

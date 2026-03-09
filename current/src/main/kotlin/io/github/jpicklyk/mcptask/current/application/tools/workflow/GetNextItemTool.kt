@@ -17,10 +17,10 @@ import kotlinx.serialization.json.*
  * 4. Return top `limit` recommendations
  */
 class GetNextItemTool : BaseToolDefinition() {
-
     override val name = "get_next_item"
 
-    override val description = """
+    override val description =
+        """
 Recommends next work item(s) based on role, dependencies, priority, and complexity.
 
 Finds QUEUE items, filters out those blocked by unsatisfied dependencies,
@@ -32,38 +32,58 @@ Parameters:
 - includeDetails (optional boolean, default false): Include summary, tags, parentId
 - includeAncestors (optional boolean, default false): when true, each recommended item includes an
   `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
-    """.trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = true,
-        destructiveHint = false,
-        idempotentHint = true,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = true,
+            destructiveHint = false,
+            idempotentHint = true,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("parentId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("Scope recommendations to items under this parent (UUID)"))
-            })
-            put("limit", buildJsonObject {
-                put("type", JsonPrimitive("integer"))
-                put("description", JsonPrimitive("Number of recommendations (default: 1, max: 20)"))
-            })
-            put("includeDetails", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("Include summary, tags, parentId in response (default: false)"))
-            })
-            put("includeAncestors", buildJsonObject {
-                put("type", JsonPrimitive("boolean"))
-                put("description", JsonPrimitive("When true, each recommended item includes an ancestors array ordered root-first (default: false)"))
-            })
-        },
-        required = emptyList()
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "parentId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Scope recommendations to items under this parent (UUID)"))
+                        }
+                    )
+                    put(
+                        "limit",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("integer"))
+                            put("description", JsonPrimitive("Number of recommendations (default: 1, max: 20)"))
+                        }
+                    )
+                    put(
+                        "includeDetails",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put("description", JsonPrimitive("Include summary, tags, parentId in response (default: false)"))
+                        }
+                    )
+                    put(
+                        "includeAncestors",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "When true, each recommended item includes an ancestors array ordered root-first (default: false)"
+                                )
+                            )
+                        }
+                    )
+                },
+            required = emptyList()
+        )
 
     override fun validateParams(params: JsonElement) {
         // All parameters are optional — just validate types if present
@@ -74,7 +94,10 @@ Parameters:
         }
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val parentId = extractUUID(params, "parentId", required = false)
         val limit = optionalInt(params, "limit") ?: 1
         val includeDetails = optionalBoolean(params, "includeDetails", defaultValue = false)
@@ -84,85 +107,105 @@ Parameters:
         val dependencyRepo = context.dependencyRepository()
 
         // Step 1: Find all QUEUE items (candidates)
-        val candidatesResult = if (parentId != null) {
-            workItemRepo.findByFilters(parentId = parentId, role = Role.QUEUE, limit = 200)
-        } else {
-            workItemRepo.findByRole(Role.QUEUE, limit = 200)
-        }
+        val candidatesResult =
+            if (parentId != null) {
+                workItemRepo.findByFilters(parentId = parentId, role = Role.QUEUE, limit = 200)
+            } else {
+                workItemRepo.findByRole(Role.QUEUE, limit = 200)
+            }
 
-        val candidates = when (candidatesResult) {
-            is Result.Success -> candidatesResult.data
-            is Result.Error -> return errorResponse(
-                candidatesResult.error.message,
-                ErrorCodes.DATABASE_ERROR
-            )
-        }
+        val candidates =
+            when (candidatesResult) {
+                is Result.Success -> candidatesResult.data
+                is Result.Error -> return errorResponse(
+                    candidatesResult.error.message,
+                    ErrorCodes.DATABASE_ERROR
+                )
+            }
 
         // Step 2: Filter out blocked items
-        val unblockedItems = candidates.filter { item ->
-            !isBlocked(item, workItemRepo, dependencyRepo)
-        }
+        val unblockedItems =
+            candidates.filter { item ->
+                !isBlocked(item, workItemRepo, dependencyRepo)
+            }
 
         // Step 3: Sort by priority (HIGH > MEDIUM > LOW), then complexity ascending
         val priorityOrder = mapOf(Priority.HIGH to 0, Priority.MEDIUM to 1, Priority.LOW to 2)
-        val sorted = unblockedItems.sortedWith(
-            compareBy<WorkItem> { priorityOrder[it.priority] ?: 99 }
-                .thenBy { it.complexity }
-        )
+        val sorted =
+            unblockedItems.sortedWith(
+                compareBy<WorkItem> { priorityOrder[it.priority] ?: 99 }
+                    .thenBy { it.complexity }
+            )
 
         // Step 4: Take top `limit`
         val recommendations = sorted.take(limit)
 
         // Resolve ancestor chains once for all recommendations if requested
-        val ancestorChains: Map<java.util.UUID, List<WorkItem>> = if (includeAncestors && recommendations.isNotEmpty()) {
-            val allIds = recommendations.map { it.id }.toSet()
-            when (val r = workItemRepo.findAncestorChains(allIds)) {
-                is Result.Success -> r.data
-                is Result.Error -> emptyMap()
+        val ancestorChains: Map<java.util.UUID, List<WorkItem>> =
+            if (includeAncestors && recommendations.isNotEmpty()) {
+                val allIds = recommendations.map { it.id }.toSet()
+                when (val r = workItemRepo.findAncestorChains(allIds)) {
+                    is Result.Success -> r.data
+                    is Result.Error -> emptyMap()
+                }
+            } else {
+                emptyMap()
             }
-        } else emptyMap()
 
         // Build response
-        val data = buildJsonObject {
-            put("recommendations", JsonArray(recommendations.map { item ->
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.toJsonString()))
-                    put("priority", JsonPrimitive(item.priority.toJsonString()))
-                    put("complexity", JsonPrimitive(item.complexity))
-                    if (includeDetails) {
-                        put("summary", JsonPrimitive(item.summary))
-                        item.tags?.let { put("tags", JsonPrimitive(it)) }
-                        item.parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
-                    }
-                    if (includeAncestors) {
-                        put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
-                    }
-                }
-            }))
-            put("total", JsonPrimitive(recommendations.size))
-        }
+        val data =
+            buildJsonObject {
+                put(
+                    "recommendations",
+                    JsonArray(
+                        recommendations.map { item ->
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(item.id.toString()))
+                                put("title", JsonPrimitive(item.title))
+                                put("role", JsonPrimitive(item.role.toJsonString()))
+                                put("priority", JsonPrimitive(item.priority.toJsonString()))
+                                put("complexity", JsonPrimitive(item.complexity))
+                                if (includeDetails) {
+                                    put("summary", JsonPrimitive(item.summary))
+                                    item.tags?.let { put("tags", JsonPrimitive(it)) }
+                                    item.parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
+                                }
+                                if (includeAncestors) {
+                                    put("ancestors", buildAncestorsArray(ancestorChains[item.id] ?: emptyList()))
+                                }
+                            }
+                        }
+                    )
+                )
+                put("total", JsonPrimitive(recommendations.size))
+            }
 
         return successResponse(data)
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
         if (isError) return "No recommendations available"
 
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val total = data?.get("total")?.let {
-            if (it is JsonPrimitive) it.intOrNull else null
-        } ?: 0
+        val total =
+            data?.get("total")?.let {
+                if (it is JsonPrimitive) it.intOrNull else null
+            } ?: 0
 
         if (total == 0) return "No items ready to work on"
 
-        val first = data?.get("recommendations")?.let {
-            (it as? JsonArray)?.firstOrNull() as? JsonObject
-        }
-        val title = first?.get("title")?.let {
-            if (it is JsonPrimitive && it.isString) it.content else null
-        } ?: "unknown"
+        val first =
+            data?.get("recommendations")?.let {
+                (it as? JsonArray)?.firstOrNull() as? JsonObject
+            }
+        val title =
+            first?.get("title")?.let {
+                if (it is JsonPrimitive && it.isString) it.content else null
+            } ?: "unknown"
 
         return if (total == 1) "Next: $title" else "Next: $title (+${total - 1} more)"
     }
@@ -193,10 +236,11 @@ Parameters:
                 val thresholdRole = Role.fromString(threshold) ?: continue
                 // Blocker is dep.fromItemId
                 val blockerResult = workItemRepo.getById(dep.fromItemId)
-                val blocker = when (blockerResult) {
-                    is Result.Success -> blockerResult.data
-                    is Result.Error -> continue // If we can't fetch, skip this dep
-                }
+                val blocker =
+                    when (blockerResult) {
+                        is Result.Success -> blockerResult.data
+                        is Result.Error -> continue // If we can't fetch, skip this dep
+                    }
                 if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
                     return true // Unsatisfied dependency
                 }
@@ -211,10 +255,11 @@ Parameters:
                 val thresholdRole = Role.fromString(threshold) ?: continue
                 // Blocker is dep.toItemId
                 val blockerResult = workItemRepo.getById(dep.toItemId)
-                val blocker = when (blockerResult) {
-                    is Result.Success -> blockerResult.data
-                    is Result.Error -> continue
-                }
+                val blocker =
+                    when (blockerResult) {
+                        is Result.Success -> blockerResult.data
+                        is Result.Error -> continue
+                    }
                 if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
                     return true
                 }

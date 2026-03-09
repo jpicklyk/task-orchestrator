@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 enum class DependencyType {
-    BLOCKS, IS_BLOCKED_BY, RELATES_TO;
+    BLOCKS,
+    IS_BLOCKED_BY,
+    RELATES_TO;
 
     companion object {
         fun fromString(value: String): DependencyType? {

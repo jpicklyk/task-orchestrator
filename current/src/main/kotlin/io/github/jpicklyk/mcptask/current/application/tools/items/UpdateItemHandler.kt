@@ -24,7 +24,6 @@ import java.util.UUID
 class UpdateItemHandler(
     private val hierarchyValidator: ItemHierarchyValidator = ItemHierarchyValidator()
 ) {
-
     /**
      * Executes a batch update of WorkItems.
      *
@@ -32,7 +31,10 @@ class UpdateItemHandler(
      * @param context The tool execution context providing repository access
      * @return A JSON response envelope with updated item IDs, timestamps, counts, and any failures
      */
-    suspend fun execute(items: JsonArray, context: ToolExecutionContext): JsonElement {
+    suspend fun execute(
+        items: JsonArray,
+        context: ToolExecutionContext
+    ): JsonElement {
         val repo = context.workItemRepository()
 
         val updatedItems = mutableListOf<JsonObject>()
@@ -41,25 +43,28 @@ class UpdateItemHandler(
         for (element in items) {
             var itemId: String? = null
             try {
-                val itemObj = element as? JsonObject
-                    ?: throw ToolValidationException("Each update item must be a JSON object")
+                val itemObj =
+                    element as? JsonObject
+                        ?: throw ToolValidationException("Each update item must be a JSON object")
 
                 itemId = extractItemString(itemObj, "id")
                     ?: throw ToolValidationException("Update item: 'id' is required")
 
-                val id = try {
-                    UUID.fromString(itemId)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("Update item: 'id' is not a valid UUID: $itemId")
-                }
+                val id =
+                    try {
+                        UUID.fromString(itemId)
+                    } catch (_: IllegalArgumentException) {
+                        throw ToolValidationException("Update item: 'id' is not a valid UUID: $itemId")
+                    }
 
                 // Fetch existing item
-                val existing = when (val getResult = repo.getById(id)) {
-                    is Result.Success -> getResult.data
-                    is Result.Error -> throw ToolValidationException(
-                        "Item '$itemId' not found: ${getResult.error.message}"
-                    )
-                }
+                val existing =
+                    when (val getResult = repo.getById(id)) {
+                        is Result.Success -> getResult.data
+                        is Result.Error -> throw ToolValidationException(
+                            "Item '$itemId' not found: ${getResult.error.message}"
+                        )
+                    }
 
                 // Extract optional fields
                 val newTitle = extractItemString(itemObj, "title")
@@ -70,7 +75,7 @@ class UpdateItemHandler(
                 if (itemObj.containsKey("role")) {
                     throw ToolValidationException(
                         "Item '$itemId': role changes are not allowed via manage_items update. " +
-                        "Use advance_item with an appropriate trigger instead (start, complete, block, hold, resume, cancel, reopen)."
+                            "Use advance_item with an appropriate trigger instead (start, complete, block, hold, resume, cancel, reopen)."
                     )
                 }
 
@@ -82,14 +87,15 @@ class UpdateItemHandler(
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
 
                 // Parse priority if provided
-                val newPriority = if (newPriorityStr != null) {
-                    Priority.fromString(newPriorityStr)
-                        ?: throw ToolValidationException(
-                            "Item '$itemId': invalid priority '$newPriorityStr'. Valid: high, medium, low"
-                        )
-                } else {
-                    null
-                }
+                val newPriority =
+                    if (newPriorityStr != null) {
+                        Priority.fromString(newPriorityStr)
+                            ?: throw ToolValidationException(
+                                "Item '$itemId': invalid priority '$newPriorityStr'. Valid: high, medium, low"
+                            )
+                    } else {
+                        null
+                    }
 
                 // Validate complexity if provided
                 if (newComplexity != null && newComplexity !in 1..10) {
@@ -101,18 +107,20 @@ class UpdateItemHandler(
                 val newParentId: UUID?
                 val newDepth: Int
                 if (parentIdStr != null) {
-                    newParentId = try {
-                        UUID.fromString(parentIdStr)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Item '$itemId': 'parentId' is not a valid UUID")
-                    }
+                    newParentId =
+                        try {
+                            UUID.fromString(parentIdStr)
+                        } catch (_: IllegalArgumentException) {
+                            throw ToolValidationException("Item '$itemId': 'parentId' is not a valid UUID")
+                        }
 
-                    newDepth = hierarchyValidator.validateAndComputeDepth(
-                        itemId = id,
-                        parentId = newParentId,
-                        repo = repo,
-                        errorPrefix = "Item '$itemId'"
-                    )
+                    newDepth =
+                        hierarchyValidator.validateAndComputeDepth(
+                            itemId = id,
+                            parentId = newParentId,
+                            repo = repo,
+                            errorPrefix = "Item '$itemId'"
+                        )
                 } else if (itemObj.containsKey("parentId") && itemObj["parentId"] is JsonNull) {
                     // Explicitly set parentId to null (move to root)
                     newParentId = null
@@ -124,59 +132,69 @@ class UpdateItemHandler(
                 }
 
                 // Apply partial update using the update builder for monotonic modifiedAt
-                val updatedItem = existing.update { item ->
-                    item.copy(
-                        parentId = newParentId,
-                        title = newTitle ?: item.title,
-                        description = newDescription,
-                        summary = newSummary ?: item.summary,
-                        role = item.role,
-                        statusLabel = newStatusLabel,
-                        priority = newPriority ?: item.priority,
-                        complexity = newComplexity ?: item.complexity,
-                        requiresVerification = newRequiresVerification ?: item.requiresVerification,
-                        depth = newDepth,
-                        metadata = newMetadata,
-                        tags = newTags
-                    )
-                }
+                val updatedItem =
+                    existing.update { item ->
+                        item.copy(
+                            parentId = newParentId,
+                            title = newTitle ?: item.title,
+                            description = newDescription,
+                            summary = newSummary ?: item.summary,
+                            role = item.role,
+                            statusLabel = newStatusLabel,
+                            priority = newPriority ?: item.priority,
+                            complexity = newComplexity ?: item.complexity,
+                            requiresVerification = newRequiresVerification ?: item.requiresVerification,
+                            depth = newDepth,
+                            metadata = newMetadata,
+                            tags = newTags
+                        )
+                    }
 
                 when (val result = repo.update(updatedItem)) {
                     is Result.Success -> {
-                        updatedItems.add(buildJsonObject {
-                            put("id", JsonPrimitive(result.data.id.toString()))
-                            put("modifiedAt", JsonPrimitive(result.data.modifiedAt.toString()))
-                            put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
-                        })
+                        updatedItems.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(result.data.id.toString()))
+                                put("modifiedAt", JsonPrimitive(result.data.modifiedAt.toString()))
+                                put("requiresVerification", JsonPrimitive(result.data.requiresVerification))
+                            }
+                        )
                     }
                     is Result.Error -> {
-                        failures.add(buildJsonObject {
-                            put("id", JsonPrimitive(itemId))
-                            put("error", JsonPrimitive(result.error.message))
-                        })
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(itemId))
+                                put("error", JsonPrimitive(result.error.message))
+                            }
+                        )
                     }
                 }
             } catch (e: ToolValidationException) {
-                failures.add(buildJsonObject {
-                    put("id", JsonPrimitive(itemId ?: "unknown"))
-                    put("error", JsonPrimitive(e.message ?: "Validation failed"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(itemId ?: "unknown"))
+                        put("error", JsonPrimitive(e.message ?: "Validation failed"))
+                    }
+                )
             } catch (e: Exception) {
-                failures.add(buildJsonObject {
-                    put("id", JsonPrimitive(itemId ?: "unknown"))
-                    put("error", JsonPrimitive(e.message ?: "Unexpected error"))
-                })
+                failures.add(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(itemId ?: "unknown"))
+                        put("error", JsonPrimitive(e.message ?: "Unexpected error"))
+                    }
+                )
             }
         }
 
-        val data = buildJsonObject {
-            put("items", JsonArray(updatedItems))
-            put("updated", JsonPrimitive(updatedItems.size))
-            put("failed", JsonPrimitive(failures.size))
-            if (failures.isNotEmpty()) {
-                put("failures", JsonArray(failures))
+        val data =
+            buildJsonObject {
+                put("items", JsonArray(updatedItems))
+                put("updated", JsonPrimitive(updatedItems.size))
+                put("failed", JsonPrimitive(failures.size))
+                if (failures.isNotEmpty()) {
+                    put("failures", JsonArray(failures))
+                }
             }
-        }
 
         return ResponseUtil.createSuccessResponse(data)
     }

@@ -2,17 +2,17 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import kotlinx.serialization.json.*
 
-/**
- * JSON field extraction helpers shared across item operation handlers.
- *
- * These functions safely extract typed values from [JsonObject] item payloads,
- * handling absent fields, type mismatches, and blank strings uniformly.
- */
+// JSON field extraction helpers shared across item operation handlers.
+// These functions safely extract typed values from JsonObject item payloads,
+// handling absent fields, type mismatches, and blank strings uniformly.
 
 /**
  * Extracts a string field from a JsonObject item. Returns null if absent, not a string, or blank.
  */
-internal fun extractItemString(obj: JsonObject, name: String): String? {
+internal fun extractItemString(
+    obj: JsonObject,
+    name: String
+): String? {
     val value = obj[name] as? JsonPrimitive ?: return null
     if (!value.isString) return null
     val content = value.content
@@ -25,7 +25,11 @@ internal fun extractItemString(obj: JsonObject, name: String): String? {
  * Returns null if the field is JSON null.
  * Returns the string value if present and non-blank.
  */
-internal fun extractItemStringAllowNull(obj: JsonObject, name: String, existing: String?): String? {
+internal fun extractItemStringAllowNull(
+    obj: JsonObject,
+    name: String,
+    existing: String?
+): String? {
     if (!obj.containsKey(name)) return existing
     val element = obj[name]
     if (element is JsonNull) return null
@@ -36,12 +40,12 @@ internal fun extractItemStringAllowNull(obj: JsonObject, name: String, existing:
 }
 
 /**
- * Extracts an integer field from a JsonObject item. Returns null if absent or not parseable.
- */
-/**
  * Extracts a boolean field from a JsonObject item. Returns null if absent or not parseable.
  */
-internal fun extractItemBoolean(obj: JsonObject, name: String): Boolean? {
+internal fun extractItemBoolean(
+    obj: JsonObject,
+    name: String
+): Boolean? {
     val value = obj[name] as? JsonPrimitive ?: return null
     return value.booleanOrNull ?: value.content.toBooleanStrictOrNull()
 }
@@ -49,7 +53,10 @@ internal fun extractItemBoolean(obj: JsonObject, name: String): Boolean? {
 /**
  * Extracts an integer field from a JsonObject item. Returns null if absent or not parseable.
  */
-internal fun extractItemInt(obj: JsonObject, name: String): Int? {
+internal fun extractItemInt(
+    obj: JsonObject,
+    name: String
+): Int? {
     val value = obj[name] as? JsonPrimitive ?: return null
     return try {
         value.content.toInt()

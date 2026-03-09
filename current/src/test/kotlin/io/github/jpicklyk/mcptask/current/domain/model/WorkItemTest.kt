@@ -8,7 +8,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class WorkItemTest {
-
     // --- Valid creation ---
 
     @Test
@@ -29,20 +28,21 @@ class WorkItemTest {
     @Test
     fun `valid creation with all fields`() {
         val parentId = java.util.UUID.randomUUID()
-        val item = WorkItem(
-            parentId = parentId,
-            title = "Child task",
-            description = "A description",
-            summary = "A summary",
-            role = Role.WORK,
-            statusLabel = "in-progress",
-            previousRole = Role.QUEUE,
-            priority = Priority.HIGH,
-            complexity = 8,
-            depth = 1,
-            metadata = """{"key": "value"}""",
-            tags = "bug,critical"
-        )
+        val item =
+            WorkItem(
+                parentId = parentId,
+                title = "Child task",
+                description = "A description",
+                summary = "A summary",
+                role = Role.WORK,
+                statusLabel = "in-progress",
+                previousRole = Role.QUEUE,
+                priority = Priority.HIGH,
+                complexity = 8,
+                depth = 1,
+                metadata = """{"key": "value"}""",
+                tags = "bug,critical"
+            )
         assertEquals(parentId, item.parentId)
         assertEquals("Child task", item.title)
         assertEquals("A description", item.description)
@@ -59,9 +59,10 @@ class WorkItemTest {
 
     @Test
     fun `blank title throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "   ")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "   ")
+            }
         assertTrue(ex.message!!.contains("Title must not be blank"))
     }
 
@@ -74,17 +75,19 @@ class WorkItemTest {
 
     @Test
     fun `complexity below 1 throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", complexity = 0)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", complexity = 0)
+            }
         assertTrue(ex.message!!.contains("complexity must be between 1 and 10"))
     }
 
     @Test
     fun `complexity above 10 throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", complexity = 11)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", complexity = 11)
+            }
         assertTrue(ex.message!!.contains("complexity must be between 1 and 10"))
     }
 
@@ -97,9 +100,10 @@ class WorkItemTest {
     @Test
     fun `title exceeding 500 chars throws ValidationException`() {
         val longTitle = "a".repeat(501)
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = longTitle)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = longTitle)
+            }
         assertTrue(ex.message!!.contains("Title must not exceed 500 characters"))
     }
 
@@ -112,9 +116,10 @@ class WorkItemTest {
     @Test
     fun `summary exceeding 2000 chars throws ValidationException`() {
         val longSummary = "a".repeat(2001)
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", summary = longSummary)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", summary = longSummary)
+            }
         assertTrue(ex.message!!.contains("Summary must not exceed 2000 characters"))
     }
 
@@ -132,33 +137,37 @@ class WorkItemTest {
 
     @Test
     fun `negative depth throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", depth = -1)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", depth = -1)
+            }
         assertTrue(ex.message!!.contains("Depth must be non-negative"))
     }
 
     @Test
     fun `root item with non-zero depth throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", parentId = null, depth = 1)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", parentId = null, depth = 1)
+            }
         assertTrue(ex.message!!.contains("Root items must have depth 0"))
     }
 
     @Test
     fun `child item with depth 0 throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", parentId = java.util.UUID.randomUUID(), depth = 0)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", parentId = java.util.UUID.randomUUID(), depth = 0)
+            }
         assertTrue(ex.message!!.contains("Child items must have depth >= 1"))
     }
 
     @Test
     fun `blank description throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", description = "   ")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", description = "   ")
+            }
         assertTrue(ex.message!!.contains("Description, if provided, must not be blank"))
     }
 
@@ -186,17 +195,19 @@ class WorkItemTest {
 
     @Test
     fun `uppercase tag throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", tags = "Bug")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", tags = "Bug")
+            }
         assertTrue(ex.message!!.contains("invalid"))
     }
 
     @Test
     fun `tag with spaces throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(title = "test", tags = "has space")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(title = "test", tags = "has space")
+            }
         assertTrue(ex.message!!.contains("invalid"))
     }
 
@@ -255,12 +266,13 @@ class WorkItemTest {
 
     @Test
     fun `update preserves other fields`() {
-        val original = WorkItem(
-            title = "original",
-            priority = Priority.HIGH,
-            complexity = 8,
-            summary = "some summary"
-        )
+        val original =
+            WorkItem(
+                title = "original",
+                priority = Priority.HIGH,
+                complexity = 8,
+                summary = "some summary"
+            )
         val updated = original.update { it.copy(title = "updated") }
         assertEquals(Priority.HIGH, updated.priority)
         assertEquals(8, updated.complexity)

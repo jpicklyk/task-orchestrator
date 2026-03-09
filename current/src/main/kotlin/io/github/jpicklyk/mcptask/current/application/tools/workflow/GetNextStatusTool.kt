@@ -18,10 +18,10 @@ import kotlinx.serialization.json.*
  * - **Terminal**: The item has already completed its workflow and cannot progress further
  */
 class GetNextStatusTool : BaseToolDefinition() {
-
     override val name = "get_next_status"
 
-    override val description = """
+    override val description =
+        """
 Read-only status progression recommendation for a WorkItem.
 
 **Parameters:**
@@ -32,63 +32,80 @@ Read-only status progression recommendation for a WorkItem.
 - If Ready: currentRole, nextRole, trigger ("start"), progressionPosition
 - If Blocked: currentRole, blockers[] (each with fromItemId, currentRole, requiredRole), or resume suggestion if BLOCKED role
 - If Terminal: currentRole, reason
-    """.trimIndent()
+        """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
 
-    override val toolAnnotations = ToolAnnotations(
-        readOnlyHint = true,
-        destructiveHint = false,
-        idempotentHint = true,
-        openWorldHint = false
-    )
+    override val toolAnnotations =
+        ToolAnnotations(
+            readOnlyHint = true,
+            destructiveHint = false,
+            idempotentHint = true,
+            openWorldHint = false
+        )
 
-    override val parameterSchema = ToolSchema(
-        properties = buildJsonObject {
-            put("itemId", buildJsonObject {
-                put("type", JsonPrimitive("string"))
-                put("description", JsonPrimitive("UUID of the WorkItem to analyze"))
-            })
-        },
-        required = listOf("itemId")
-    )
+    override val parameterSchema =
+        ToolSchema(
+            properties =
+                buildJsonObject {
+                    put(
+                        "itemId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("UUID of the WorkItem to analyze"))
+                        }
+                    )
+                },
+            required = listOf("itemId")
+        )
 
     override fun validateParams(params: JsonElement) {
         extractUUID(params, "itemId", required = true)
     }
 
-    override suspend fun execute(params: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val itemId = requireUUID(params, "itemId")
 
         // Fetch the WorkItem
         val itemResult = context.workItemRepository().getById(itemId)
-        val item = when (itemResult) {
-            is Result.Success -> itemResult.data
-            is Result.Error -> return errorResponse(
-                "WorkItem not found: $itemId",
-                ErrorCodes.RESOURCE_NOT_FOUND
-            )
-        }
+        val item =
+            when (itemResult) {
+                is Result.Success -> itemResult.data
+                is Result.Error -> return errorResponse(
+                    "WorkItem not found: $itemId",
+                    ErrorCodes.RESOURCE_NOT_FOUND
+                )
+            }
 
         val handler = RoleTransitionHandler()
 
         return when (item.role) {
             Role.TERMINAL -> {
                 // Terminal recommendation
-                successResponse(buildJsonObject {
-                    put("recommendation", JsonPrimitive("Terminal"))
-                    put("currentRole", JsonPrimitive("terminal"))
-                    put("reason", JsonPrimitive("Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled."))
-                })
+                successResponse(
+                    buildJsonObject {
+                        put("recommendation", JsonPrimitive("Terminal"))
+                        put("currentRole", JsonPrimitive("terminal"))
+                        put(
+                            "reason",
+                            JsonPrimitive("Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled.")
+                        )
+                    }
+                )
             }
 
             Role.BLOCKED -> {
                 // Blocked recommendation with resume suggestion
-                successResponse(buildJsonObject {
-                    put("recommendation", JsonPrimitive("Blocked"))
-                    put("currentRole", JsonPrimitive("blocked"))
-                    put("suggestion", JsonPrimitive("Use 'resume' trigger to return to previous role"))
-                })
+                successResponse(
+                    buildJsonObject {
+                        put("recommendation", JsonPrimitive("Blocked"))
+                        put("currentRole", JsonPrimitive("blocked"))
+                        put("suggestion", JsonPrimitive("Use 'resume' trigger to return to previous role"))
+                    }
+                )
             }
 
             Role.QUEUE, Role.WORK, Role.REVIEW -> {
@@ -107,43 +124,57 @@ Read-only status progression recommendation for a WorkItem.
                 val targetRole = resolution.targetRole
 
                 // Validate transition against dependency constraints
-                val validation = handler.validateTransition(
-                    item,
-                    targetRole,
-                    context.dependencyRepository(),
-                    context.workItemRepository()
-                )
+                val validation =
+                    handler.validateTransition(
+                        item,
+                        targetRole,
+                        context.dependencyRepository(),
+                        context.workItemRepository()
+                    )
 
                 if (validation.valid) {
                     // Ready recommendation
                     val position = Role.PROGRESSION.indexOf(item.role)
                     val effectiveTotal = if (hasReviewPhase) Role.PROGRESSION.size else Role.PROGRESSION.size - 1
-                    successResponse(buildJsonObject {
-                        put("recommendation", JsonPrimitive("Ready"))
-                        put("currentRole", JsonPrimitive(item.role.toJsonString()))
-                        put("nextRole", JsonPrimitive(targetRole.toJsonString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("progressionPosition", JsonPrimitive("${position + 1}/$effectiveTotal"))
-                    })
+                    successResponse(
+                        buildJsonObject {
+                            put("recommendation", JsonPrimitive("Ready"))
+                            put("currentRole", JsonPrimitive(item.role.toJsonString()))
+                            put("nextRole", JsonPrimitive(targetRole.toJsonString()))
+                            put("trigger", JsonPrimitive("start"))
+                            put("progressionPosition", JsonPrimitive("${position + 1}/$effectiveTotal"))
+                        }
+                    )
                 } else {
                     // Blocked by dependencies
-                    successResponse(buildJsonObject {
-                        put("recommendation", JsonPrimitive("Blocked"))
-                        put("currentRole", JsonPrimitive(item.role.toJsonString()))
-                        put("blockers", JsonArray(validation.blockers.map { blocker ->
-                            buildJsonObject {
-                                put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
-                                put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                            }
-                        }))
-                    })
+                    successResponse(
+                        buildJsonObject {
+                            put("recommendation", JsonPrimitive("Blocked"))
+                            put("currentRole", JsonPrimitive(item.role.toJsonString()))
+                            put(
+                                "blockers",
+                                JsonArray(
+                                    validation.blockers.map { blocker ->
+                                        buildJsonObject {
+                                            put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                                            put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
+                                            put("requiredRole", JsonPrimitive(blocker.requiredRole))
+                                        }
+                                    }
+                                )
+                            )
+                        }
+                    )
                 }
             }
         }
     }
 
-    override fun userSummary(params: JsonElement, result: JsonElement, isError: Boolean): String {
+    override fun userSummary(
+        params: JsonElement,
+        result: JsonElement,
+        isError: Boolean
+    ): String {
         if (isError) return "get_next_status failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
         val rec = data?.get("recommendation")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"

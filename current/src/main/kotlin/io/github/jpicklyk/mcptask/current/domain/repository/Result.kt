@@ -9,29 +9,35 @@ sealed class Result<out T> {
     /**
      * Represents a successful operation with data.
      */
-    data class Success<T>(val data: T) : Result<T>()
+    data class Success<T>(
+        val data: T
+    ) : Result<T>()
 
     /**
      * Represents a failed operation with an error.
      */
-    data class Error(val error: RepositoryError) : Result<Nothing>()
+    data class Error(
+        val error: RepositoryError
+    ) : Result<Nothing>()
 
     /**
      * Maps the success data to a new type using the provided transform function.
      * Errors are passed through unchanged.
      */
-    fun <R> map(transform: (T) -> R): Result<R> = when (this) {
-        is Success -> Success(transform(data))
-        is Error -> this
-    }
+    fun <R> map(transform: (T) -> R): Result<R> =
+        when (this) {
+            is Success -> Success(transform(data))
+            is Error -> this
+        }
 
     /**
      * Returns the data or null if this is an error.
      */
-    fun getOrNull(): T? = when (this) {
-        is Success -> data
-        is Error -> null
-    }
+    fun getOrNull(): T? =
+        when (this) {
+            is Success -> data
+            is Error -> null
+        }
 
     /**
      * Returns true if this is a success result.
@@ -66,10 +72,11 @@ sealed class Result<out T> {
     /**
      * Returns the data if this is a success result, otherwise returns the provided default value.
      */
-    fun getOrElse(default: @UnsafeVariance T): T = when (this) {
-        is Success -> data
-        is Error -> default
-    }
+    fun getOrElse(default: @UnsafeVariance T): T =
+        when (this) {
+            is Success -> data
+            is Error -> default
+        }
 }
 
 /**
@@ -85,25 +92,38 @@ sealed class RepositoryError {
     /**
      * Entity not found error.
      */
-    data class NotFound(val id: UUID, override val message: String) : RepositoryError()
+    data class NotFound(
+        val id: UUID,
+        override val message: String
+    ) : RepositoryError()
 
     /**
      * Validation error with message.
      */
-    data class ValidationError(override val message: String) : RepositoryError()
+    data class ValidationError(
+        override val message: String
+    ) : RepositoryError()
 
     /**
      * Database error with message and optional cause.
      */
-    data class DatabaseError(override val message: String, val cause: Throwable? = null) : RepositoryError()
+    data class DatabaseError(
+        override val message: String,
+        val cause: Throwable? = null
+    ) : RepositoryError()
 
     /**
      * Conflict error (e.g., duplicate key).
      */
-    data class ConflictError(override val message: String) : RepositoryError()
+    data class ConflictError(
+        override val message: String
+    ) : RepositoryError()
 
     /**
      * Unknown error with message and optional cause.
      */
-    data class UnknownError(override val message: String, val cause: Throwable? = null) : RepositoryError()
+    data class UnknownError(
+        override val message: String,
+        val cause: Throwable? = null
+    ) : RepositoryError()
 }

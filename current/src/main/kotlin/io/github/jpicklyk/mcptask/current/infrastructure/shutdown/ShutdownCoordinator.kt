@@ -22,7 +22,10 @@ class ShutdownCoordinator {
      * Register a named cleanup action. Actions execute in registration order
      * during shutdown. Must be called before [initiateShutdown].
      */
-    fun addCleanupAction(name: String, action: () -> Unit) {
+    fun addCleanupAction(
+        name: String,
+        action: () -> Unit
+    ) {
         cleanupActions.add(name to action)
     }
 
@@ -62,9 +65,7 @@ class ShutdownCoordinator {
      * @param timeoutMs Maximum time to wait in milliseconds
      * @return true if shutdown completed within timeout
      */
-    fun awaitCompletion(timeoutMs: Long = 5000): Boolean {
-        return shutdownComplete.await(timeoutMs, TimeUnit.MILLISECONDS)
-    }
+    fun awaitCompletion(timeoutMs: Long = 5000): Boolean = shutdownComplete.await(timeoutMs, TimeUnit.MILLISECONDS)
 
     /**
      * Check whether shutdown has been initiated.
