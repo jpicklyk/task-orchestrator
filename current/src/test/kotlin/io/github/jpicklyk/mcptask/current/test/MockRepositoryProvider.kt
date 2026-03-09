@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
@@ -38,7 +40,10 @@ class MockRepositoryProvider {
         coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
     }
 
-    /** Build a ToolExecutionContext with optional schema service. */
-    fun context(noteSchemaService: NoteSchemaService = NoOpNoteSchemaService): ToolExecutionContext =
-        ToolExecutionContext(provider, noteSchemaService)
+    /** Build a ToolExecutionContext with optional schema and status label services. */
+    fun context(
+        noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
+        statusLabelService: StatusLabelService = NoOpStatusLabelService
+    ): ToolExecutionContext =
+        ToolExecutionContext(provider, noteSchemaService, statusLabelService)
 }

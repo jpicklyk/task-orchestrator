@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
@@ -11,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -27,6 +29,7 @@ class AdvanceItemToolTest {
 
     private lateinit var tool: AdvanceItemTool
     private lateinit var context: ToolExecutionContext
+    private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyRepository
     private lateinit var roleTransitionRepo: RoleTransitionRepository
@@ -38,7 +41,7 @@ class AdvanceItemToolTest {
         depRepo = mockk()
         roleTransitionRepo = mockk()
 
-        val repoProvider = mockk<RepositoryProvider>()
+        repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteRepository>()
@@ -49,6 +52,10 @@ class AdvanceItemToolTest {
 
         context = ToolExecutionContext(repoProvider)
     }
+
+    /** Build a custom context with a specific StatusLabelService, reusing existing mocked repos. */
+    private fun contextWithLabels(labelService: StatusLabelService): ToolExecutionContext =
+        ToolExecutionContext(repoProvider, statusLabelService = labelService)
 
     private fun makeItem(
         id: UUID = UUID.randomUUID(),
@@ -1560,5 +1567,200 @@ class AdvanceItemToolTest {
         assertEquals("terminal", cascade["previousRole"]!!.jsonPrimitive.content)
         assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
         assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+    }
+
+    // ──────────────────────────────────────────────
+    // Custom StatusLabel integration tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `config-driven custom label applied on start trigger`(): Unit = runBlocking {
+        val customLabels = TestStatusLabelService(mapOf("start" to "working", "complete" to "finished"))
+        val customContext = contextWithLabels(customLabels)
+
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.QUEUE)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "start"))
+        val result = tool.execute(params, customContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+        // Custom config label "working" should be used (resolution.statusLabel is null for start)
+        assertEquals("working", r["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `cascade statusLabel is done with default service`(): Unit = runBlocking {
+        val parentId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Cascade Parent")
+        val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(any()) } returns emptyList()
+        every { depRepo.findByFromItemId(any()) } returns emptyList()
+        coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(
+            mapOf(Role.TERMINAL to 1)
+        )
+
+        val params = buildParams(transitionObj(childId, "complete"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+        val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+        assertEquals(1, cascadeEvents.size)
+        val cascade = cascadeEvents[0].jsonObject
+        assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+        // Default NoOp label service maps "cascade" → "done"
+        assertEquals("done", cascade["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `cascade with custom label uses config-driven cascade label`(): Unit = runBlocking {
+        val customLabels = TestStatusLabelService(mapOf(
+            "complete" to "finished",
+            "cascade" to "auto-completed"
+        ))
+        val customContext = contextWithLabels(customLabels)
+
+        val parentId = UUID.randomUUID()
+        val childId = UUID.randomUUID()
+        val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Custom Cascade Parent")
+        val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+        coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(any()) } returns emptyList()
+        every { depRepo.findByFromItemId(any()) } returns emptyList()
+        coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(
+            mapOf(Role.TERMINAL to 1)
+        )
+
+        val params = buildParams(transitionObj(childId, "complete"))
+        val result = tool.execute(params, customContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        // Child should get custom "finished" label
+        assertEquals("finished", r["statusLabel"]!!.jsonPrimitive.content)
+
+        val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+        assertEquals(1, cascadeEvents.size)
+        val cascade = cascadeEvents[0].jsonObject
+        assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+        // Cascade should get custom "auto-completed" label
+        assertEquals("auto-completed", cascade["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `cancel label precedence - hardcoded cancelled wins over config`(): Unit = runBlocking {
+        // Config maps cancel→"custom-cancel", but resolution.statusLabel = "cancelled" (hardcoded)
+        // effectiveLabel = "cancelled" ?: "custom-cancel" = "cancelled"
+        val customLabels = TestStatusLabelService(mapOf("cancel" to "custom-cancel"))
+        val customContext = contextWithLabels(customLabels)
+
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.WORK)
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByToItemId(itemId) } returns emptyList()
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "cancel"))
+        val result = tool.execute(params, customContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
+        // Hardcoded "cancelled" from resolution.statusLabel takes precedence over config
+        assertEquals("cancelled", r["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `reopen with config label applies config since resolution statusLabel is null`(): Unit = runBlocking {
+        // resolveReopen sets resolution.statusLabel = null
+        // effectiveLabel = null ?: configLabel = "reopened"
+        // But applyTransition: statusLabel("reopened") is non-null → item.statusLabel = "reopened"
+        // However the target is QUEUE and statusLabel is not BLOCKED, so:
+        // statusLabel = "reopened" (explicit non-null from param)
+        val customLabels = TestStatusLabelService(mapOf("reopen" to "reopened"))
+        val customContext = contextWithLabels(customLabels)
+
+        val itemId = UUID.randomUUID()
+        val item = makeItem(id = itemId, role = Role.TERMINAL).let {
+            it.update { c -> c.copy(statusLabel = "cancelled") }
+        }
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "reopen"))
+        val result = tool.execute(params, customContext)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("queue", r["newRole"]!!.jsonPrimitive.content)
+        // Config label "reopened" applies because resolution.statusLabel is null for reopen
+        assertEquals("reopened", r["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `block preserves pre-block statusLabel then resume clears it with default service`(): Unit = runBlocking {
+        // Create item that is BLOCKED with previousRole=WORK and statusLabel="in-progress"
+        // (simulates: was in WORK with "in-progress" label, then blocked → label preserved)
+        val itemId = UUID.randomUUID()
+        val blockedItem = WorkItem(
+            id = itemId,
+            title = "Block-Resume Item",
+            role = Role.BLOCKED,
+            previousRole = Role.WORK,
+            statusLabel = "in-progress"
+        )
+
+        coEvery { workItemRepo.getById(itemId) } returns Result.Success(blockedItem)
+        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+        val params = buildParams(transitionObj(itemId, "resume"))
+        val result = tool.execute(params, context)
+
+        val results = extractResults(result)
+        val r = results[0].jsonObject
+        assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+        assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+
+        // With default NoOp service, resume has no config label (null).
+        // resolution.statusLabel is null → effectiveLabel = null.
+        // applyTransition: statusLabel=null, not entering BLOCKED → else → null.
+        // So statusLabel is cleared on resume.
+        val capturedUpdate = slot<WorkItem>()
+        coVerify { workItemRepo.update(capture(capturedUpdate)) }
+        assertNull(capturedUpdate.captured.statusLabel,
+            "Resume with no config label should clear statusLabel")
     }
 }

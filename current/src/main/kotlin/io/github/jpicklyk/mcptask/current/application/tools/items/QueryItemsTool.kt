@@ -518,6 +518,7 @@ Operations: get, search, overview
                 put("id", JsonPrimitive(item.id.toString()))
                 put("title", JsonPrimitive(item.title))
                 put("role", JsonPrimitive(item.role.toJsonString()))
+                item.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                 put("priority", JsonPrimitive(item.priority.toJsonString()))
                 put("childCounts", roleCountToJson(childCounts))
                 if (includeChildren) {
@@ -530,6 +531,7 @@ Operations: get, search, overview
                             put("id", JsonPrimitive(child.id.toString()))
                             put("title", JsonPrimitive(child.title))
                             put("role", JsonPrimitive(child.role.toJsonString()))
+                            child.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                             put("depth", JsonPrimitive(child.depth))
                         }
                     }))

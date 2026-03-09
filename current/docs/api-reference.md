@@ -212,7 +212,7 @@ hierarchical overview.
 }
 ```
 
-Search returns minimal fields (`id`, `parentId`, `title`, `role`, `priority`, `depth`, `tags`).
+Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`). `statusLabel` is only present when non-null.
 Use `get` for full item JSON including `description`, `summary`, `statusLabel`, timestamps, and
 `roleChangedAt`.
 
@@ -228,7 +228,7 @@ Use `get` for full item JSON including `description`, `summary`, `statusLabel`, 
 }
 ```
 
-Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children`. The global overview (no `itemId`) returns a flat `items` array of root items each with `id`, `title`, `role`, `priority`, and `childCounts`. In global mode `total` reflects the count of root items returned (not a total-in-DB count).
+Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (each child includes `statusLabel` when non-null). The global overview (no `itemId`) returns a flat `items` array of root items each with `id`, `title`, `role`, `statusLabel` (when non-null), `priority`, and `childCounts`. When `includeChildren` is true, each child object also includes `statusLabel` when non-null. In global mode `total` reflects the count of root items returned (not a total-in-DB count).
 
 ---
 

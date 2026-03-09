@@ -126,6 +126,17 @@ UUID inclusion). The key decisions at this step are:
 - **Multiple child tasks, dependent:** dispatch sequentially — wait for each agent
   to return before dispatching the next.
 
+**Model selection — always set `model` explicitly on every Agent dispatch:**
+
+| Agent purpose | Model |
+|--------------|-------|
+| Implementation, code changes, test writing | `model="sonnet"` |
+| Architecture, complex multi-file synthesis | `model="opus"` |
+| MCP bulk ops, materialization | `model="haiku"` |
+
+Omitting `model` causes the agent to inherit the orchestrator's model (typically
+opus), wasting tokens on sonnet-eligible implementation work.
+
 **After implementation agents return:**
 
 If agents used worktree isolation, the Agent tool result includes the **worktree

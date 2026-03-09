@@ -283,9 +283,11 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 continue
             }
 
-            // Apply transition
+            // Apply transition with config-driven status label
+            val configLabel = context.statusLabelService().resolveLabel(trigger)
+            val effectiveLabel = resolution.statusLabel ?: configLabel
             val applyResult = handler.applyTransition(
-                item, resolution.targetRole, trigger, null, resolution.statusLabel,
+                item, resolution.targetRole, trigger, null, effectiveLabel,
                 context.workItemRepository(),
                 context.roleTransitionRepository()
             )
@@ -310,6 +312,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 put("title", JsonPrimitive(item.title))
                 put("applied", JsonPrimitive(true))
                 put("trigger", JsonPrimitive(trigger))
+                applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
             })
         }
 
@@ -371,8 +374,10 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             return
         }
 
+        val configLabel = context.statusLabelService().resolveLabel(trigger)
+        val effectiveLabel = resolution.statusLabel ?: configLabel
         val applyResult = handler.applyTransition(
-            item, resolution.targetRole, trigger, null, resolution.statusLabel,
+            item, resolution.targetRole, trigger, null, effectiveLabel,
             context.workItemRepository(),
             context.roleTransitionRepository()
         )
@@ -395,6 +400,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             put("title", JsonPrimitive(item.title))
             put("applied", JsonPrimitive(true))
             put("trigger", JsonPrimitive(trigger))
+            applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
         })
     }
 

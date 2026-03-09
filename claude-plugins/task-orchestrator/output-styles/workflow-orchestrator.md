@@ -33,7 +33,7 @@ If `get_context` returns no `noteSchema` for a tagged item, schemas may not be c
 | Code reading, implementation, test writing | `sonnet` |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` |
 
-Set via the `model` parameter on the Agent tool. Default inherits orchestrator model — always override for haiku-eligible work.
+Set via the `model` parameter on the Agent tool. Default inherits orchestrator model — **always set `model` explicitly** on every Agent dispatch. Omitting it causes sonnet-eligible work to run on opus (wasting tokens) or opus-eligible work to run on a weaker model.
 
 **Rule: Never make 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged. Use the Agent tool with `model: "haiku"` to delegate bulk MCP write work (multiple item/dependency/note creates) and keep the orchestrator context clean.
 

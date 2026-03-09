@@ -53,6 +53,7 @@ fun WorkItem.toMinimalJson(): JsonObject = buildJsonObject {
     parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
     put("title", JsonPrimitive(title))
     put("role", JsonPrimitive(role.toJsonString()))
+    statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
     put("priority", JsonPrimitive(priority.toJsonString()))
     put("depth", JsonPrimitive(depth))
     tags?.let { put("tags", JsonPrimitive(it)) }

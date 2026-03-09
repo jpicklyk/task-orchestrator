@@ -46,7 +46,8 @@ class QueryItemsToolTest {
         role: String? = null,
         priority: String? = null,
         tags: String? = null,
-        summary: String? = null
+        summary: String? = null,
+        statusLabel: String? = null
     ): String {
         val itemObj = buildJsonObject {
             put("title", JsonPrimitive(title))
@@ -55,6 +56,7 @@ class QueryItemsToolTest {
             priority?.let { put("priority", JsonPrimitive(it)) }
             tags?.let { put("tags", JsonPrimitive(it)) }
             summary?.let { put("summary", JsonPrimitive(it)) }
+            statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
         }
         val result = manageTool.execute(
             params(
@@ -635,6 +637,106 @@ class QueryItemsToolTest {
         }.jsonObject
 
         assertNull(rootItem["children"])
+    }
+
+    // ──────────────────────────────────────────────
+    // statusLabel coverage
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `get returns statusLabel in full JSON when non-null`(): Unit = runBlocking {
+        val itemId = createItem("Labeled Item", statusLabel = "in-progress")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("get"),
+                "id" to JsonPrimitive(itemId)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertTrue(data.containsKey("statusLabel"), "statusLabel key should be present when non-null")
+        assertEquals("in-progress", data["statusLabel"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `get omits statusLabel key from full JSON when null`(): Unit = runBlocking {
+        val itemId = createItem("No Label Item")
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("get"),
+                "id" to JsonPrimitive(itemId)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        assertFalse(data.containsKey("statusLabel"), "statusLabel key should be absent when null (not present as JSON null)")
+    }
+
+    @Test
+    fun `search with includeAncestors does not include statusLabel in ancestor objects`(): Unit = runBlocking {
+        // buildAncestorsArray serializes only id, title, depth — statusLabel is not included
+        val parentId = createItem("Parent With Label", statusLabel = "done")
+        val childId = createItem("Child Under Labeled Parent", parentId = parentId)
+
+        val result = tool.execute(
+            params(
+                "operation" to JsonPrimitive("search"),
+                "query" to JsonPrimitive("Child Under"),
+                "includeAncestors" to JsonPrimitive(true)
+            ),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val data = result["data"] as JsonObject
+        val items = data["items"]!!.jsonArray
+        assertEquals(1, items.size)
+
+        val childItem = items[0].jsonObject
+        val ancestors = childItem["ancestors"]!!.jsonArray
+        assertEquals(1, ancestors.size)
+
+        val parentAncestor = ancestors[0].jsonObject
+        assertEquals(parentId, parentAncestor["id"]!!.jsonPrimitive.content)
+        assertEquals("Parent With Label", parentAncestor["title"]!!.jsonPrimitive.content)
+        // Ancestor objects use a custom format (id, title, depth only) — statusLabel is not serialized
+        assertFalse(parentAncestor.containsKey("statusLabel"),
+            "Ancestor objects should not include statusLabel (buildAncestorsArray only emits id, title, depth)")
+    }
+
+    @Test
+    fun `search minimal JSON includes statusLabel when non-null and omits key when null`(): Unit = runBlocking {
+        // Verifies: non-null → key present with value; null → key truly absent (not JSON null)
+        val withLabelId = createItem("With Label", statusLabel = "active")
+        val withoutLabelId = createItem("Without Label")
+
+        val result = tool.execute(
+            params("operation" to JsonPrimitive("search")),
+            context
+        ) as JsonObject
+
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        val items = result["data"]!!.jsonObject["items"]!!.jsonArray
+
+        val withLabelItem = items.first {
+            it.jsonObject["id"]!!.jsonPrimitive.content == withLabelId
+        }.jsonObject
+        val withoutLabelItem = items.first {
+            it.jsonObject["id"]!!.jsonPrimitive.content == withoutLabelId
+        }.jsonObject
+
+        // toMinimalJson uses statusLabel?.let { put(...) } — present when non-null, absent when null
+        assertTrue(withLabelItem.containsKey("statusLabel"),
+            "Minimal JSON should include statusLabel key when non-null")
+        assertEquals("active", withLabelItem["statusLabel"]!!.jsonPrimitive.content)
+        assertFalse(withoutLabelItem.containsKey("statusLabel"),
+            "Minimal JSON should not include statusLabel key when null (true absence, not JSON null)")
     }
 
     // ──────────────────────────────────────────────
