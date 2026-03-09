@@ -466,7 +466,53 @@ Use manage_notes(operation="upsert") with itemId="abc-123", key="design", role="
 
 ---
 
-## 6. Dependency Blocking
+## 6. Status Labels
+
+Status labels are human-readable strings automatically set on WorkItems during role transitions. They provide a display-friendly status name alongside the semantic role.
+
+### Default Labels
+
+| Trigger    | Status Label     | Description                                     |
+|------------|------------------|-------------------------------------------------|
+| `start`    | `"in-progress"`  | Item has begun active work.                     |
+| `complete` | `"done"`         | Item finished successfully.                     |
+| `block`    | `"blocked"`      | Item is paused due to a dependency or hold.     |
+| `cancel`   | `"cancelled"`    | Item was explicitly cancelled.                  |
+| `cascade`  | `"done"`         | Item auto-completed via cascade from children.  |
+| `resume`   | *(null)*         | Preserves the label from before the block.      |
+| `reopen`   | *(null/cleared)* | Clears the label when reopening a terminal item.|
+
+### Label Precedence
+
+1. **Resolution label** — hardcoded for `cancel` ("cancelled") and `reopen` (null/cleared). Always wins when non-null.
+2. **Config-driven label** — resolved from `StatusLabelService` for the trigger. Used when the resolution label is null.
+3. **Resume behavior** — `applyTransition` preserves the pre-block label automatically.
+
+### Customizing Labels
+
+Override default labels in `.taskorchestrator/config.yaml`:
+
+```yaml
+status_labels:
+  start: "working"
+  complete: "finished"
+  block: "on-hold"
+  cancel: "abandoned"
+  cascade: "auto-completed"
+```
+
+Triggers not listed in the config get no label override (null). If no `status_labels` section exists, the hardcoded defaults above are used.
+
+### Where Labels Appear
+
+- **`advance_item` response** — each successful result includes `"statusLabel"` when set.
+- **`complete_tree` response** — each completed/cancelled item includes `"statusLabel"` when set.
+- **Cascade events** — cascade results in both tools include `"statusLabel"` when set.
+- **`query_items` responses** — the `statusLabel` field is included in item JSON when non-null.
+
+---
+
+## 7. Dependency Blocking
 
 ### BLOCKS Edges
 
@@ -573,7 +619,7 @@ Items in `unblockedItems` are now eligible to be started.
 
 ---
 
-## 7. Efficient Queries
+## 8. Efficient Queries
 
 ### Role-Based Filtering
 
@@ -649,7 +695,7 @@ get_next_item(parentId="feature-uuid")
 
 ---
 
-## 8. Config Reference
+## 9. Config Reference
 
 The full schema for `.taskorchestrator/config.yaml`:
 

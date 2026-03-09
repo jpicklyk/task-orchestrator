@@ -162,6 +162,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 1: Resolve — schema-driven review phase detection
             val hasReviewPhase = noteSchemaService.hasReviewPhase(itemTags)
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
+            val configLabel = context.statusLabelService().resolveLabel(trigger)
             if (!resolution.success || resolution.targetRole == null) {
                 failCount++
                 resultsList.add(buildErrorResult(itemId, trigger, resolution.error ?: "Failed to resolve transition"))
@@ -249,8 +250,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             }
 
             // Phase 3: Apply
+            val effectiveLabel = resolution.statusLabel ?: configLabel
             val applyResult = handler.applyTransition(
-                item, targetRole, trigger, summary, resolution.statusLabel,
+                item, targetRole, trigger, summary, effectiveLabel,
                 context.workItemRepository(),
                 context.roleTransitionRepository()
             )
@@ -316,7 +318,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
                     val cascadeApply = handler.applyTransition(
                         parentItem, event.targetRole, "cascade",
-                        "Auto-cascaded from child completion", null,
+                        "Auto-cascaded from child completion",
+                        context.statusLabelService().resolveLabel("cascade"),
                         context.workItemRepository(),
                         context.roleTransitionRepository()
                     )
@@ -327,6 +330,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
                         put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
                         put("applied", JsonPrimitive(cascadeApply.success))
+                        cascadeApply.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     })
 
                     if (!cascadeApply.success || cascadeApply.item == null) break
@@ -421,6 +425,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 put("previousRole", JsonPrimitive(previousRole.toJsonString()))
                 put("newRole", JsonPrimitive(targetRole.toJsonString()))
                 put("trigger", JsonPrimitive(trigger))
+                applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                 put("applied", JsonPrimitive(true))
                 if (summary != null) put("summary", JsonPrimitive(summary))
                 put("cascadeEvents", JsonArray(cascadeJsonList))
@@ -475,7 +480,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             val cascadeApply = handler.applyTransition(
                 parentItem, event.targetRole, "cascade",
-                summary, null,
+                summary, context.statusLabelService().resolveLabel("cascade"),
                 context.workItemRepository(),
                 context.roleTransitionRepository()
             )
@@ -486,6 +491,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
                 put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
                 put("applied", JsonPrimitive(cascadeApply.success))
+                cascadeApply.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
             })
         }
     }

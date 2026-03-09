@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTre
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -76,7 +77,8 @@ class CurrentMcpServer(
         // Initialize repository provider and tool context
         val repositoryProvider = DefaultRepositoryProvider(databaseManager)
         val noteSchemaService = YamlNoteSchemaService()
-        val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService)
+        val statusLabelService = YamlStatusLabelService()
+        val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService, statusLabelService)
         logger.info("Repository provider and tool context initialized")
 
         // Build tool list

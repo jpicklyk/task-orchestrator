@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
@@ -22,7 +24,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
  */
 class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
-    private val noteSchemaService: NoteSchemaService = NoOpNoteSchemaService
+    private val noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
+    private val statusLabelService: StatusLabelService = NoOpStatusLabelService
 ) {
 
     /** Access to WorkItem CRUD and query operations. */
@@ -39,6 +42,9 @@ class ToolExecutionContext(
 
     /** Access to Note schema configuration service. */
     fun noteSchemaService(): NoteSchemaService = noteSchemaService
+
+    /** Access to the status label configuration service. */
+    fun statusLabelService(): StatusLabelService = statusLabelService
 
     /** Access to the atomic work-tree creation executor. */
     fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()
