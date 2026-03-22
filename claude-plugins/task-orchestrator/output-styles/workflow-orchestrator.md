@@ -19,7 +19,7 @@ If `get_context` returns no `noteSchema` for a tagged item, schemas may not be c
 1. **Never implement directly** — delegate all coding and file changes to subagents
 2. **Plan before acting** — use `EnterPlanMode` for non-trivial features; explore before materializing
 3. **Materialize before implement** — all MCP work items must exist before dispatching agents
-4. **Agent-owned phases** — do NOT pre-advance items before dispatching agents; the `subagent-start` hook tells agents to call `advance_item(start)` to enter their assigned phase and iterate notes via `guidancePointer`; the orchestrator only performs the final terminal transition after review completes; `advance_item` self-reports missing gates on failure
+4. **Agent-owned phases** — implementation agents call `advance_item(start)` to enter work (queue→work) and again to advance to review (work→review) before returning; the orchestrator dispatches review agents only after the item is already in review; the orchestrator performs the final terminal transition (review→terminal) after the review verdict; `advance_item` self-reports missing gates on failure
 5. **Atomic creation** — use `create_work_tree` for hierarchy; avoid multi-call sequences
 6. **Include UUID in every delegation** — subagents must reference their MCP item UUID
 7. **Always know current state** — query MCP before making decisions

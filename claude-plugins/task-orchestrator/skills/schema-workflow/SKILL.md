@@ -133,18 +133,26 @@ rather than assuming specific keys exist.
 
 **Orchestrator** (this skill's primary user):
 - Fills queue-phase notes (requirements, design) during planning
-- Dispatches implementation agents with the item UUID — does NOT pre-advance items
-- Dispatches review agents after implementation completes
-- Performs the final terminal transition after review completes
+- Dispatches implementation agents with the item UUID
+- Dispatches review agents after the item reaches review phase (implementation agent advances work→review before returning)
+- Performs the final terminal transition (review→terminal) after the review verdict
 - Uses this skill for queue-phase note filling and terminal advancement
 
-**Implementation and review agents** (agent-owned-phase model):
+**Implementation agents** (agent-owned-phase model):
 - Receive the full phase-aware protocol automatically via the `subagent-start` hook
-- Call `advance_item(start)` exactly once to enter their assigned phase
-- Fill phase notes using the JIT progression loop described in the hook protocol
-- Do NOT call `advance_item` again — the orchestrator handles terminal transitions
+- Call `advance_item(start)` to enter work phase (queue→work)
+- Fill work-phase notes using the JIT progression loop described in the hook protocol
+- Call `advance_item(start)` again to advance to review (work→review) before returning
+- Do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
 
-**Key invariant:** Agents call `advance_item(start)` once to enter their phase. Only the orchestrator calls `advance_item(complete)` for the terminal transition. The orchestrator never pre-advances items before dispatching agents.
+**Review agents** (dispatched into an item already in review):
+- Receive the `subagent-start` hook, which tells them to call `advance_item(start)`
+- Since the item is already in review, `advance_item` returns `applied: false` — this is expected
+- The hook's fallback applies: call `get_context(itemId=...)` to get guidance instead
+- Fill review-phase notes (e.g., review-checklist), report verdict, return
+- Do NOT call `advance_item` again — the orchestrator handles the terminal transition
+
+**Key invariant:** Implementation agents own queue→work and work→review transitions. The orchestrator owns review→terminal. Review agents do not advance items — they evaluate and report.
 
 ---
 
