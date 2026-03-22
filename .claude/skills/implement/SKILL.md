@@ -316,6 +316,7 @@ After the GitHub PR is merged, sync local main:
 ```bash
 git checkout main
 git pull origin main
+git reset --hard origin/main           # prevent drift from squash + merge commit divergence
 git branch -D <pr-branch-name>         # delete the local PR branch
 ```
 
