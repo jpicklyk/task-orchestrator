@@ -168,7 +168,10 @@ branch if not):
    `/task-orchestrator:create-item` before moving on. Do not discard findings.
 4. Fill all work-phase notes following their `guidancePointer` — focus on context
    that downstream agents need to know
-5. Advance the item: `advance_item(trigger="start")` to move to review
+5. Advance the item to review: when delegating to a subagent, the agent calls
+   `advance_item(trigger="start")` to move work→review before returning (per the
+   agent-owned-phase model). When implementing directly, the orchestrator calls
+   `advance_item(trigger="start")` itself.
 
 ---
 
