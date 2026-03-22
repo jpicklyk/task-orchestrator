@@ -109,8 +109,9 @@ If the feature has sub-tasks, create them now using `create_work_tree` with the 
 as `parentId`. Dispatch implementation subagents with each child item UUID.
 
 Each subagent must:
-- Call `advance_item(trigger="start")` on their item at the start
-- Call `advance_item(trigger="complete")` on their item when done
+- Call `advance_item(trigger="start")` on their item to enter work phase
+- Call `advance_item(trigger="start")` again to advance to review before returning
+- Do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
 
 ### 2b. Fill `implementation-notes`
 

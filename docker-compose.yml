@@ -2,52 +2,16 @@ services:
   mcp-task-orchestrator:
     build:
       context: .
-      target: runtime-v2
-    container_name: mcp-task-orchestrator
-    user: "1001:1001"
-    labels:
-      - "mcp.client=claude-desktop"
-    volumes:
-      - mcp-task-data:/app/data
-      - .:/project:ro
-    environment:
-      - DATABASE_PATH=/app/data/tasks.db
-      - MCP_TRANSPORT=stdio
-      - LOG_LEVEL=INFO
-      - USE_FLYWAY=true
-      - AGENT_CONFIG_DIR=/project
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    restart: unless-stopped
-    stdin_open: true
-    stop_grace_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-
-  mcp-task-orchestrator-current:
-    build:
-      context: .
       target: runtime-current
-    container_name: mcp-task-orchestrator-current
-    profiles:
-      - current
+    container_name: mcp-task-orchestrator
     user: "1001:1001"
     labels:
       mcp.client: claude-desktop
     volumes:
-      - mcp-task-data-current:/app/data
+      - mcp-task-data:/app/data
       - .:/project:ro
     environment:
-      DATABASE_PATH: /app/data/current-tasks.db
+      DATABASE_PATH: /app/data/tasks.db
       MCP_TRANSPORT: stdio
       LOG_LEVEL: INFO
       USE_FLYWAY: "true"
@@ -59,27 +23,28 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: unless-stopped
+    stdin_open: true
+    stop_grace_period: 10s
     mem_limit: 512m
     mem_reservation: 256m
     cpus: 1.0
     cpu_shares: 256
-    stop_grace_period: 10s
 
-  mcp-task-orchestrator-current-http:
+  mcp-task-orchestrator-http:
     build:
       context: .
       target: runtime-current
-    container_name: mcp-task-orchestrator-current-http
+    container_name: mcp-task-orchestrator-http
     profiles:
-      - current-http
+      - http
     user: "1001:1001"
     labels:
       mcp.client: claude-desktop
     volumes:
-      - mcp-task-data-current:/app/data
+      - mcp-task-data:/app/data
       - .:/project:ro
     environment:
-      DATABASE_PATH: /app/data/current-tasks.db
+      DATABASE_PATH: /app/data/tasks.db
       MCP_TRANSPORT: http
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: "3001"
@@ -103,4 +68,3 @@ services:
 
 volumes:
   mcp-task-data:
-  mcp-task-data-current:

@@ -27,11 +27,11 @@ Dispatch subagents to execute the plan:
 
 - Each subagent **owns one MCP item** — include the item UUID in the delegation prompt
 - If `expectedNotes` entries include `guidance`, embed it in the delegation prompt as authoring instructions when filling notes
-- **Agents own their lifecycle transitions** — each agent calls `advance_item(trigger="start")` when beginning work and `advance_item(trigger="complete")` when done (or `trigger="start"` to advance through intermediate phases if the item has review-phase notes)
+- **Agents own their work-phase transitions** — each agent calls `advance_item(trigger="start")` to enter work, and `advance_item(trigger="start")` again to advance to review before returning. Agents do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
 - Fill work-phase notes (`implementation-notes`, `test-results`, etc.) as the agent works
 - Respect dependency ordering — do not dispatch an agent for a blocked item until its blockers complete
 - **Between waves:** call `get_blocked_items(parentId=...)` to confirm upstream items completed — dependency gating implicitly verifies agents transitioned their items. If downstream items are still blocked, investigate the upstream blocker
-- **Do not** call `advance_item` or `complete_tree` on items delegated to agents — agents handle their own transitions. Duplicate transition calls are harmless but wasteful
+- **Do not** call `advance_item` or `complete_tree` for terminal transitions on items delegated to agents — the orchestrator reviews and advances to terminal after agents return
 
 Do NOT use `AskUserQuestion` between phases — proceed autonomously.
 
