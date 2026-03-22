@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-03-22
+
+### Changed
+- Removed archived clockwork (v2) module — simplifies Docker configuration and build scripts to a single runtime target
+- Standardized phase transition ownership across plugin skills and output styles — implementation agents own queue→work and work→review; orchestrator owns review→terminal
+- Fixed `complete` trigger documentation in README — correctly states it requires all notes across all phases (does not bypass gates)
+- Added missing `reopen` trigger to README trigger table
+- Fixed output style name reference from "Workflow Analyst" to "Workflow Orchestrator"
+- Updated MCP SDK version reference from 0.8.4 to 0.9.0
+
+### Added
+- Added 7 progressive integration guide cookbooks covering bare MCP, CLAUDE.md-driven workflow, note schema gating, plugin skills and hooks, output styles, and self-improving workflow patterns
+- Added `git reset --hard origin/main` to implement skill post-merge sync to prevent local main drift
+
+### Plugin (2.6.1)
+- Fixed contradictory phase transition rules in `schema-workflow`, `post-plan-workflow`, and `workflow-orchestrator` output style
+
+---
+
 ## [2.4.0] - 2026-03-09
 
 ### Added
