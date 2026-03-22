@@ -6,19 +6,16 @@ description: Build Docker image and optionally start a container for the MCP Tas
 
 Build the MCP Task Orchestrator Docker image. The Dockerfile handles its own Gradle build internally, so no local build step is needed.
 
-**Usage:** `/deploy_to_docker [image-tag] [--clockwork] [--run]`
+**Usage:** `/deploy_to_docker [image-tag] [--run]`
 
 **Arguments:**
 - `image-tag` (optional): Docker image tag. Default: `task-orchestrator:current`. A bare name like `dev` expands to `task-orchestrator:dev`.
-- `--clockwork` (optional): Build the deprecated v2 (Clockwork) architecture instead. Default tag becomes `task-orchestrator:clockwork`. Uses `mcp-task-data` volume. Note: builder stage must also include `:clockwork:jar` — see Dockerfile notes.
 - `--run` (optional): Start a container after building. Prompts for run configuration.
 
 **Examples:**
 - `/deploy_to_docker` — Build `task-orchestrator:current`, no container
-- `/deploy_to_docker --run` — Build v3 and prompt for container config
+- `/deploy_to_docker --run` — Build and prompt for container config
 - `/deploy_to_docker myfeature` — Build with tag `task-orchestrator:myfeature`
-- `/deploy_to_docker --clockwork` — Build deprecated v2 as `task-orchestrator:clockwork`
-- `/deploy_to_docker --clockwork --run` — Build v2 and prompt for container config
 
 ---
 
@@ -26,13 +23,11 @@ Build the MCP Task Orchestrator Docker image. The Dockerfile handles its own Gra
 
 ### Step 1: Resolve Image Tag
 
-Parse the arguments to determine the image tag and build target:
-- Check for `--clockwork` flag in arguments:
-  - If `--clockwork` is present: set `TARGET=runtime-v2`, default tag = `task-orchestrator:clockwork`, data volume = `mcp-task-data`
-  - Otherwise: set `TARGET=runtime-current`, default tag = `task-orchestrator:current`, data volume = `mcp-task-data-current`
+Parse the arguments to determine the image tag:
+- Set `TARGET=runtime-current`, default tag = `task-orchestrator:current`, data volume = `mcp-task-data`
 - If a tag argument is provided (not starting with `--`), use it as-is
 - If the tag has no `:`, prepend `task-orchestrator:` (e.g., `dev` becomes `task-orchestrator:dev`)
-- If no tag argument, use the default tag determined above
+- If no tag argument, use the default tag
 
 ### Step 2: Build Docker Image
 
@@ -40,13 +35,9 @@ Parse the arguments to determine the image tag and build target:
 docker build --target <TARGET> -t <image-tag> .
 ```
 
-Where `<TARGET>` is `runtime-current` (default) or `runtime-v2` (when `--clockwork` is specified).
+Where `<TARGET>` is `runtime-current`.
 
 The Dockerfile's multi-stage build compiles the project from source — no prior `./gradlew build` required.
-
-> **Note for `--clockwork`:** The Dockerfile builder stage only runs `:current:jar` by default.
-> To build the Clockwork v2 JAR, you must temporarily add `:clockwork:jar` to the Gradle command
-> in the Dockerfile builder stage. See `clockwork/DEPRECATED.md` for instructions.
 
 ### Step 3: Verify Image
 
@@ -112,7 +103,7 @@ AskUserQuestion(
 )
 ```
 
-Use `<DATA_VOLUME>` as the data volume name: `mcp-task-data-current` for v3 (default) or `mcp-task-data` for v2 (`--clockwork`).
+Use `mcp-task-data` as the data volume name.
 
 **"With Config Mount"**
 ```bash
@@ -169,7 +160,7 @@ AskUserQuestion(
 )
 ```
 
-Use `<DATA_VOLUME>` as the data volume name: `mcp-task-data-current` for v3 (default) or `mcp-task-data` for v2 (`--clockwork`).
+Use `mcp-task-data` as the data volume name.
 The container name will be `mcp-task-orchestrator-http`.
 
 Stop any existing container with that name first:
@@ -225,7 +216,7 @@ Then remind the user to add the server to `.mcp.json` if not already present:
 
 Report:
 - Image tag and ID
-- Build target used (`runtime-current` or `runtime-v2`)
+- Build target used (`runtime-current`)
 - Whether a container was started (transport mode + run config)
 - **STDIO:** Remind user to reconnect MCP: `/mcp reconnect mcp-task-orchestrator`
 - **HTTP:** Remind user to verify `.mcp.json` has the HTTP entry and run `/mcp` to check connection status
@@ -235,11 +226,10 @@ Report:
 ## Notes
 
 - **No local build needed:** The Dockerfile runs `./gradlew :current:jar` in a builder stage
-- **Database persistence:** Volume `mcp-task-data-current` (v3) or `mcp-task-data` (v2) persists across container runs
+- **Database persistence:** Volume `mcp-task-data` persists across container runs
 - **Config access:** Project mount modes mount the project for `.taskorchestrator/config.yaml` access
 - **STDIO transport:** Uses stdin/stdout, no port mapping needed; started with `-i` flag
 - **HTTP transport:** Runs detached (`-d`), exposes port 3001, named `mcp-task-orchestrator-http`; requires SDK protocol `2025-11-25` support (SDK 0.8.4 = `2025-06-18` only)
-- **v2 is deprecated:** Use `--clockwork` only for legacy reference. Active development is in v3 (Current).
 
 ## Troubleshooting
 

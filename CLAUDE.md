@@ -30,7 +30,7 @@ docker run --rm -i \
 
 ## Architecture
 
-All v3 source lives under `current/`. The root-level `clockwork/` module is archived v2.
+Source lives under `current/`.
 
 **Package root:** `io.github.jpicklyk.mcptask.current`
 **Source root:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`
@@ -128,7 +128,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 | Domain models | `current/.../domain/model/` |
 | Repositories | `current/.../infrastructure/repository/` |
 | Migrations | `current/src/main/resources/db/migration/` |
-| Workflow config | `current/src/main/resources/configuration/default-config.yaml` |
+| Workflow config | `.taskorchestrator/config.yaml` |
 | Note schema service | `current/.../infrastructure/config/YamlNoteSchemaService.kt` |
 | Plugin | `claude-plugins/task-orchestrator/` |
 | Tests | `current/src/test/kotlin/` |
@@ -151,8 +151,7 @@ Two skill systems — do not confuse them:
 
 ## Documentation
 
-- **v3 (active):** `current/docs/` — quick-start, api-reference, workflow-guide
-- **v2 (archived):** `clockwork/docs/` — reference only
+- `current/docs/` — quick-start, api-reference, workflow-guide
 
 ## Git Workflow
 

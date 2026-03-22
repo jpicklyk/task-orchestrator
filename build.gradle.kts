@@ -1,6 +1,5 @@
 // Root project — build aggregator only.
-// Active module:   :current  (v3 MCP Task Orchestrator)
-// Archived module: :clockwork (v2, deprecated — see clockwork/DEPRECATED.md)
+// Active module: :current (v3 MCP Task Orchestrator)
 
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
