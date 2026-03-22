@@ -158,9 +158,26 @@ After installing, restart Claude Code and verify with `/plugin list` — you sho
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync
 - **Subagent start** — injects task context into spawned subagents so they start with full awareness
 
-**Output style** — The plugin includes a **Workflow Analyst** output style that turns Claude Code into a project management orchestrator: it plans, delegates to subagents, and tracks progress without writing code directly. Select it from the output style menu (`/output-style`) or enable it in your Claude Code settings.
+**Output style** — The plugin includes a **Workflow Orchestrator** output style that turns Claude Code into a project management orchestrator: it plans, delegates to subagents, and tracks progress without writing code directly. Select it from the output style menu (`/output-style`) or enable it in your Claude Code settings. See [Output Styles](current/docs/integration-guides/output-styles.md) and [Self-Improving Workflow](current/docs/integration-guides/self-improving-workflow.md) for advanced patterns.
 
 > **Contributing?** See [Contributing Guidelines](CONTRIBUTING.md) for developer setup.
+
+---
+
+## Integration Guides
+
+The [Integration Guides](current/docs/integration-guides/index.md) show how to compose the MCP with your workflow at increasing levels of sophistication:
+
+| Tier | Guide | What it adds |
+|------|-------|-------------|
+| 1 | [Bare MCP](current/docs/integration-guides/bare-mcp.md) | 13 tools with any MCP client — no config needed |
+| 2 | [CLAUDE.md-Driven](current/docs/integration-guides/claude-md-driven.md) | Embed workflow conventions in project instructions |
+| 3 | [Note Schemas](current/docs/integration-guides/note-schemas.md) | Phase gate enforcement via `.taskorchestrator/config.yaml` |
+| 4 | [Plugin: Skills & Hooks](current/docs/integration-guides/plugin-skills-hooks.md) | Automated workflows, plan-mode pipeline, subagent protocols |
+| 5 | [Output Styles](current/docs/integration-guides/output-styles.md) | Full orchestrator mode — Claude delegates, never implements directly |
+| 6 | [Self-Improving Workflow](current/docs/integration-guides/self-improving-workflow.md) | Feedback loop: observation logging, auto-memory self-correction |
+
+Each tier builds on the previous. Start with Tier 1 and level up when you need more.
 
 ---
 
@@ -230,10 +247,11 @@ Transitions use named triggers — no raw status assignments:
 | Trigger   | Effect |
 |-----------|--------|
 | `start`   | queue→work, work→review (or terminal if no review notes), review→terminal |
-| `complete`| Force-close to terminal, bypassing phase gates |
+| `complete`| Close to terminal; requires all required notes across all phases to be filled |
 | `block`   | Pause to blocked, saving previous role for resume |
 | `resume`  | Restore blocked item to its previous role |
-| `cancel`  | Close to terminal with cancelled status label |
+| `cancel`  | Close to terminal with cancelled status label (bypasses gates) |
+| `reopen`  | Reopen a terminal item back to queue |
 
 **Dependency enforcement**: `advance_item(trigger="start")` checks that all blocking items have reached their `unblockAt` threshold before allowing a transition. Blocked items appear in `get_blocked_items()` and `get_context()`.
 
@@ -277,7 +295,7 @@ After adding or editing `config.yaml`, reconnect the MCP server:
 
 ## MCP Tools
 
-v3 exposes **13 tools** organized around the WorkItem graph:
+The server exposes **13 tools** organized around the WorkItem graph:
 
 ### Hierarchy & CRUD
 
@@ -326,6 +344,7 @@ v3 exposes **13 tools** organized around the WorkItem graph:
 - **[Quick Start Guide](current/docs/quick-start.md)** — Setup walkthrough and first work item
 - **[API Reference](current/docs/api-reference.md)** — All 13 MCP tools, parameters, and response shapes
 - **[Workflow Guide](current/docs/workflow-guide.md)** — Note schemas, phase gates, dependency patterns, and lifecycle examples
+- **[Integration Guides](current/docs/integration-guides/index.md)** — Progressive tiers from bare MCP tools to self-improving orchestration
 - **[Changelog](CHANGELOG.md)** — Release history
 - **[Contributing Guidelines](CONTRIBUTING.md)** — Development setup and contribution process
 
@@ -383,10 +402,10 @@ AI: → get_context(includeAncestors=true) → sees active/blocked items with fu
 - **Kotlin 2.2.0** with Coroutines for concurrent operations
 - **SQLite + Exposed ORM** for fast, zero-config database (persistent memory system)
 - **Flyway Migrations** for versioned schema management
-- **MCP SDK 0.8.4** for standards-compliant protocol (STDIO and HTTP transport)
+- **MCP SDK 0.9.0** for standards-compliant protocol (STDIO and HTTP transport)
 - **Docker** for one-command deployment
 
-Clean Architecture (Domain → Application → Infrastructure → Interface) with 1,600+ tests.
+Clean Architecture (Domain → Application → Infrastructure → Interface) with comprehensive test coverage.
 
 ---
 
