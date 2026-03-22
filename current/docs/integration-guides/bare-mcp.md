@@ -16,7 +16,7 @@
 
 Reference the Quick Start for detailed installation steps:
 
-> See [Quick Start](../quick-start) Steps 1-3 for Docker image pull, Claude Code registration, and verification.
+> See [Quick Start](../quick-start.md) Steps 1-3 for Docker image pull, Claude Code registration, and verification.
 
 For non-Claude-Code MCP clients, the server configuration follows the standard MCP format:
 
@@ -73,7 +73,7 @@ advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
 | `resume` | blocked → previous role |
 | `cancel` | Any → terminal (statusLabel: "cancelled") |
 
-See [Workflow Guide](../workflow-guide) Section 2 for the full trigger table.
+See [Workflow Guide](../workflow-guide.md) Section 2 for the full trigger table.
 
 ### Checking Status
 
@@ -112,10 +112,10 @@ Use `get_next_item(parentId="<uuid>")` to scope recommendations to a specific su
 | Find next work | `get_next_item` | Priority-ranked ready items |
 | Batch complete | `complete_tree` | Topological completion of a subtree |
 
-See [API Reference](../api-reference) for full tool documentation.
+See [API Reference](../api-reference.md) for full tool documentation.
 
 ## When to Level Up
 
 **Signal:** You find yourself repeating the same workflow instructions to the agent every session — "use advance_item, not raw updates," "check get_context before starting," "fill notes before advancing."
 
-**Next:** [CLAUDE.md-Driven Workflow](claude-md-driven) — embed these conventions so the agent follows them automatically.
+**Next:** [CLAUDE.md-Driven Workflow](claude-md-driven.md) — embed these conventions so the agent follows them automatically.

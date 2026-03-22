@@ -9,7 +9,7 @@
 
 ## Prerequisites
 
-- [Tier 1: Bare MCP](bare-mcp) setup complete
+- [Tier 1: Bare MCP](bare-mcp.md) setup complete
 - [Claude Code](https://claude.ai/code) CLI installed
 
 ## How CLAUDE.md Works
@@ -107,14 +107,14 @@ When creating a feature item, always fill these notes:
 - `test-results` (role: review) — test output and coverage
 ```
 
-This is convention-based — the agent follows the instructions but nothing enforces them. For enforcement, add [Note Schemas](note-schemas) (Tier 3).
+This is convention-based — the agent follows the instructions but nothing enforces them. For enforcement, add [Note Schemas](note-schemas.md) (Tier 3).
 
 ## When to Level Up
 
 **Signal:** You want automated quality gates — required documentation before items can advance, not just conventions the agent might forget.
 
-**Next:** [Note Schema Gating](note-schemas) — add `.taskorchestrator/config.yaml` to enforce required notes at each phase.
+**Next:** [Note Schema Gating](note-schemas.md) — add `.taskorchestrator/config.yaml` to enforce required notes at each phase.
 
 **Alternative signal:** You want skill-based automation (plan-mode pipeline, subagent protocols) without intermediate schema setup.
 
-**Next:** [Plugin: Skills and Hooks](plugin-skills-hooks) — install the Claude Code plugin for automated workflows.
+**Next:** [Plugin: Skills and Hooks](plugin-skills-hooks.md) — install the Claude Code plugin for automated workflows.

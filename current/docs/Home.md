@@ -40,10 +40,10 @@ After running, restart Claude Code and run `/mcp` to verify the connection. You 
 
 | Guide | Description |
 |-------|-------------|
-| [Quick Start](quick-start) | Docker setup, first work item, note schemas, key concepts |
-| [API Reference](api-reference) | All 13 MCP tools — parameters, response shapes, and examples |
-| [Workflow Guide](workflow-guide) | Role lifecycle, triggers, note schemas, dependency patterns, cascade behavior |
-| [Integration Guides](integration-guides/index) | Progressive tiers from bare MCP tools to self-improving orchestration |
+| [Quick Start](quick-start.md) | Docker setup, first work item, note schemas, key concepts |
+| [API Reference](api-reference.md) | All 13 MCP tools — parameters, response shapes, and examples |
+| [Workflow Guide](workflow-guide.md) | Role lifecycle, triggers, note schemas, dependency patterns, cascade behavior |
+| [Integration Guides](integration-guides/index.md) | Progressive tiers from bare MCP tools to self-improving orchestration |
 
 ---
 

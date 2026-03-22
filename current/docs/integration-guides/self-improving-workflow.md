@@ -1,8 +1,8 @@
 # Tier 6: Self-Improving Workflow
 
-**Prerequisites:** [Tier 1: Bare MCP](bare-mcp) complete · Claude Code auto-memory enabled · Recommended: [Tier 5: Output Styles](output-styles) for full orchestration context (not required)
+**Prerequisites:** [Tier 1: Bare MCP](bare-mcp.md) complete · Claude Code auto-memory enabled · Recommended: [Tier 5: Output Styles](output-styles.md) for full orchestration context (not required)
 
-**Cross-references:** [Quick Start](../quick-start) · [API Reference](../api-reference) · [Workflow Guide](../workflow-guide) · [Output Styles](output-styles)
+**Cross-references:** [Quick Start](../quick-start.md) · [API Reference](../api-reference.md) · [Workflow Guide](../workflow-guide.md) · [Output Styles](output-styles.md)
 
 ---
 

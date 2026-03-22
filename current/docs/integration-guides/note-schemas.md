@@ -9,7 +9,7 @@
 
 ## Prerequisites
 
-- [Tier 1: Bare MCP](bare-mcp) setup complete
+- [Tier 1: Bare MCP](bare-mcp.md) setup complete
 - Write access to your project root (to create `.taskorchestrator/config.yaml`)
 
 ---
@@ -85,7 +85,7 @@ claude mcp add-json mcp-task-orchestrator '{
 
 Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
 
-See [Quick Start](../quick-start) Step 8 for the full Docker mount example.
+See [Quick Start](../quick-start.md) Step 8 for the full Docker mount example.
 
 ### Cache Invalidation
 
@@ -191,7 +191,7 @@ The agent sees this guidance and knows exactly what to write. Guidance surfaces 
 
 `guidancePointer` is null when all required notes for the current phase are filled, or when no schema entry for the current phase defines a `guidance` value.
 
-See [Workflow Guide](../workflow-guide) Section 5.5 for full `guidancePointer` semantics.
+See [Workflow Guide](../workflow-guide.md) Section 5.5 for full `guidancePointer` semantics.
 
 ---
 
@@ -202,7 +202,7 @@ See [Workflow Guide](../workflow-guide) Section 5.5 for full `guidancePointer` s
 - If no tag matches, the `default` schema applies (if defined)
 - Items with no matching schema and no default advance freely with no gates
 
-See [Workflow Guide](../workflow-guide) Section 9 for the full matching specification.
+See [Workflow Guide](../workflow-guide.md) Section 9 for the full matching specification.
 
 ---
 
@@ -270,7 +270,7 @@ advance_item(transitions=[{ "itemId": "<uuid>", "trigger": "start" }])
 
 ## Building Schemas Interactively
 
-If you have the plugin installed, the `/task-orchestrator:manage-schemas` skill walks you through creating, viewing, editing, and validating schemas without editing YAML directly. See [Plugin: Skills and Hooks](plugin-skills-hooks).
+If you have the plugin installed, the `/task-orchestrator:manage-schemas` skill walks you through creating, viewing, editing, and validating schemas without editing YAML directly. See [Plugin: Skills and Hooks](plugin-skills-hooks.md).
 
 ---
 
@@ -278,4 +278,4 @@ If you have the plugin installed, the `/task-orchestrator:manage-schemas` skill 
 
 **Signal:** You want automated workflows — plan-mode integration, subagent protocols, skill-based commands — not just schema-enforced gates.
 
-**Next:** [Plugin: Skills and Hooks](plugin-skills-hooks) — install the Claude Code plugin for automated orchestration.
+**Next:** [Plugin: Skills and Hooks](plugin-skills-hooks.md) — install the Claude Code plugin for automated orchestration.

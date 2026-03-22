@@ -10,7 +10,7 @@
 ## Prerequisites
 
 - [Claude Code](https://claude.ai/code) CLI installed
-- [Tier 1: Bare MCP](bare-mcp) setup complete
+- [Tier 1: Bare MCP](bare-mcp.md) setup complete
 
 ---
 
@@ -27,7 +27,7 @@ Verify with `/plugin list` — you should see `task-orchestrator` as enabled.
 
 After editing plugin files, content is cached and the marketplace must be removed and re-added to pick up changes. For initial installation this is not required.
 
-See [Quick Start](../quick-start) Step 4 for the full installation walkthrough.
+See [Quick Start](../quick-start.md) Step 4 for the full installation walkthrough.
 
 ---
 
@@ -236,7 +236,7 @@ Queue-phase notes (specification / task-scope) are filled before dispatching.
 
 The plugin works best when combined with note schemas (Tier 3). The pre-plan hook reads your `config.yaml` schemas to inform the definition floor. The subagent-start protocol uses `guidancePointer` from those schemas to tell agents exactly what to write.
 
-See [Note Schemas](note-schemas) for schema setup.
+See [Note Schemas](note-schemas.md) for schema setup.
 
 ---
 
@@ -244,4 +244,4 @@ See [Note Schemas](note-schemas) for schema setup.
 
 **Signal:** You want Claude to operate as a full workflow orchestrator — planning, delegating, tracking, and reporting — rather than implementing directly.
 
-**Next:** [Output Styles](output-styles) — activate Workflow Analyst mode for delegation-based operation.
+**Next:** [Output Styles](output-styles.md) — activate Workflow Analyst mode for delegation-based operation.

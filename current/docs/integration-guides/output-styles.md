@@ -1,8 +1,8 @@
 # Tier 5: Output Styles — Workflow Orchestrator Mode
 
-**Prerequisites:** [Tier 4: Plugin: Skills and Hooks](plugin-skills-hooks) installed and working · Claude Code CLI with output style support
+**Prerequisites:** [Tier 4: Plugin: Skills and Hooks](plugin-skills-hooks.md) installed and working · Claude Code CLI with output style support
 
-**Cross-references:** [Quick Start](../quick-start) · [API Reference](../api-reference) · [Workflow Guide](../workflow-guide) · [Self-Improving Workflow](self-improving-workflow)
+**Cross-references:** [Quick Start](../quick-start.md) · [API Reference](../api-reference.md) · [Workflow Guide](../workflow-guide.md) · [Self-Improving Workflow](self-improving-workflow.md)
 
 ---
 
@@ -188,4 +188,4 @@ The nudge appears at most once per run and is never auto-invoked.
 
 ## Next Step
 
-[Tier 6: Self-Improving Workflow](self-improving-workflow) — close the loop by having Claude monitor its own MCP usage, log friction points as persistent observations, and self-correct discipline issues via auto-memory.
+[Tier 6: Self-Improving Workflow](self-improving-workflow.md) — close the loop by having Claude monitor its own MCP usage, log friction points as persistent observations, and self-correct discipline issues via auto-memory.
