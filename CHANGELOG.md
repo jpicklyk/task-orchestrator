@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-03-23
+
+### Added
+- Added `McpLoggingService` for MCP protocol-level logging — tool validation errors and internal exceptions now emit `notifications/message` to connected clients, improving visibility for MCP client UIs
+- Added `logback.xml` to the `current` module routing all logs away from stdout — fixes MCP spec compliance violation where log output corrupted the JSON-RPC stream for stdio transport clients (Fixes #84)
+
+### Fixed
+- Fixed stdout pollution breaking stdio transport clients — Logback previously fell back to `BasicConfigurator` (DEBUG+ to stdout) because no `logback.xml` was bundled in the JAR
+- Fixed internal documentation cross-references to use `.md` extensions for proper link resolution
+
+---
+
 ## [2.4.1] - 2026-03-22
 
 ### Changed
