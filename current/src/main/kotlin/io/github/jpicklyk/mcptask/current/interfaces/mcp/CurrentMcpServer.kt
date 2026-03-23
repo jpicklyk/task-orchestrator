@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
+import io.github.jpicklyk.mcptask.current.infrastructure.logging.DefaultMcpLoggingService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -79,7 +80,8 @@ class CurrentMcpServer(
             val repositoryProvider = DefaultRepositoryProvider(databaseManager)
             val noteSchemaService = YamlNoteSchemaService()
             val statusLabelService = YamlStatusLabelService()
-            val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService, statusLabelService)
+            val mcpLoggingService = DefaultMcpLoggingService()
+            val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService, statusLabelService, mcpLoggingService)
             logger.info("Repository provider and tool context initialized")
 
             // Build tool list
@@ -111,12 +113,19 @@ class CurrentMcpServer(
             val server = configureServer(serverName, tools.size, toolNames)
             mcpSdkServer = server
 
+            // Bind MCP logging service to the server (must happen before clients connect)
+            mcpLoggingService.bindServer(server)
+
             // Register MCP tools
             val adapter = McpToolAdapter()
             adapter.registerToolsWithServer(server, tools, toolContext)
             logger.info("Registered ${tools.size} MCP tools")
 
             val toolCount = tools.size
+
+            // Lifecycle logging — these are no-ops until a client connects (sessions map is empty at this point)
+            mcpLoggingService.info("mcp-task-orchestrator.server", "Database initialized at: $dbPath")
+            mcpLoggingService.info("mcp-task-orchestrator.server", "Server ready with $toolCount tools")
 
             // Transport dispatch
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"

@@ -40,6 +40,8 @@ claude mcp add-json mcp-task-orchestrator '{
 
 This registers the server at the user level. The `mcp-task-data` Docker volume persists the SQLite database across container restarts.
 
+> **Note:** The `-i` flag connects the container's stdin to the MCP client's pipe, which is required for the JSON-RPC stdio transport. If you run this command directly in a terminal (without an MCP client), the container will appear to hang — that is expected, as the server is waiting for JSON-RPC input that never arrives.
+
 ### Option B: Project `.mcp.json`
 
 Add to `.mcp.json` in your project root (checked into source control so teammates get it automatically):
