@@ -19,7 +19,6 @@ import kotlinx.serialization.json.JsonPrimitive
  * Call [bindServer] after the [Server] instance is created, before clients connect.
  */
 class DefaultMcpLoggingService : McpLoggingService {
-
     @Volatile
     private var server: Server? = null
 
@@ -39,21 +38,23 @@ class DefaultMcpLoggingService : McpLoggingService {
     ) {
         val srv = server ?: return
         val sdkLevel = level.toSdkLevel()
-        val jsonData = if (data != null) {
-            JsonObject(
-                mapOf("message" to JsonPrimitive(message)) +
-                    data.mapValues { JsonPrimitive(it.value) }
+        val jsonData =
+            if (data != null) {
+                JsonObject(
+                    mapOf("message" to JsonPrimitive(message)) +
+                        data.mapValues { JsonPrimitive(it.value) }
+                )
+            } else {
+                JsonPrimitive(message)
+            }
+        val notification =
+            LoggingMessageNotification(
+                LoggingMessageNotificationParams(
+                    level = sdkLevel,
+                    data = jsonData,
+                    logger = logger
+                )
             )
-        } else {
-            JsonPrimitive(message)
-        }
-        val notification = LoggingMessageNotification(
-            LoggingMessageNotificationParams(
-                level = sdkLevel,
-                data = jsonData,
-                logger = logger
-            )
-        )
         srv.sessions.forEach { (sessionId, _) ->
             try {
                 srv.sendLoggingMessage(sessionId, notification)
@@ -63,29 +64,42 @@ class DefaultMcpLoggingService : McpLoggingService {
         }
     }
 
-    override suspend fun debug(logger: String, message: String, data: Map<String, String>?) =
-        log(McpLogLevel.DEBUG, logger, message, data)
+    override suspend fun debug(
+        logger: String,
+        message: String,
+        data: Map<String, String>?
+    ) = log(McpLogLevel.DEBUG, logger, message, data)
 
-    override suspend fun info(logger: String, message: String, data: Map<String, String>?) =
-        log(McpLogLevel.INFO, logger, message, data)
+    override suspend fun info(
+        logger: String,
+        message: String,
+        data: Map<String, String>?
+    ) = log(McpLogLevel.INFO, logger, message, data)
 
-    override suspend fun warning(logger: String, message: String, data: Map<String, String>?) =
-        log(McpLogLevel.WARNING, logger, message, data)
+    override suspend fun warning(
+        logger: String,
+        message: String,
+        data: Map<String, String>?
+    ) = log(McpLogLevel.WARNING, logger, message, data)
 
-    override suspend fun error(logger: String, message: String, data: Map<String, String>?) =
-        log(McpLogLevel.ERROR, logger, message, data)
+    override suspend fun error(
+        logger: String,
+        message: String,
+        data: Map<String, String>?
+    ) = log(McpLogLevel.ERROR, logger, message, data)
 }
 
 /**
  * Maps [McpLogLevel] to the SDK's [LoggingLevel] enum.
  */
-fun McpLogLevel.toSdkLevel(): LoggingLevel = when (this) {
-    McpLogLevel.DEBUG -> LoggingLevel.Debug
-    McpLogLevel.INFO -> LoggingLevel.Info
-    McpLogLevel.NOTICE -> LoggingLevel.Notice
-    McpLogLevel.WARNING -> LoggingLevel.Warning
-    McpLogLevel.ERROR -> LoggingLevel.Error
-    McpLogLevel.CRITICAL -> LoggingLevel.Critical
-    McpLogLevel.ALERT -> LoggingLevel.Alert
-    McpLogLevel.EMERGENCY -> LoggingLevel.Emergency
-}
+fun McpLogLevel.toSdkLevel(): LoggingLevel =
+    when (this) {
+        McpLogLevel.DEBUG -> LoggingLevel.Debug
+        McpLogLevel.INFO -> LoggingLevel.Info
+        McpLogLevel.NOTICE -> LoggingLevel.Notice
+        McpLogLevel.WARNING -> LoggingLevel.Warning
+        McpLogLevel.ERROR -> LoggingLevel.Error
+        McpLogLevel.CRITICAL -> LoggingLevel.Critical
+        McpLogLevel.ALERT -> LoggingLevel.Alert
+        McpLogLevel.EMERGENCY -> LoggingLevel.Emergency
+    }

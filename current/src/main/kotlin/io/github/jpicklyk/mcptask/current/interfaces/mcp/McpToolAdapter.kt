@@ -72,7 +72,8 @@ class McpToolAdapter {
                                 )
                             )
                         )
-                    } catch (_: Exception) { }
+                    } catch (_: Exception) {
+                    }
                     return@addTool CallToolResult(
                         content = listOf(TextContent(text = message)),
                         isError = true
@@ -110,7 +111,8 @@ class McpToolAdapter {
                             )
                         )
                     )
-                } catch (_: Exception) { }
+                } catch (_: Exception) {
+                }
                 CallToolResult(
                     content = listOf(TextContent(text = message)),
                     isError = true
