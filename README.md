@@ -390,6 +390,7 @@ AI: → get_context(includeAncestors=true) → sees active/blocked items with fu
 - **Server shows failed**: Enable `LOG_LEVEL=DEBUG` in your Docker config to inspect startup logs
 - **Note gates blocking unexpectedly**: Run `get_context(itemId=...)` to see exactly which notes are missing
 - **Skills not available**: Install via plugin marketplace (requires Claude Code)
+- **Container appears to "hang" when run manually**: This is expected. The `-i` flag is required for stdio transport — it connects the container's stdin to the MCP client's pipe so JSON-RPC messages can flow between the client and server. When you run the container directly in a terminal without an MCP client, there is no client sending JSON-RPC input, so the server waits. This is normal behavior. If you want to run the server in HTTP mode (e.g., for testing or non-stdio clients), use `-e MCP_TRANSPORT=http -p 3001:3001` and replace `-i` with `-d` for detached mode.
 
 **Get Help**:
 - [Discussions](../../discussions) — Ask questions and share ideas

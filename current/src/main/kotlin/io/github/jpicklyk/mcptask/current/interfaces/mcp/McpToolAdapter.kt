@@ -6,6 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel
+import io.modelcontextprotocol.kotlin.sdk.types.LoggingMessageNotification
+import io.modelcontextprotocol.kotlin.sdk.types.LoggingMessageNotificationParams
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -59,6 +62,18 @@ class McpToolAdapter {
                 } catch (e: ToolValidationException) {
                     val message = "Validation error in '${toolDefinition.name}': ${e.message}"
                     logger.warn(message)
+                    try {
+                        clientConnection.sendLoggingMessage(
+                            LoggingMessageNotification(
+                                LoggingMessageNotificationParams(
+                                    level = LoggingLevel.Warning,
+                                    data = JsonPrimitive(message),
+                                    logger = "mcp-task-orchestrator.tools"
+                                )
+                            )
+                        )
+                    } catch (_: Exception) {
+                    }
                     return@addTool CallToolResult(
                         content = listOf(TextContent(text = message)),
                         isError = true
@@ -86,6 +101,18 @@ class McpToolAdapter {
             } catch (e: Exception) {
                 val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"
                 logger.error(message, e)
+                try {
+                    clientConnection.sendLoggingMessage(
+                        LoggingMessageNotification(
+                            LoggingMessageNotificationParams(
+                                level = LoggingLevel.Error,
+                                data = JsonPrimitive(message),
+                                logger = "mcp-task-orchestrator.tools"
+                            )
+                        )
+                    )
+                } catch (_: Exception) {
+                }
                 CallToolResult(
                     content = listOf(TextContent(text = message)),
                     isError = true
