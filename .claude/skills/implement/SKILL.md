@@ -19,7 +19,7 @@ and git/PR workflow into a single pipeline.
 
 ## Step 1 — Assess the Work
 
-Load the item(s) and determine the operating mode.
+Load the item(s) and determine the execution tier and interaction mode.
 
 For each item, call `get_context(itemId=...)` to understand:
 - Current role and gate status
@@ -27,14 +27,24 @@ For each item, call `get_context(itemId=...)` to understand:
 - Existing notes already filled
 - Dependencies and blocked status
 
-**Mode determination:**
+**Execution tier** — classify per the output style's Tier Classification table:
+
+| Criteria | Tier |
+|----------|------|
+| 1-2 files, known fix, no migration/new API | **Direct** — orchestrator implements, tests, reviews inline |
+| 3-10 files, single logical unit, clear or explorable scope | **Delegated** — single subagent, separate review agent |
+| 11+ files, multiple independent work streams, dependency edges | **Parallel** — worktree agents, full pipeline |
+
+Apply force-UP signals (migration, new API, multiple work streams, collaborative language) and force-DOWN signals (user says "just fix it", schema-free item) per the output style.
+
+If the item has no schema tag, apply `quick-fix` for Direct tier or leave untagged for Delegated/Parallel (the `default` schema catches these).
+
+**Interaction mode** — orthogonal to tier:
 
 | Signal | Mode |
 |--------|------|
 | User says "work with me on", "let's plan", or similar collaborative language | **Collaborative** — user participates in planning and key decisions |
-| Single large feature with multiple child items or significant blast radius | **Collaborative** — too much risk for autonomous execution |
-| Small bug fix, tech debt cleanup, or isolated change with clear scope | **Autonomous** — agent handles the full pipeline |
-| Multiple bug fixes or small items | **Autonomous batch** — agent groups related items and processes them |
+| Scope is clear, no user participation needed | **Autonomous** — agent handles the pipeline |
 | Unclear scope or ambiguous complexity | **Ask the user** |
 
 When processing multiple items, evaluate whether related items (e.g., bugs in the
@@ -78,12 +88,18 @@ branches are also local-only and get squash-merged into `main` after review.
 
 ## Step 3 — Queue Phase: Planning
 
-Progress through the queue phase using the item's schema-defined gates. The existing
-orchestration skills handle the specifics — this step composes them.
+This step is **tier-conditional**:
 
-Use `get_context(itemId=...)` to see the item's `expectedNotes` and `guidancePointer`
-for the current phase. These are driven by the schema configuration and will reflect
-whatever notes are required at the queue gate.
+**Direct tier:** Skip this step entirely. No plan mode. No queue-phase notes. Call
+`advance_item(trigger="start")` immediately to move queue→work. The `quick-fix`
+schema has no queue-phase required notes, so the gate passes.
+
+**Delegated tier:** Fill queue-phase notes per schema. Use `get_context(itemId=...)`
+to see `expectedNotes` and `guidancePointer`. Pre-plan-workflow is optional — use
+only if scope needs exploration. Post-plan-workflow only if child items need
+materialization. Advance: `advance_item(trigger="start")`.
+
+**Parallel tier:** Full planning pipeline:
 
 **Collaborative mode:**
 1. Tell the user the item is ready for planning and ask them to enter plan mode.
@@ -111,18 +127,22 @@ the missing notes and retry.
 
 ## Step 4 — Work Phase: Implementation
 
-Implement the changes and fill the work-phase notes required by the schema.
+This step is **tier-conditional**:
 
-Use `get_context(itemId=...)` to see the work-phase `expectedNotes` and their
-`guidancePointer` values. Fill each required note following its guidance.
+**Direct tier:** Implement directly. Edit the files, run the test suite. No subagent
+dispatch. No `/simplify` pass. Fill the `session-tracking` note with a brief summary
+of what changed and test results. Advance to review:
+`advance_item(trigger="start")`.
 
-Follow the delegation model from your output style (model selection, return formats,
-UUID inclusion). The key decisions at this step are:
+**Delegated and Parallel tiers:** Use `get_context(itemId=...)` to see work-phase
+`expectedNotes` and `guidancePointer` values. Fill each required note following its
+guidance. Follow the delegation model from your output style (model selection, return
+formats, UUID inclusion). The key decisions at this step are:
 
-- **Single item, simple change:** delegate to one implementation subagent or
-  implement directly.
-- **Multiple child tasks, independent:** dispatch parallel subagents with worktree
-  isolation (see Worktree Isolation below).
+- **Single item (Delegated):** delegate to one implementation subagent or implement
+  directly.
+- **Multiple child tasks, independent (Parallel):** dispatch parallel subagents with
+  worktree isolation (see Worktree Isolation below).
 - **Multiple child tasks, dependent:** dispatch sequentially — wait for each agent
   to return before dispatching the next.
 
@@ -175,10 +195,17 @@ branch if not):
 
 ---
 
-## Step 5 — Review Phase: Independent Review
+## Step 5 — Review Phase
 
-Dispatch a **separate** review agent. The agent that implemented the code must not
-review its own work.
+This step is **tier-conditional**:
+
+**Direct tier:** Perform an inline review. Read the diff, verify correctness, confirm
+tests pass. Write a brief review note: "Inline review: pass. [one-line rationale]."
+Advance to terminal: `advance_item(trigger="start")`. No separate review agent —
+the overhead exceeds the risk for 1-2 file changes with known fixes.
+
+**Delegated and Parallel tiers:** Dispatch a **separate** review agent. The agent
+that implemented the code must not review its own work.
 
 **If the implementation used worktree isolation**, the review agent must operate
 in the same worktree so it reads the correct files and runs tests against the
@@ -454,6 +481,9 @@ reports with a direct test run after all agents complete.
 ---
 
 ## Resuming In-Progress Work
+
+Tier classification happens at Step 1 even when resuming. Classify the tier from
+the item's tags, file scope, and note state, then resume using that tier's pipeline.
 
 If an item is already past the queue phase (e.g., previously planned but not
 implemented), the skill picks up from the current state:
