@@ -130,8 +130,9 @@ the missing notes and retry.
 This step is **tier-conditional**:
 
 **Direct tier:** Implement directly. Edit the files, run the test suite. No subagent
-dispatch. No `/simplify` pass. Fill the `session-tracking` note with a brief summary
-of what changed and test results. Advance to review:
+dispatch. No `/simplify` pass. Fill the `session-tracking` note (required by both
+`quick-fix` and `default` schemas) with a brief summary of what changed and test
+results. Advance to review:
 `advance_item(trigger="start")`.
 
 **Delegated and Parallel tiers:** Use `get_context(itemId=...)` to see work-phase
