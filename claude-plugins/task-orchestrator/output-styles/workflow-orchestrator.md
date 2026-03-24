@@ -48,7 +48,6 @@ Before starting any work, classify it into one of three execution tiers. This de
 | Queue notes | none required | fill per schema | fill per schema |
 | Implementation | orchestrator direct | single subagent | parallel worktree agents |
 | Review | inline (orchestrator) | separate agent | separate agent |
-| Schema tag | lightweight or none | item-appropriate | item-appropriate |
 
 ## Workflow Principles
 
@@ -85,13 +84,7 @@ Every delegation prompt must include: entity IDs, exact tool operations, expecte
 - Feature work: child items under the active parent feature
 - Bugs, observations, tech debt: anchored to their category container via `create-item`
 
-**Session-only → session tasks.** Use `TaskCreate`/`TaskUpdate` to give the user real-time progress visibility in the terminal. Create them proactively:
-
-- **Multi-step work** — When a user request involves 2+ distinct steps, create a session task for each step. Mark `in_progress` when starting, `completed` when done.
-- **Subagent delegation** — When dispatching a subagent via the Agent tool, create a session task describing what it's doing. Complete it when the subagent returns.
-- **MCP item execution** — When you start working on an MCP item, create a corresponding session task so the user sees terminal progress.
-
-Session tasks are ephemeral — they exist for the current session only. Do NOT use them for items that need to persist across sessions.
+**Session-only → session tasks.** Use `TaskCreate`/`TaskUpdate` for real-time progress visibility — multi-step work, agent dispatches, and MCP item execution. Session tasks are ephemeral and do NOT persist across sessions.
 
 ## Direct Tier Workflow
 
@@ -109,26 +102,10 @@ This path exists because delegation overhead (cold-start context, return parsing
 
 When dispatching agents with `isolation: "worktree"`:
 
-**Pre-dispatch checklist:**
 - Verify tasks are independent — no dependency edges between items dispatched in parallel
-- If any task changes shared domain models, enums, or test infrastructure, dispatch it **first** and run the test suite after it returns before dispatching the parallel wave (prevents test baseline contamination)
-- Focus prompts on task-specific context (item UUID, files to modify, test expectations) — the `subagent-start` hook injects commit, scope, and cd-discipline rules automatically
-
-**Post-return checklist — for each worktree agent:**
-1. Capture **worktree path** and **branch name** from Agent return metadata
-2. Record in tracking table: `| Item UUID | Worktree Path | Branch | Status |`
-3. Spot-check diff: `git -C <worktree-path> diff main --stat`
-
-**Review agent worktree template — include ALL of the following:**
-- Worktree path: `<path from implementation agent return>`
-- Branch name: `<branch from implementation agent return>`
-- Changed files: output of `git -C <path> diff main --name-only`
-- Instruction: "Run all commands and read all files from within the worktree at `<path>`. Do NOT read files from the main working directory."
-
-**Post-review — squash-merge each worktree sequentially:**
-1. `git merge --squash <worktree-branch>` into local `main`
-2. Run full test suite after each merge to catch integration issues
-3. Delete worktree branch after successful merge
+- Capture **worktree path** and **branch name** from each Agent return — these are needed for review and merge
+- Review agents must operate **in the worktree**, not the main working directory — include the worktree path, branch, and changed files in the review prompt
+- Spot-check diffs after agents return: `git -C <worktree-path> diff main --stat`
 
 ## Visual Conventions
 
@@ -143,8 +120,4 @@ Use markdown with a consistent visual hierarchy:
 - **Narration** (`↳` prefix): Background operations, one line each. Skim-friendly.
 - **References** (`` `inline code` ``): UUIDs, tool names, status values. Always inline, never standalone.
 
-Completion format:
-```
-✓ `d5c9c5ed` Design API schema → completed
-✓ Unblocked: Implement data models (`2089ba1e`), Build REST endpoints (`26f2fa20`)
-```
+Completion format: `✓ \`d5c9c5ed\` Design API schema → completed`
