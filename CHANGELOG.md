@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-03-25 (Plugin v2.7.0)
+
+### Added
+- Added tiered execution model (Direct/Delegated/Parallel) to the Workflow Orchestrator output style — classifies work by scope and applies proportional process
+- Added Direct Tier Workflow section — orchestrator implements, tests, and reviews inline for 1-2 file known fixes
+- Added force-UP/DOWN signals for tier classification (migration, new API, collaborative language, "just fix it")
+- Added Direct tier safety net to pre-plan hook — warns if plan mode is entered for Direct tier work
+- Added YAML frontmatter to workflow-orchestrator output style (name, description, keep-coding-instructions)
+
+### Changed
+- Changed Principle #1 from "Never implement directly" to "Delegate by default" with tier-conditional behavior
+- Changed Principle #2 from "Plan before acting" to "Plan proportionally" with tier-conditional plan mode
+- Trimmed workflow-orchestrator to universally valuable content — removed project-specific references, redundant templates, and niche operational details
+- Bumped plugin version to 2.7.0 (tiered execution model)
+
+---
+
 ## [2.5.0] - 2026-03-23
 
 ### Added

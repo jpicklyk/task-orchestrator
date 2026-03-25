@@ -99,7 +99,17 @@ Check if any files under `claude-plugins/` changed since the last tag:
 git diff <LAST_TAG>...HEAD --name-only -- claude-plugins/
 ```
 
-If the output is non-empty, plugin content changed — this is a **both** release (server + plugin).
+If the output is non-empty, plugin content changed. Also check if any server source files
+(Kotlin, migrations, Gradle config) changed:
+
+```bash
+git diff <LAST_TAG>...HEAD --name-only -- current/src/ current/build.gradle.kts gradle/
+```
+
+Classify the release type:
+- **server** — server source changed, no plugin changes
+- **both** — server source and plugin content both changed
+- **plugin-only** — only plugin files changed (skills, hooks, output styles), no server source
 
 **Read the current plugin version from the authoritative source** — do not assume it matches any
 git tag. The version in the repository files may have been bumped in a previous release:
@@ -124,7 +134,12 @@ If no plugin files changed, skip plugin versioning entirely (server-only release
 
 ## Step 5 — Infer Bump Level
 
-Examine the synthesized changes and determine the bump level:
+**Plugin-only release:** If the release type is `plugin-only`, skip the server bump entirely.
+The server version in `version.properties` stays unchanged. Only the plugin version (determined
+in Step 4d) is bumped. Proceed to Step 6 with the server version as-is and the plugin version
+as the new value.
+
+**Server or both release:** Examine the synthesized changes and determine the bump level:
 
 | Condition | Bump |
 |-----------|------|
@@ -151,7 +166,7 @@ Output the following block and **stop**. Wait for the user to confirm or request
 ```
 ## Proposed Release: vX.Y.Z  (CURRENT -> NEW)
 
-**Release type:** <server | both>
+**Release type:** <server | both | plugin-only>
 **Bump level:** <major | minor | patch>
 **Reason:** <one sentence>
 
@@ -188,8 +203,10 @@ git checkout -b release/vX.Y.Z
 
 ### 8a. Update `version.properties`
 
-Edit `version.properties` in the project root. Set only the lines that need to change.
-Reset lower components on a major or minor bump.
+**Plugin-only release:** Skip this step — the server version stays unchanged.
+
+**Server or both release:** Edit `version.properties` in the project root. Set only the
+lines that need to change. Reset lower components on a major or minor bump.
 
 Example for a minor bump from 2.0.2 -> 2.1.0:
 ```
@@ -243,6 +260,14 @@ If plugin content changed (Step 4d), add under the appropriate section:
 - Bumped plugin version to X.Y.Z (<reason>)
 
 ### 8d. Stage, commit, and push
+
+**Plugin-only release** (plugin files already staged from 8b):
+```bash
+git add CHANGELOG.md
+git status   # confirm only plugin version files + changelog are staged
+git commit -m "release: bump to vX.Y.Z — plugin vA.B.C"
+git push origin release/vX.Y.Z
+```
 
 **Server-only release:**
 ```bash
@@ -298,7 +323,7 @@ gh pr create \
 
 ## Version
 
-**Release type:** <server | both>
+**Release type:** <server | both | plugin-only>
 <CURRENT> -> <NEW>
 
 Prepared with /prepare-release
@@ -313,16 +338,20 @@ code block instead of executing it.
 
 ---
 
-## Step 11 — Print Summary and Post-Merge Tag Command
+## Step 11 — Print Summary and Post-Merge Instructions
 
 Output this block after the PR is created:
 
 ```
 Release prepared: CURRENT -> vX.Y.Z  (<bump level>)
-Release type:     <server | both>
+Release type:     <server | both | plugin-only>
 Branch:           release/vX.Y.Z
 PR:               <URL from gh pr create>
+```
 
+**Server or both release** — append the tag command:
+
+```
 After merging the PR, create the release tag to trigger CI:
 
   git checkout main && git pull origin main
@@ -333,6 +362,16 @@ This triggers the "Build, Publish, and Release" workflow (docker-publish.yml)
 which builds the Docker image and creates a GitHub Release.
 
 Monitor: https://github.com/jpicklyk/task-orchestrator/actions/workflows/docker-publish.yml
+```
+
+**Plugin-only release** — append this instead:
+
+```
+No tag or Docker rebuild needed — only plugin content changed.
+Plugin users pick up the new version (vA.B.C) when they reinstall the marketplace.
+After merging, sync local main:
+
+  git checkout main && git pull origin main
 ```
 
 **IMPORTANT:** Do NOT use `gh workflow run` — the CI workflow is triggered by tag
