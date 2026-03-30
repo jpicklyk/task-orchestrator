@@ -3,9 +3,11 @@
 const output = {
   hookSpecificOutput: {
     hookEventName: "PostToolUse",
-    additionalContext: `## Plan Approved — MCP Task Orchestrator
+    additionalContext: `## NEXT STEP — Required before implementation
 
-Invoke the \`task-orchestrator:post-plan-workflow\` skill for the full post-approval workflow. It covers materialization, implementation dispatch, and verification.`
+The plan has been approved. You MUST invoke the \`task-orchestrator:post-plan-workflow\` skill NOW to materialize MCP items and dispatch implementation.
+
+Do not begin any implementation work until this completes.`
   }
 };
 process.stdout.write(JSON.stringify(output));

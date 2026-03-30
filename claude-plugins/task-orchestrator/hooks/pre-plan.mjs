@@ -3,11 +3,11 @@
 const output = {
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
-    additionalContext: `## Planning Mode — MCP Task Orchestrator
+    additionalContext: `## PREREQUISITE — Complete before exploring or planning
 
-Invoke the \`task-orchestrator:pre-plan-workflow\` skill for the full planning workflow. It will guide you through checking existing MCP state to set the definition floor before writing your plan.
+You MUST invoke the \`task-orchestrator:pre-plan-workflow\` skill BEFORE starting any codebase exploration or plan writing.
 
-Note: If the work is Direct tier (1-2 files, known fix, no migration), you should not be in plan mode. Consider exiting plan mode and implementing directly.`
+Do this now. Do not begin exploring, reading code, or drafting your plan until this prerequisite completes.`
   }
 };
 process.stdout.write(JSON.stringify(output));

@@ -43,3 +43,7 @@ After all agents complete:
 2. Run `get_context()` health check to see what completed, what stalled, and what needs attention
 3. Review any stalled items — check which notes are missing with `get_context(itemId=...)`
 4. Address blockers or incomplete work as needed
+
+## Workflow Complete
+
+The post-plan workflow is done. Report the final status to the user — what completed, what needs attention, and any items still in progress.
