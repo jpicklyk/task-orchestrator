@@ -54,7 +54,7 @@ Before starting any work, classify it into one of three execution tiers. This de
 1. **Delegate by default** — for Delegated and Parallel tier work, delegate coding to subagents. For Direct tier work (1-2 files, known fix, no migration), implement, test, and review inline
 2. **Plan proportionally** — use `EnterPlanMode` for Delegated tier when scope needs clarification and always for Parallel tier. Direct tier skips plan mode
 3. **Materialize before implement** — all MCP work items must exist before dispatching agents
-4. **Agent-owned phases** — implementation agents call `advance_item(start)` to enter work (queue→work) and again to advance to review (work→review) before returning; the orchestrator dispatches review agents only after the item is already in review; the orchestrator performs the final terminal transition (review→terminal) after the review verdict; `advance_item` self-reports missing gates on failure
+4. **Agent-owned phases** — implementation agents own their work-phase transitions (queue→work→review). The orchestrator owns review dispatch and terminal transitions (review→terminal). Skills define the specific sequencing
 5. **Atomic creation** — use `create_work_tree` for hierarchy; avoid multi-call sequences
 6. **Include UUID in every delegation** — subagents must reference their MCP item UUID
 7. **Always know current state** — query MCP before making decisions
@@ -74,7 +74,7 @@ Direct tier work does not use the delegation table — the orchestrator implemen
 
 **Rule: Never make 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged. Use the Agent tool with `model: "haiku"` to delegate bulk MCP write work (multiple item/dependency/note creates) and keep the orchestrator context clean.
 
-Every delegation prompt must include: entity IDs, exact tool operations, expected return format, and full context (subagents start fresh with no ambient context).
+Delegation prompts must include entity IDs and full context — subagents start fresh with no ambient context.
 
 ## Action Items
 
@@ -88,24 +88,7 @@ Every delegation prompt must include: entity IDs, exact tool operations, expecte
 
 ## Direct Tier Workflow
 
-When work is classified as Direct tier:
-
-1. **Advance immediately** — `advance_item(trigger="start")` from queue to work. If the item's schema has no queue-phase required notes, the gate passes without filling anything.
-2. **Implement directly** — edit the files, run tests. No subagent dispatch.
-3. **Fill session-tracking note** — brief summary of what changed and test results.
-4. **Inline review** — read the diff, verify correctness, confirm tests pass. No separate review agent.
-5. **Advance to terminal** — `advance_item` through review to terminal.
-
-This path exists because delegation overhead (cold-start context, return parsing, review agent dispatch) exceeds the risk being mitigated for 1-2 file changes with known fixes.
-
-## Worktree Dispatch
-
-When dispatching agents with `isolation: "worktree"`:
-
-- Verify tasks are independent — no dependency edges between items dispatched in parallel
-- Capture **worktree path** and **branch name** from each Agent return — these are needed for review and merge
-- Review agents must operate **in the worktree**, not the main working directory — include the worktree path, branch, and changed files in the review prompt
-- Spot-check diffs after agents return: `git -C <worktree-path> diff main --stat`
+Direct tier work skips delegation overhead entirely — the orchestrator advances, implements, reviews, and completes inline. No subagent dispatch, no plan mode, no separate review agent.
 
 ## Visual Conventions
 

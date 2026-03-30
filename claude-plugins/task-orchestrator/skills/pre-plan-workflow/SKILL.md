@@ -56,6 +56,8 @@ Structure the plan knowing it will be materialized into MCP items after approval
 - Account for **dependency ordering** — which tasks block others (these become `BLOCKS` edges)
 - Consider the **hierarchy** — a root container item with child task items is the standard pattern
 
-## After Plan Approval
+## Continue with Plan Mode
+
+The prerequisite is complete. Now proceed with plan mode's normal workflow — explore the codebase, understand existing patterns, and design your implementation approach. Use the definition floor from Steps 1-3 to inform your plan.
 
 Once the plan is approved, the post-plan hook will guide you through materialization and implementation dispatch. Do not materialize before approval.
