@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-03-30 (Plugin v2.7.1)
+
+### Changed
+- Strengthened planning hook language — pre-plan and post-plan hooks now use imperative gate framing (PREREQUISITE/MUST) instead of suggestive phrasing that was deprioritized by plan mode
+- Enforced WHAT/HOW separation — output style trimmed to principle-level statements, procedural detail lives in skills
+- Added explicit handoff sections to pre-plan and post-plan workflow skills for clean control flow between hook, skill, and plan mode
+- Bumped plugin version to 2.7.1 (planning hook and output style refinements)
+
+---
+
 ## [2.5.0] - 2026-03-25 (Plugin v2.7.0)
 
 ### Added
