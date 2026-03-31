@@ -314,6 +314,7 @@ class CascadeDetectorTest {
                 val item = workItem(role = Role.TERMINAL)
 
                 every { dependencyRepository.findByFromItemId(item.id) } returns emptyList()
+                every { dependencyRepository.findByToItemId(item.id) } returns emptyList()
 
                 val result = detector.findUnblockedItems(item, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -331,9 +332,13 @@ class CascadeDetectorTest {
                 // Outgoing BLOCKS dep from blocker to target
                 val dep = blocksDep(fromItemId = blockerId, toItemId = targetId)
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(dep)
+                // No IS_BLOCKED_BY deps pointing to blocker
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
 
                 // Only one incoming dep on target (the one from blocker)
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
+                // No IS_BLOCKED_BY deps from target
+                every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
                 // Blocker is TERMINAL, which satisfies the default "terminal" threshold
                 coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
@@ -359,10 +364,13 @@ class CascadeDetectorTest {
                 // blocker1 has outgoing BLOCKS to target
                 val dep1 = blocksDep(fromItemId = blocker1Id, toItemId = targetId)
                 every { dependencyRepository.findByFromItemId(blocker1Id) } returns listOf(dep1)
+                // No IS_BLOCKED_BY deps pointing to blocker1
+                every { dependencyRepository.findByToItemId(blocker1Id) } returns emptyList()
 
-                // Target has TWO incoming blocking deps
+                // Target has TWO incoming blocking deps, no outgoing IS_BLOCKED_BY
                 val dep2 = blocksDep(fromItemId = blocker2Id, toItemId = targetId)
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep1, dep2)
+                every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
                 // blocker1 is TERMINAL (satisfied), blocker2 is WORK (not terminal yet)
                 coEvery { workItemRepository.getById(blocker1Id) } returns Result.Success(blocker1)
@@ -385,6 +393,8 @@ class CascadeDetectorTest {
                 // Only a RELATES_TO outgoing dep (not BLOCKS)
                 val dep = relatesToDep(fromItemId = itemId, toItemId = targetId)
                 every { dependencyRepository.findByFromItemId(itemId) } returns listOf(dep)
+                // No IS_BLOCKED_BY deps pointing to item
+                every { dependencyRepository.findByToItemId(itemId) } returns emptyList()
 
                 val result = detector.findUnblockedItems(item, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -402,7 +412,9 @@ class CascadeDetectorTest {
 
                 val dep = blocksDep(fromItemId = blockerId, toItemId = targetId, unblockAt = "work")
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(dep)
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
+                every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
                 coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
                 coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
@@ -424,6 +436,7 @@ class CascadeDetectorTest {
 
                 val dep = blocksDep(fromItemId = blockerId, toItemId = targetId, unblockAt = "work")
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(dep)
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
 
                 coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
@@ -444,6 +457,7 @@ class CascadeDetectorTest {
 
                 val dep = blocksDep(fromItemId = blockerId, toItemId = targetId, unblockAt = "work")
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(dep)
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
 
                 coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
@@ -465,10 +479,12 @@ class CascadeDetectorTest {
                 // Outgoing BLOCKS dep from blocker to target
                 val blockDep = blocksDep(fromItemId = blockerId, toItemId = targetId)
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(blockDep)
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
 
                 // Target has a BLOCKS dep (satisfied) AND a RELATES_TO dep (should be ignored)
                 val relatesDep = relatesToDep(fromItemId = relatedId, toItemId = targetId)
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(blockDep, relatesDep)
+                every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
                 coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
                 coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
@@ -477,6 +493,114 @@ class CascadeDetectorTest {
                 assertEquals(1, result.size)
                 assertEquals(targetId, result[0].itemId)
             }
+
+        // ----- IS_BLOCKED_BY enforcement in unblock detection (TDD — should fail until fix applied) -----
+
+        @Test
+        fun `completing blocker triggers unblock for IS_BLOCKED_BY target`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val targetId = UUID.randomUUID()
+
+                val blocker = workItem(id = blockerId, role = Role.TERMINAL, title = "Blocker")
+                val target = workItem(id = targetId, role = Role.QUEUE, title = "Target")
+
+                // target IS_BLOCKED_BY blocker: fromItemId=target, toItemId=blocker
+                val dep =
+                    Dependency(
+                        fromItemId = targetId,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
+
+                // blocker's outgoing BLOCKS list is empty — the relationship is IS_BLOCKED_BY
+                every { dependencyRepository.findByFromItemId(blockerId) } returns emptyList()
+                // blocker has an incoming IS_BLOCKED_BY dep (target points to blocker)
+                every { dependencyRepository.findByToItemId(blockerId) } returns listOf(dep)
+
+                // For isFullyUnblocked on target: need to check all blocking deps on target
+                every { dependencyRepository.findByToItemId(targetId) } returns emptyList()
+                every { dependencyRepository.findByFromItemId(targetId) } returns listOf(dep)
+
+                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
+                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+
+                val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
+                assertEquals(1, result.size, "IS_BLOCKED_BY target should appear in unblocked items when blocker completes")
+                assertEquals(targetId, result[0].itemId)
+                assertEquals("Target", result[0].title)
+            }
+
+        @Test
+        fun `isFullyUnblocked considers IS_BLOCKED_BY deps on target`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val targetId = UUID.randomUUID()
+
+                val blocker = workItem(id = blockerId, role = Role.TERMINAL, title = "Blocker")
+                val target = workItem(id = targetId, role = Role.QUEUE, title = "Target")
+
+                // blocker BLOCKS target (standard direction)
+                val blocksDep = blocksDep(fromItemId = blockerId, toItemId = targetId)
+
+                // target also IS_BLOCKED_BY another item that is NOT yet terminal
+                val otherBlockerId = UUID.randomUUID()
+                val otherBlocker = workItem(id = otherBlockerId, role = Role.WORK, title = "Other Blocker")
+                val isBlockedByDep =
+                    Dependency(
+                        fromItemId = targetId,
+                        toItemId = otherBlockerId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
+
+                every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(blocksDep)
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
+
+                // isFullyUnblocked should check BOTH incoming BLOCKS and outgoing IS_BLOCKED_BY on target
+                every { dependencyRepository.findByToItemId(targetId) } returns listOf(blocksDep)
+                every { dependencyRepository.findByFromItemId(targetId) } returns listOf(isBlockedByDep)
+
+                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
+                coEvery { workItemRepository.getById(otherBlockerId) } returns Result.Success(otherBlocker)
+                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+
+                val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
+                assertTrue(result.isEmpty(), "Target should remain blocked when it has an unsatisfied IS_BLOCKED_BY dep")
+            }
+
+        @Test
+        fun `IS_BLOCKED_BY with custom unblockAt satisfied triggers unblock`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val targetId = UUID.randomUUID()
+
+                // Blocker reached WORK, and the IS_BLOCKED_BY threshold is "work"
+                val blocker = workItem(id = blockerId, role = Role.WORK, title = "Blocker")
+                val target = workItem(id = targetId, role = Role.QUEUE, title = "Target")
+
+                val dep =
+                    Dependency(
+                        fromItemId = targetId,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY,
+                        unblockAt = "work"
+                    )
+
+                every { dependencyRepository.findByFromItemId(blockerId) } returns emptyList()
+                every { dependencyRepository.findByToItemId(blockerId) } returns listOf(dep)
+
+                every { dependencyRepository.findByToItemId(targetId) } returns emptyList()
+                every { dependencyRepository.findByFromItemId(targetId) } returns listOf(dep)
+
+                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
+                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+
+                val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
+                assertEquals(1, result.size, "IS_BLOCKED_BY with unblockAt=work should unblock when blocker reaches WORK")
+                assertEquals(targetId, result[0].itemId)
+            }
+
+        // ----- End IS_BLOCKED_BY enforcement tests -----
 
         @Test
         fun `missing blocker item treats target as still blocked`() =
@@ -488,6 +612,7 @@ class CascadeDetectorTest {
 
                 val dep = blocksDep(fromItemId = blockerId, toItemId = targetId)
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(dep)
+                every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
 
                 // Target has another dep whose blocker is missing from the repository
                 val missingBlockerId = UUID.randomUUID()

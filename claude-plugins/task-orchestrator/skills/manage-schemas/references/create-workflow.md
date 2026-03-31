@@ -12,10 +12,10 @@ Otherwise, ask via `AskUserQuestion`:
 
 ```
 ◆ How would you like to create the schema?
-  1. Feature implementation — full lifecycle with design gates, implementation evidence,
-     and optional deploy verification (5 notes across queue/work/review)
-  2. Bug fix — lightweight schema for bug fixes: root cause before code,
-     verification after (4 notes across queue/work)
+  1. Feature implementation — specification gate (queue), implementation evidence
+     + session tracking (work), review checklist (review) — 4 notes
+  2. Bug fix — diagnosis gate (queue), implementation evidence + session tracking (work),
+     review checklist (review) — 4 notes
   3. Start from scratch — answer questions to build a custom schema
 ```
 
@@ -29,31 +29,26 @@ Show this schema to the user:
 
 ```yaml
 feature-implementation:
-  - key: requirements
+  - key: specification
     role: queue
     required: true
-    description: "Problem statement and acceptance criteria."
-    guidance: "Describe what problem this solves and who benefits. List 2-5 concrete acceptance criteria that define done."
-  - key: design
-    role: queue
-    required: true
-    description: "Chosen approach, alternatives considered, key risks."
-    guidance: "Explain the implementation approach. Note any alternatives you ruled out and why. Call out risks or constraints."
+    description: "Problem statement, approach, and pre-work plan."
+    guidance: "This note is read by the implementation agent before writing code. Cover: **Problem statement** — what breaks or is missing, who is affected. **Acceptance criteria** — 2-5 concrete, testable criteria that define done. **Alternatives considered** — min 2 real options plus 'do nothing'; for each, state the trade-off that ruled it out (not strawman rejections). **Non-goals** — at least one thing a reader might expect this work to include that is deliberately excluded. **Blast radius** — every file, module, and interface the change touches; trace downstream consumers. **Risk flags** — the 1-2 things most likely to go wrong. **Test strategy** — name specific scenarios for happy paths, failure paths, and edge cases; 'add tests' is not a strategy."
   - key: implementation-notes
     role: work
     required: true
-    description: "Key decisions made during implementation, deviations from design."
-    guidance: "Document any surprises, wrong-turns, or deviations from the planned approach."
-  - key: test-results
+    description: "Context handoff for downstream agents — deviations, surprises, decisions."
+    guidance: "This note is read by review agents and dependent tasks. They need to know: what decisions were made that weren't in the specification, which files were changed and why, any API or interface surprises encountered, assumptions from the specification that turned out wrong, and patterns discovered that affect dependent work."
+  - key: session-tracking
     role: work
     required: true
-    description: "Test pass/fail count and any new tests added."
-    guidance: "Run tests and report total count and failures. List any new test classes or test cases added."
-  - key: deploy-notes
+    description: "Session context — what was done, how it went, anything the retrospective should know."
+    guidance: "This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: anything that differed from the specification. **Friction**: tool errors, unexpected roundtrips, API confusion — include type (optimization/friction/bug/missing-capability) and description. **Test results**: pass/fail counts, new tests added."
+  - key: review-checklist
     role: review
-    required: false
-    description: "Deploy needed? Version bump? Reconnect required?"
-    guidance: "Note whether a rebuild/deploy was done, what version was bumped to, and whether reconnect was required."
+    required: true
+    description: "Quality gate — plan alignment, test quality, simplification, verdict."
+    guidance: "Run the test suite first — record total count and pass/fail. Then verify: (1) **Plan alignment** — walk each acceptance criterion from the specification and identify the code that satisfies it; flag criteria with no implementation and unplanned changes with no justification. (2) **Test quality** — map tests to the specification's test strategy; watch for tautological assertions, mock-heavy tests that verify nothing real, happy-path-only coverage when failure paths were required, and overly broad assertions like 'result != null'. (3) **Simplification** — note any unnecessary complexity, duplication, or over-engineering in changed files (do not apply fixes, only report). End with a verdict: **Pass** | **Fail — blocking issues** (list each) | **Pass with observations**."
 ```
 
 ### Bug Fix Template
@@ -62,26 +57,26 @@ Show this schema to the user:
 
 ```yaml
 bug-fix:
-  - key: reproduction-steps
+  - key: diagnosis
     role: queue
     required: true
-    description: "Step-by-step reproduction with expected vs actual result."
-    guidance: "Include the exact steps or tool call that triggers the bug. State expected output and actual output."
-  - key: root-cause
-    role: queue
-    required: true
-    description: "Why it happens — file, line, and condition."
-    guidance: "Identify the specific file and function where the defect lives. Explain the condition that triggers it."
-  - key: fix-summary
+    description: "Reproduction, root cause, fix approach, and test strategy."
+    guidance: "This note is read by the implementation agent before writing code. Cover: **Reproduction steps** — exact inputs (tool call, parameters, or user action) plus expected output and actual output. **Root cause** — the specific file, function, and condition that causes the bug; state why that code path produces the wrong result. **Fix approach** — your chosen approach plus min 2 alternatives (including 'do nothing'); for each, state the trade-off that ruled it out. **Blast radius** — files and interfaces the fix touches; similar code paths that may have the same defect. **Test strategy** — a regression test that would have caught the original bug, plus edge cases around the fix boundary."
+  - key: implementation-notes
     role: work
     required: true
-    description: "What was changed and which files were modified."
-    guidance: "List each file changed and summarize the change. Note any patterns that should be applied elsewhere."
-  - key: test-verification
+    description: "Context handoff — what changed, deviations from diagnosis, patterns to apply."
+    guidance: "This note is read by review agents and dependent tasks. State: which files changed and what the specific change was, whether the root cause matched the diagnosis or differed (and how), patterns found in similar code paths that should be applied elsewhere, and edge cases discovered during implementation that weren't in the diagnosis."
+  - key: session-tracking
     role: work
     required: true
-    description: "How the fix was verified and test results after fix."
-    guidance: "Run tests and report results. Note if a new test was added to cover the fix."
+    description: "Session context — what was done, how it went, anything the retrospective should know."
+    guidance: "This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: anything that differed from the diagnosis. **Friction**: tool errors, unexpected roundtrips, API confusion — include type (optimization/friction/bug/missing-capability) and description. **Test results**: pass/fail counts, new tests added."
+  - key: review-checklist
+    role: review
+    required: true
+    description: "Quality gate — fix alignment, regression coverage, simplification, verdict."
+    guidance: "Run the test suite first — record total count and pass/fail. Then verify: (1) **Fix alignment** — confirm the fix addresses the diagnosed root cause and does not merely mask symptoms; check implementation-notes for any deviation from the diagnosis. (2) **Regression test** — a test must exist that would have caught the original bug; verify it tests the actual failure condition, not just 'result != null'. (3) **Edge case coverage** — verify tests exist for edge cases named in the diagnosis test strategy. (4) **Simplification** — note any unnecessary complexity in changed files (do not apply fixes, only report). End with a verdict: **Pass** | **Fail — blocking issues** (list each) | **Pass with observations**."
 ```
 
 ### After showing the template
@@ -135,10 +130,23 @@ Using answers from the gathering step, produce the YAML block. Apply these defau
 - First queue note's `guidance` should open with: `"Run /<schema-name> for the full lifecycle guide. For this note: <specific guidance>."` if a companion skill will be created
 - Use kebab-case for all keys
 - Keep `description` values under 80 chars
+- If a `session-tracking` note was added, use the standard structured guidance (see rule 4 below)
 
 Show the generated YAML to the user and ask for confirmation before writing.
 
 For YAML format reference and field rules, see `references/config-format.md` in this skill folder.
+
+### Guidance Generation Rules
+
+Apply these four disciplines when writing `guidance` values for any note — whether from a template customization or from-scratch Q&A:
+
+1. **Lead with the consumer.** Open with who reads this note and what they need from it. Example: "This note is read by the review agent. They need to know which files changed and whether the implementation matches the specification."
+
+2. **Structure over prose.** If the note covers 3 or more topics, use bold section headers (`**Header**`) rather than a prose paragraph. Agents and reviewers scan — they don't read walls of text.
+
+3. **Concrete over generic.** Specify the actual verification action, not the category. "State which files changed and the specific function modified" instead of "describe the approach." "Name specific test scenarios for happy paths and failure paths" instead of "add tests."
+
+4. **Session-tracking prompt.** If the schema includes a work phase, ask: "Most schemas include a session-tracking note (work phase) for retrospective analysis. Add one? [Yes/No]" If yes, use this standard guidance: `"This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: from plan or diagnosis. **Friction**: tool errors, unexpected roundtrips, API confusion — include type (optimization/friction/bug/missing-capability) and description. **Test results**: pass/fail counts, new tests added."`
 
 ---
 

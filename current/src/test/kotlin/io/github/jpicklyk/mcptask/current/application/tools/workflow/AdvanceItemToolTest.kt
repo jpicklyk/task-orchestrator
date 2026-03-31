@@ -178,6 +178,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "block"))
             val result = tool.execute(params, context)
@@ -415,6 +416,7 @@ class AdvanceItemToolTest {
                     type = DependencyType.BLOCKS
                 )
             every { depRepo.findByToItemId(itemId) } returns listOf(dep)
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, context)
@@ -687,6 +689,8 @@ class AdvanceItemToolTest {
             every { depRepo.findByFromItemId(itemId) } returns listOf(outgoingDep)
             // The downstream item's incoming deps are all satisfied (the blocker is now terminal)
             every { depRepo.findByToItemId(downstreamId) } returns listOf(outgoingDep)
+            // No IS_BLOCKED_BY deps on the downstream item
+            every { depRepo.findByFromItemId(downstreamId) } returns emptyList()
             // The blocker (itemId) will be re-fetched during isFullyUnblocked check;
             // it's been updated to TERMINAL role, so return a terminal version
             val terminalItem = item.update { it.copy(role = Role.TERMINAL) }
@@ -821,6 +825,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "hold"))
             val result = tool.execute(params, context)
@@ -1103,6 +1108,7 @@ class AdvanceItemToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, gatedContext)
@@ -1204,6 +1210,7 @@ class AdvanceItemToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, gatedContext)
@@ -1253,6 +1260,7 @@ class AdvanceItemToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, gatedContext)
@@ -1343,6 +1351,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(item.id) } returns emptyList()
+            every { depRepo.findByToItemId(item.id) } returns emptyList()
 
             val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
             val results = extractResults(result)
@@ -1378,6 +1387,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(item.id) } returns emptyList()
+            every { depRepo.findByToItemId(item.id) } returns emptyList()
 
             val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
             val results = extractResults(result)
@@ -1400,6 +1410,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(item.id) } returns emptyList()
+            every { depRepo.findByToItemId(item.id) } returns emptyList()
 
             val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
             val results = extractResults(result)
@@ -1716,6 +1727,7 @@ class AdvanceItemToolTest {
                     type = DependencyType.BLOCKS
                 )
             every { depRepo.findByToItemId(itemId) } returns listOf(dep)
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, context)
@@ -1747,7 +1759,9 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(childId) } returns emptyList()
+            every { depRepo.findByToItemId(childId) } returns emptyList()
             every { depRepo.findByFromItemId(parentId) } returns emptyList()
+            every { depRepo.findByToItemId(parentId) } returns emptyList()
 
             val params = buildParams(transitionObj(childId, "reopen"))
             val result = tool.execute(params, context)
@@ -1926,6 +1940,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "reopen"))
             val result = tool.execute(params, customContext)
@@ -1957,6 +1972,7 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "resume"))
             val result = tool.execute(params, context)

@@ -224,15 +224,24 @@ class CascadeDetector {
         dependencyRepository: DependencyRepository,
         workItemRepository: WorkItemRepository
     ): List<UnblockedItem> {
-        // Find all outgoing dependencies where this item is the source
+        // Collect target item IDs from both blocking directions:
+        // 1. Outgoing BLOCKS deps: item BLOCKS target → target is dep.toItemId
         val outgoingDeps = dependencyRepository.findByFromItemId(item.id)
+        val blocksTargets =
+            outgoingDeps
+                .filter { it.type == DependencyType.BLOCKS }
+                .map { it.toItemId }
 
-        // Only consider BLOCKS dependencies
-        val blockingDeps = outgoingDeps.filter { it.type == DependencyType.BLOCKS }
-        if (blockingDeps.isEmpty()) return emptyList()
+        // 2. Incoming IS_BLOCKED_BY deps: target IS_BLOCKED_BY item → target is dep.fromItemId
+        val incomingDeps = dependencyRepository.findByToItemId(item.id)
+        val isBlockedByTargets =
+            incomingDeps
+                .filter { it.type == DependencyType.IS_BLOCKED_BY }
+                .map { it.fromItemId }
 
-        // Collect unique target item IDs to check
-        val targetIds = blockingDeps.map { it.toItemId }.toSet()
+        val targetIds = (blocksTargets + isBlockedByTargets).toSet()
+        if (targetIds.isEmpty()) return emptyList()
+
         val unblockedItems = mutableListOf<UnblockedItem>()
 
         for (targetId in targetIds) {
@@ -252,31 +261,50 @@ class CascadeDetector {
     }
 
     /**
-     * Check whether all incoming blocking dependencies on [itemId] are satisfied.
+     * Check whether all blocking dependencies on [itemId] are satisfied.
+     * Checks both incoming BLOCKS deps and outgoing IS_BLOCKED_BY deps.
      */
     private suspend fun isFullyUnblocked(
         itemId: UUID,
         dependencyRepository: DependencyRepository,
         workItemRepository: WorkItemRepository
     ): Boolean {
+        // Check incoming BLOCKS deps (blocker is dep.fromItemId)
         val incomingDeps = dependencyRepository.findByToItemId(itemId)
-
         for (dep in incomingDeps) {
-            // RELATES_TO has no blocking semantics
             if (dep.type == DependencyType.RELATES_TO) continue
+            if (dep.type == DependencyType.IS_BLOCKED_BY) continue // handled below via outgoing
 
             val threshold = dep.effectiveUnblockRole() ?: continue
             val thresholdRole = Role.fromString(threshold) ?: continue
 
-            // Get the blocker's current state
             val blockerResult = workItemRepository.getById(dep.fromItemId)
             val blockerItem =
                 when (blockerResult) {
                     is Result.Success -> blockerResult.data
-                    is Result.Error -> return false // Missing blocker counts as still blocked
+                    is Result.Error -> return false
                 }
 
-            // If the blocker hasn't reached the threshold, this item is still blocked
+            if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
+                return false
+            }
+        }
+
+        // Check outgoing IS_BLOCKED_BY deps (blocker is dep.toItemId)
+        val outgoingDeps = dependencyRepository.findByFromItemId(itemId)
+        for (dep in outgoingDeps) {
+            if (dep.type != DependencyType.IS_BLOCKED_BY) continue
+
+            val threshold = dep.effectiveUnblockRole() ?: continue
+            val thresholdRole = Role.fromString(threshold) ?: continue
+
+            val blockerResult = workItemRepository.getById(dep.toItemId)
+            val blockerItem =
+                when (blockerResult) {
+                    is Result.Success -> blockerResult.data
+                    is Result.Error -> return false
+                }
+
             if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
                 return false
             }

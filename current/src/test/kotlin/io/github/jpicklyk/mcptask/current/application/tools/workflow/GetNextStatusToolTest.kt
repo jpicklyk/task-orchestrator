@@ -80,6 +80,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -102,6 +103,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -124,6 +126,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -208,6 +211,7 @@ class GetNextStatusToolTest {
                     type = DependencyType.BLOCKS
                 )
             every { depRepo.findByToItemId(itemId) } returns listOf(dep)
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -279,6 +283,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -298,6 +303,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -317,6 +323,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -340,6 +347,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val input = params("itemId" to JsonPrimitive(itemId.toString()))
             val result = tool.execute(input, context)
@@ -374,6 +382,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -401,6 +410,7 @@ class GetNextStatusToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -415,5 +425,125 @@ class GetNextStatusToolTest {
             assertEquals("start", data["trigger"]!!.jsonPrimitive.content)
             // Effective total is 4 (QUEUE/WORK/REVIEW/TERMINAL)
             assertEquals("2/4", data["progressionPosition"]!!.jsonPrimitive.content)
+        }
+
+    // ──────────────────────────────────────────────
+    // IS_BLOCKED_BY direction tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `QUEUE item with unsatisfied IS_BLOCKED_BY dep returns Blocked with blockers`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val blockerId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+            val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+            // No incoming BLOCKS deps
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            // IS_BLOCKED_BY: item -> blocker
+            val dep =
+                Dependency(
+                    fromItemId = itemId,
+                    toItemId = blockerId,
+                    type = DependencyType.IS_BLOCKED_BY
+                )
+            every { depRepo.findByFromItemId(itemId) } returns listOf(dep)
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("queue", data["currentRole"]!!.jsonPrimitive.content)
+
+            val blockers = data["blockers"]!!.jsonArray
+            assertEquals(1, blockers.size)
+            val blocker = blockers[0].jsonObject
+            assertEquals(blockerId.toString(), blocker["fromItemId"]!!.jsonPrimitive.content)
+            assertEquals("queue", blocker["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("terminal", blocker["requiredRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `QUEUE item with satisfied IS_BLOCKED_BY dep returns Ready`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val blockerId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+            val blockerItem = makeItem(id = blockerId, role = Role.TERMINAL, title = "Satisfied Blocker")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            val dep =
+                Dependency(
+                    fromItemId = itemId,
+                    toItemId = blockerId,
+                    type = DependencyType.IS_BLOCKED_BY
+                )
+            every { depRepo.findByFromItemId(itemId) } returns listOf(dep)
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("Ready", data["recommendation"]!!.jsonPrimitive.content)
+            assertEquals("work", data["nextRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `mixed BLOCKS and IS_BLOCKED_BY both unsatisfied returns Blocked with 2 blockers`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val blockerAId = UUID.randomUUID()
+            val blockerBId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+            val blockerA = makeItem(id = blockerAId, role = Role.QUEUE, title = "Blocker A")
+            val blockerB = makeItem(id = blockerBId, role = Role.WORK, title = "Blocker B")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(blockerAId) } returns Result.Success(blockerA)
+            coEvery { workItemRepo.getById(blockerBId) } returns Result.Success(blockerB)
+
+            // blockerA BLOCKS item (incoming)
+            val blocksDep =
+                Dependency(
+                    fromItemId = blockerAId,
+                    toItemId = itemId,
+                    type = DependencyType.BLOCKS
+                )
+            every { depRepo.findByToItemId(itemId) } returns listOf(blocksDep)
+
+            // item IS_BLOCKED_BY blockerB (outgoing)
+            val isBlockedByDep =
+                Dependency(
+                    fromItemId = itemId,
+                    toItemId = blockerBId,
+                    type = DependencyType.IS_BLOCKED_BY
+                )
+            every { depRepo.findByFromItemId(itemId) } returns listOf(isBlockedByDep)
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("Blocked", data["recommendation"]!!.jsonPrimitive.content)
+
+            val blockers = data["blockers"]!!.jsonArray
+            assertEquals(2, blockers.size, "Both BLOCKS and IS_BLOCKED_BY blockers should appear")
         }
 }

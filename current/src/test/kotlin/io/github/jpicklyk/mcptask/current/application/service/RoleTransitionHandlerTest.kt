@@ -243,6 +243,7 @@ class RoleTransitionHandlerTest {
             runBlocking {
                 val item = testItem(role = Role.QUEUE)
                 every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
 
                 val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
                 assertTrue(result.valid)
@@ -264,6 +265,7 @@ class RoleTransitionHandlerTest {
                     )
 
                 every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
                 coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
 
                 val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
@@ -285,6 +287,7 @@ class RoleTransitionHandlerTest {
                     )
 
                 every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
                 coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
 
                 val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
@@ -327,6 +330,7 @@ class RoleTransitionHandlerTest {
                     )
 
                 every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
                 // No workItemRepo.getById call should happen for RELATES_TO
 
                 val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
@@ -347,6 +351,7 @@ class RoleTransitionHandlerTest {
                     )
 
                 every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
                 coEvery { workItemRepo.getById(blockerId) } returns
                     Result.Error(
                         RepositoryError.NotFound(blockerId, "Item not found")
@@ -358,6 +363,142 @@ class RoleTransitionHandlerTest {
                 assertEquals(blockerId, result.blockers[0].fromItemId)
                 assertEquals(Role.QUEUE, result.blockers[0].currentRole) // assumed worst
             }
+
+        // ----- IS_BLOCKED_BY enforcement (TDD — should fail until fix applied) -----
+
+        @Test
+        fun `IS_BLOCKED_BY dep blocks forward transition when blocker has not reached threshold`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.QUEUE)
+
+                // item IS_BLOCKED_BY blockerItem — item is fromItemId, blocker is toItemId
+                val dep =
+                    Dependency(
+                        fromItemId = item.id,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertFalse(result.valid, "IS_BLOCKED_BY should block forward transition")
+                assertEquals(1, result.blockers.size)
+                assertEquals(blockerId, result.blockers[0].fromItemId)
+                assertEquals(Role.QUEUE, result.blockers[0].currentRole)
+                assertEquals("terminal", result.blockers[0].requiredRole)
+            }
+
+        @Test
+        fun `IS_BLOCKED_BY dep allows forward transition when blocker has reached threshold`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.TERMINAL)
+
+                val dep =
+                    Dependency(
+                        fromItemId = item.id,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertTrue(result.valid, "IS_BLOCKED_BY with satisfied blocker should allow transition")
+                assertTrue(result.blockers.isEmpty())
+            }
+
+        @Test
+        fun `IS_BLOCKED_BY dep with custom unblockAt blocks when blocker below threshold`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.QUEUE)
+
+                val dep =
+                    Dependency(
+                        fromItemId = item.id,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY,
+                        unblockAt = "work"
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertFalse(result.valid, "IS_BLOCKED_BY with unblockAt=work should block when blocker is in QUEUE")
+                assertEquals(1, result.blockers.size)
+            }
+
+        @Test
+        fun `IS_BLOCKED_BY dep with custom unblockAt allows when blocker at threshold`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.WORK)
+
+                val dep =
+                    Dependency(
+                        fromItemId = item.id,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY,
+                        unblockAt = "work"
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns listOf(dep)
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertTrue(result.valid, "IS_BLOCKED_BY with unblockAt=work should allow when blocker is at WORK")
+            }
+
+        @Test
+        fun `mixed BLOCKS and IS_BLOCKED_BY both block when unsatisfied`() =
+            runBlocking {
+                val blockerAId = UUID.randomUUID()
+                val blockerBId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerA = testItem(id = blockerAId, role = Role.QUEUE)
+                val blockerB = testItem(id = blockerBId, role = Role.WORK)
+
+                // blockerA BLOCKS item (incoming on item)
+                val blocksDep =
+                    Dependency(
+                        fromItemId = blockerAId,
+                        toItemId = item.id,
+                        type = DependencyType.BLOCKS
+                    )
+
+                // item IS_BLOCKED_BY blockerB (outgoing from item)
+                val isBlockedByDep =
+                    Dependency(
+                        fromItemId = item.id,
+                        toItemId = blockerBId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
+
+                every { depRepo.findByToItemId(item.id) } returns listOf(blocksDep)
+                every { depRepo.findByFromItemId(item.id) } returns listOf(isBlockedByDep)
+                coEvery { workItemRepo.getById(blockerAId) } returns Result.Success(blockerA)
+                coEvery { workItemRepo.getById(blockerBId) } returns Result.Success(blockerB)
+
+                val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
+                assertFalse(result.valid, "Both BLOCKS and IS_BLOCKED_BY should contribute blockers")
+                assertEquals(2, result.blockers.size)
+            }
+
+        // ----- End IS_BLOCKED_BY enforcement tests -----
 
         @Test
         fun `unblockAt work with blocker at WORK validates successfully`() =
@@ -374,6 +515,7 @@ class RoleTransitionHandlerTest {
                     )
 
                 every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
                 coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
 
                 val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)

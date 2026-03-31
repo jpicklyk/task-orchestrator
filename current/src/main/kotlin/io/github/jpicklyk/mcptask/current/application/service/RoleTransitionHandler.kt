@@ -256,33 +256,32 @@ class RoleTransitionHandler {
             )
         }
 
-        // For forward progressions, check incoming blocking dependencies
+        // For forward progressions, check blocking dependencies from both directions:
+        // 1. Incoming BLOCKS deps (dep.toItemId == item.id, blocker is dep.fromItemId)
+        // 2. Outgoing IS_BLOCKED_BY deps (dep.fromItemId == item.id, blocker is dep.toItemId)
         if (isForwardProgression(item.role, targetRole)) {
-            val incomingDeps = dependencyRepository.findByToItemId(item.id)
             val blockers = mutableListOf<BlockerInfo>()
 
+            // Check incoming deps for BLOCKS edges
+            val incomingDeps = dependencyRepository.findByToItemId(item.id)
             for (dep in incomingDeps) {
-                // RELATES_TO has no blocking semantics
                 if (dep.type == DependencyType.RELATES_TO) continue
+                if (dep.type == DependencyType.IS_BLOCKED_BY) continue // handled below via outgoing
 
                 val threshold = dep.effectiveUnblockRole() ?: continue
                 val thresholdRole = Role.fromString(threshold) ?: continue
-
-                // Determine which item is the blocker
                 val blockerItemId = dep.fromItemId
 
-                // Fetch the blocker's current state
                 val blockerResult = workItemRepository.getById(blockerItemId)
                 val blockerItem =
                     when (blockerResult) {
                         is Result.Success -> blockerResult.data
                         is Result.Error -> {
-                            // If the blocker item is missing, treat as unsatisfied
                             blockers.add(
                                 BlockerInfo(
                                     itemId = item.id,
                                     fromItemId = blockerItemId,
-                                    currentRole = Role.QUEUE, // unknown, assume worst
+                                    currentRole = Role.QUEUE,
                                     requiredRole = threshold
                                 )
                             )
@@ -290,7 +289,44 @@ class RoleTransitionHandler {
                         }
                     }
 
-                // Check whether the blocker has reached the threshold
+                if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
+                    blockers.add(
+                        BlockerInfo(
+                            itemId = item.id,
+                            fromItemId = blockerItemId,
+                            currentRole = blockerItem.role,
+                            requiredRole = threshold
+                        )
+                    )
+                }
+            }
+
+            // Check outgoing deps for IS_BLOCKED_BY edges
+            val outgoingDeps = dependencyRepository.findByFromItemId(item.id)
+            for (dep in outgoingDeps) {
+                if (dep.type != DependencyType.IS_BLOCKED_BY) continue
+
+                val threshold = dep.effectiveUnblockRole() ?: continue
+                val thresholdRole = Role.fromString(threshold) ?: continue
+                val blockerItemId = dep.toItemId
+
+                val blockerResult = workItemRepository.getById(blockerItemId)
+                val blockerItem =
+                    when (blockerResult) {
+                        is Result.Success -> blockerResult.data
+                        is Result.Error -> {
+                            blockers.add(
+                                BlockerInfo(
+                                    itemId = item.id,
+                                    fromItemId = blockerItemId,
+                                    currentRole = Role.QUEUE,
+                                    requiredRole = threshold
+                                )
+                            )
+                            continue
+                        }
+                    }
+
                 if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
                     blockers.add(
                         BlockerInfo(
