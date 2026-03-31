@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-03-31 (Plugin v2.7.2)
+
+### Fixed
+- Fixed `IS_BLOCKED_BY` dependencies not being enforced by `advance_item` — items could advance past IS_BLOCKED_BY gates that `get_blocked_items` and `get_next_item` correctly reported as blocked
+- Fixed `advance_item` unblock detection not discovering items with IS_BLOCKED_BY edges when their blocker completes
+- Fixed reversed dependency example in quick-start documentation
+
+### Changed
+- Improved manage-schemas skill templates to align with spec-quality and review-quality frameworks
+- Added guidance generation rules and cross-schema duplication checks to manage-schemas edit workflow
+- Bumped plugin version to 2.7.2
+
+---
+
 ## [2.5.0] - 2026-03-30 (Plugin v2.7.1)
 
 ### Changed

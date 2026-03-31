@@ -227,15 +227,17 @@ class CascadeDetector {
         // Collect target item IDs from both blocking directions:
         // 1. Outgoing BLOCKS deps: item BLOCKS target → target is dep.toItemId
         val outgoingDeps = dependencyRepository.findByFromItemId(item.id)
-        val blocksTargets = outgoingDeps
-            .filter { it.type == DependencyType.BLOCKS }
-            .map { it.toItemId }
+        val blocksTargets =
+            outgoingDeps
+                .filter { it.type == DependencyType.BLOCKS }
+                .map { it.toItemId }
 
         // 2. Incoming IS_BLOCKED_BY deps: target IS_BLOCKED_BY item → target is dep.fromItemId
         val incomingDeps = dependencyRepository.findByToItemId(item.id)
-        val isBlockedByTargets = incomingDeps
-            .filter { it.type == DependencyType.IS_BLOCKED_BY }
-            .map { it.fromItemId }
+        val isBlockedByTargets =
+            incomingDeps
+                .filter { it.type == DependencyType.IS_BLOCKED_BY }
+                .map { it.fromItemId }
 
         val targetIds = (blocksTargets + isBlockedByTargets).toSet()
         if (targetIds.isEmpty()) return emptyList()
