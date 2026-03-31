@@ -639,4 +639,51 @@ class GetBlockedItemsToolTest {
             assertEquals(1, ancestors.size, "Depth-1 item should have exactly one ancestor")
             assertEquals(parentId, ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
         }
+
+    // ──────────────────────────────────────────────
+    // IS_BLOCKED_BY — satisfied dep means item NOT blocked
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `IS_BLOCKED_BY dep satisfied when blocker is terminal means item NOT included`(): Unit =
+        runBlocking {
+            val blockerId = createItem("Terminal Blocker", role = "terminal")
+            val blockedId = createItem("Should Be Unblocked", role = "queue")
+
+            createDep(blockedId, blockerId, type = "IS_BLOCKED_BY")
+
+            val result = tool.execute(params(), context) as JsonObject
+
+            val items = extractBlockedItems(result)
+            val item = items.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == blockedId }
+            assertNull(item, "Item with satisfied IS_BLOCKED_BY dep should NOT appear as blocked")
+        }
+
+    // ──────────────────────────────────────────────
+    // Mixed BLOCKS + IS_BLOCKED_BY on same item
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `mixed BLOCKS and IS_BLOCKED_BY deps both contribute to blockerCount`(): Unit =
+        runBlocking {
+            val blockerA = createItem("Blocker A (BLOCKS)", role = "queue")
+            val blockerB = createItem("Blocker B (IS_BLOCKED_BY)", role = "work")
+            val blockedId = createItem("Doubly Blocked", role = "queue")
+
+            // blockerA BLOCKS blockedId
+            createDep(blockerA, blockedId, type = "BLOCKS")
+            // blockedId IS_BLOCKED_BY blockerB
+            createDep(blockedId, blockerB, type = "IS_BLOCKED_BY")
+
+            val result = tool.execute(params(), context) as JsonObject
+
+            val items = extractBlockedItems(result)
+            val item = items.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == blockedId }
+            assertNotNull(item, "Item with both BLOCKS and IS_BLOCKED_BY deps should appear as blocked")
+            assertEquals("dependency", item.jsonObject["blockType"]!!.jsonPrimitive.content)
+
+            val blockedBy = item.jsonObject["blockedBy"]!!.jsonArray
+            assertEquals(2, blockedBy.size, "Both BLOCKS and IS_BLOCKED_BY blockers should appear")
+            assertEquals(2, item.jsonObject["blockerCount"]!!.jsonPrimitive.int, "Both blockers unsatisfied")
+        }
 }

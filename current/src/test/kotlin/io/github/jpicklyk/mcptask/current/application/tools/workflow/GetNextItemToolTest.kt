@@ -623,4 +623,98 @@ class GetNextItemToolTest {
             assertEquals(1, ancestors.size, "Depth-1 item should have exactly one ancestor")
             assertEquals(parent.id.toString(), ancestors[0].jsonObject["id"]!!.jsonPrimitive.content)
         }
+
+    // ──────────────────────────────────────────────
+    // IS_BLOCKED_BY — satisfied dep means item IS recommended
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `IS_BLOCKED_BY dep satisfied when blocker is terminal means item IS recommended`(): Unit =
+        runBlocking {
+            val item = createItem("Unblocked by IS_BLOCKED_BY")
+            val blocker = createItem("Terminal Blocker", role = Role.TERMINAL)
+
+            createDependency(
+                fromItemId = item.id,
+                toItemId = blocker.id,
+                type = DependencyType.IS_BLOCKED_BY
+            )
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(item.id.toString()), "Item with satisfied IS_BLOCKED_BY dep should be recommended")
+        }
+
+    // ──────────────────────────────────────────────
+    // IS_BLOCKED_BY with custom unblockAt
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `IS_BLOCKED_BY with unblockAt work satisfied when blocker at WORK`(): Unit =
+        runBlocking {
+            val item = createItem("Custom Threshold Item")
+            val blocker = createItem("Blocker At Work", role = Role.WORK)
+
+            createDependency(
+                fromItemId = item.id,
+                toItemId = blocker.id,
+                type = DependencyType.IS_BLOCKED_BY,
+                unblockAt = "work"
+            )
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(item.id.toString()), "IS_BLOCKED_BY with unblockAt=work should be satisfied when blocker is at WORK")
+        }
+
+    @Test
+    fun `IS_BLOCKED_BY with unblockAt work unsatisfied when blocker at QUEUE`(): Unit =
+        runBlocking {
+            val item = createItem("Custom Threshold Item Blocked")
+            val blocker = createItem("Blocker At Queue", role = Role.QUEUE)
+
+            createDependency(
+                fromItemId = item.id,
+                toItemId = blocker.id,
+                type = DependencyType.IS_BLOCKED_BY,
+                unblockAt = "work"
+            )
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertFalse(recIds.contains(item.id.toString()), "IS_BLOCKED_BY with unblockAt=work should block when blocker is at QUEUE")
+        }
+
+    // ──────────────────────────────────────────────
+    // Mixed BLOCKS + IS_BLOCKED_BY on same item
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `mixed BLOCKS and IS_BLOCKED_BY both must be satisfied for item to be recommended`(): Unit =
+        runBlocking {
+            val item = createItem("Doubly Blocked Item")
+            val blockerA = createItem("Blocker A (BLOCKS)", role = Role.TERMINAL)
+            val blockerB = createItem("Blocker B (IS_BLOCKED_BY)", role = Role.QUEUE)
+
+            // blockerA BLOCKS item (satisfied — blockerA is TERMINAL)
+            createDependency(fromItemId = blockerA.id, toItemId = item.id, type = DependencyType.BLOCKS)
+            // item IS_BLOCKED_BY blockerB (unsatisfied — blockerB is QUEUE)
+            createDependency(fromItemId = item.id, toItemId = blockerB.id, type = DependencyType.IS_BLOCKED_BY)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertFalse(recIds.contains(item.id.toString()), "Item should be blocked when IS_BLOCKED_BY dep is unsatisfied even if BLOCKS dep is satisfied")
+        }
 }

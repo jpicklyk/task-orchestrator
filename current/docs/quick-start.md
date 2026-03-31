@@ -218,8 +218,8 @@ create_work_tree(
     {ref: "tests",  title: "Integration tests"}
   ],
   deps=[
-    {from: "tests", to: "api"},
-    {from: "tests", to: "ui"}
+    {from: "api",   to: "tests"},
+    {from: "ui",    to: "tests"}
   ]
 )
 
