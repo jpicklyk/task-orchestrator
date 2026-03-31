@@ -715,6 +715,9 @@ class GetNextItemToolTest {
             assertTrue(isSuccess(result))
             val recs = extractRecommendations(result)
             val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
-            assertFalse(recIds.contains(item.id.toString()), "Item should be blocked when IS_BLOCKED_BY dep is unsatisfied even if BLOCKS dep is satisfied")
+            assertFalse(
+                recIds.contains(item.id.toString()),
+                "Item should be blocked when IS_BLOCKED_BY dep is unsatisfied even if BLOCKS dep is satisfied"
+            )
         }
 }

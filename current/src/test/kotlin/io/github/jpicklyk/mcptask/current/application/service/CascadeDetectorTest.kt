@@ -506,11 +506,12 @@ class CascadeDetectorTest {
                 val target = workItem(id = targetId, role = Role.QUEUE, title = "Target")
 
                 // target IS_BLOCKED_BY blocker: fromItemId=target, toItemId=blocker
-                val dep = Dependency(
-                    fromItemId = targetId,
-                    toItemId = blockerId,
-                    type = DependencyType.IS_BLOCKED_BY
-                )
+                val dep =
+                    Dependency(
+                        fromItemId = targetId,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
 
                 // blocker's outgoing BLOCKS list is empty — the relationship is IS_BLOCKED_BY
                 every { dependencyRepository.findByFromItemId(blockerId) } returns emptyList()
@@ -545,11 +546,12 @@ class CascadeDetectorTest {
                 // target also IS_BLOCKED_BY another item that is NOT yet terminal
                 val otherBlockerId = UUID.randomUUID()
                 val otherBlocker = workItem(id = otherBlockerId, role = Role.WORK, title = "Other Blocker")
-                val isBlockedByDep = Dependency(
-                    fromItemId = targetId,
-                    toItemId = otherBlockerId,
-                    type = DependencyType.IS_BLOCKED_BY
-                )
+                val isBlockedByDep =
+                    Dependency(
+                        fromItemId = targetId,
+                        toItemId = otherBlockerId,
+                        type = DependencyType.IS_BLOCKED_BY
+                    )
 
                 every { dependencyRepository.findByFromItemId(blockerId) } returns listOf(blocksDep)
                 every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
@@ -576,12 +578,13 @@ class CascadeDetectorTest {
                 val blocker = workItem(id = blockerId, role = Role.WORK, title = "Blocker")
                 val target = workItem(id = targetId, role = Role.QUEUE, title = "Target")
 
-                val dep = Dependency(
-                    fromItemId = targetId,
-                    toItemId = blockerId,
-                    type = DependencyType.IS_BLOCKED_BY,
-                    unblockAt = "work"
-                )
+                val dep =
+                    Dependency(
+                        fromItemId = targetId,
+                        toItemId = blockerId,
+                        type = DependencyType.IS_BLOCKED_BY,
+                        unblockAt = "work"
+                    )
 
                 every { dependencyRepository.findByFromItemId(blockerId) } returns emptyList()
                 every { dependencyRepository.findByToItemId(blockerId) } returns listOf(dep)

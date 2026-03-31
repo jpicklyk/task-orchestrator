@@ -445,11 +445,12 @@ class GetNextStatusToolTest {
             // No incoming BLOCKS deps
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             // IS_BLOCKED_BY: item -> blocker
-            val dep = Dependency(
-                fromItemId = itemId,
-                toItemId = blockerId,
-                type = DependencyType.IS_BLOCKED_BY
-            )
+            val dep =
+                Dependency(
+                    fromItemId = itemId,
+                    toItemId = blockerId,
+                    type = DependencyType.IS_BLOCKED_BY
+                )
             every { depRepo.findByFromItemId(itemId) } returns listOf(dep)
 
             val result =
@@ -482,11 +483,12 @@ class GetNextStatusToolTest {
             coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
 
             every { depRepo.findByToItemId(itemId) } returns emptyList()
-            val dep = Dependency(
-                fromItemId = itemId,
-                toItemId = blockerId,
-                type = DependencyType.IS_BLOCKED_BY
-            )
+            val dep =
+                Dependency(
+                    fromItemId = itemId,
+                    toItemId = blockerId,
+                    type = DependencyType.IS_BLOCKED_BY
+                )
             every { depRepo.findByFromItemId(itemId) } returns listOf(dep)
 
             val result =
@@ -515,19 +517,21 @@ class GetNextStatusToolTest {
             coEvery { workItemRepo.getById(blockerBId) } returns Result.Success(blockerB)
 
             // blockerA BLOCKS item (incoming)
-            val blocksDep = Dependency(
-                fromItemId = blockerAId,
-                toItemId = itemId,
-                type = DependencyType.BLOCKS
-            )
+            val blocksDep =
+                Dependency(
+                    fromItemId = blockerAId,
+                    toItemId = itemId,
+                    type = DependencyType.BLOCKS
+                )
             every { depRepo.findByToItemId(itemId) } returns listOf(blocksDep)
 
             // item IS_BLOCKED_BY blockerB (outgoing)
-            val isBlockedByDep = Dependency(
-                fromItemId = itemId,
-                toItemId = blockerBId,
-                type = DependencyType.IS_BLOCKED_BY
-            )
+            val isBlockedByDep =
+                Dependency(
+                    fromItemId = itemId,
+                    toItemId = blockerBId,
+                    type = DependencyType.IS_BLOCKED_BY
+                )
             every { depRepo.findByFromItemId(itemId) } returns listOf(isBlockedByDep)
 
             val result =
