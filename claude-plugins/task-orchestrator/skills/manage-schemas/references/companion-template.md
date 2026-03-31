@@ -2,7 +2,7 @@
 
 Use this template when the user requests a companion skill in Step 4. Write to `.claude/skills/<schema-name>/SKILL.md`. Create the directory if it doesn't exist. This is a project-local skill available immediately as `/<schema-name>` — no plugin version bump required.
 
-Replace all `<placeholders>` with actual values from the schema built in Steps 1-2.
+Replace all `<placeholders>` with actual values from the schema built in Steps 1-2. Guidance text from the schema may contain markdown (bold headers, bullet points). Render it verbatim in the `**What to write:**` line — do not reformat.
 
 ---
 
