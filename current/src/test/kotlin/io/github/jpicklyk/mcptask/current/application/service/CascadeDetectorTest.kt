@@ -303,6 +303,79 @@ class CascadeDetectorTest {
     }
 
     // -----------------------------------------------------------------------
+    // Reopen Cascade Detection Tests
+    // -----------------------------------------------------------------------
+
+    @Nested
+    inner class DetectReopenCascades {
+        @Test
+        fun `item in QUEUE with parent in TERMINAL returns cascade event TERMINAL to WORK`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.TERMINAL)
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val result = detector.detectReopenCascades(child, workItemRepository)
+                assertEquals(1, result.size)
+                assertEquals(parentId, result[0].itemId)
+                assertEquals(Role.TERMINAL, result[0].currentRole)
+                assertEquals(Role.WORK, result[0].targetRole)
+                assertEquals("cascade", result[0].trigger)
+            }
+
+        @Test
+        fun `item in QUEUE with parent in WORK returns empty`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.WORK)
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val result = detector.detectReopenCascades(child, workItemRepository)
+                assertTrue(result.isEmpty())
+            }
+
+        @Test
+        fun `item not in QUEUE returns empty immediately`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                // Item is in TERMINAL role, not QUEUE — no reopen cascade applies
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                val result = detector.detectReopenCascades(child, workItemRepository)
+                assertTrue(result.isEmpty())
+            }
+
+        @Test
+        fun `item in QUEUE with no parent returns empty`() =
+            runBlocking {
+                val child = workItem(role = Role.QUEUE)
+
+                val result = detector.detectReopenCascades(child, workItemRepository)
+                assertTrue(result.isEmpty())
+            }
+
+        @Test
+        fun `parent fetch error returns empty`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns
+                    Result.Error(
+                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
+                            .DatabaseError("DB error")
+                    )
+
+                val result = detector.detectReopenCascades(child, workItemRepository)
+                assertTrue(result.isEmpty())
+            }
+    }
+
+    // -----------------------------------------------------------------------
     // Unblock Detection Tests
     // -----------------------------------------------------------------------
 

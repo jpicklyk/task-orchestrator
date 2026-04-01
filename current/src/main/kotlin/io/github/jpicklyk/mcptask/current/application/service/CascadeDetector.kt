@@ -40,6 +40,24 @@ data class UnblockedItem(
  *
  * 2. **Unblock detection** -- when a WorkItem transitions, find any downstream items
  *    whose incoming blocking dependencies are now fully satisfied.
+ *
+ * ## Transaction-gap caveat
+ *
+ * Detection and application are intentionally **separate transactions**. The detect phase
+ * reads a snapshot of DB state, computes which cascade events are warranted, and returns
+ * them to the caller. The caller then applies each event in its own transaction. No single
+ * transaction spans both detect and apply.
+ *
+ * In theory this creates a window where concurrent writers could observe stale state
+ * (e.g. a sibling's role changes between detect and apply). In practice SQLite's
+ * single-writer model means only one write can proceed at a time, which eliminates
+ * the concurrency risk for the common deployment scenario.
+ *
+ * For multi-level hierarchies (child → parent → grandparent), [AdvanceItemTool]
+ * compensates with an **iterative detect-apply loop**: after each cascade event is
+ * applied and persisted, detection is re-run on the newly advanced item with fresh
+ * DB state. This ensures each level's decision is based on accurate, up-to-date data.
+ * The split-transaction design is intentional — not a bug.
  */
 class CascadeDetector {
     companion object {
