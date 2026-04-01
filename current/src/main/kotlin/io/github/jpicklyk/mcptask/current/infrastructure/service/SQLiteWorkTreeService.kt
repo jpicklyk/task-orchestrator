@@ -7,17 +7,14 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.v1.core.and
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import org.jetbrains.exposed.v1.jdbc.insert
-import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
-import org.jetbrains.exposed.v1.jdbc.update
-import java.time.Instant
 import java.util.UUID
 
 /**
@@ -28,36 +25,21 @@ import java.util.UUID
  * during execution causes a full rollback — no orphaned rows.
  */
 class SQLiteWorkTreeService(
-    private val databaseManager: DatabaseManager
+    private val databaseManager: DatabaseManager,
+    private val workItemRepo: SQLiteWorkItemRepository,
+    private val noteRepo: SQLiteNoteRepository
 ) : WorkTreeExecutor {
     override suspend fun execute(input: WorkTreeInput): WorkTreeResult =
         newSuspendedTransaction(db = databaseManager.getDatabase()) {
-            val createdItems = mutableListOf<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>()
+            val createdItems = mutableListOf<WorkItem>()
             val refToId = mutableMapOf<String, UUID>()
             val itemIdToRef = input.refToItem.entries.associate { (ref, item) -> item.id to ref }
 
-            // 1. Insert all WorkItems using WorkItemsTable directly
+            // 1. Insert all WorkItems via shared helper (no inner transaction)
             for (item in input.items) {
-                item.validate()
-                WorkItemsTable.insert {
-                    it[id] = item.id
-                    it[parentId] = item.parentId
-                    it[title] = item.title
-                    it[description] = item.description
-                    it[summary] = item.summary
-                    it[role] = item.role.name.lowercase()
-                    it[statusLabel] = item.statusLabel
-                    it[previousRole] = item.previousRole?.name?.lowercase()
-                    it[priority] = item.priority.name.lowercase()
-                    it[complexity] = item.complexity
-                    it[requiresVerification] = item.requiresVerification
-                    it[depth] = item.depth
-                    it[metadata] = item.metadata
-                    it[tags] = item.tags
-                    it[createdAt] = item.createdAt
-                    it[modifiedAt] = item.modifiedAt
-                    it[roleChangedAt] = item.roleChangedAt
-                    it[version] = item.version
+                val insertResult = workItemRepo.insertRow(item)
+                if (insertResult is Result.Error) {
+                    throw IllegalStateException("Failed to insert WorkItem '${item.id}': ${insertResult.error.message}")
                 }
                 createdItems.add(item)
                 val ref = itemIdToRef[item.id]
@@ -96,35 +78,12 @@ class SQLiteWorkTreeService(
                 createdDeps.add(dep)
             }
 
-            // 3. Upsert notes using NotesTable directly
+            // 3. Upsert notes via shared helper (no inner transaction)
             val createdNotes = mutableListOf<Note>()
             for (note in input.notes) {
-                note.validate()
-                val existing =
-                    NotesTable
-                        .selectAll()
-                        .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
-                        .singleOrNull()
-                if (existing != null) {
-                    val existingId = existing[NotesTable.id].value
-                    val now = Instant.now()
-                    NotesTable.update({ NotesTable.id eq existingId }) {
-                        it[body] = note.body
-                        it[role] = note.role
-                        it[modifiedAt] = now
-                    }
-                    createdNotes.add(note.copy(id = existingId, modifiedAt = now))
-                } else {
-                    NotesTable.insert {
-                        it[id] = note.id
-                        it[itemId] = note.itemId
-                        it[key] = note.key
-                        it[role] = note.role
-                        it[body] = note.body
-                        it[createdAt] = note.createdAt
-                        it[modifiedAt] = note.modifiedAt
-                    }
-                    createdNotes.add(note)
+                when (val upsertResult = noteRepo.upsertRow(note)) {
+                    is Result.Success -> createdNotes.add(upsertResult.data)
+                    is Result.Error -> throw IllegalStateException("Failed to upsert Note '${note.id}': ${upsertResult.error.message}")
                 }
             }
 

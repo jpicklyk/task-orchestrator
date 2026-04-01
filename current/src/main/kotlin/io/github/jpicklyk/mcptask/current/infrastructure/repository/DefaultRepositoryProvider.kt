@@ -22,7 +22,7 @@ class DefaultRepositoryProvider(
     private val noteRepo by lazy { SQLiteNoteRepository(databaseManager) }
     private val dependencyRepo by lazy { SQLiteDependencyRepository(databaseManager) }
     private val roleTransitionRepo by lazy { SQLiteRoleTransitionRepository(databaseManager) }
-    private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager) }
+    private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager, workItemRepo, noteRepo) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
 

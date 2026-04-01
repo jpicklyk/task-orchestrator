@@ -58,7 +58,7 @@ class WorkTreeServiceIntegrationTest {
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
         dependencyRepository = repositoryProvider.dependencyRepository() as SQLiteDependencyRepository
 
-        service = SQLiteWorkTreeService(databaseManager)
+        service = SQLiteWorkTreeService(databaseManager, workItemRepository, noteRepository)
     }
 
     // ──────────────────────────────────────────────────────────────────────────

@@ -33,40 +33,52 @@ class SQLiteNoteRepository(
             }
         }
 
+    /**
+     * Upserts a single [Note] row in [NotesTable] using select-then-update-or-insert logic.
+     *
+     * **Must be called within an existing transaction** — this function does NOT open its own
+     * transaction. Use [upsert] for the public API that wraps this in a transaction.
+     *
+     * Returns the note with the correct ID and timestamps (existing ID on update, original on insert).
+     */
+    internal fun upsertRow(note: Note): Result<Note> {
+        note.validate()
+        // Check if a note with the same (itemId, key) already exists
+        val existing =
+            NotesTable
+                .selectAll()
+                .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
+                .singleOrNull()
+
+        return if (existing != null) {
+            // Update existing note
+            val existingId = existing[NotesTable.id].value
+            val now = Instant.now()
+            NotesTable.update({ NotesTable.id eq existingId }) {
+                it[body] = note.body
+                it[role] = note.role
+                it[modifiedAt] = now
+            }
+            // Return the updated note with the existing ID and updated timestamp
+            Result.Success(note.copy(id = existingId, modifiedAt = now))
+        } else {
+            // Insert new note
+            NotesTable.insert {
+                it[id] = note.id
+                it[itemId] = note.itemId
+                it[key] = note.key
+                it[role] = note.role
+                it[body] = note.body
+                it[createdAt] = note.createdAt
+                it[modifiedAt] = note.modifiedAt
+            }
+            Result.Success(note)
+        }
+    }
+
     override suspend fun upsert(note: Note): Result<Note> =
         databaseManager.suspendedTransaction("Failed to upsert Note") {
-            note.validate()
-            // Check if a note with the same (itemId, key) already exists
-            val existing =
-                NotesTable
-                    .selectAll()
-                    .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
-                    .singleOrNull()
-
-            if (existing != null) {
-                // Update existing note
-                val existingId = existing[NotesTable.id].value
-                val now = Instant.now()
-                NotesTable.update({ NotesTable.id eq existingId }) {
-                    it[body] = note.body
-                    it[role] = note.role
-                    it[modifiedAt] = now
-                }
-                // Return the updated note with the existing ID and updated timestamp
-                Result.Success(note.copy(id = existingId, modifiedAt = now))
-            } else {
-                // Insert new note
-                NotesTable.insert {
-                    it[id] = note.id
-                    it[itemId] = note.itemId
-                    it[key] = note.key
-                    it[role] = note.role
-                    it[body] = note.body
-                    it[createdAt] = note.createdAt
-                    it[modifiedAt] = note.modifiedAt
-                }
-                Result.Success(note)
-            }
+            upsertRow(note)
         }
 
     override suspend fun delete(id: UUID): Result<Boolean> =
