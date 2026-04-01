@@ -251,4 +251,53 @@ class SQLiteNoteRepositoryTest {
             assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
             assertTrue(result.data.isEmpty())
         }
+
+    // --- M5: ID-preservation and createdAt immutability on upsert ---
+
+    @Test
+    fun `upsert preserves original note id and createdAt on update`(): Unit =
+        runBlocking {
+            // Insert the original note
+            val originalNote = Note(itemId = testItemId, key = "immutable-key", role = "queue", body = "Original body")
+            val insertResult = noteRepository.upsert(originalNote)
+            assertIs<Result.Success<Note>>(insertResult)
+            val inserted = insertResult.data
+
+            val originalId = inserted.id
+            val originalCreatedAt = inserted.createdAt
+            val originalModifiedAt = inserted.modifiedAt
+
+            // Small sleep to ensure modifiedAt timestamp will differ
+            Thread.sleep(5)
+
+            // Upsert again with same (itemId, key) but different body
+            val updatedNote = Note(itemId = testItemId, key = "immutable-key", role = "work", body = "Updated body")
+            val updateResult = noteRepository.upsert(updatedNote)
+            assertIs<Result.Success<Note>>(updateResult)
+            val updated = updateResult.data
+
+            // ID must be the same as the original (not the new note's UUID)
+            assertEquals(originalId, updated.id, "Note id must be preserved on upsert update")
+
+            // Body must reflect the new content
+            assertEquals("Updated body", updated.body, "Body should be updated")
+
+            // modifiedAt must have advanced
+            assertTrue(
+                updated.modifiedAt.isAfter(originalModifiedAt) || updated.modifiedAt == originalModifiedAt,
+                "modifiedAt should be updated or equal (clock resolution)"
+            )
+
+            // Read back from DB to verify createdAt immutability
+            val fromDb = noteRepository.getById(originalId)
+            assertIs<Result.Success<Note>>(fromDb)
+            val dbNote = fromDb.data
+            assertEquals(originalId, dbNote.id, "DB note id should match original")
+            assertEquals("Updated body", dbNote.body, "DB note body should be updated")
+            assertEquals(
+                originalCreatedAt.epochSecond,
+                dbNote.createdAt.epochSecond,
+                "createdAt in DB should not be changed by upsert update"
+            )
+        }
 }
