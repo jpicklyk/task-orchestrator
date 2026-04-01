@@ -1607,4 +1607,45 @@ class ManageItemsToolTest {
             val item = data["items"]!!.jsonArray[0] as JsonObject
             assertEquals("work", item["role"]!!.jsonPrimitive.content)
         }
+
+    // --- Gap M6: schema returns emptyList() (not null) for matching tags ---
+
+    @Test
+    fun `create item with tags matching schema that returns empty list includes schemaMatch true and empty expectedNotes`(): Unit =
+        runBlocking {
+            // When getSchemaForTags returns emptyList() (non-null but zero entries),
+            // schemaMatch is true (a schema was found) and expectedNotes is an empty array.
+            val mockSchema =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.contains("empty-schema-tag")) emptyList() else null
+                }
+            val schemaContext = contextWithSchema(mockSchema)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Item with empty-schema tag"))
+                                        put("tags", JsonPrimitive("empty-schema-tag"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["created"]!!.jsonPrimitive.int)
+
+            val item = data["items"]!!.jsonArray[0] as JsonObject
+            assertEquals("empty-schema-tag", item["tags"]!!.jsonPrimitive.content)
+            assertTrue(item["schemaMatch"]!!.jsonPrimitive.boolean, "schemaMatch should be true when schema returns non-null")
+            assertEquals(0, item["expectedNotes"]!!.jsonArray.size, "expectedNotes should be empty array for zero-entry schema")
+        }
 }
