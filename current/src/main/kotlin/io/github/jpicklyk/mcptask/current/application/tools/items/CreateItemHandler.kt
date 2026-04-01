@@ -151,9 +151,10 @@ class CreateItemHandler(
                                 } else {
                                     put("tags", JsonNull)
                                 }
-                                if (!schemaEntries.isNullOrEmpty()) {
-                                    put(
-                                        "expectedNotes",
+                                put("schemaMatch", JsonPrimitive(schemaEntries != null))
+                                put(
+                                    "expectedNotes",
+                                    if (!schemaEntries.isNullOrEmpty()) {
                                         JsonArray(
                                             schemaEntries.map { entry ->
                                                 buildJsonObject {
@@ -166,8 +167,10 @@ class CreateItemHandler(
                                                 }
                                             }
                                         )
-                                    )
-                                }
+                                    } else {
+                                        JsonArray(emptyList())
+                                    }
+                                )
                             }
                         )
                     }

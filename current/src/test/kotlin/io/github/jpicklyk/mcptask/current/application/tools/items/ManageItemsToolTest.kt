@@ -417,6 +417,7 @@ class ManageItemsToolTest {
 
             val item = data["items"]!!.jsonArray[0] as JsonObject
             assertEquals("feature-plan", item["tags"]!!.jsonPrimitive.content)
+            assertTrue(item["schemaMatch"]!!.jsonPrimitive.boolean)
 
             val expectedNotes = item["expectedNotes"]!!.jsonArray
             assertEquals(2, expectedNotes.size)
@@ -461,7 +462,9 @@ class ManageItemsToolTest {
             val item = data["items"]!!.jsonArray[0] as JsonObject
             assertTrue(item.containsKey("tags"))
             assertTrue(item["tags"] is JsonNull)
-            assertFalse(item.containsKey("expectedNotes"))
+            // No tags → schema lookup gets empty list → getSchemaForTags returns default or null
+            assertTrue(item.containsKey("expectedNotes"))
+            assertTrue(item.containsKey("schemaMatch"))
         }
 
     @Test
@@ -496,7 +499,10 @@ class ManageItemsToolTest {
 
             val item = data["items"]!!.jsonArray[0] as JsonObject
             assertEquals("backend,api", item["tags"]!!.jsonPrimitive.content)
-            assertFalse(item.containsKey("expectedNotes"))
+            // Tags don't match any schema → expectedNotes is empty array, schemaMatch is false
+            assertTrue(item.containsKey("expectedNotes"))
+            assertEquals(0, item["expectedNotes"]!!.jsonArray.size)
+            assertFalse(item["schemaMatch"]!!.jsonPrimitive.boolean)
         }
 
     // ──────────────────────────────────────────────

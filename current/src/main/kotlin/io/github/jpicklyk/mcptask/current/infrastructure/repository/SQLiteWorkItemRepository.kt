@@ -258,7 +258,7 @@ class SQLiteWorkItemRepository(
                 baseQuery
                     .orderBy(sortColumn, order)
                     .limit(limit)
-                    .offset(offset.coerceAtLeast(0).toLong())
+                    .offset(offset.coerceAtLeast(0).toLong()) // No upper bound needed — absurd values safely return empty results
                     .mapNotNull { toWorkItemOrNull(it) }
 
             Result.Success(items)
