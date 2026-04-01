@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -160,19 +161,12 @@ Parameters:
         val notesByKey = notes.associateBy { it.key }
 
         // Build schema list with exists/filled status
-        val schemaEntries =
-            schema?.map { entry ->
-                val note = notesByKey[entry.key]
-                buildJsonObject {
-                    put("key", JsonPrimitive(entry.key))
-                    put("role", JsonPrimitive(entry.role.toJsonString()))
-                    put("required", JsonPrimitive(entry.required))
-                    put("description", JsonPrimitive(entry.description))
-                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                    put("exists", JsonPrimitive(note != null))
-                    put("filled", JsonPrimitive(note != null && note.body.isNotBlank()))
-                }
-            } ?: emptyList()
+        val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+        val schemaEntriesArray = buildExpectedNotesJson(
+            schema = schema,
+            existingNoteKeys = notesByKey.keys,
+            filledNoteKeys = filledKeys
+        )
 
         // Gate status for current phase — uses shared computation
         val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
@@ -206,7 +200,7 @@ Parameters:
                         if (includeAncestors) put("ancestors", ancestorsJson)
                     }
                 )
-                put("schema", JsonArray(schemaEntries))
+                put("schema", schemaEntriesArray)
                 put(
                     "gateStatus",
                     buildJsonObject {

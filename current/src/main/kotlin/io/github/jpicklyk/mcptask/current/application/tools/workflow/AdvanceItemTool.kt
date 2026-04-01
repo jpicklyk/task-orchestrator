@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.CascadeDetector
 import io.github.jpicklyk.mcptask.current.application.service.CascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -453,20 +454,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 val existingKeys = notesByKey.keys
 
                 // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
-                val forNewRole = schema.filter { it.role == targetRole }
-                expectedNotesJson =
-                    JsonArray(
-                        forNewRole.map { entry ->
-                            buildJsonObject {
-                                put("key", JsonPrimitive(entry.key))
-                                put("role", JsonPrimitive(entry.role.toJsonString()))
-                                put("required", JsonPrimitive(entry.required))
-                                put("description", JsonPrimitive(entry.description))
-                                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                put("exists", JsonPrimitive(entry.key in existingKeys))
-                            }
-                        }
-                    )
+                expectedNotesJson = buildExpectedNotesJson(
+                    schema = schema,
+                    existingNoteKeys = existingKeys,
+                    filterRole = targetRole
+                )
 
                 // Use shared PhaseNoteContext for guidancePointer and noteProgress
                 val phaseContext = computePhaseNoteContext(targetRole, schema, notesByKey)

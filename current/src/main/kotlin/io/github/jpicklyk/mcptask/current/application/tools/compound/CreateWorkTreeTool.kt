@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
+import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -351,6 +352,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val idToRef = treeResult.refToId.entries.associate { (ref, id) -> id to ref }
 
         val rootResultItem = treeResult.items.first()
+        val rootSchemaFields = buildSchemaResponseFields(
+            context.noteSchemaService().getSchemaForTags(rootResultItem.tagList())
+        )
         val rootJson =
             buildJsonObject {
                 put("id", JsonPrimitive(rootResultItem.id.toString()))
@@ -358,33 +362,17 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 put("role", JsonPrimitive(rootResultItem.role.toJsonString()))
                 put("depth", JsonPrimitive(rootResultItem.depth))
                 rootResultItem.tags?.let { put("tags", JsonPrimitive(it)) }
-                // Add expectedNotes from schema
-                rootResultItem.tags?.let { tags ->
-                    val schemaEntries = context.noteSchemaService().getSchemaForTags(rootResultItem.tagList())
-                    if (!schemaEntries.isNullOrEmpty()) {
-                        put(
-                            "expectedNotes",
-                            JsonArray(
-                                schemaEntries.map { entry ->
-                                    buildJsonObject {
-                                        put("key", JsonPrimitive(entry.key))
-                                        put("role", JsonPrimitive(entry.role.toJsonString()))
-                                        put("required", JsonPrimitive(entry.required))
-                                        put("description", JsonPrimitive(entry.description))
-                                        entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                        put("exists", JsonPrimitive(false))
-                                    }
-                                }
-                            )
-                        )
-                    }
-                }
+                put("schemaMatch", JsonPrimitive(rootSchemaFields.schemaMatch))
+                put("expectedNotes", rootSchemaFields.expectedNotes)
             }
 
         val childrenJson =
             JsonArray(
                 treeResult.items.drop(1).map { item ->
                     val ref = idToRef[item.id] ?: "unknown"
+                    val childSchemaFields = buildSchemaResponseFields(
+                        context.noteSchemaService().getSchemaForTags(item.tagList())
+                    )
                     buildJsonObject {
                         put("ref", JsonPrimitive(ref))
                         put("id", JsonPrimitive(item.id.toString()))
@@ -392,27 +380,8 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                         put("role", JsonPrimitive(item.role.toJsonString()))
                         put("depth", JsonPrimitive(item.depth))
                         item.tags?.let { put("tags", JsonPrimitive(it)) }
-                        // Add expectedNotes from schema
-                        item.tags?.let {
-                            val schemaEntries = context.noteSchemaService().getSchemaForTags(item.tagList())
-                            if (!schemaEntries.isNullOrEmpty()) {
-                                put(
-                                    "expectedNotes",
-                                    JsonArray(
-                                        schemaEntries.map { entry ->
-                                            buildJsonObject {
-                                                put("key", JsonPrimitive(entry.key))
-                                                put("role", JsonPrimitive(entry.role.toJsonString()))
-                                                put("required", JsonPrimitive(entry.required))
-                                                put("description", JsonPrimitive(entry.description))
-                                                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                                put("exists", JsonPrimitive(false))
-                                            }
-                                        }
-                                    )
-                                )
-                            }
-                        }
+                        put("schemaMatch", JsonPrimitive(childSchemaFields.schemaMatch))
+                        put("expectedNotes", childSchemaFields.expectedNotes)
                     }
                 }
             )

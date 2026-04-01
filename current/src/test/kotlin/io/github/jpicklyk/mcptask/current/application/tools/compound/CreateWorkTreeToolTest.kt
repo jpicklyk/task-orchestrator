@@ -741,6 +741,8 @@ class CreateWorkTreeToolTest {
             val data = extractData(result)
             val rootJson = data["root"]!!.jsonObject
             assertTrue(rootJson.containsKey("expectedNotes"), "Root JSON should contain 'expectedNotes' key")
+            assertTrue(rootJson.containsKey("schemaMatch"), "Root JSON should contain 'schemaMatch' key")
+            assertTrue(rootJson["schemaMatch"]!!.jsonPrimitive.boolean, "schemaMatch should be true when schema matched")
 
             val expectedNotes = rootJson["expectedNotes"]!!.jsonArray
             assertEquals(2, expectedNotes.size, "Expected 2 schema entries in expectedNotes")
@@ -819,14 +821,19 @@ class CreateWorkTreeToolTest {
 
             val data = extractData(result)
 
-            // Root should NOT have expectedNotes (no schema match)
+            // Root should have schemaMatch=false and empty expectedNotes (no schema match)
             val rootJson = data["root"]!!.jsonObject
-            assertFalse(rootJson.containsKey("expectedNotes"), "Root should not contain 'expectedNotes' when no schema matches")
+            assertTrue(rootJson.containsKey("schemaMatch"), "Root should always contain 'schemaMatch' key")
+            assertFalse(rootJson["schemaMatch"]!!.jsonPrimitive.boolean, "Root schemaMatch should be false when no schema matches")
+            assertTrue(rootJson.containsKey("expectedNotes"), "Root should always contain 'expectedNotes' key")
+            assertEquals(0, rootJson["expectedNotes"]!!.jsonArray.size, "Root expectedNotes should be empty when no schema matches")
 
-            // Child should have expectedNotes
+            // Child should have schemaMatch=true and populated expectedNotes
             val childrenArr = data["children"]!!.jsonArray
             assertEquals(1, childrenArr.size)
             val childJson = childrenArr[0].jsonObject
+            assertTrue(childJson.containsKey("schemaMatch"), "Child JSON should contain 'schemaMatch' key")
+            assertTrue(childJson["schemaMatch"]!!.jsonPrimitive.boolean, "Child schemaMatch should be true when schema matched")
             assertTrue(childJson.containsKey("expectedNotes"), "Child JSON should contain 'expectedNotes' key")
 
             val expectedNotes = childJson["expectedNotes"]!!.jsonArray
@@ -887,13 +894,19 @@ class CreateWorkTreeToolTest {
 
             val data = extractData(result)
 
-            // Neither root nor child should have expectedNotes when schema returns null
+            // Both root and child should have schemaMatch=false and empty expectedNotes when schema returns null
             val rootJson = data["root"]!!.jsonObject
-            assertFalse(rootJson.containsKey("expectedNotes"), "Root should not contain 'expectedNotes' when schema returns null")
+            assertTrue(rootJson.containsKey("schemaMatch"), "Root should always contain 'schemaMatch' key")
+            assertFalse(rootJson["schemaMatch"]!!.jsonPrimitive.boolean, "Root schemaMatch should be false when schema returns null")
+            assertTrue(rootJson.containsKey("expectedNotes"), "Root should always contain 'expectedNotes' key")
+            assertEquals(0, rootJson["expectedNotes"]!!.jsonArray.size, "Root expectedNotes should be empty when schema returns null")
 
             val childrenArr = data["children"]!!.jsonArray
             assertEquals(1, childrenArr.size)
             val childJson = childrenArr[0].jsonObject
-            assertFalse(childJson.containsKey("expectedNotes"), "Child should not contain 'expectedNotes' when schema returns null")
+            assertTrue(childJson.containsKey("schemaMatch"), "Child should always contain 'schemaMatch' key")
+            assertFalse(childJson["schemaMatch"]!!.jsonPrimitive.boolean, "Child schemaMatch should be false when schema returns null")
+            assertTrue(childJson.containsKey("expectedNotes"), "Child should always contain 'expectedNotes' key")
+            assertEquals(0, childJson["expectedNotes"]!!.jsonArray.size, "Child expectedNotes should be empty when schema returns null")
         }
 }

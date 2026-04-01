@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -138,6 +139,7 @@ class CreateItemHandler(
                                 ?.filter { it.isNotBlank() }
                                 ?: emptyList()
                         val schemaEntries = context.noteSchemaService().getSchemaForTags(tagList)
+                        val schemaFields = buildSchemaResponseFields(schemaEntries)
                         createdItems.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(result.data.id.toString()))
@@ -151,26 +153,8 @@ class CreateItemHandler(
                                 } else {
                                     put("tags", JsonNull)
                                 }
-                                put("schemaMatch", JsonPrimitive(schemaEntries != null))
-                                put(
-                                    "expectedNotes",
-                                    if (!schemaEntries.isNullOrEmpty()) {
-                                        JsonArray(
-                                            schemaEntries.map { entry ->
-                                                buildJsonObject {
-                                                    put("key", JsonPrimitive(entry.key))
-                                                    put("role", JsonPrimitive(entry.role.toJsonString()))
-                                                    put("required", JsonPrimitive(entry.required))
-                                                    put("description", JsonPrimitive(entry.description))
-                                                    entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                                    put("exists", JsonPrimitive(false))
-                                                }
-                                            }
-                                        )
-                                    } else {
-                                        JsonArray(emptyList())
-                                    }
-                                )
+                                put("schemaMatch", JsonPrimitive(schemaFields.schemaMatch))
+                                put("expectedNotes", schemaFields.expectedNotes)
                             }
                         )
                     }
