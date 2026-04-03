@@ -1,21 +1,38 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.io.FileReader
 import java.nio.file.Paths
 
 /**
- * YAML-backed implementation of [NoteSchemaService].
+ * YAML-backed implementation of [WorkItemSchemaService].
  *
  * Reads note schemas from `.taskorchestrator/config.yaml` in the project root.
  * The project root is resolved from the `AGENT_CONFIG_DIR` environment variable,
  * falling back to `user.dir` if not set.
  *
- * Expected YAML structure:
+ * Supports two YAML formats:
+ *
+ * **New format** (`work_item_schemas:`) — supports lifecycle mode per schema:
+ * ```yaml
+ * work_item_schemas:
+ *   feature-implementation:
+ *     lifecycle: auto          # parsed via LifecycleMode.fromString()
+ *     notes:
+ *       - key: specification
+ *         role: queue
+ *         required: true
+ *         description: "..."
+ *         guidance: "..."
+ * ```
+ *
+ * **Legacy format** (`note_schemas:`) — backward compatible, lifecycle defaults to AUTO:
  * ```yaml
  * note_schemas:
  *   schema-tag-name:
@@ -26,27 +43,34 @@ import java.nio.file.Paths
  *       guidance: "..."    # optional
  * ```
  *
+ * **Precedence**: if both `work_item_schemas:` and `note_schemas:` keys are present,
+ * `work_item_schemas:` wins entirely (legacy key is ignored).
+ *
  * Schema matching: The first tag in the provided list that matches a schema key wins.
  * If no config file is present, or no tags match, returns null (schema-free mode).
  */
-class YamlNoteSchemaService(
+class YamlWorkItemSchemaService(
     private val configPath: java.nio.file.Path = resolveDefaultConfigPath()
-) : NoteSchemaService {
-    private val logger = LoggerFactory.getLogger(YamlNoteSchemaService::class.java)
+) : WorkItemSchemaService {
+    private val logger = LoggerFactory.getLogger(YamlWorkItemSchemaService::class.java)
 
     /**
      * Holds the result of a schema load: the parsed schemas and any warnings collected.
      */
     private data class SchemaLoadResult(
         val schemas: Map<String, List<NoteSchemaEntry>>,
+        val workItemSchemas: Map<String, WorkItemSchema>,
         val warnings: MutableList<String>
     )
 
     /** Lazily loaded schema cache and warnings. Initialized once on first access. */
     private val loadResult: SchemaLoadResult by lazy { loadSchemas() }
 
-    /** Lazily loaded schema cache. Null until first access. Empty map if file missing. */
+    /** Lazily loaded tag→entries schema cache. */
     private val schemas: Map<String, List<NoteSchemaEntry>> get() = loadResult.schemas
+
+    /** Lazily loaded type→WorkItemSchema cache. */
+    private val workItemSchemas: Map<String, WorkItemSchema> get() = loadResult.workItemSchemas
 
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
         for (tag in tags) {
@@ -54,6 +78,11 @@ class YamlNoteSchemaService(
             if (schema != null) return schema
         }
         return schemas["default"]
+    }
+
+    override fun getSchemaForType(type: String?): WorkItemSchema? {
+        if (type == null) return null
+        return workItemSchemas[type] ?: workItemSchemas["default"]
     }
 
     override fun getLoadWarnings(): List<String> = loadResult.warnings
@@ -64,52 +93,119 @@ class YamlNoteSchemaService(
 
         if (!configPath.toFile().exists()) {
             logger.debug("No config file found at {}; running in schema-free mode", configPath)
-            return SchemaLoadResult(emptyMap(), warnings)
+            return SchemaLoadResult(emptyMap(), emptyMap(), warnings)
         }
 
-        val schemas =
-            try {
-                val yaml = Yaml()
-                FileReader(configPath.toFile()).use { reader ->
-                    val root =
-                        yaml.load<Map<String, Any>>(reader)
-                            ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
+        return try {
+            val yaml = Yaml()
+            FileReader(configPath.toFile()).use { reader ->
+                val root =
+                    yaml.load<Map<String, Any>>(reader)
+                        ?: return@use SchemaLoadResult(emptyMap(), emptyMap(), warnings)
 
-                    if (!root.containsKey("note_schemas")) {
-                        warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
-                        return@use emptyMap()
+                when {
+                    root.containsKey("work_item_schemas") -> {
+                        parseWorkItemSchemas(root, warnings)
                     }
-
-                    val noteSchemas =
-                        root["note_schemas"] as? Map<String, Any>
-                            ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
-
-                    noteSchemas.entries.associate { (schemaName, rawEntries) ->
-                        val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
-                        val entries =
-                            entryList.mapIndexedNotNull { index, raw ->
-                                parseEntry(raw, schemaName, index, warnings)
-                            }
-                        schemaName to entries
+                    root.containsKey("note_schemas") -> {
+                        parseLegacyNoteSchemas(root, warnings)
+                    }
+                    else -> {
+                        warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
+                        SchemaLoadResult(emptyMap(), emptyMap(), warnings)
                     }
                 }
-            } catch (e: Exception) {
-                val msg = "Failed to load note schemas from '$configPath': ${e.message}"
-                warnings.add(msg)
-                logger.warn(msg)
-                emptyMap()
+            }
+        } catch (e: Exception) {
+            val msg = "Failed to load note schemas from '$configPath': ${e.message}"
+            warnings.add(msg)
+            logger.warn(msg)
+            SchemaLoadResult(emptyMap(), emptyMap(), warnings)
+        }.also { result ->
+            result.warnings.forEach { w -> logger.warn(w) }
+            val totalEntries = result.schemas.values.sumOf { it.size }
+            logger.info(
+                "Loaded {} schemas ({} entries, {} warnings)",
+                result.schemas.size,
+                totalEntries,
+                result.warnings.size
+            )
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseWorkItemSchemas(
+        root: Map<String, Any>,
+        warnings: MutableList<String>
+    ): SchemaLoadResult {
+        val rawSchemas =
+            root["work_item_schemas"] as? Map<String, Any>
+                ?: return SchemaLoadResult(emptyMap(), emptyMap(), warnings)
+
+        val schemasMap = mutableMapOf<String, List<NoteSchemaEntry>>()
+        val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
+
+        for ((schemaName, rawValue) in rawSchemas) {
+            val schemaMap = rawValue as? Map<String, Any> ?: continue
+
+            val lifecycleRaw = schemaMap["lifecycle"] as? String
+            val lifecycleMode = if (lifecycleRaw != null) {
+                val parsed = LifecycleMode.fromString(lifecycleRaw)
+                if (parsed == null) {
+                    warnings.add(
+                        "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
+                    )
+                    LifecycleMode.AUTO
+                } else {
+                    parsed
+                }
+            } else {
+                LifecycleMode.AUTO
             }
 
-        val totalEntries = schemas.values.sumOf { it.size }
-        warnings.forEach { w -> logger.warn(w) }
-        logger.info(
-            "Loaded {} schemas ({} entries, {} warnings)",
-            schemas.size,
-            totalEntries,
-            warnings.size
-        )
+            val rawNotes = schemaMap["notes"] as? List<Map<String, Any>> ?: emptyList()
+            val entries = rawNotes.mapIndexedNotNull { index, raw ->
+                parseEntry(raw, schemaName, index, warnings)
+            }
 
-        return SchemaLoadResult(schemas, warnings)
+            schemasMap[schemaName] = entries
+            workItemSchemasMap[schemaName] = WorkItemSchema(
+                type = schemaName,
+                lifecycleMode = lifecycleMode,
+                notes = entries
+            )
+        }
+
+        return SchemaLoadResult(schemasMap, workItemSchemasMap, warnings)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseLegacyNoteSchemas(
+        root: Map<String, Any>,
+        warnings: MutableList<String>
+    ): SchemaLoadResult {
+        val noteSchemas =
+            root["note_schemas"] as? Map<String, Any>
+                ?: return SchemaLoadResult(emptyMap(), emptyMap(), warnings)
+
+        val schemasMap = mutableMapOf<String, List<NoteSchemaEntry>>()
+        val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
+
+        for ((schemaName, rawEntries) in noteSchemas) {
+            val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
+            val entries = entryList.mapIndexedNotNull { index, raw ->
+                parseEntry(raw, schemaName, index, warnings)
+            }
+            schemasMap[schemaName] = entries
+            // Wrap into WorkItemSchema with AUTO lifecycle for backward compat
+            workItemSchemasMap[schemaName] = WorkItemSchema(
+                type = schemaName,
+                lifecycleMode = LifecycleMode.AUTO,
+                notes = entries
+            )
+        }
+
+        return SchemaLoadResult(schemasMap, workItemSchemasMap, warnings)
     }
 
     private fun parseEntry(
@@ -180,3 +276,9 @@ class YamlNoteSchemaService(
         }
     }
 }
+
+/**
+ * Backward-compatibility alias. All existing code importing [YamlNoteSchemaService] continues
+ * to compile without modification.
+ */
+typealias YamlNoteSchemaService = YamlWorkItemSchemaService
