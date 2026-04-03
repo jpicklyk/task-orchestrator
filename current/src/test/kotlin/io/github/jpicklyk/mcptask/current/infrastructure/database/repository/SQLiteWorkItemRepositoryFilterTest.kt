@@ -443,4 +443,45 @@ class SQLiteWorkItemRepositoryFilterTest {
             assertEquals(1, result.data.size)
             assertEquals("In range", result.data[0].title)
         }
+
+    // =====================================================================
+    // type filter tests
+    // =====================================================================
+
+    @Test
+    fun `findByFilters by type returns matching items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature item", type = "feature"))
+            repository.create(WorkItem(title = "Bug item", type = "bug"))
+            repository.create(WorkItem(title = "No type item"))
+
+            val result = repository.findByFilters(type = "feature")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size)
+            assertEquals("Feature item", result.data[0].title)
+        }
+
+    @Test
+    fun `findByFilters with null type returns all items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature item", type = "feature"))
+            repository.create(WorkItem(title = "Bug item", type = "bug"))
+            repository.create(WorkItem(title = "No type item"))
+
+            val result = repository.findByFilters(type = null)
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(3, result.data.size)
+        }
+
+    @Test
+    fun `countByFilters by type counts only matching items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature 1", type = "feature"))
+            repository.create(WorkItem(title = "Feature 2", type = "feature"))
+            repository.create(WorkItem(title = "Bug item", type = "bug"))
+
+            val result = repository.countByFilters(type = "feature")
+            assertIs<Result.Success<Int>>(result)
+            assertEquals(2, result.data)
+        }
 }

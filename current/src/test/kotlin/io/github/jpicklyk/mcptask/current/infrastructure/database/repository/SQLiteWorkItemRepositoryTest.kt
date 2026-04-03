@@ -331,4 +331,60 @@ class SQLiteWorkItemRepositoryTest : BaseRepositoryTest() {
             assertIs<Result.Error>(result)
             assertIs<RepositoryError.NotFound>(result.error)
         }
+
+    // --- type and properties persistence ---
+
+    @Test
+    fun `create and retrieve item with type and properties`() =
+        runBlocking {
+            val item = WorkItem(title = "Typed item", type = "feature", properties = """{"foo":"bar"}""")
+            repository.create(item)
+
+            val result = repository.getById(item.id)
+            assertIs<Result.Success<WorkItem>>(result)
+            assertEquals("feature", result.data.type)
+            assertEquals("""{"foo":"bar"}""", result.data.properties)
+        }
+
+    @Test
+    fun `type and properties default to null when not provided`() =
+        runBlocking {
+            val item = WorkItem(title = "No type item")
+            repository.create(item)
+
+            val result = repository.getById(item.id)
+            assertIs<Result.Success<WorkItem>>(result)
+            assertEquals(null, result.data.type)
+            assertEquals(null, result.data.properties)
+        }
+
+    @Test
+    fun `update preserves type and properties`() =
+        runBlocking {
+            val item = WorkItem(title = "Original", type = "bug", properties = """{"severity":"high"}""")
+            repository.create(item)
+
+            val updated = item.copy(title = "Updated")
+            repository.update(updated)
+
+            val result = repository.getById(item.id)
+            assertIs<Result.Success<WorkItem>>(result)
+            assertEquals("bug", result.data.type)
+            assertEquals("""{"severity":"high"}""", result.data.properties)
+        }
+
+    @Test
+    fun `update can change type and properties`() =
+        runBlocking {
+            val item = WorkItem(title = "Original", type = "task", properties = null)
+            repository.create(item)
+
+            val updated = item.copy(type = "feature", properties = """{"complexity":3}""")
+            repository.update(updated)
+
+            val result = repository.getById(item.id)
+            assertIs<Result.Success<WorkItem>>(result)
+            assertEquals("feature", result.data.type)
+            assertEquals("""{"complexity":3}""", result.data.properties)
+        }
 }

@@ -17,6 +17,8 @@ object WorkItemsTable : UUIDTable("work_items") {
     val depth = integer("depth").default(0)
     val metadata = text("metadata").nullable()
     val tags = text("tags").nullable()
+    val type = text("type").nullable()
+    val properties = text("properties").nullable()
     val createdAt = timestamp("created_at")
     val modifiedAt = timestamp("modified_at")
     val roleChangedAt = timestamp("role_changed_at")

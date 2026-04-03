@@ -61,7 +61,8 @@ interface WorkItemRepository {
         sortBy: String? = null,
         sortOrder: String? = null,
         limit: Int = 50,
-        offset: Int = 0
+        offset: Int = 0,
+        type: String? = null
     ): Result<List<WorkItem>>
 
     /**
@@ -80,7 +81,8 @@ interface WorkItemRepository {
         modifiedAfter: Instant? = null,
         modifiedBefore: Instant? = null,
         roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null
+        roleChangedBefore: Instant? = null,
+        type: String? = null
     ): Result<Int>
 
     /**
