@@ -593,7 +593,7 @@ other_config:
     // --- Gap M1: lazy init triggered by first call ---
 
     @Test
-    fun `schema loading is lazy — entry with typo role is skipped even on first call`(): Unit {
+    fun `schema loading is lazy — entry with typo role is skipped even on first call`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -622,7 +622,7 @@ note_schemas:
     }
 
     @Test
-    fun `lazy init produces consistent results across multiple calls`(): Unit {
+    fun `lazy init produces consistent results across multiple calls`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -655,7 +655,7 @@ note_schemas:
     // --- Gap M2: note_schemas value is wrong type (list instead of map) ---
 
     @Test
-    fun `note_schemas as list instead of map returns null without crashing`(): Unit {
+    fun `note_schemas as list instead of map returns null without crashing`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -674,7 +674,7 @@ note_schemas:
     }
 
     @Test
-    fun `note_schemas as list does not crash on empty tag list`(): Unit {
+    fun `note_schemas as list does not crash on empty tag list`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,

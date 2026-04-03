@@ -67,34 +67,38 @@ class YamlNoteSchemaService(
             return SchemaLoadResult(emptyMap(), warnings)
         }
 
-        val schemas = try {
-            val yaml = Yaml()
-            FileReader(configPath.toFile()).use { reader ->
-                val root = yaml.load<Map<String, Any>>(reader)
-                    ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
+        val schemas =
+            try {
+                val yaml = Yaml()
+                FileReader(configPath.toFile()).use { reader ->
+                    val root =
+                        yaml.load<Map<String, Any>>(reader)
+                            ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
 
-                if (!root.containsKey("note_schemas")) {
-                    warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
-                    return@use emptyMap()
-                }
-
-                val noteSchemas = root["note_schemas"] as? Map<String, Any>
-                    ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
-
-                noteSchemas.entries.associate { (schemaName, rawEntries) ->
-                    val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
-                    val entries = entryList.mapIndexedNotNull { index, raw ->
-                        parseEntry(raw, schemaName, index, warnings)
+                    if (!root.containsKey("note_schemas")) {
+                        warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
+                        return@use emptyMap()
                     }
-                    schemaName to entries
+
+                    val noteSchemas =
+                        root["note_schemas"] as? Map<String, Any>
+                            ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
+
+                    noteSchemas.entries.associate { (schemaName, rawEntries) ->
+                        val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
+                        val entries =
+                            entryList.mapIndexedNotNull { index, raw ->
+                                parseEntry(raw, schemaName, index, warnings)
+                            }
+                        schemaName to entries
+                    }
                 }
+            } catch (e: Exception) {
+                val msg = "Failed to load note schemas from '$configPath': ${e.message}"
+                warnings.add(msg)
+                logger.warn(msg)
+                emptyMap()
             }
-        } catch (e: Exception) {
-            val msg = "Failed to load note schemas from '${configPath}': ${e.message}"
-            warnings.add(msg)
-            logger.warn(msg)
-            emptyMap()
-        }
 
         val totalEntries = schemas.values.sumOf { it.size }
         warnings.forEach { w -> logger.warn(w) }
@@ -138,14 +142,15 @@ class YamlNoteSchemaService(
         }
 
         val requiredRaw = raw["required"]
-        val required = if (requiredRaw != null && requiredRaw !is Boolean) {
-            warnings.add(
-                "Schema '$schemaName' entry (key='$key') has non-boolean 'required' value '$requiredRaw'; defaulting to false"
-            )
-            false
-        } else {
-            requiredRaw as? Boolean ?: false
-        }
+        val required =
+            if (requiredRaw != null && requiredRaw !is Boolean) {
+                warnings.add(
+                    "Schema '$schemaName' entry (key='$key') has non-boolean 'required' value '$requiredRaw'; defaulting to false"
+                )
+                false
+            } else {
+                requiredRaw as? Boolean ?: false
+            }
 
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String

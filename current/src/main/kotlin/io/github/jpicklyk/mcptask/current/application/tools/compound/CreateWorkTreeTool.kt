@@ -352,9 +352,10 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val idToRef = treeResult.refToId.entries.associate { (ref, id) -> id to ref }
 
         val rootResultItem = treeResult.items.first()
-        val rootSchemaFields = buildSchemaResponseFields(
-            context.noteSchemaService().getSchemaForTags(rootResultItem.tagList())
-        )
+        val rootSchemaFields =
+            buildSchemaResponseFields(
+                context.noteSchemaService().getSchemaForTags(rootResultItem.tagList())
+            )
         val rootJson =
             buildJsonObject {
                 put("id", JsonPrimitive(rootResultItem.id.toString()))
@@ -370,9 +371,10 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             JsonArray(
                 treeResult.items.drop(1).map { item ->
                     val ref = idToRef[item.id] ?: "unknown"
-                    val childSchemaFields = buildSchemaResponseFields(
-                        context.noteSchemaService().getSchemaForTags(item.tagList())
-                    )
+                    val childSchemaFields =
+                        buildSchemaResponseFields(
+                            context.noteSchemaService().getSchemaForTags(item.tagList())
+                        )
                     buildJsonObject {
                         put("ref", JsonPrimitive(ref))
                         put("id", JsonPrimitive(item.id.toString()))

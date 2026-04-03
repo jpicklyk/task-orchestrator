@@ -454,11 +454,12 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 val existingKeys = notesByKey.keys
 
                 // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
-                expectedNotesJson = buildExpectedNotesJson(
-                    schema = schema,
-                    existingNoteKeys = existingKeys,
-                    filterRole = targetRole
-                )
+                expectedNotesJson =
+                    buildExpectedNotesJson(
+                        schema = schema,
+                        existingNoteKeys = existingKeys,
+                        filterRole = targetRole
+                    )
 
                 // Use shared PhaseNoteContext for guidancePointer and noteProgress
                 val phaseContext = computePhaseNoteContext(targetRole, schema, notesByKey)

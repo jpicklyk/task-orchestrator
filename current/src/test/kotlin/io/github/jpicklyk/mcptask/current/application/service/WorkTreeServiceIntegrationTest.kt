@@ -361,45 +361,49 @@ class WorkTreeServiceIntegrationTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `duplicate item UUID causes full transaction rollback`(): Unit = runBlocking {
-        val sharedId = UUID.randomUUID()
-        val firstItem = WorkItem(
-            id = sharedId,
-            title = "First Item",
-            role = Role.QUEUE,
-            depth = 0,
-            parentId = null,
-            priority = Priority.MEDIUM
-        )
-        // Second item intentionally reuses the same UUID — will trigger a PK violation
-        val secondItem = WorkItem(
-            id = sharedId,
-            title = "Duplicate ID Item",
-            role = Role.QUEUE,
-            depth = 1,
-            parentId = firstItem.id,
-            priority = Priority.MEDIUM
-        )
+    fun `duplicate item UUID causes full transaction rollback`(): Unit =
+        runBlocking {
+            val sharedId = UUID.randomUUID()
+            val firstItem =
+                WorkItem(
+                    id = sharedId,
+                    title = "First Item",
+                    role = Role.QUEUE,
+                    depth = 0,
+                    parentId = null,
+                    priority = Priority.MEDIUM
+                )
+            // Second item intentionally reuses the same UUID — will trigger a PK violation
+            val secondItem =
+                WorkItem(
+                    id = sharedId,
+                    title = "Duplicate ID Item",
+                    role = Role.QUEUE,
+                    depth = 1,
+                    parentId = firstItem.id,
+                    priority = Priority.MEDIUM
+                )
 
-        val input = WorkTreeInput(
-            items = listOf(firstItem, secondItem),
-            refToItem = mapOf("first" to firstItem, "second" to secondItem),
-            deps = emptyList(),
-            notes = emptyList()
-        )
+            val input =
+                WorkTreeInput(
+                    items = listOf(firstItem, secondItem),
+                    refToItem = mapOf("first" to firstItem, "second" to secondItem),
+                    deps = emptyList(),
+                    notes = emptyList()
+                )
 
-        // The duplicate PK insert must propagate an exception
-        assertThrows(Exception::class.java) {
-            runBlocking { service.execute(input) }
+            // The duplicate PK insert must propagate an exception
+            assertThrows(Exception::class.java) {
+                runBlocking { service.execute(input) }
+            }
+
+            // Neither item should be present — the whole transaction was rolled back
+            val fetchedFirst = workItemRepository.getById(sharedId)
+            assertTrue(
+                fetchedFirst is Result.Error,
+                "Item with duplicate UUID should NOT be in DB after rollback; got: $fetchedFirst"
+            )
         }
-
-        // Neither item should be present — the whole transaction was rolled back
-        val fetchedFirst = workItemRepository.getById(sharedId)
-        assertTrue(
-            fetchedFirst is Result.Error,
-            "Item with duplicate UUID should NOT be in DB after rollback; got: $fetchedFirst"
-        )
-    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // Test H2: Happy path with notes — items, dependency, AND notes all committed
@@ -410,51 +414,57 @@ class WorkTreeServiceIntegrationTest {
     @Test
     fun `happy path with notes - items, dependency, and notes committed atomically`(): Unit =
         runBlocking {
-            val rootItem = WorkItem(
-                id = UUID.randomUUID(),
-                title = "Root With Notes",
-                role = Role.QUEUE,
-                depth = 0,
-                parentId = null,
-                priority = Priority.MEDIUM
-            )
-            val childItem = WorkItem(
-                id = UUID.randomUUID(),
-                title = "Child With Notes",
-                role = Role.QUEUE,
-                depth = 1,
-                parentId = rootItem.id,
-                priority = Priority.MEDIUM
-            )
+            val rootItem =
+                WorkItem(
+                    id = UUID.randomUUID(),
+                    title = "Root With Notes",
+                    role = Role.QUEUE,
+                    depth = 0,
+                    parentId = null,
+                    priority = Priority.MEDIUM
+                )
+            val childItem =
+                WorkItem(
+                    id = UUID.randomUUID(),
+                    title = "Child With Notes",
+                    role = Role.QUEUE,
+                    depth = 1,
+                    parentId = rootItem.id,
+                    priority = Priority.MEDIUM
+                )
 
-            val note1 = io.github.jpicklyk.mcptask.current.domain.model.Note(
-                id = UUID.randomUUID(),
-                itemId = rootItem.id,
-                key = "requirements",
-                role = "queue",
-                body = "Root requirements note"
-            )
-            val note2 = io.github.jpicklyk.mcptask.current.domain.model.Note(
-                id = UUID.randomUUID(),
-                itemId = childItem.id,
-                key = "approach",
-                role = "work",
-                body = "Child approach note"
-            )
+            val note1 =
+                io.github.jpicklyk.mcptask.current.domain.model.Note(
+                    id = UUID.randomUUID(),
+                    itemId = rootItem.id,
+                    key = "requirements",
+                    role = "queue",
+                    body = "Root requirements note"
+                )
+            val note2 =
+                io.github.jpicklyk.mcptask.current.domain.model.Note(
+                    id = UUID.randomUUID(),
+                    itemId = childItem.id,
+                    key = "approach",
+                    role = "work",
+                    body = "Child approach note"
+                )
 
-            val input = WorkTreeInput(
-                items = listOf(rootItem, childItem),
-                refToItem = mapOf("root" to rootItem, "child" to childItem),
-                deps = listOf(
-                    TreeDepSpec(
-                        fromRef = "root",
-                        toRef = "child",
-                        type = DependencyType.BLOCKS,
-                        unblockAt = null
-                    )
-                ),
-                notes = listOf(note1, note2)
-            )
+            val input =
+                WorkTreeInput(
+                    items = listOf(rootItem, childItem),
+                    refToItem = mapOf("root" to rootItem, "child" to childItem),
+                    deps =
+                        listOf(
+                            TreeDepSpec(
+                                fromRef = "root",
+                                toRef = "child",
+                                type = DependencyType.BLOCKS,
+                                unblockAt = null
+                            )
+                        ),
+                    notes = listOf(note1, note2)
+                )
 
             val result = service.execute(input)
 

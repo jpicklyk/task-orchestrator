@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test
 import kotlin.test.*
 
 class SchemaEntryJsonBuilderTest {
-
     // ──────────────────────────────────────────────
     // buildExpectedNotesJson
     // ──────────────────────────────────────────────
@@ -26,10 +25,11 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `schema with entries and no existing notes has all exists false`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec desc"),
-            NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl desc")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec desc"),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl desc")
+            )
 
         val result = buildExpectedNotesJson(schema = schema)
 
@@ -49,15 +49,17 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `schema with existingNoteKeys reflects exists state correctly`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-            NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
+            )
 
-        val result = buildExpectedNotesJson(
-            schema = schema,
-            existingNoteKeys = setOf("spec")
-        )
+        val result =
+            buildExpectedNotesJson(
+                schema = schema,
+                existingNoteKeys = setOf("spec")
+            )
 
         assertEquals(2, result.size)
         val specEntry = result[0].jsonObject
@@ -69,16 +71,18 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `filledNoteKeys adds filled field and reflects state correctly`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-            NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
+            )
 
-        val result = buildExpectedNotesJson(
-            schema = schema,
-            existingNoteKeys = setOf("spec", "impl"),
-            filledNoteKeys = setOf("spec")
-        )
+        val result =
+            buildExpectedNotesJson(
+                schema = schema,
+                existingNoteKeys = setOf("spec", "impl"),
+                filledNoteKeys = setOf("spec")
+            )
 
         assertEquals(2, result.size)
         val specEntry = result[0].jsonObject
@@ -94,16 +98,18 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `filterRole only includes entries matching the specified role`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-            NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl"),
-            NoteSchemaEntry(key = "review-notes", role = Role.REVIEW, required = true, description = "Review")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl"),
+                NoteSchemaEntry(key = "review-notes", role = Role.REVIEW, required = true, description = "Review")
+            )
 
-        val result = buildExpectedNotesJson(
-            schema = schema,
-            filterRole = Role.WORK
-        )
+        val result =
+            buildExpectedNotesJson(
+                schema = schema,
+                filterRole = Role.WORK
+            )
 
         assertEquals(1, result.size)
         val entry = result[0].jsonObject
@@ -113,23 +119,26 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `filterRole with no matching entries returns empty array`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
+            )
 
-        val result = buildExpectedNotesJson(
-            schema = schema,
-            filterRole = Role.REVIEW
-        )
+        val result =
+            buildExpectedNotesJson(
+                schema = schema,
+                filterRole = Role.REVIEW
+            )
 
         assertEquals(0, result.size)
     }
 
     @Test
     fun `entry with null guidance omits guidance field`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", guidance = null)
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", guidance = null)
+            )
 
         val result = buildExpectedNotesJson(schema = schema)
 
@@ -140,9 +149,10 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `entry with non-null guidance includes guidance field`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", guidance = "Do it this way")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", guidance = "Do it this way")
+            )
 
         val result = buildExpectedNotesJson(schema = schema)
 
@@ -154,15 +164,17 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `null filledNoteKeys means no filled field on any entry`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
+            )
 
-        val result = buildExpectedNotesJson(
-            schema = schema,
-            existingNoteKeys = setOf("spec"),
-            filledNoteKeys = null
-        )
+        val result =
+            buildExpectedNotesJson(
+                schema = schema,
+                existingNoteKeys = setOf("spec"),
+                filledNoteKeys = null
+            )
 
         assertEquals(1, result.size)
         val entry = result[0].jsonObject
@@ -184,9 +196,10 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `buildSchemaResponseFields with non-null schema returns schemaMatch true`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
+            )
 
         val result = buildSchemaResponseFields(schema = schema)
 
@@ -204,10 +217,11 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `buildSchemaResponseFields entries have exists false`() {
-        val schema = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-            NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
-        )
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
+            )
 
         val result = buildSchemaResponseFields(schema = schema)
 
