@@ -107,9 +107,9 @@ When dispatching multiple implementation agents in parallel, use `isolation: "wo
 3. Agent returns — result includes worktree path and branch name
 4. Orchestrator spot-checks diff: `git -C <worktree-path> diff main --stat`
 5. Review agent dispatched into the same worktree path
-6. After review passes: squash-merge worktree branch into local `main`
-7. Run full test suite after each merge to catch integration issues
-8. Delete worktree branch
+6. After review passes: push worktree branch to origin and create PR
+7. Run full test suite before pushing to catch integration issues
+8. After PR merges: sync local main and clean up branch
 
 ### Tracking Table
 

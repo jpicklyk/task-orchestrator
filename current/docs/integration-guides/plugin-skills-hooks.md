@@ -184,7 +184,7 @@ Commit all changes with a descriptive message. Report: (1) files changed with li
 
 - Each agent owns exactly one phase — do not advance beyond it
 - Do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
-- Commit before returning — the orchestrator needs committed changes to squash-merge the branch
+- Commit before returning — the orchestrator needs committed changes to push and create a PR
 
 ---
 
