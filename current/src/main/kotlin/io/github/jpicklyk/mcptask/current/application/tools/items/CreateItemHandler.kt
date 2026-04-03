@@ -59,6 +59,8 @@ class CreateItemHandler(
                 val requiresVerification = extractItemBoolean(itemObj, "requiresVerification") ?: false
                 val metadata = extractItemString(itemObj, "metadata")
                 val tags = extractItemString(itemObj, "tags")
+                val type = extractItemString(itemObj, "type")
+                val properties = extractItemString(itemObj, "properties")
 
                 // Pre-generate the UUID so we can guard against self-parent before construction
                 val itemId = UUID.randomUUID()
@@ -126,7 +128,9 @@ class CreateItemHandler(
                         requiresVerification = requiresVerification,
                         depth = depth,
                         metadata = metadata,
-                        tags = tags
+                        tags = tags,
+                        type = type,
+                        properties = properties
                     )
 
                 when (val result = repo.create(workItem)) {

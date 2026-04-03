@@ -1454,6 +1454,200 @@ class ManageItemsToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // type and properties fields
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `create item with type persists type field`(): Unit =
+        runBlocking {
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Typed item"))
+                                        put("type", JsonPrimitive("feature-task"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val itemId =
+                (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            // Verify via get
+            val queryTool = QueryItemsTool()
+            val getResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+
+            val itemData = getResult["data"] as JsonObject
+            assertEquals("feature-task", itemData["type"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `create item with properties persists properties field`(): Unit =
+        runBlocking {
+            val propertiesJson = """{"priority":"critical","estimate":5}"""
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Item with properties"))
+                                        put("properties", JsonPrimitive(propertiesJson))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val itemId =
+                (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            // Verify via get
+            val queryTool = QueryItemsTool()
+            val getResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+
+            val itemData = getResult["data"] as JsonObject
+            assertEquals(propertiesJson, itemData["properties"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `update item type sets new type`(): Unit =
+        runBlocking {
+            // Create item without type
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject { put("title", JsonPrimitive("Type update item")) }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            // Update with type
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(itemId))
+                                        put("type", JsonPrimitive("bug"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(1, (updateResult["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
+
+            // Verify via get
+            val queryTool = QueryItemsTool()
+            val getResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+            assertEquals("bug", getResult["data"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `update type to null clears type field`(): Unit =
+        runBlocking {
+            // Create item with type
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Clear type item"))
+                                        put("type", JsonPrimitive("feature-task"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            // Update setting type to null
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(itemId))
+                                        put("type", JsonNull)
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(1, (updateResult["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
+
+            // Verify type is gone
+            val queryTool = QueryItemsTool()
+            val getResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+            assertFalse(getResult["data"]!!.jsonObject.containsKey("type"))
+        }
+
+    // ──────────────────────────────────────────────
     // Validation
     // ──────────────────────────────────────────────
 

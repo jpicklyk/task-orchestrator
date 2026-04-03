@@ -85,6 +85,8 @@ class UpdateItemHandler(
                 val newRequiresVerification = extractItemBoolean(itemObj, "requiresVerification")
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
+                val newType = extractItemStringAllowNull(itemObj, "type", existing.type)
+                val newProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
 
                 // Parse priority if provided
                 val newPriority =
@@ -146,7 +148,9 @@ class UpdateItemHandler(
                             requiresVerification = newRequiresVerification ?: item.requiresVerification,
                             depth = newDepth,
                             metadata = newMetadata,
-                            tags = newTags
+                            tags = newTags,
+                            type = newType,
+                            properties = newProperties
                         )
                     }
 

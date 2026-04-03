@@ -228,6 +228,13 @@ Operations: get, search, overview
                             )
                         }
                     )
+                    put(
+                        "type",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Filter by type identifier (exact match)"))
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -447,6 +454,7 @@ Operations: get, search, overview
         val modifiedBefore = parseInstant(params, "modifiedBefore")
         val roleChangedAfter = parseInstant(params, "roleChangedAfter")
         val roleChangedBefore = parseInstant(params, "roleChangedBefore")
+        val typeFilter = optionalString(params, "type")
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
         val limit = optionalInt(params, "limit") ?: 50
@@ -500,7 +508,8 @@ Operations: get, search, overview
                         modifiedAfter = modifiedAfter,
                         modifiedBefore = modifiedBefore,
                         roleChangedAfter = roleChangedAfter,
-                        roleChangedBefore = roleChangedBefore
+                        roleChangedBefore = roleChangedBefore,
+                        type = typeFilter
                     )
             ) {
                 is Result.Success -> countResult.data
@@ -525,7 +534,8 @@ Operations: get, search, overview
                     sortBy = sortBy,
                     sortOrder = sortOrder,
                     limit = limit,
-                    offset = offset
+                    offset = offset,
+                    type = typeFilter
                 )
         ) {
             is Result.Success -> {
