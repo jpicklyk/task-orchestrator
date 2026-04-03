@@ -1,35 +1,29 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
- * A schema describing the expected notes and lifecycle behavior for a type of work item.
+ * Represents a note schema for a work item type, as declared in `.taskorchestrator/config.yaml`.
  *
- * Schemas are declared in `.taskorchestrator/config.yaml` and associated with work item types.
- * They control gate enforcement during role transitions by specifying which notes must be filled
- * at each workflow phase.
+ * A WorkItemSchema groups the list of required/optional notes for a given tag (schema key),
+ * and optionally lists trait names that apply by default to items of this type.
  *
- * @property type The work item type this schema applies to (e.g., "feature-task", "bug-fix")
- * @property lifecycleMode Controls automatic vs. manual lifecycle transitions for matching items
- * @property notes The ordered list of note schema entries required across all phases
+ * Example config:
+ * ```yaml
+ * note_schemas:
+ *   feature-implementation:
+ *     default_traits: [needs-security-review]
+ *     notes:
+ *       - key: specification
+ *         role: queue
+ *         required: true
+ *         description: "Feature specification"
+ * ```
+ *
+ * @property name The tag name that identifies this schema (e.g., "feature-implementation")
+ * @property notes The list of note schema entries for this schema
+ * @property defaultTraits Optional list of trait names that apply by default to items matching this schema
  */
 data class WorkItemSchema(
-    val type: String,
-    val lifecycleMode: LifecycleMode = LifecycleMode.AUTO,
-    val notes: List<NoteSchemaEntry> = emptyList()
-) {
-    /**
-     * Returns true if this schema has any note entry assigned to the REVIEW phase.
-     * Used to determine whether a `start` trigger from WORK should advance to REVIEW or
-     * jump directly to TERMINAL.
-     */
-    fun hasReviewPhase(): Boolean = notes.any { it.role == Role.REVIEW }
-
-    /**
-     * Returns the list of required note entries for the given [role].
-     * Non-required entries are excluded.
-     *
-     * @param role The workflow phase to filter by
-     * @return Required [NoteSchemaEntry] items for that phase
-     */
-    fun requiredNotesForRole(role: Role): List<NoteSchemaEntry> =
-        notes.filter { it.role == role && it.required }
-}
+    val name: String,
+    val notes: List<NoteSchemaEntry> = emptyList(),
+    val defaultTraits: List<String> = emptyList()
+)
