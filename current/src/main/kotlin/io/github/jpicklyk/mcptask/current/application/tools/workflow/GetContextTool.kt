@@ -162,11 +162,12 @@ Parameters:
 
         // Build schema list with exists/filled status
         val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-        val schemaEntriesArray = buildExpectedNotesJson(
-            schema = schema,
-            existingNoteKeys = notesByKey.keys,
-            filledNoteKeys = filledKeys
-        )
+        val schemaEntriesArray =
+            buildExpectedNotesJson(
+                schema = schema,
+                existingNoteKeys = notesByKey.keys,
+                filledNoteKeys = filledKeys
+            )
 
         // Gate status for current phase — uses shared computation
         val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)

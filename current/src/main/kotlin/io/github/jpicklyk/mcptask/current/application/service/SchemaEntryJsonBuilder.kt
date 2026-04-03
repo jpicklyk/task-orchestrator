@@ -60,9 +60,7 @@ fun buildExpectedNotesJson(
  *
  * @param schema Schema entries, or null if no schema matches
  */
-fun buildSchemaResponseFields(
-    schema: List<NoteSchemaEntry>?
-): SchemaResponseFields =
+fun buildSchemaResponseFields(schema: List<NoteSchemaEntry>?): SchemaResponseFields =
     SchemaResponseFields(
         schemaMatch = schema != null,
         expectedNotes = buildExpectedNotesJson(schema)
