@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -86,7 +87,14 @@ class UpdateItemHandler(
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
                 val newType = extractItemStringAllowNull(itemObj, "type", existing.type)
-                val newProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
+                val rawNewProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
+                val traitsStr = extractItemString(itemObj, "traits")
+                val newProperties = if (traitsStr != null) {
+                    val traitList = traitsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    PropertiesHelper.mergeTraits(rawNewProperties, traitList)
+                } else {
+                    rawNewProperties
+                }
 
                 // Parse priority if provided
                 val newPriority =

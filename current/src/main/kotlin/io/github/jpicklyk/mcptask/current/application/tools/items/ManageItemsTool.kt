@@ -150,6 +150,20 @@ Unified write operations for WorkItems (create, update, delete).
                             )
                         }
                     )
+                    put(
+                        "traits",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Comma-separated list of trait names to apply (e.g., 'needs-security-review,needs-perf-review'). " +
+                                        "Traits add additional note requirements from the traits: config section. " +
+                                        "Merged into the properties JSON automatically."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )

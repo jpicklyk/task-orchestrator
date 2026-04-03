@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
+import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -60,7 +61,14 @@ class CreateItemHandler(
                 val metadata = extractItemString(itemObj, "metadata")
                 val tags = extractItemString(itemObj, "tags")
                 val type = extractItemString(itemObj, "type")
-                val properties = extractItemString(itemObj, "properties")
+                val rawProperties = extractItemString(itemObj, "properties")
+                val traitsStr = extractItemString(itemObj, "traits")
+                val properties = if (traitsStr != null) {
+                    val traitList = traitsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    PropertiesHelper.mergeTraits(rawProperties, traitList)
+                } else {
+                    rawProperties
+                }
 
                 // Pre-generate the UUID so we can guard against self-parent before construction
                 val itemId = UUID.randomUUID()
