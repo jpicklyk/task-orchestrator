@@ -91,6 +91,21 @@ bug-fix:
     guidance: "Run tests and report results. Note if a new test was added to cover the fix."
 ```
 
+## `container` (gate-free organizational grouping)
+
+Schema for root-level category containers (Features, Bugs, Tech Debt, etc.) that exist only to group child work items. No required notes at any phase — containers advance freely without gate friction. Without this, containers fall back to the `default` schema and get gated on notes like `session-tracking` that make no sense for organizational items.
+
+```yaml
+container:
+  - key: container-summary
+    role: queue
+    required: false
+    description: "Optional high-level description of what this container organizes."
+    guidance: "Brief description of the container's purpose and scope. Not required — containers exist to group work items, not to carry implementation detail."
+```
+
+Tag root containers with `container` so they match this schema instead of `default`.
+
 ## `agent-observation` (queue only, minimal)
 
 Single-note schema for lightweight tracking — no work phase gates.
