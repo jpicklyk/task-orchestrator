@@ -65,20 +65,20 @@ git pull origin main --tags
 ```
 
 **If NOT using worktree isolation** (orchestrator implements directly or dispatches
-a single non-isolated agent), create a local working branch:
+a single non-isolated agent), create a working branch:
 
 ```bash
 git checkout -b <branch-name>
 ```
 
-This branch stays local — it will be squash-merged into local `main` after
-review, not pushed directly to origin. See Step 6 for the squash-merge flow.
+This branch will be pushed to origin and merged via GitHub PR after review.
+See Step 6 for the PR workflow.
 
 **If using worktree isolation**, skip branch creation — each worktree agent gets
 its own isolated branch automatically. See Worktree Isolation below. Worktree
-branches are also local-only and get squash-merged into `main` after review.
+branches are pushed and merged via PR after review.
 
-**Branch naming** (for local working branches):
+**Branch naming:**
 - `feat/<short-description>` — feature-implementation / feature-task items
 - `fix/<short-description>` — bug-fix items
 - `fix/<grouped-description>` — batch of related bug fixes
@@ -254,11 +254,10 @@ from. Automatically retrying hides these signals.
 
 ---
 
-## Step 6 — Commit and Squash-Merge to Main
+## Step 6 — Commit and Push PR
 
-After review passes, commit the changes and squash-merge into local `main`.
-PRs to GitHub are batched — multiple completed items accumulate on local `main`
-before a single PR is created.
+After review passes, commit the changes, push the branch, and create a GitHub PR.
+Each feature or logical unit of work gets its own PR — no batching on local `main`.
 
 ### Commit on the working branch
 
@@ -268,7 +267,7 @@ git -C <worktree-path> add <specific-files>
 git -C <worktree-path> commit -m "..."
 ```
 
-**If NOT using worktree isolation**, commit on the local working branch as normal.
+**If NOT using worktree isolation**, commit on the working branch as normal.
 
 Stage only the files related to the implementation. Do not stage unrelated changes
 that happen to be in the working tree.
@@ -288,31 +287,18 @@ EOF
 **Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
 `perf` for performance, `test` for test-only changes, `chore` for maintenance.
 
-### Squash-merge into local main
+### Push and create PR
 
-After committing on the working branch (or worktree branch), squash-merge into
-local `main`:
+Push the branch to origin and create a PR:
 
+**If using worktree isolation**, push the worktree branch:
 ```bash
-git checkout main
-git merge --squash <branch-name>       # or: git merge --squash <worktree-branch>
-git commit -m "<type>(<scope>): <description>"
-git branch -D <branch-name>            # delete the local working branch
+git -C <worktree-path> push -u origin <worktree-branch>
 ```
 
-For worktree branches, use the branch name returned by the Agent tool. The
-worktree directory is cleaned up automatically after the branch is deleted.
-
-Local `main` now has the squashed change. Repeat for more items — they accumulate.
-
-### Push and PR (batched)
-
-When ready to publish one or more accumulated changes to GitHub, create a PR
-branch from local `main`:
-
+**If NOT using worktree isolation**, push the working branch:
 ```bash
-git checkout -b <pr-branch-name>       # e.g., feat/batch-validation-improvements
-git push -u origin <pr-branch-name>
+git push -u origin <branch-name>
 ```
 
 Create the PR:
@@ -340,18 +326,16 @@ EOF
 )"
 ```
 
-After the GitHub PR is merged, sync local main:
+### After the PR is merged
+
+Sync local main and clean up:
 ```bash
 git checkout main
 git pull origin main
-git reset --hard origin/main           # prevent drift from squash + merge commit divergence
-git branch -D <pr-branch-name>         # delete the local PR branch
+git branch -D <branch-name>
 ```
 
-**When to create a PR** — use judgment:
-- After completing a logical unit of work (a feature, a batch of fixes)
-- When local `main` has accumulated enough changes to warrant publishing
-- The user may explicitly request a PR at any point
+Local `main` always tracks `origin/main` — no divergence, no `reset --hard` needed.
 
 ### Advance to terminal
 
@@ -373,13 +357,12 @@ When processing multiple items autonomously:
 2. **Parallel execution** — use worktree isolation for independent work streams.
    Sequential execution for items with dependency edges between them.
 3. **Per-item pipeline** — each worktree goes through Steps 4-6 independently:
-   implementation → capture worktree metadata → simplify → review (in worktree) → squash-merge to main
+   implementation → capture worktree metadata → simplify → review (in worktree) → push and PR
 4. **Track all worktrees** — maintain a table mapping item UUID → worktree path →
-   branch → status (implementing / reviewing / squash-merged / failed)
-5. **Squash-merge each** — after review passes, squash-merge each worktree branch
-   into local `main`. Run the full test suite after each merge to catch integration issues.
-6. **Report at the end** — summarize items completed, any review failures, and whether
-   a PR to GitHub is ready
+   branch → status (implementing / reviewing / PR created / failed)
+5. **PR each** — after review passes, push each worktree branch to origin and create
+   a GitHub PR. Run the full test suite before pushing to catch integration issues.
+6. **Report at the end** — summarize items completed, any review failures, and PR URLs
 
 If any item in the batch hits a review failure, continue processing other items
 and report all failures together at the end.
@@ -427,8 +410,8 @@ orchestrator after all agents return.
 
 ### Worktree lifecycle
 
-Review happens in the worktree. After review passes, squash-merge into local
-`main` — do NOT push worktree branches to origin.
+Review happens in the worktree. After review passes, push the worktree branch
+to origin and create a GitHub PR.
 
 ```
 1. Orchestrator dispatches agent with isolation: "worktree"
@@ -438,8 +421,9 @@ Review happens in the worktree. After review passes, squash-merge into local
 5. Orchestrator spot-checks diffs: git -C <worktree-path> diff main --stat
 6. Orchestrator runs /simplify in the worktree (or dispatches agent to do so)
 7. Review agent dispatched INTO the worktree (reads files and runs tests there)
-8. After review passes: squash-merge worktree branch into local main
-9. Worktrees with no changes are automatically cleaned up
+8. After review passes: push worktree branch to origin and create PR
+9. After PR merges: git checkout main && git pull origin main
+10. Worktrees with no changes are automatically cleaned up
 ```
 
 ### Capturing worktree metadata
@@ -461,9 +445,9 @@ When multiple agents return from parallel worktrees:
 2. Spot-check at least 2 diffs for insertion errors, scope violations, or
    unintended modifications
 3. Run each worktree's test suite independently (or delegate to review agents)
-4. Squash-merge each reviewed worktree branch into local `main` sequentially
-5. Run the full test suite after all merges to catch integration issues
-6. Delete worktree branches after successful squash-merge
+4. After review passes, push each worktree branch and create a PR
+5. Run the full test suite before pushing to catch integration issues
+6. Clean up local branches after PRs merge
 
 ### Test baseline management
 

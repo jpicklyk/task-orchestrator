@@ -155,9 +155,11 @@ Two skill systems — do not confuse them:
 
 ## Git Workflow
 
-**Local-first squash flow** — work stays local on branches, squash-merged into `main`, batched PRs to GitHub. See the `/implement` skill for the full step-by-step process.
+**PR-per-feature flow** — each feature or logical unit of work gets its own branch pushed to origin and merged via GitHub PR. Local `main` always tracks `origin/main`. See the `/implement` skill for the full step-by-step process.
 
 - Follow conventional commits, reference issue numbers
 - All tests must pass before committing
-- Never force-push `main` — use PR branches to sync with origin
+- Never force-push `main`
+- Feature branches push to origin and merge via PR (squash merge on GitHub)
+- After PR merges: `git checkout main && git pull origin main && git branch -D <branch>`
 - Database migrations require special attention
