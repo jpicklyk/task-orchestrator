@@ -1523,4 +1523,98 @@ class GetContextToolTest {
             assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
             assertEquals(1, noteProgress["total"]!!.jsonPrimitive.int)
         }
+
+    // ──────────────────────────────────────────────
+    // M3. Note exists=true but blank body → schema
+    //     entry reports exists=true, filled=false
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `schema entry reports exists=true and filled=false when note body is blank`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Notes on implementation"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            // Note row exists in the DB but body is blank (whitespace only)
+            val blankBodyNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "   ")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(blankBodyNote))
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    schemaContext
+                )
+
+            val data = extractData(result)
+            val schema = data["schema"]!!.jsonArray
+            assertEquals(1, schema.size, "Expected exactly one schema entry")
+
+            val entry = schema[0].jsonObject
+            assertEquals("implementation-notes", entry["key"]!!.jsonPrimitive.content)
+
+            // Note row IS in the DB → exists must be true
+            assertTrue(
+                entry["exists"]!!.jsonPrimitive.boolean,
+                "exists should be true — the note row is present in the DB"
+            )
+
+            // Body is blank → filled must be false
+            assertFalse(
+                entry["filled"]!!.jsonPrimitive.boolean,
+                "filled should be false — the note body is blank (whitespace only)"
+            )
+        }
+
+    // ──────────────────────────────────────────────
+    // M4. noteProgress field values directly asserted
+    //     when 1 of 3 required notes is filled
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `noteProgress reports filled=1 remaining=2 total=3 when one of three required notes is filled`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            // Schema with 3 required notes in the current (WORK) phase
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "design-decisions", role = Role.WORK, required = true, description = "Design decisions"),
+                    NoteSchemaEntry(key = "implementation-notes", role = Role.WORK, required = true, description = "Implementation notes"),
+                    NoteSchemaEntry(key = "test-plan", role = Role.WORK, required = true, description = "Test plan")
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            // Fill exactly 1 of the 3 notes with non-blank body
+            val filledNote = Note(itemId = itemId, key = "design-decisions", role = "work", body = "Chose approach A over B because of X.")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledNote))
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    schemaContext
+                )
+
+            val data = extractData(result)
+            val noteProgress = data["noteProgress"]!!.jsonObject
+
+            assertEquals(1, noteProgress["filled"]!!.jsonPrimitive.int, "filled should be 1")
+            assertEquals(2, noteProgress["remaining"]!!.jsonPrimitive.int, "remaining should be 2")
+            assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int, "total should be 3")
+        }
 }

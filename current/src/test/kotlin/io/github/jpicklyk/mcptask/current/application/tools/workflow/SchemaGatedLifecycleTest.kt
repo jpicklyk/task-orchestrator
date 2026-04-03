@@ -50,7 +50,8 @@ class SchemaGatedLifecycleTest {
                                     key = "implementation-notes",
                                     role = Role.WORK,
                                     required = true,
-                                    description = "Context handoff for downstream agents."
+                                    description = "Context handoff for downstream agents.",
+                                    guidance = "Document deviations, surprises, and decisions for downstream agents."
                                 ),
                                 NoteSchemaEntry(
                                     key = "review-checklist",
@@ -1143,6 +1144,103 @@ class SchemaGatedLifecycleTest {
             assertEquals(Role.TERMINAL, getItem(parent.id).role)
 
             val cascade = extractResults(rComplete)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+        }
+
+    // ──────────────────────────────────────────────
+    // H3. expectedNotes contents after advance_item
+    //     transition — inspect array structure
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `advance_item response includes expectedNotes with correct fields after queue-to-work transition`(): Unit =
+        runBlocking {
+            // Create an item tagged with a schema that has work-phase notes with guidance
+            val item = createItem("Feature with expected notes", tags = "feature-implementation")
+
+            // Fill the queue-phase required note so the gate passes
+            createNote(item.id, key = "specification", role = Role.QUEUE)
+
+            // Advance QUEUE -> WORK
+            val result =
+                transitionTool.execute(
+                    buildTransitionParams(transitionObj(item.id, "start")),
+                    context
+                )
+            val r = assertTransitionSuccess(result, "work")
+
+            // expectedNotes must be non-empty — the work phase has required notes
+            val expectedNotes = r["expectedNotes"]!!.jsonArray
+            assertTrue(expectedNotes.isNotEmpty(), "expectedNotes should be non-empty after entering work phase")
+
+            // Each entry must have the required structural fields
+            val firstEntry = expectedNotes[0].jsonObject
+            assertNotNull(firstEntry["key"], "expectedNotes entry must have 'key' field")
+            assertNotNull(firstEntry["role"], "expectedNotes entry must have 'role' field")
+            assertNotNull(firstEntry["required"], "expectedNotes entry must have 'required' field")
+            assertNotNull(firstEntry["description"], "expectedNotes entry must have 'description' field")
+
+            // No notes filled yet, so 'exists' must be false
+            assertFalse(
+                firstEntry["exists"]!!.jsonPrimitive.boolean,
+                "exists should be false — no notes have been filled in the new work phase"
+            )
+
+            // The feature-implementation schema has guidance on work-phase notes; verify it's present
+            val hasGuidance = expectedNotes.any { it.jsonObject.containsKey("guidance") }
+            assertTrue(hasGuidance, "At least one expectedNotes entry should carry a 'guidance' field when the schema defines it")
+
+            // Verify all entries are scoped to the work role
+            expectedNotes.forEach { entry ->
+                assertEquals(
+                    "work",
+                    entry.jsonObject["role"]!!.jsonPrimitive.content,
+                    "All expectedNotes entries should be for the 'work' role"
+                )
+            }
+        }
+
+    // ──────────────────────────────────────────────
+    // H4. Reopen cascade — child reopened under a
+    //     terminal parent cascades parent back to WORK
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `reopen child under terminal parent cascades parent back to work`(): Unit =
+        runBlocking {
+            // Create a parent (schema-free) with a single child (schema-free)
+            val parent = createItem("Parent container")
+            val child = createItem("Only child", parentId = parent.id)
+
+            // Advance child: QUEUE -> WORK -> TERMINAL
+            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            assertEquals(Role.TERMINAL, getItem(child.id).role)
+
+            // Parent should have cascaded to TERMINAL (all children done)
+            assertEquals(Role.TERMINAL, getItem(parent.id).role)
+
+            // Now reopen the child: TERMINAL -> QUEUE
+            val reopenResult =
+                transitionTool.execute(
+                    buildTransitionParams(transitionObj(child.id, "reopen")),
+                    context
+                )
+            val r = assertTransitionSuccess(reopenResult, "queue")
+
+            // Child is back to QUEUE
+            assertEquals(Role.QUEUE, getItem(child.id).role)
+
+            // Parent should have cascaded from TERMINAL back to WORK
+            // (child is no longer terminal, so parent reverts to an active state)
+            assertEquals(Role.WORK, getItem(parent.id).role)
+
+            // Verify the cascade event is reported in the reopen response
+            val cascades = r["cascadeEvents"]!!.jsonArray
+            assertTrue(cascades.isNotEmpty(), "reopen should report a cascade event for the parent")
+            val cascade = cascades[0].jsonObject
+            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
         }
 }

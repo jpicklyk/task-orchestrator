@@ -58,7 +58,7 @@ class WorkTreeServiceIntegrationTest {
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
         dependencyRepository = repositoryProvider.dependencyRepository() as SQLiteDependencyRepository
 
-        service = SQLiteWorkTreeService(databaseManager)
+        service = SQLiteWorkTreeService(databaseManager, workItemRepository, noteRepository)
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -350,6 +350,143 @@ class WorkTreeServiceIntegrationTest {
             assertTrue(fetchedB is Result.Success, "Item B should be in DB; got: $fetchedB")
             val fetchedC = workItemRepository.getById(itemC.id)
             assertTrue(fetchedC is Result.Success, "Item C should be in DB; got: $fetchedC")
+        }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Test H1: insertRow() Result.Error triggers rollback — duplicate UUID
+    //
+    // The second item has the same UUID as the first.  The underlying INSERT
+    // fails with a primary-key violation, which is rethrown by Exposed and rolls
+    // back the entire transaction.  Neither item should exist in the DB afterwards.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `duplicate item UUID causes full transaction rollback`(): Unit = runBlocking {
+        val sharedId = UUID.randomUUID()
+        val firstItem = WorkItem(
+            id = sharedId,
+            title = "First Item",
+            role = Role.QUEUE,
+            depth = 0,
+            parentId = null,
+            priority = Priority.MEDIUM
+        )
+        // Second item intentionally reuses the same UUID — will trigger a PK violation
+        val secondItem = WorkItem(
+            id = sharedId,
+            title = "Duplicate ID Item",
+            role = Role.QUEUE,
+            depth = 1,
+            parentId = firstItem.id,
+            priority = Priority.MEDIUM
+        )
+
+        val input = WorkTreeInput(
+            items = listOf(firstItem, secondItem),
+            refToItem = mapOf("first" to firstItem, "second" to secondItem),
+            deps = emptyList(),
+            notes = emptyList()
+        )
+
+        // The duplicate PK insert must propagate an exception
+        assertThrows(Exception::class.java) {
+            runBlocking { service.execute(input) }
+        }
+
+        // Neither item should be present — the whole transaction was rolled back
+        val fetchedFirst = workItemRepository.getById(sharedId)
+        assertTrue(
+            fetchedFirst is Result.Error,
+            "Item with duplicate UUID should NOT be in DB after rollback; got: $fetchedFirst"
+        )
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Test H2: Happy path with notes — items, dependency, AND notes all committed
+    //
+    // Exercises the full execute() path including the note upsert phase.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `happy path with notes - items, dependency, and notes committed atomically`(): Unit =
+        runBlocking {
+            val rootItem = WorkItem(
+                id = UUID.randomUUID(),
+                title = "Root With Notes",
+                role = Role.QUEUE,
+                depth = 0,
+                parentId = null,
+                priority = Priority.MEDIUM
+            )
+            val childItem = WorkItem(
+                id = UUID.randomUUID(),
+                title = "Child With Notes",
+                role = Role.QUEUE,
+                depth = 1,
+                parentId = rootItem.id,
+                priority = Priority.MEDIUM
+            )
+
+            val note1 = io.github.jpicklyk.mcptask.current.domain.model.Note(
+                id = UUID.randomUUID(),
+                itemId = rootItem.id,
+                key = "requirements",
+                role = "queue",
+                body = "Root requirements note"
+            )
+            val note2 = io.github.jpicklyk.mcptask.current.domain.model.Note(
+                id = UUID.randomUUID(),
+                itemId = childItem.id,
+                key = "approach",
+                role = "work",
+                body = "Child approach note"
+            )
+
+            val input = WorkTreeInput(
+                items = listOf(rootItem, childItem),
+                refToItem = mapOf("root" to rootItem, "child" to childItem),
+                deps = listOf(
+                    TreeDepSpec(
+                        fromRef = "root",
+                        toRef = "child",
+                        type = DependencyType.BLOCKS,
+                        unblockAt = null
+                    )
+                ),
+                notes = listOf(note1, note2)
+            )
+
+            val result = service.execute(input)
+
+            // Result counts
+            assertEquals(2, result.items.size, "Expected 2 items in WorkTreeResult")
+            assertEquals(1, result.deps.size, "Expected 1 dependency in WorkTreeResult")
+            assertEquals(2, result.notes.size, "Expected 2 notes in WorkTreeResult")
+
+            // Both items in DB
+            val fetchedRoot = workItemRepository.getById(rootItem.id)
+            assertTrue(fetchedRoot is Result.Success, "Root item should exist in DB after commit")
+
+            val fetchedChild = workItemRepository.getById(childItem.id)
+            assertTrue(fetchedChild is Result.Success, "Child item should exist in DB after commit")
+
+            // Dependency exists in DB (query via repository)
+            val rootDeps = dependencyRepository.findByItemId(rootItem.id)
+            assertEquals(1, rootDeps.size, "Root item should have 1 outgoing dependency")
+            assertEquals(childItem.id, rootDeps[0].toItemId)
+
+            // Notes exist in DB with correct content
+            val fetchedNote1Result = noteRepository.findByItemIdAndKey(rootItem.id, "requirements")
+            assertTrue(fetchedNote1Result is Result.Success, "Note 1 lookup should succeed")
+            val fetchedNote1 = (fetchedNote1Result as Result.Success).data
+            assertTrue(fetchedNote1 != null, "Note 1 should exist in DB")
+            assertEquals("Root requirements note", fetchedNote1!!.body)
+
+            val fetchedNote2Result = noteRepository.findByItemIdAndKey(childItem.id, "approach")
+            assertTrue(fetchedNote2Result is Result.Success, "Note 2 lookup should succeed")
+            val fetchedNote2 = (fetchedNote2Result as Result.Success).data
+            assertTrue(fetchedNote2 != null, "Note 2 should exist in DB")
+            assertEquals("Child approach note", fetchedNote2!!.body)
         }
 
     // ──────────────────────────────────────────────────────────────────────────

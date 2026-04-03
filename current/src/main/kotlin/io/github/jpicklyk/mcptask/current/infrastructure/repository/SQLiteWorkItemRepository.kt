@@ -51,30 +51,40 @@ class SQLiteWorkItemRepository(
             }
         }
 
+    /**
+     * Inserts a single [WorkItem] row into [WorkItemsTable].
+     *
+     * **Must be called within an existing transaction** — this function does NOT open its own
+     * transaction. Use [create] for the public API that wraps this in a transaction.
+     */
+    internal fun insertRow(item: WorkItem): Result<WorkItem> {
+        item.validate()
+        WorkItemsTable.insert {
+            it[id] = item.id
+            it[parentId] = item.parentId
+            it[title] = item.title
+            it[description] = item.description
+            it[summary] = item.summary
+            it[role] = item.role.name.lowercase()
+            it[statusLabel] = item.statusLabel
+            it[previousRole] = item.previousRole?.name?.lowercase()
+            it[priority] = item.priority.name.lowercase()
+            it[complexity] = item.complexity
+            it[requiresVerification] = item.requiresVerification
+            it[depth] = item.depth
+            it[metadata] = item.metadata
+            it[tags] = item.tags
+            it[createdAt] = item.createdAt
+            it[modifiedAt] = item.modifiedAt
+            it[roleChangedAt] = item.roleChangedAt
+            it[version] = item.version
+        }
+        return Result.Success(item)
+    }
+
     override suspend fun create(item: WorkItem): Result<WorkItem> =
         databaseManager.suspendedTransaction("Failed to create WorkItem") {
-            item.validate()
-            WorkItemsTable.insert {
-                it[id] = item.id
-                it[parentId] = item.parentId
-                it[title] = item.title
-                it[description] = item.description
-                it[summary] = item.summary
-                it[role] = item.role.name.lowercase()
-                it[statusLabel] = item.statusLabel
-                it[previousRole] = item.previousRole?.name?.lowercase()
-                it[priority] = item.priority.name.lowercase()
-                it[complexity] = item.complexity
-                it[requiresVerification] = item.requiresVerification
-                it[depth] = item.depth
-                it[metadata] = item.metadata
-                it[tags] = item.tags
-                it[createdAt] = item.createdAt
-                it[modifiedAt] = item.modifiedAt
-                it[roleChangedAt] = item.roleChangedAt
-                it[version] = item.version
-            }
-            Result.Success(item)
+            insertRow(item)
         }
 
     override suspend fun update(item: WorkItem): Result<WorkItem> =
@@ -258,7 +268,7 @@ class SQLiteWorkItemRepository(
                 baseQuery
                     .orderBy(sortColumn, order)
                     .limit(limit)
-                    .offset(offset.coerceAtLeast(0).toLong())
+                    .offset(offset.coerceAtLeast(0).toLong()) // No upper bound needed — absurd values safely return empty results
                     .mapNotNull { toWorkItemOrNull(it) }
 
             Result.Success(items)

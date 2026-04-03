@@ -34,8 +34,19 @@ class YamlNoteSchemaService(
 ) : NoteSchemaService {
     private val logger = LoggerFactory.getLogger(YamlNoteSchemaService::class.java)
 
+    /**
+     * Holds the result of a schema load: the parsed schemas and any warnings collected.
+     */
+    private data class SchemaLoadResult(
+        val schemas: Map<String, List<NoteSchemaEntry>>,
+        val warnings: MutableList<String>
+    )
+
+    /** Lazily loaded schema cache and warnings. Initialized once on first access. */
+    private val loadResult: SchemaLoadResult by lazy { loadSchemas() }
+
     /** Lazily loaded schema cache. Null until first access. Empty map if file missing. */
-    private val schemas: Map<String, List<NoteSchemaEntry>> by lazy { loadSchemas() }
+    private val schemas: Map<String, List<NoteSchemaEntry>> get() = loadResult.schemas
 
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
         for (tag in tags) {
@@ -45,44 +56,97 @@ class YamlNoteSchemaService(
         return schemas["default"]
     }
 
+    override fun getLoadWarnings(): List<String> = loadResult.warnings
+
     @Suppress("UNCHECKED_CAST")
-    private fun loadSchemas(): Map<String, List<NoteSchemaEntry>> {
+    private fun loadSchemas(): SchemaLoadResult {
+        val warnings = mutableListOf<String>()
+
         if (!configPath.toFile().exists()) {
             logger.debug("No config file found at {}; running in schema-free mode", configPath)
-            return emptyMap()
+            return SchemaLoadResult(emptyMap(), warnings)
         }
 
-        return try {
+        val schemas = try {
             val yaml = Yaml()
             FileReader(configPath.toFile()).use { reader ->
-                val root = yaml.load<Map<String, Any>>(reader) ?: return emptyMap()
-                val noteSchemas = root["note_schemas"] as? Map<String, Any> ?: return emptyMap()
+                val root = yaml.load<Map<String, Any>>(reader)
+                    ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
+
+                if (!root.containsKey("note_schemas")) {
+                    warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
+                    return@use emptyMap()
+                }
+
+                val noteSchemas = root["note_schemas"] as? Map<String, Any>
+                    ?: return@use emptyMap<String, List<NoteSchemaEntry>>()
 
                 noteSchemas.entries.associate { (schemaName, rawEntries) ->
-                    val entries =
-                        (rawEntries as? List<Map<String, Any>>)
-                            ?.mapNotNull { parseEntry(it) }
-                            ?: emptyList()
+                    val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
+                    val entries = entryList.mapIndexedNotNull { index, raw ->
+                        parseEntry(raw, schemaName, index, warnings)
+                    }
                     schemaName to entries
                 }
             }
         } catch (e: Exception) {
-            logger.warn("Failed to load note schemas from config: {}", e.message)
+            val msg = "Failed to load note schemas from '${configPath}': ${e.message}"
+            warnings.add(msg)
+            logger.warn(msg)
             emptyMap()
         }
+
+        val totalEntries = schemas.values.sumOf { it.size }
+        warnings.forEach { w -> logger.warn(w) }
+        logger.info(
+            "Loaded {} schemas ({} entries, {} warnings)",
+            schemas.size,
+            totalEntries,
+            warnings.size
+        )
+
+        return SchemaLoadResult(schemas, warnings)
     }
 
-    private fun parseEntry(raw: Map<String, Any>): NoteSchemaEntry? {
-        val key = raw["key"] as? String ?: return null
-        val role = raw["role"] as? String ?: return null
-
-        val parsedRole = VALID_SCHEMA_ROLES[role]
-        if (parsedRole == null) {
-            logger.warn("Skipping schema entry '{}': invalid role '{}' (valid: {})", key, role, VALID_SCHEMA_ROLES.keys)
+    private fun parseEntry(
+        raw: Map<String, Any>,
+        schemaName: String,
+        index: Int,
+        warnings: MutableList<String>
+    ): NoteSchemaEntry? {
+        val key = raw["key"] as? String
+        if (key == null) {
+            warnings.add("Schema '$schemaName' entry[$index] is missing required field 'key'; skipping")
             return null
         }
 
-        val required = raw["required"] as? Boolean ?: false
+        val roleRaw = raw["role"] as? String
+        if (roleRaw == null) {
+            warnings.add("Schema '$schemaName' entry[$index] (key='$key') is missing required field 'role'; skipping")
+            return null
+        }
+
+        val parsedRole = VALID_SCHEMA_ROLES[roleRaw]
+        if (parsedRole == null) {
+            logger.warn(
+                "Skipping schema entry '{}': invalid role '{}' (valid: {})",
+                key,
+                roleRaw,
+                VALID_SCHEMA_ROLES.keys
+            )
+            return null
+        }
+
+        val requiredRaw = raw["required"]
+        val required = if (requiredRaw != null && requiredRaw !is Boolean) {
+            warnings.add(
+                "Schema '$schemaName' entry (key='$key') has non-boolean 'required' value '$requiredRaw'; defaulting to false"
+            )
+            false
+        } else {
+            requiredRaw as? Boolean ?: false
+        }
+
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
         return NoteSchemaEntry(

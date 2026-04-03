@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2026-04-03 (Plugin v2.7.3)
+
+### Fixed
+- Fixed `manage_items` create response to always include `expectedNotes` and `schemaMatch` fields — agents no longer need a separate `get_context` call after item creation
+
+### Improved
+- Unified schema-to-JSON serialization across `manage_items`, `create_work_tree`, `advance_item`, and `get_context` via shared `SchemaEntryJsonBuilder`
+- Added structured warning collection to schema config loading — config issues are surfaced programmatically via `getLoadWarnings()` instead of silently logged
+- Deduplicated WorkTreeService insert/upsert logic with shared repository helpers
+- Expanded test coverage across 12 identified gaps — WorkTreeService rollback, cascade detection, schema loading edge cases, note preservation, and gate lifecycle
+- Bumped plugin version to 2.7.3 — added `container` schema example to manage-schemas skill
+
+---
+
 ## [2.5.1] - 2026-03-31 (Plugin v2.7.2)
 
 ### Fixed

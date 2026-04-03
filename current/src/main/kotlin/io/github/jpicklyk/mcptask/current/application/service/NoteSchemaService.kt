@@ -25,6 +25,13 @@ interface NoteSchemaService {
      * Returns false when no schema matches (schema-free mode — skip REVIEW).
      */
     fun hasReviewPhase(tags: List<String>): Boolean = getSchemaForTags(tags)?.any { it.role == Role.REVIEW } ?: false
+
+    /**
+     * Returns any warnings collected during schema loading (e.g., malformed entries,
+     * missing required fields). Returns an empty list if no warnings were generated or
+     * if this implementation does not support warning collection.
+     */
+    fun getLoadWarnings(): List<String> = emptyList()
 }
 
 /**

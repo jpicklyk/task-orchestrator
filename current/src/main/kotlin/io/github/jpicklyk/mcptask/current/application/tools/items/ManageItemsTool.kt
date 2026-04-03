@@ -45,8 +45,8 @@ Unified write operations for WorkItems (create, update, delete).
 - Shared `parentId` at top level serves as default for all items (per-item parentId overrides)
 - Depth auto-computed from parent (root=0, child=parent.depth+1, max=$MAX_DEPTH)
 - Defaults: role=queue, priority=medium, complexity=5
-- Response: `{ items: [{id, title, depth, role, priority, requiresVerification, tags, expectedNotes?}], created: N, failed: N, failures: [{index, error}] }`
-- `tags` is always included (null if not set). `expectedNotes` is included only when the item's tags match a configured note schema — check it immediately after creation to know which notes to fill.
+- Response: `{ items: [{id, title, depth, role, priority, requiresVerification, tags, schemaMatch, expectedNotes}], created: N, failed: N, failures: [{index, error}] }`
+- `tags` is always included (null if not set). `expectedNotes` is always included (empty array when no schema matches). `schemaMatch` indicates whether the item's tags matched a configured note schema.
 
 **update** - Partial update from `items` array.
 - Each item: `{ id (required), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags? }`

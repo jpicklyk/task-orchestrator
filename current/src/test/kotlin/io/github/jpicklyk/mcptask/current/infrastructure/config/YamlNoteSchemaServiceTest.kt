@@ -438,4 +438,257 @@ note_schemas:
         assertNotNull(schema)
         assertTrue(schema.isEmpty())
     }
+
+    // --- Warning collection tests (Wave 1) ---
+
+    @Test
+    fun `valid config loads with zero warnings`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: acceptance-criteria
+      role: queue
+      required: true
+      description: "Acceptance criteria"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        service.getSchemaForTags(listOf("my-schema"))
+        assertEquals(0, service.getLoadWarnings().size)
+    }
+
+    @Test
+    fun `entry missing key produces warning with schema name`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - role: queue
+      required: true
+      description: "Missing key field"
+    - key: good-note
+      role: work
+      required: false
+      description: "Valid entry"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        service.getSchemaForTags(listOf("my-schema"))
+        val warnings = service.getLoadWarnings()
+        assertEquals(1, warnings.size)
+        assertTrue(warnings[0].contains("my-schema"), "Warning should mention schema name 'my-schema'")
+        assertTrue(warnings[0].contains("key"), "Warning should mention missing field 'key'")
+    }
+
+    @Test
+    fun `entry missing role produces warning with schema name`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: some-note
+      required: true
+      description: "Missing role field"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        service.getSchemaForTags(listOf("my-schema"))
+        val warnings = service.getLoadWarnings()
+        assertEquals(1, warnings.size)
+        assertTrue(warnings[0].contains("my-schema"), "Warning should mention schema name 'my-schema'")
+        assertTrue(warnings[0].contains("role"), "Warning should mention missing field 'role'")
+    }
+
+    @Test
+    fun `non-boolean required produces warning and defaults to false`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: some-note
+      role: queue
+      required: "yes"
+      description: "Non-boolean required"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("my-schema"))
+        val warnings = service.getLoadWarnings()
+        assertEquals(1, warnings.size)
+        assertTrue(warnings[0].contains("some-note"), "Warning should mention the key name")
+        assertNotNull(schema)
+        assertEquals(1, schema.size)
+        assertFalse(schema[0].required, "required should default to false for non-boolean value")
+    }
+
+    @Test
+    fun `malformed YAML produces warning and empty schemas`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            "note_schemas: [\ninvalid yaml: :\n  - broken"
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("my-schema"))
+        assertNull(schema)
+        val warnings = service.getLoadWarnings()
+        assertEquals(1, warnings.size)
+        assertTrue(warnings[0].contains("Failed to load"), "Warning should describe load failure")
+    }
+
+    @Test
+    fun `missing note_schemas key produces warning`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+other_config:
+  key: value
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        service.getSchemaForTags(listOf("any-tag"))
+        val warnings = service.getLoadWarnings()
+        assertEquals(1, warnings.size)
+        assertTrue(warnings[0].contains("note_schemas"), "Warning should mention 'note_schemas' key")
+    }
+
+    @Test
+    fun `getLoadWarnings returns empty list on absent config file`() {
+        val tempDir = createTempConfigDir()
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        service.getSchemaForTags(listOf("any-tag"))
+        assertEquals(0, service.getLoadWarnings().size)
+    }
+
+    // --- Gap M1: lazy init triggered by first call ---
+
+    @Test
+    fun `schema loading is lazy — entry with typo role is skipped even on first call`(): Unit {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: invalid-role-note
+      role: badvalue
+      required: true
+      description: "Bad role triggers warning during load"
+    - key: valid-note
+      role: queue
+      required: true
+      description: "Valid entry"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("my-schema"))
+        assertNotNull(schema, "Schema should be populated even though one entry had a bad role")
+        assertEquals(1, schema.size, "Only the valid entry should remain after warning about bad role")
+        assertEquals("valid-note", schema[0].key)
+        assertEquals(Role.QUEUE, schema[0].role)
+    }
+
+    @Test
+    fun `lazy init produces consistent results across multiple calls`(): Unit {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  stable-schema:
+    - key: stable-note
+      role: work
+      required: false
+      description: "Stable entry"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val first = service.getSchemaForTags(listOf("stable-schema"))
+        val second = service.getSchemaForTags(listOf("stable-schema"))
+        val third = service.getSchemaForTags(listOf("stable-schema"))
+
+        assertNotNull(first)
+        assertNotNull(second)
+        assertNotNull(third)
+        assertEquals(first!!.size, second!!.size)
+        assertEquals(first.size, third!!.size)
+        assertEquals(first[0].key, second[0].key)
+        assertEquals(first[0].key, third[0].key)
+    }
+
+    // --- Gap M2: note_schemas value is wrong type (list instead of map) ---
+
+    @Test
+    fun `note_schemas as list instead of map returns null without crashing`(): Unit {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  - key: something
+    role: queue
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val result = service.getSchemaForTags(listOf("something"))
+        assertNull(result, "When note_schemas is a list the cast fails and null is returned")
+    }
+
+    @Test
+    fun `note_schemas as list does not crash on empty tag list`(): Unit {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  - key: something
+    role: queue
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val result = service.getSchemaForTags(emptyList())
+        assertNull(result, "Empty tags with list-type note_schemas should return null")
+    }
 }
