@@ -32,6 +32,23 @@ interface NoteSchemaService {
      * if this implementation does not support warning collection.
      */
     fun getLoadWarnings(): List<String> = emptyList()
+
+    /**
+     * Returns the list of note schema entries for the given trait name,
+     * or null if the trait is not defined in the config.
+     *
+     * Traits are declared under the top-level `traits:` key in config.yaml.
+     * Each trait has a `notes:` list using the same format as schema notes.
+     */
+    fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = null
+
+    /**
+     * Returns the list of default trait names for the given work item type (schema tag),
+     * or an empty list if the type has no default traits or is not defined.
+     *
+     * Default traits are declared as `default_traits:` within a schema in config.yaml.
+     */
+    fun getDefaultTraits(type: String?): List<String> = emptyList()
 }
 
 /**
@@ -40,4 +57,6 @@ interface NoteSchemaService {
  */
 object NoOpNoteSchemaService : NoteSchemaService {
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+    override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = null
+    override fun getDefaultTraits(type: String?): List<String> = emptyList()
 }
