@@ -1053,4 +1053,76 @@ class CreateWorkTreeToolTest {
                 "Child expectedNotes[0].exists should be false (note has not been written yet)"
             )
         }
+
+    // ──────────────────────────────────────────────
+    // type field propagation
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `type field on root item is preserved in created WorkItem`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val rootSpec =
+                buildJsonObject {
+                    put("title", JsonPrimitive("Feature Root"))
+                    put("type", JsonPrimitive("feature-task"))
+                }
+            val params = buildParams(root = rootSpec)
+            val result = tool.execute(params, context)
+
+            extractData(result) // assert success
+
+            val rootItem = capturedInput!!.items.first()
+            assertEquals("feature-task", rootItem.type, "Root item should carry the type field")
+        }
+
+    @Test
+    fun `type field on child item is preserved in created WorkItem`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val childSpec =
+                buildJsonObject {
+                    put("ref", JsonPrimitive("c1"))
+                    put("title", JsonPrimitive("Task Child"))
+                    put("type", JsonPrimitive("sub-task"))
+                }
+            val params = buildParams(children = JsonArray(listOf(childSpec)))
+            val result = tool.execute(params, context)
+
+            extractData(result) // assert success
+
+            val childItem = capturedInput!!.items.drop(1).first()
+            assertEquals("sub-task", childItem.type, "Child item should carry the type field")
+        }
+
+    @Test
+    fun `item without type field has null type`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val params = buildParams()
+            val result = tool.execute(params, context)
+
+            extractData(result) // assert success
+
+            val rootItem = capturedInput!!.items.first()
+            assertNull(rootItem.type, "Root item without type should have null type")
+        }
 }
