@@ -19,6 +19,8 @@ data class WorkItem(
     val depth: Int = 0,
     val metadata: String? = null,
     val tags: String? = null,
+    val type: String? = null,
+    val properties: String? = null,
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
     val roleChangedAt: Instant = Instant.now(),

@@ -74,6 +74,8 @@ class SQLiteWorkItemRepository(
             it[depth] = item.depth
             it[metadata] = item.metadata
             it[tags] = item.tags
+            it[type] = item.type
+            it[properties] = item.properties
             it[createdAt] = item.createdAt
             it[modifiedAt] = item.modifiedAt
             it[roleChangedAt] = item.roleChangedAt
@@ -107,6 +109,8 @@ class SQLiteWorkItemRepository(
                     it[depth] = item.depth
                     it[metadata] = item.metadata
                     it[tags] = item.tags
+                    it[type] = item.type
+                    it[properties] = item.properties
                     it[modifiedAt] = item.modifiedAt
                     it[roleChangedAt] = item.roleChangedAt
                     it[version] = item.version + 1
@@ -230,7 +234,8 @@ class SQLiteWorkItemRepository(
         sortBy: String?,
         sortOrder: String?,
         limit: Int,
-        offset: Int
+        offset: Int,
+        type: String?
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
             val baseQuery =
@@ -246,7 +251,8 @@ class SQLiteWorkItemRepository(
                     modifiedAfter,
                     modifiedBefore,
                     roleChangedAfter,
-                    roleChangedBefore
+                    roleChangedBefore,
+                    type
                 )
 
             // Determine sort column and order
@@ -286,7 +292,8 @@ class SQLiteWorkItemRepository(
         modifiedAfter: Instant?,
         modifiedBefore: Instant?,
         roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?
+        roleChangedBefore: Instant?,
+        type: String?
     ): Result<Int> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
             val count =
@@ -302,7 +309,8 @@ class SQLiteWorkItemRepository(
                     modifiedAfter,
                     modifiedBefore,
                     roleChangedAfter,
-                    roleChangedBefore
+                    roleChangedBefore,
+                    type
                 ).count()
 
             Result.Success(count.toInt())
@@ -465,7 +473,8 @@ class SQLiteWorkItemRepository(
         modifiedAfter: Instant?,
         modifiedBefore: Instant?,
         roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?
+        roleChangedBefore: Instant?,
+        type: String? = null
     ): Query {
         val conditions = mutableListOf<Op<Boolean>>()
 
@@ -486,6 +495,7 @@ class SQLiteWorkItemRepository(
         modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
         roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
         roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
+        type?.let { conditions.add(WorkItemsTable.type eq it) }
 
         return if (conditions.isEmpty()) {
             WorkItemsTable.selectAll()
@@ -524,6 +534,8 @@ class SQLiteWorkItemRepository(
             depth = row[WorkItemsTable.depth],
             metadata = row[WorkItemsTable.metadata],
             tags = row[WorkItemsTable.tags],
+            type = row[WorkItemsTable.type],
+            properties = row[WorkItemsTable.properties],
             createdAt = row[WorkItemsTable.createdAt],
             modifiedAt = row[WorkItemsTable.modifiedAt],
             roleChangedAt = row[WorkItemsTable.roleChangedAt],

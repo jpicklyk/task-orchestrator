@@ -36,9 +36,9 @@ class CreateWorkTreeTool : BaseToolDefinition() {
 Atomically create a hierarchical work tree: root item, child items, dependencies, and optional notes.
 
 **Parameters:**
-- `root` (required): Root item spec `{ title (required), priority?, tags?, summary?, description?, requiresVerification? }`
+- `root` (required): Root item spec `{ title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }`
 - `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0.
-- `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps` to wire dependencies.
+- `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
 - `createNotes` (optional, default false): Auto-create blank notes for each item based on its tag schema.
 
@@ -76,7 +76,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Root item spec: { title (required), priority?, tags?, summary?, description?, requiresVerification? }"
+                                    "Root item spec: { title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }"
                                 )
                             )
                         }
@@ -95,7 +95,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Child item specs: [{ ref (required local name), title (required), priority?, tags?, summary?, description?, requiresVerification? }]"
+                                    "Child item specs: [{ ref (required local name), title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }]"
                                 )
                             )
                         }
@@ -485,6 +485,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val summary = (obj["summary"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""
         val description = (obj["description"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val requiresVerification = (obj["requiresVerification"] as? JsonPrimitive)?.booleanOrNull ?: false
+        val type = (obj["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
         return try {
             WorkItem(
@@ -497,7 +498,8 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 priority = priority,
                 requiresVerification = requiresVerification,
                 depth = depth,
-                tags = tags
+                tags = tags,
+                type = type
             )
         } catch (e: Exception) {
             logger.warn("Failed to build WorkItem for $contextLabel: ${e.message}")

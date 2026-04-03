@@ -42,7 +42,8 @@ class QueryItemsToolTest {
         priority: String? = null,
         tags: String? = null,
         summary: String? = null,
-        statusLabel: String? = null
+        statusLabel: String? = null,
+        type: String? = null
     ): String {
         val itemObj =
             buildJsonObject {
@@ -53,6 +54,7 @@ class QueryItemsToolTest {
                 tags?.let { put("tags", JsonPrimitive(it)) }
                 summary?.let { put("summary", JsonPrimitive(it)) }
                 statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+                type?.let { put("type", JsonPrimitive(it)) }
             }
         val result =
             manageTool.execute(
@@ -816,6 +818,57 @@ class QueryItemsToolTest {
                 withoutLabelItem.containsKey("statusLabel"),
                 "Minimal JSON should not include statusLabel key when null (true absence, not JSON null)"
             )
+        }
+
+    // ──────────────────────────────────────────────
+    // type filter in search
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `search by type returns only matching items`(): Unit =
+        runBlocking {
+            // Create items with different types
+            val typedId = createItem("Typed item", type = "feature-task")
+            val otherTypedId = createItem("Other typed", type = "bug")
+            val untypedId = createItem("Untyped item")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "type" to JsonPrimitive("feature-task")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val items = data["items"]!!.jsonArray
+            val ids = items.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+
+            assertTrue(ids.contains(typedId), "Should include item with matching type")
+            assertFalse(ids.contains(otherTypedId), "Should exclude item with different type")
+            assertFalse(ids.contains(untypedId), "Should exclude item with no type")
+        }
+
+    @Test
+    fun `search by type with no matches returns empty results`(): Unit =
+        runBlocking {
+            createItem("Some item", type = "bug")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "type" to JsonPrimitive("nonexistent-type")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["total"]!!.jsonPrimitive.int)
+            assertEquals(0, data["items"]!!.jsonArray.size)
         }
 
     // ──────────────────────────────────────────────
