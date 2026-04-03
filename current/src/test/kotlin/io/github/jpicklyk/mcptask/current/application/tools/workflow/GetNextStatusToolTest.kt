@@ -19,6 +19,20 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
 
+/** Convenience builder: a [WorkItemSchema] with a single REVIEW-phase note (so hasReviewPhase() == true). */
+private fun schemaWithReview(type: String = "default"): WorkItemSchema =
+    WorkItemSchema(
+        type = type,
+        notes = listOf(NoteSchemaEntry(key = "review-note", role = Role.REVIEW, required = false))
+    )
+
+/** Convenience builder: a [WorkItemSchema] with no REVIEW-phase notes (so hasReviewPhase() == false). */
+private fun schemaWithoutReview(type: String = "default"): WorkItemSchema =
+    WorkItemSchema(
+        type = type,
+        notes = listOf(NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false))
+    )
+
 class GetNextStatusToolTest {
     private lateinit var tool: GetNextStatusTool
     private lateinit var context: ToolExecutionContext
@@ -33,8 +47,10 @@ class GetNextStatusToolTest {
         depRepo = mockk()
         noteSchemaService = mockk()
 
-        // Default: treat all items as having a review phase so existing tests are unaffected
-        every { noteSchemaService.hasReviewPhase(any()) } returns true
+        // Default: no type-based schema; tag-based lookup returns a schema with a review phase
+        // so that existing tests (which don't set up tags) still expect WORK→REVIEW progression.
+        every { noteSchemaService.getSchemaForType(any()) } returns null
+        every { noteSchemaService.getSchemaForTags(any()) } returns schemaWithReview().notes
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -375,10 +391,11 @@ class GetNextStatusToolTest {
     fun `WORK role with no schema tags skips REVIEW and returns nextRole terminal`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            // Item has no tags — NoOp schema returns hasReviewPhase=false
+            // Item has no tags — schema returns no review phase
             val item = makeItem(id = itemId, role = Role.WORK)
 
-            every { noteSchemaService.hasReviewPhase(emptyList()) } returns false
+            // Override default: return a schema without a review phase for empty tag list
+            every { noteSchemaService.getSchemaForTags(emptyList()) } returns schemaWithoutReview().notes
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -406,7 +423,8 @@ class GetNextStatusToolTest {
             // Item has a tag that matches a schema with a review note
             val item = makeItem(id = itemId, role = Role.WORK).copy(tags = "feature")
 
-            every { noteSchemaService.hasReviewPhase(listOf("feature")) } returns true
+            // Override: tag lookup for "feature" returns a schema with a review phase
+            every { noteSchemaService.getSchemaForTags(listOf("feature")) } returns schemaWithReview("feature").notes
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             every { depRepo.findByToItemId(itemId) } returns emptyList()

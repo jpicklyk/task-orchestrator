@@ -136,14 +136,8 @@ class CreateItemHandler(
                 when (val result = repo.create(workItem)) {
                     is Result.Success -> {
                         val createdTags = result.data.tags
-                        val tagList =
-                            createdTags
-                                ?.split(",")
-                                ?.map { it.trim() }
-                                ?.filter { it.isNotBlank() }
-                                ?: emptyList()
-                        val schemaEntries = context.noteSchemaService().getSchemaForTags(tagList)
-                        val schemaFields = buildSchemaResponseFields(schemaEntries)
+                        val resolvedSchema = context.resolveSchema(result.data)
+                        val schemaFields = buildSchemaResponseFields(resolvedSchema)
                         createdItems.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(result.data.id.toString()))
