@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PropertiesHelperTest {
@@ -151,5 +152,60 @@ class PropertiesHelperTest {
         assertTrue(json.containsKey("key2"), "Should preserve key2")
         val traits = json["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertEquals(listOf("new"), traits)
+    }
+
+    // ──────────────────────────────────────────────
+    // mergeTraitsFromString
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `mergeTraitsFromString returns null when both inputs are null`() {
+        assertNull(PropertiesHelper.mergeTraitsFromString(null, null))
+    }
+
+    @Test
+    fun `mergeTraitsFromString returns existing properties when traits string is null`() {
+        val existing = """{"other": 1}"""
+        assertEquals(existing, PropertiesHelper.mergeTraitsFromString(existing, null))
+    }
+
+    @Test
+    fun `mergeTraitsFromString parses comma-separated traits into JSON`() {
+        val result = PropertiesHelper.mergeTraitsFromString(null, "a,b,c")!!
+        val json = Json.parseToJsonElement(result).jsonObject
+        val traits = json["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("a", "b", "c"), traits)
+    }
+
+    @Test
+    fun `mergeTraitsFromString trims whitespace from trait names`() {
+        val result = PropertiesHelper.mergeTraitsFromString(null, " a , b , c ")!!
+        val json = Json.parseToJsonElement(result).jsonObject
+        val traits = json["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("a", "b", "c"), traits)
+    }
+
+    @Test
+    fun `mergeTraitsFromString filters empty segments`() {
+        val result = PropertiesHelper.mergeTraitsFromString(null, "a,,b, ,c")!!
+        val json = Json.parseToJsonElement(result).jsonObject
+        val traits = json["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("a", "b", "c"), traits)
+    }
+
+    @Test
+    fun `mergeTraitsFromString preserves existing properties keys`() {
+        val existing = """{"other": 42}"""
+        val result = PropertiesHelper.mergeTraitsFromString(existing, "a")!!
+        val json = Json.parseToJsonElement(result).jsonObject
+        assertEquals("42", json["other"]!!.jsonPrimitive.content)
+        assertEquals(listOf("a"), json["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `mergeTraitsFromString with empty string produces empty traits array`() {
+        val result = PropertiesHelper.mergeTraitsFromString(null, "")!!
+        val json = Json.parseToJsonElement(result).jsonObject
+        assertTrue(json["traits"]!!.jsonArray.isEmpty())
     }
 }

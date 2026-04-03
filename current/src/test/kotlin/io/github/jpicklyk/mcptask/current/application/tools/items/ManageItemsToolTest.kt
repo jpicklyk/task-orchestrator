@@ -1842,4 +1842,110 @@ class ManageItemsToolTest {
             assertTrue(item["schemaMatch"]!!.jsonPrimitive.boolean, "schemaMatch should be true when schema returns non-null")
             assertEquals(0, item["expectedNotes"]!!.jsonArray.size, "expectedNotes should be empty array for zero-entry schema")
         }
+
+    // ──────────────────────────────────────────────
+    // Traits parameter
+    // ────────���─────────────────────────────────────
+
+    @Test
+    fun `create item with traits parameter stores traits in properties JSON`(): Unit =
+        runBlocking {
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Traits item"))
+                                        put("traits", JsonPrimitive("needs-security-review,needs-perf-review"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val itemId =
+                (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            val queryTool = QueryItemsTool()
+            val getResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+
+            val itemData = getResult["data"] as JsonObject
+            val properties = itemData["properties"]!!.jsonPrimitive.content
+            val propsJson = kotlinx.serialization.json.Json.parseToJsonElement(properties).jsonObject
+            val traits = propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(listOf("needs-security-review", "needs-perf-review"), traits)
+        }
+
+    @Test
+    fun `update item with traits parameter merges into existing properties`(): Unit =
+        runBlocking {
+            // Create with existing properties
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Update traits item"))
+                                        put("properties", JsonPrimitive("""{"custom": "value"}"""))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            // Update with traits
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(itemId))
+                                        put("traits", JsonPrimitive("new-trait"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+
+            // Verify properties has both custom key and traits
+            val queryTool = QueryItemsTool()
+            val getResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+
+            val properties = (getResult["data"] as JsonObject)["properties"]!!.jsonPrimitive.content
+            val propsJson = kotlinx.serialization.json.Json.parseToJsonElement(properties).jsonObject
+            assertEquals("value", propsJson["custom"]!!.jsonPrimitive.content)
+            assertEquals(listOf("new-trait"), propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
+        }
 }

@@ -27124,3 +27124,1538 @@ java.lang.RuntimeException: Intentional test failure
 2026-04-03T18:34:25.110Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
 2026-04-03T18:34:25.111Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
 2026-04-03T18:34:25.112Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:19:15.654Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.657Z [task-orchestrator] [WARN] Config file is missing 'note_schemas' key; no schemas loaded
+2026-04-03T19:19:15.658Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 1 warnings)
+2026-04-03T19:19:15.660Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.664Z [task-orchestrator] [INFO] Loaded 2 schemas (3 entries, 0 warnings)
+2026-04-03T19:19:15.667Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.669Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.671Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.672Z [task-orchestrator] [WARN] Config file is missing 'note_schemas' key; no schemas loaded
+2026-04-03T19:19:15.672Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 1 warnings)
+2026-04-03T19:19:15.676Z [task-orchestrator] [WARN] Failed to load note schemas from 'C:\Users\jeff_\AppData\Local\Temp\yaml-schema-test12409596124816210592\.taskorchestrator\config.yaml': while parsing a flow node
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+expected the node content, but found ':'
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+
+2026-04-03T19:19:15.676Z [task-orchestrator] [WARN] Failed to load note schemas from 'C:\Users\jeff_\AppData\Local\Temp\yaml-schema-test12409596124816210592\.taskorchestrator\config.yaml': while parsing a flow node
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+expected the node content, but found ':'
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+
+2026-04-03T19:19:15.676Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 1 warnings)
+2026-04-03T19:19:15.678Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.679Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.680Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.683Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.685Z [task-orchestrator] [WARN] Skipping schema entry 'terminal-note': invalid role 'terminal' (valid: [queue, work, review])
+2026-04-03T19:19:15.685Z [task-orchestrator] [INFO] Loaded 1 schemas (0 entries, 0 warnings)
+2026-04-03T19:19:15.688Z [task-orchestrator] [WARN] Schema 'my-schema' entry[0] (key='some-note') is missing required field 'role'; skipping
+2026-04-03T19:19:15.688Z [task-orchestrator] [INFO] Loaded 1 schemas (0 entries, 1 warnings)
+2026-04-03T19:19:15.690Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 0 warnings)
+2026-04-03T19:19:15.691Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.693Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.695Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.696Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.698Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.700Z [task-orchestrator] [WARN] Schema 'my-schema' entry[0] is missing required field 'key'; skipping
+2026-04-03T19:19:15.701Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 1 warnings)
+2026-04-03T19:19:15.702Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 0 warnings)
+2026-04-03T19:19:15.704Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.705Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.707Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.709Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.710Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.711Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.714Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.716Z [task-orchestrator] [WARN] Schema 'feature-task' has invalid lifecycle value 'invalid-mode'; defaulting to AUTO
+2026-04-03T19:19:15.716Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 1 warnings)
+2026-04-03T19:19:15.718Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.720Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.722Z [task-orchestrator] [WARN] Skipping schema entry 'bad-note': invalid role 'queu' (valid: [queue, work, review])
+2026-04-03T19:19:15.722Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.724Z [task-orchestrator] [WARN] Skipping schema entry 'invalid-role-note': invalid role 'badvalue' (valid: [queue, work, review])
+2026-04-03T19:19:15.724Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.727Z [task-orchestrator] [WARN] Schema 'my-schema' entry (key='some-note') has non-boolean 'required' value 'yes'; defaulting to false
+2026-04-03T19:19:15.727Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 1 warnings)
+2026-04-03T19:19:15.729Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.730Z [task-orchestrator] [WARN] Skipping schema entry 'blocked-note': invalid role 'blocked' (valid: [queue, work, review])
+2026-04-03T19:19:15.730Z [task-orchestrator] [INFO] Loaded 1 schemas (0 entries, 0 warnings)
+2026-04-03T19:19:15.731Z [task-orchestrator] [WARN] Skipping schema entry 'bad-note': invalid role 'invalid-role' (valid: [queue, work, review])
+2026-04-03T19:19:15.731Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:19:15.732Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:19:15.734Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:06.100Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.259Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.293Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.305Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.317Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.328Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.333Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.343Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.348Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.356Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.362Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.371Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.377Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.384Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.387Z [task-orchestrator] [WARN] Transaction attempt #0 failed: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 1 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]. Statement(s): INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+org.jetbrains.exposed.v1.exceptions.ExposedSQLException: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 1 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]
+SQL: [INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutableKt.executeIn(BlockingExecutable.kt:122)
+	at org.jetbrains.exposed.v1.jdbc.JdbcTransaction.exec(JdbcTransaction.kt:210)
+	at org.jetbrains.exposed.v1.jdbc.JdbcTransaction.exec(JdbcTransaction.kt:187)
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutable$DefaultImpls.execute(BlockingExecutable.kt:77)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execute(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execute(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.QueriesKt.insert(Queries.kt:232)
+	at io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository.insertRow$current(SQLiteWorkItemRepository.kt:62)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invokeSuspend(SQLiteWorkTreeService.kt:40)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invoke(SQLiteWorkTreeService.kt)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invoke(SQLiteWorkTreeService.kt)
+	at org.jetbrains.exposed.v1.jdbc.transactions.experimental.SuspendedKt$suspendedTransactionAsyncInternal$1.invokeSuspend(Suspended.kt:210)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest$duplicate item UUID causes full transaction rollback$1.invokeSuspend$lambda$0(WorkTreeServiceIntegrationTest.kt:397)
+	at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
+	at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
+	at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3115)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest$duplicate item UUID causes full transaction rollback$1.invokeSuspend(WorkTreeServiceIntegrationTest.kt:396)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest.duplicate item UUID causes full transaction rollback(WorkTreeServiceIntegrationTest.kt:365)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(Unknown Source)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(Unknown Source)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92)
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+Caused by: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 1 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:520)
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:489)
+	at org.h2.message.DbException.get(DbException.java:223)
+	at org.h2.message.DbException.get(DbException.java:199)
+	at org.h2.index.Index.getDuplicateKeyException(Index.java:527)
+	at org.h2.mvstore.db.MVSecondaryIndex.checkUnique(MVSecondaryIndex.java:223)
+	at org.h2.mvstore.db.MVSecondaryIndex.add(MVSecondaryIndex.java:184)
+	at org.h2.mvstore.db.MVTable.addRow(MVTable.java:519)
+	at org.h2.command.dml.Insert.insertRows(Insert.java:174)
+	at org.h2.command.dml.Insert.update(Insert.java:135)
+	at org.h2.command.dml.DataChangeStatement.update(DataChangeStatement.java:74)
+	at org.h2.command.CommandContainer.update(CommandContainer.java:169)
+	at org.h2.command.Command.executeUpdate(Command.java:256)
+	at org.h2.jdbc.JdbcPreparedStatement.executeUpdateInternal(JdbcPreparedStatement.java:216)
+	at org.h2.jdbc.JdbcPreparedStatement.executeUpdate(JdbcPreparedStatement.java:174)
+	at org.jetbrains.exposed.v1.jdbc.statements.jdbc.JdbcPreparedStatementImpl.executeUpdate(JdbcPreparedStatementImpl.kt:53)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execInsertFunction(InsertBlockingExecutable.kt:20)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.executeInternal(InsertBlockingExecutable.kt:32)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.executeInternal(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutableKt.executeIn(BlockingExecutable.kt:120)
+	... 114 common frames omitted
+2026-04-03T19:22:06.392Z [task-orchestrator] [WARN] Wait 0 milliseconds before retrying
+2026-04-03T19:22:06.393Z [task-orchestrator] [WARN] Transaction attempt #1 failed: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 3 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]. Statement(s): INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+org.jetbrains.exposed.v1.exceptions.ExposedSQLException: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 3 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]
+SQL: [INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutableKt.executeIn(BlockingExecutable.kt:122)
+	at org.jetbrains.exposed.v1.jdbc.JdbcTransaction.exec(JdbcTransaction.kt:210)
+	at org.jetbrains.exposed.v1.jdbc.JdbcTransaction.exec(JdbcTransaction.kt:187)
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutable$DefaultImpls.execute(BlockingExecutable.kt:77)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execute(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execute(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.QueriesKt.insert(Queries.kt:232)
+	at io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository.insertRow$current(SQLiteWorkItemRepository.kt:62)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invokeSuspend(SQLiteWorkTreeService.kt:40)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invoke(SQLiteWorkTreeService.kt)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invoke(SQLiteWorkTreeService.kt)
+	at org.jetbrains.exposed.v1.jdbc.transactions.experimental.SuspendedKt$suspendedTransactionAsyncInternal$1.invokeSuspend(Suspended.kt:210)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest$duplicate item UUID causes full transaction rollback$1.invokeSuspend$lambda$0(WorkTreeServiceIntegrationTest.kt:397)
+	at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
+	at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
+	at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3115)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest$duplicate item UUID causes full transaction rollback$1.invokeSuspend(WorkTreeServiceIntegrationTest.kt:396)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest.duplicate item UUID causes full transaction rollback(WorkTreeServiceIntegrationTest.kt:365)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(Unknown Source)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(Unknown Source)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92)
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+Caused by: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 3 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:520)
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:489)
+	at org.h2.message.DbException.get(DbException.java:223)
+	at org.h2.message.DbException.get(DbException.java:199)
+	at org.h2.index.Index.getDuplicateKeyException(Index.java:527)
+	at org.h2.mvstore.db.MVSecondaryIndex.checkUnique(MVSecondaryIndex.java:223)
+	at org.h2.mvstore.db.MVSecondaryIndex.add(MVSecondaryIndex.java:184)
+	at org.h2.mvstore.db.MVTable.addRow(MVTable.java:519)
+	at org.h2.command.dml.Insert.insertRows(Insert.java:174)
+	at org.h2.command.dml.Insert.update(Insert.java:135)
+	at org.h2.command.dml.DataChangeStatement.update(DataChangeStatement.java:74)
+	at org.h2.command.CommandContainer.update(CommandContainer.java:169)
+	at org.h2.command.Command.executeUpdate(Command.java:256)
+	at org.h2.jdbc.JdbcPreparedStatement.executeUpdateInternal(JdbcPreparedStatement.java:216)
+	at org.h2.jdbc.JdbcPreparedStatement.executeUpdate(JdbcPreparedStatement.java:174)
+	at org.jetbrains.exposed.v1.jdbc.statements.jdbc.JdbcPreparedStatementImpl.executeUpdate(JdbcPreparedStatementImpl.kt:53)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execInsertFunction(InsertBlockingExecutable.kt:20)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.executeInternal(InsertBlockingExecutable.kt:32)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.executeInternal(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutableKt.executeIn(BlockingExecutable.kt:120)
+	... 114 common frames omitted
+2026-04-03T19:22:06.395Z [task-orchestrator] [WARN] Wait 0 milliseconds before retrying
+2026-04-03T19:22:06.396Z [task-orchestrator] [WARN] Transaction attempt #2 failed: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 5 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]. Statement(s): INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+org.jetbrains.exposed.v1.exceptions.ExposedSQLException: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 5 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]
+SQL: [INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutableKt.executeIn(BlockingExecutable.kt:122)
+	at org.jetbrains.exposed.v1.jdbc.JdbcTransaction.exec(JdbcTransaction.kt:210)
+	at org.jetbrains.exposed.v1.jdbc.JdbcTransaction.exec(JdbcTransaction.kt:187)
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutable$DefaultImpls.execute(BlockingExecutable.kt:77)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execute(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execute(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.QueriesKt.insert(Queries.kt:232)
+	at io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository.insertRow$current(SQLiteWorkItemRepository.kt:62)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invokeSuspend(SQLiteWorkTreeService.kt:40)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invoke(SQLiteWorkTreeService.kt)
+	at io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService$execute$2.invoke(SQLiteWorkTreeService.kt)
+	at org.jetbrains.exposed.v1.jdbc.transactions.experimental.SuspendedKt$suspendedTransactionAsyncInternal$1.invokeSuspend(Suspended.kt:210)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest$duplicate item UUID causes full transaction rollback$1.invokeSuspend$lambda$0(WorkTreeServiceIntegrationTest.kt:397)
+	at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:53)
+	at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:35)
+	at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3115)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest$duplicate item UUID causes full transaction rollback$1.invokeSuspend(WorkTreeServiceIntegrationTest.kt:396)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at io.github.jpicklyk.mcptask.current.application.service.WorkTreeServiceIntegrationTest.duplicate item UUID causes full transaction rollback(WorkTreeServiceIntegrationTest.kt:365)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(Unknown Source)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(Unknown Source)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99)
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92)
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+Caused by: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: "PUBLIC.PRIMARY_KEY_3 ON PUBLIC.WORK_ITEMS(ID) VALUES ( /* 5 */ UUID 'a81a7f1e-1ab3-4fe7-a420-2c3e421d7727' )"; SQL statement:
+INSERT INTO WORK_ITEMS (ID, PARENT_ID, TITLE, DESCRIPTION, SUMMARY, "role", STATUS_LABEL, PREVIOUS_ROLE, PRIORITY, COMPLEXITY, REQUIRES_VERIFICATION, "depth", METADATA, TAGS, "type", PROPERTIES, CREATED_AT, MODIFIED_AT, ROLE_CHANGED_AT, VERSION) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) [23505-224]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:520)
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:489)
+	at org.h2.message.DbException.get(DbException.java:223)
+	at org.h2.message.DbException.get(DbException.java:199)
+	at org.h2.index.Index.getDuplicateKeyException(Index.java:527)
+	at org.h2.mvstore.db.MVSecondaryIndex.checkUnique(MVSecondaryIndex.java:223)
+	at org.h2.mvstore.db.MVSecondaryIndex.add(MVSecondaryIndex.java:184)
+	at org.h2.mvstore.db.MVTable.addRow(MVTable.java:519)
+	at org.h2.command.dml.Insert.insertRows(Insert.java:174)
+	at org.h2.command.dml.Insert.update(Insert.java:135)
+	at org.h2.command.dml.DataChangeStatement.update(DataChangeStatement.java:74)
+	at org.h2.command.CommandContainer.update(CommandContainer.java:169)
+	at org.h2.command.Command.executeUpdate(Command.java:256)
+	at org.h2.jdbc.JdbcPreparedStatement.executeUpdateInternal(JdbcPreparedStatement.java:216)
+	at org.h2.jdbc.JdbcPreparedStatement.executeUpdate(JdbcPreparedStatement.java:174)
+	at org.jetbrains.exposed.v1.jdbc.statements.jdbc.JdbcPreparedStatementImpl.executeUpdate(JdbcPreparedStatementImpl.kt:53)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.execInsertFunction(InsertBlockingExecutable.kt:20)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.executeInternal(InsertBlockingExecutable.kt:32)
+	at org.jetbrains.exposed.v1.jdbc.statements.InsertBlockingExecutable.executeInternal(InsertBlockingExecutable.kt:16)
+	at org.jetbrains.exposed.v1.jdbc.statements.BlockingExecutableKt.executeIn(BlockingExecutable.kt:120)
+	... 114 common frames omitted
+2026-04-03T19:22:06.400Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.407Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.427Z [task-orchestrator] [WARN] Tool error: Something went wrong
+2026-04-03T19:22:06.434Z [task-orchestrator] [WARN] Tool error: Bad input
+2026-04-03T19:22:06.586Z [task-orchestrator] [WARN] Unknown trait 'nonexistent-trait' on item '97a6368c-3620-40b3-98fa-3b14fe39259e'; skipping
+2026-04-03T19:22:06.864Z [task-orchestrator] [WARN] Tool error: deps[0]: 'to' ref 'bogus_ref' is not defined. Valid refs: root, c1
+2026-04-03T19:22:06.880Z [task-orchestrator] [WARN] Tool error: Parent item '22ece8d2-1e2f-41f7-bec2-f80a13ae4aad' not found: WorkItem not found
+2026-04-03T19:22:06.890Z [task-orchestrator] [WARN] Tool error: Root item would be at depth 4 which exceeds the maximum depth of 3
+2026-04-03T19:22:06.895Z [task-orchestrator] [WARN] Tool error: Parent item '7d8a80ee-e896-40ee-9b4d-51abbe126bde' not found: WorkItem not found: 7d8a80ee-e896-40ee-9b4d-51abbe126bde
+2026-04-03T19:22:06.900Z [task-orchestrator] [WARN] Tool error: deps[0]: 'to' ref 'nonexistent' is not defined. Valid refs: root, c1
+2026-04-03T19:22:06.912Z [task-orchestrator] [WARN] Tool error: Children would be at depth 4 which exceeds the maximum depth of 3
+2026-04-03T19:22:06.922Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.930Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.935Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.942Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.949Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.955Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.960Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.964Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.969Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.974Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.979Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.983Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:06.988Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:06.993Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.002Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.008Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.011Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.014Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.020Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.024Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.029Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.033Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.037Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.040Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.044Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.048Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.056Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.064Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.069Z [task-orchestrator] [WARN] Tool error: Invalid dependency type: WRONG. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO
+2026-04-03T19:22:07.070Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.073Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.076Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.079Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.084Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.088Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.094Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.098Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.103Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.107Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.111Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.113Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.116Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.120Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.123Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.127Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.129Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.133Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.139Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.144Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.151Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.155Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.157Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.160Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.162Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.165Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.169Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.173Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.175Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.178Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.181Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.185Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.188Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.191Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.193Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.196Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.198Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.201Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.203Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.206Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.210Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.213Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.217Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.220Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.221Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.225Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.227Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.229Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.235Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.237Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.241Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.243Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.246Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.249Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.254Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.257Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.261Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.264Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.267Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.271Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.274Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.277Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.281Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.284Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.290Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.292Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.295Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.298Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.300Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.302Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.307Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.309Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.313Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.315Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.318Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.321Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.321Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.324Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.330Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.333Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.336Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.339Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.343Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.346Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.350Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.352Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.352Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.354Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.355Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.357Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.359Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.362Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.365Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.366Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.368Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.371Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.373Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.376Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.379Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.381Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.382Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.385Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.427Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.429Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.431Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.434Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.436Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.438Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.439Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.441Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.443Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.446Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.449Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.451Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.451Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.453Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.455Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.457Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.462Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.464Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.470Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.472Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.475Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.477Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.478Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.480Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.484Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.487Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.489Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.490Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.493Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.495Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.497Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.499Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.505Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.507Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.508Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.509Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.511Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.513Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.514Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.517Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.519Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.521Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.529Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.531Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.532Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.534Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.535Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.544Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.547Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.548Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.551Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.552Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.553Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.554Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.555Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.557Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.559Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.561Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.563Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.564Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.565Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.567Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.568Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.569Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.572Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.574Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.576Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.577Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.578Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.580Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.582Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.584Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.585Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.587Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.589Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.591Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.594Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.596Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.601Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.603Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.606Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.608Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.610Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.612Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.615Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.616Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.617Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.618Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.620Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.621Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.625Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.627Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.629Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.631Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.635Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.636Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.639Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.641Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.646Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.648Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.650Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.653Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.654Z [task-orchestrator] [WARN] Tool error: ID prefix too short: minimum 4 hex characters required, got 3
+2026-04-03T19:22:07.654Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.656Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.657Z [task-orchestrator] [WARN] Tool error: ID prefix too short: minimum 4 hex characters required, got 1
+2026-04-03T19:22:07.658Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.660Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.670Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.672Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.672Z [task-orchestrator] [WARN] Tool error: Invalid ID format: must be a UUID or hex prefix (4-35 chars), got: ghij1234
+2026-04-03T19:22:07.673Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.676Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.677Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.679Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.681Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.682Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.683Z [task-orchestrator] [WARN] Tool error: No WorkItem found matching prefix: 0000
+2026-04-03T19:22:07.684Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.685Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.687Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.689Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.691Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.692Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.697Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.699Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.701Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.702Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.703Z [task-orchestrator] [WARN] Tool error: WorkItem not found
+2026-04-03T19:22:07.703Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.705Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.707Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.709Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.714Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.716Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.720Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.721Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.722Z [task-orchestrator] [WARN] Tool error: WorkItem not found
+2026-04-03T19:22:07.722Z [task-orchestrator] [WARN] Tool error: WorkItem not found
+2026-04-03T19:22:07.723Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.724Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.728Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.730Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.733Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.735Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.737Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.739Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.740Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.742Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.748Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.749Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.752Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.763Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.768Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.770Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.774Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.776Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.779Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.780Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.782Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.784Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.785Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.787Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.787Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.789Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.791Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.793Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.793Z [task-orchestrator] [WARN] Tool error: WorkItem not found with id: e29b9ecf-3b0b-4486-9a83-40f233325a05
+2026-04-03T19:22:07.794Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.796Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.798Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.800Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.802Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.804Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.806Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.807Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.808Z [task-orchestrator] [WARN] Tool error: WorkItem not found
+2026-04-03T19:22:07.809Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.810Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.812Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.814Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.816Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.817Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.819Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.821Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.824Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.827Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.829Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.830Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.832Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.834Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.836Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.837Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.840Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.842Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.846Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.847Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.849Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.850Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.853Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.855Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.857Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.858Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.861Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.862Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.862Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.863Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.865Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.865Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.868Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.869Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.871Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.872Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.873Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.874Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.876Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.876Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.879Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.880Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.881Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.882Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.883Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.884Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.887Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.890Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.892Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.894Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.895Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.897Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.898Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.900Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.901Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.902Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.913Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.914Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.918Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.919Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.923Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.924Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.927Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.928Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.929Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.930Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.930Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.931Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.933Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.935Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.936Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.938Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:07.939Z [task-orchestrator] [WARN] Tool error: Note not found: 319e0a48-3229-4d0f-a310-f354d0cdbe40
+2026-04-03T19:22:07.939Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:07.941Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.118Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.119Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.124Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.126Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.129Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.130Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.132Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.134Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.136Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.137Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.139Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.141Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.143Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.143Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.145Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.147Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.149Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.151Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.154Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.156Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.159Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.160Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.163Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.164Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.166Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.167Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.170Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.171Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.173Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.174Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.176Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.178Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.180Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.181Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.186Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.187Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.187Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.188Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.191Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.192Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.196Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.197Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.201Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.202Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.204Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.205Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.208Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.213Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.216Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.217Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.284Z [task-orchestrator] [WARN] Tool error: WorkItem not found: 7a28e4bc-bd02-4223-822a-30584491aed5
+2026-04-03T19:22:08.335Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.337Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.339Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.340Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.340Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.341Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.343Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.344Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.345Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.352Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.356Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.358Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.359Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.361Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.363Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.365Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.373Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.376Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.379Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.380Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.382Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.383Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.386Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.387Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.389Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.390Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.391Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.392Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.394Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.395Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.396Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.398Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.400Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.401Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.402Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.403Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.403Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.405Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.406Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.408Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.410Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.411Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.412Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.413Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.415Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.416Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.417Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.419Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.420Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.422Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.423Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.425Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.426Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.427Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.433Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.434Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.435Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.436Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.437Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.438Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.470Z [task-orchestrator] [WARN] Tool error: WorkItem not found: 7a77ee9f-4b4c-4c3b-80b4-2defdf6c4416
+2026-04-03T19:22:08.472Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.473Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.476Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.477Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.483Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.484Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.485Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.486Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.490Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.491Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.496Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.497Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.501Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.503Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.516Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.517Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.518Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.519Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.524Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.526Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.526Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.528Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.530Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.531Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.535Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.536Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.539Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.540Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.545Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.546Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.551Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.553Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.562Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.563Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.569Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.570Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.572Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.578Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.579Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.579Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.583Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.584Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.589Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.591Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.595Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.596Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.596Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.597Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.599Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.600Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.604Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.605Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.608Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.609Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.612Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.613Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.618Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.620Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.624Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.625Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.627Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.628Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.629Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.630Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.634Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.636Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.638Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.639Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.641Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.642Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.645Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.646Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.649Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.651Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.654Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.655Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.658Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.659Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.664Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.666Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.667Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.668Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.673Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.674Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.677Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.678Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.679Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.681Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.687Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.688Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.692Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.693Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.695Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.696Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.698Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.699Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.704Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.705Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.711Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.712Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.764Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.766Z [task-orchestrator] [WARN] Config file is missing 'note_schemas' key; no schemas loaded
+2026-04-03T19:22:08.766Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 1 warnings)
+2026-04-03T19:22:08.768Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.771Z [task-orchestrator] [INFO] Loaded 2 schemas (3 entries, 0 warnings)
+2026-04-03T19:22:08.773Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.775Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.777Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.778Z [task-orchestrator] [WARN] Config file is missing 'note_schemas' key; no schemas loaded
+2026-04-03T19:22:08.778Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 1 warnings)
+2026-04-03T19:22:08.781Z [task-orchestrator] [WARN] Failed to load note schemas from 'C:\Users\jeff_\AppData\Local\Temp\yaml-schema-test17499584568696467171\.taskorchestrator\config.yaml': while parsing a flow node
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+expected the node content, but found ':'
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+
+2026-04-03T19:22:08.782Z [task-orchestrator] [WARN] Failed to load note schemas from 'C:\Users\jeff_\AppData\Local\Temp\yaml-schema-test17499584568696467171\.taskorchestrator\config.yaml': while parsing a flow node
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+expected the node content, but found ':'
+ in 'reader', line 2, column 15:
+    invalid yaml: :
+                  ^
+
+2026-04-03T19:22:08.782Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 1 warnings)
+2026-04-03T19:22:08.783Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.785Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.786Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.788Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.790Z [task-orchestrator] [WARN] Skipping schema entry 'terminal-note': invalid role 'terminal' (valid: [queue, work, review])
+2026-04-03T19:22:08.790Z [task-orchestrator] [INFO] Loaded 1 schemas (0 entries, 0 warnings)
+2026-04-03T19:22:08.792Z [task-orchestrator] [WARN] Schema 'my-schema' entry[0] (key='some-note') is missing required field 'role'; skipping
+2026-04-03T19:22:08.792Z [task-orchestrator] [INFO] Loaded 1 schemas (0 entries, 1 warnings)
+2026-04-03T19:22:08.794Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 0 warnings)
+2026-04-03T19:22:08.795Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.797Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.799Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.800Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.802Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.803Z [task-orchestrator] [WARN] Schema 'my-schema' entry[0] is missing required field 'key'; skipping
+2026-04-03T19:22:08.804Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 1 warnings)
+2026-04-03T19:22:08.805Z [task-orchestrator] [INFO] Loaded 0 schemas (0 entries, 0 warnings)
+2026-04-03T19:22:08.807Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.808Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.810Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.811Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.812Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.813Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.815Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.816Z [task-orchestrator] [WARN] Schema 'feature-task' has invalid lifecycle value 'invalid-mode'; defaulting to AUTO
+2026-04-03T19:22:08.816Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 1 warnings)
+2026-04-03T19:22:08.817Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.819Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.820Z [task-orchestrator] [WARN] Skipping schema entry 'bad-note': invalid role 'queu' (valid: [queue, work, review])
+2026-04-03T19:22:08.820Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.821Z [task-orchestrator] [WARN] Skipping schema entry 'invalid-role-note': invalid role 'badvalue' (valid: [queue, work, review])
+2026-04-03T19:22:08.821Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.822Z [task-orchestrator] [WARN] Schema 'my-schema' entry (key='some-note') has non-boolean 'required' value 'yes'; defaulting to false
+2026-04-03T19:22:08.822Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 1 warnings)
+2026-04-03T19:22:08.824Z [task-orchestrator] [INFO] Loaded 2 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.825Z [task-orchestrator] [WARN] Skipping schema entry 'blocked-note': invalid role 'blocked' (valid: [queue, work, review])
+2026-04-03T19:22:08.825Z [task-orchestrator] [INFO] Loaded 1 schemas (0 entries, 0 warnings)
+2026-04-03T19:22:08.826Z [task-orchestrator] [WARN] Skipping schema entry 'bad-note': invalid role 'invalid-role' (valid: [queue, work, review])
+2026-04-03T19:22:08.826Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.827Z [task-orchestrator] [INFO] Loaded 1 schemas (2 entries, 0 warnings)
+2026-04-03T19:22:08.828Z [task-orchestrator] [INFO] Loaded 1 schemas (1 entries, 0 warnings)
+2026-04-03T19:22:08.840Z [task-orchestrator] [INFO] Loaded custom status labels from config: [start]
+2026-04-03T19:22:08.843Z [task-orchestrator] [INFO] Loaded custom status labels from config: [start, complete, block, cancel, cascade]
+2026-04-03T19:22:08.846Z [task-orchestrator] [WARN] Failed to load status labels from config: while parsing a flow mapping
+ in 'reader', line 1, column 4:
+    {{{{invalid yaml
+       ^
+expected ',' or '}', but got <stream end>
+ in 'reader', line 1, column 17:
+    {{{{invalid yaml
+                    ^
+
+2026-04-03T19:22:08.848Z [task-orchestrator] [INFO] Loaded custom status labels from config: [start, complete]
+2026-04-03T19:22:08.851Z [task-orchestrator] [INFO] Loaded custom status labels from config: [start]
+2026-04-03T19:22:08.854Z [task-orchestrator] [INFO] Loaded custom status labels from config: [start, resume, reopen]
+2026-04-03T19:22:08.859Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.860Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.863Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.863Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.865Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.866Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.867Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.867Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.870Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.871Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.872Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.873Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.874Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.875Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.876Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.877Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.878Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.879Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.883Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.886Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.890Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.891Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.893Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.894Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.896Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.897Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.900Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.901Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.903Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.906Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.914Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.916Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.918Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.920Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.922Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.923Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.925Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.927Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.929Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.932Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.934Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.935Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.938Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.939Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.940Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.941Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.943Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.944Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.945Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.946Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.948Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.949Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.950Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.951Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.954Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.955Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.960Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.962Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.963Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.965Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.974Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.975Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.976Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.977Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.978Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.979Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.981Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.982Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.984Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.988Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.990Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.990Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.991Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.992Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.993Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.994Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.995Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.996Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.997Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:08.998Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:08.999Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.000Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.001Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.002Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.004Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.005Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.008Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.009Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.011Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.012Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.014Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.015Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.016Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.017Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.018Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.019Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.020Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.021Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.022Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.023Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.024Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.025Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.027Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.028Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.029Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.031Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.032Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.034Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.035Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.036Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.037Z [task-orchestrator] [WARN] Skipping corrupt WorkItem row (id=751bc8d4-8526-4a9a-845a-21313cd7059a): Child items must have depth >= 1
+2026-04-03T19:22:09.038Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.039Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.040Z [task-orchestrator] [WARN] Skipping corrupt WorkItem row (id=fdba544a-1ef1-4b42-a026-f988c37ea7e9): Child items must have depth >= 1
+2026-04-03T19:22:09.040Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.042Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.044Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.045Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.046Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.047Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.048Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.049Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.051Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.052Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.053Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.055Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.056Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.058Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.058Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.060Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.062Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.063Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.064Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.066Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.067Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.068Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.070Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.071Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.072Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.074Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.075Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.076Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.078Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.079Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.080Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.082Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.084Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.085Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.086Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.088Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.089Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.091Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.092Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.094Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.095Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.096Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.098Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.099Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.101Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.102Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.104Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.105Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.106Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.108Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.109Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.111Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.113Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.114Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.125Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.127Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.128Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.129Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.134Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.136Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.137Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.138Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.139Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.139Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.142Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.143Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.144Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.145Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.146Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.148Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.149Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.150Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.151Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.152Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.153Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.154Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.156Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.156Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.158Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.159Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.160Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.161Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.161Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.162Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.164Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.165Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.166Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.167Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.168Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.169Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.170Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.171Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.172Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.173Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.174Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.175Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.175Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.176Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.177Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.178Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.179Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.181Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.181Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.182Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.183Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.184Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.186Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.187Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.189Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.190Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.190Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.192Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.192Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.193Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.194Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.195Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.195Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.196Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.198Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.199Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.200Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.201Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.202Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.203Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.203Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.204Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.498Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.503Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.581Z [task-orchestrator] [INFO] Adding Tool: "echo"
+2026-04-03T19:22:09.581Z [task-orchestrator] [INFO] Added Tool: "echo"
+2026-04-03T19:22:09.581Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.586Z [task-orchestrator] [INFO] Getting Tool: "echo"
+2026-04-03T19:22:09.586Z [task-orchestrator] [INFO] Got Tool: "echo"
+2026-04-03T19:22:09.587Z [task-orchestrator] [WARN] Validation error in 'echo': Missing required parameter: message
+2026-04-03T19:22:09.587Z [task-orchestrator] [ERROR] Server capability assertion failed: logging not supported
+2026-04-03T19:22:09.595Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.597Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.599Z [task-orchestrator] [INFO] Adding Tool: "failing_tool"
+2026-04-03T19:22:09.599Z [task-orchestrator] [INFO] Added Tool: "failing_tool"
+2026-04-03T19:22:09.599Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.599Z [task-orchestrator] [INFO] Getting Tool: "failing_tool"
+2026-04-03T19:22:09.599Z [task-orchestrator] [INFO] Got Tool: "failing_tool"
+2026-04-03T19:22:09.599Z [task-orchestrator] [ERROR] Internal error in 'failing_tool' (session 901790e6-cd24-4d0b-af18-a248c0144a02): Intentional test failure
+java.lang.RuntimeException: Intentional test failure
+	at io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapterIntegrationTest$failingTool$1.execute(McpToolAdapterIntegrationTest.kt:131)
+	at io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter$registerToolWithServer$1.invokeSuspend(McpToolAdapter.kt:84)
+	at io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter$registerToolWithServer$1.invoke(McpToolAdapter.kt)
+	at io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter$registerToolWithServer$1.invoke(McpToolAdapter.kt)
+	at io.modelcontextprotocol.kotlin.sdk.server.Server.handleCallTool(Server.kt:583)
+	at io.modelcontextprotocol.kotlin.sdk.server.Server.access$handleCallTool(Server.kt:77)
+	at io.modelcontextprotocol.kotlin.sdk.server.Server$createSession$3.invokeSuspend(Server.kt:197)
+	at io.modelcontextprotocol.kotlin.sdk.server.Server$createSession$3.invoke(Server.kt)
+	at io.modelcontextprotocol.kotlin.sdk.server.Server$createSession$3.invoke(Server.kt)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol$setRequestHandlerInternal$1$1.invokeSuspend(Protocol.kt:561)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol$setRequestHandlerInternal$1$1.invoke(Protocol.kt)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol$setRequestHandlerInternal$1$1.invoke(Protocol.kt)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol.onRequest(Protocol.kt:316)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol.access$onRequest(Protocol.kt:161)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol$connect$4.invokeSuspend(Protocol.kt:250)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol$connect$4.invoke(Protocol.kt)
+	at io.modelcontextprotocol.kotlin.sdk.shared.Protocol$connect$4.invoke(Protocol.kt)
+	at io.modelcontextprotocol.kotlin.sdk.shared.AbstractTransport$onMessage$1.invokeSuspend(AbstractTransport.kt:52)
+	at io.modelcontextprotocol.kotlin.sdk.shared.AbstractTransport$onMessage$1.invoke(AbstractTransport.kt)
+	at io.modelcontextprotocol.kotlin.sdk.shared.AbstractTransport$onMessage$1.invoke(AbstractTransport.kt)
+	at io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport$initialize$3.invokeSuspend(ChannelTransport.kt:120)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:829)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+2026-04-03T19:22:09.600Z [task-orchestrator] [ERROR] Server capability assertion failed: logging not supported
+2026-04-03T19:22:09.601Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.603Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.605Z [task-orchestrator] [INFO] Adding Tool: "echo"
+2026-04-03T19:22:09.605Z [task-orchestrator] [INFO] Added Tool: "echo"
+2026-04-03T19:22:09.605Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.605Z [task-orchestrator] [INFO] Getting Tool: "echo"
+2026-04-03T19:22:09.605Z [task-orchestrator] [INFO] Got Tool: "echo"
+2026-04-03T19:22:09.606Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.613Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.617Z [task-orchestrator] [INFO] Adding Tool: "manage_items"
+2026-04-03T19:22:09.617Z [task-orchestrator] [INFO] Added Tool: "manage_items"
+2026-04-03T19:22:09.617Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.618Z [task-orchestrator] [INFO] Getting Tool: "manage_items"
+2026-04-03T19:22:09.618Z [task-orchestrator] [INFO] Got Tool: "manage_items"
+2026-04-03T19:22:09.622Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.626Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.628Z [task-orchestrator] [INFO] Adding Tool: "bool_check"
+2026-04-03T19:22:09.628Z [task-orchestrator] [INFO] Added Tool: "bool_check"
+2026-04-03T19:22:09.628Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.629Z [task-orchestrator] [INFO] Getting Tool: "bool_check"
+2026-04-03T19:22:09.629Z [task-orchestrator] [INFO] Got Tool: "bool_check"
+2026-04-03T19:22:09.630Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.633Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Registering 2 tools with MCP server
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Adding Tool: "echo"
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Added Tool: "echo"
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Adding Tool: "failing_tool"
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Added Tool: "failing_tool"
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.636Z [task-orchestrator] [INFO] All 2 tools registered with MCP server
+2026-04-03T19:22:09.640Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.641Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.642Z [task-orchestrator] [INFO] Adding Tool: "echo"
+2026-04-03T19:22:09.643Z [task-orchestrator] [INFO] Added Tool: "echo"
+2026-04-03T19:22:09.643Z [task-orchestrator] [INFO] Notifying listeners on feature update
+2026-04-03T19:22:09.666Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.670Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.673Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.675Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.677Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.678Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode
+2026-04-03T19:22:09.680Z [task-orchestrator] [INFO] Creating/updating database schema via Direct mode...
+2026-04-03T19:22:09.682Z [task-orchestrator] [INFO] Database schema created/updated successfully via Direct mode

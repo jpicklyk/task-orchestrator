@@ -140,7 +140,9 @@ class SchemaGatedLifecycleTest {
     private suspend fun createItem(
         title: String,
         tags: String? = null,
-        parentId: UUID? = null
+        parentId: UUID? = null,
+        type: String? = null,
+        properties: String? = null
     ): WorkItem {
         val depth =
             if (parentId != null) {
@@ -149,7 +151,7 @@ class SchemaGatedLifecycleTest {
             } else {
                 0
             }
-        val item = WorkItem(title = title, tags = tags, parentId = parentId, depth = depth)
+        val item = WorkItem(title = title, tags = tags, parentId = parentId, depth = depth, type = type, properties = properties)
         val result = context.workItemRepository().create(item)
         return (result as Result.Success).data
     }
@@ -1243,4 +1245,196 @@ class SchemaGatedLifecycleTest {
             assertEquals("work", cascade["targetRole"]!!.jsonPrimitive.content)
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
         }
+
+    // ══════════════════════════════════════════════════════════
+    // Type-based resolution, lifecycle modes, and traits
+    // ══════════════════════════════════════════════════════════
+
+    /**
+     * Creates a context with a schema service that supports type-based lookup,
+     * lifecycle modes, default_traits, and trait note definitions.
+     */
+    private fun createTypeAwareContext(): ToolExecutionContext {
+        val dbName = "type_aware_${System.nanoTime()}"
+        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        val databaseManager = DatabaseManager(database)
+        DirectDatabaseSchemaManager().updateSchema()
+        val repoProvider = DefaultRepositoryProvider(databaseManager)
+
+        val schemaService = object : NoteSchemaService {
+            private val typeSchemas = mapOf(
+                "feature-task" to WorkItemSchema(
+                    type = "feature-task",
+                    lifecycleMode = LifecycleMode.AUTO,
+                    notes = listOf(
+                        NoteSchemaEntry(key = "task-scope", role = Role.QUEUE, required = true, description = "Task scope"),
+                        NoteSchemaEntry(key = "implementation-notes", role = Role.WORK, required = true, description = "Impl notes"),
+                        NoteSchemaEntry(key = "review-checklist", role = Role.REVIEW, required = true, description = "Review")
+                    )
+                ),
+                "container" to WorkItemSchema(
+                    type = "container",
+                    lifecycleMode = LifecycleMode.MANUAL,
+                    notes = emptyList()
+                ),
+                "permanent-container" to WorkItemSchema(
+                    type = "permanent-container",
+                    lifecycleMode = LifecycleMode.PERMANENT,
+                    notes = emptyList()
+                ),
+                "feature-with-traits" to WorkItemSchema(
+                    type = "feature-with-traits",
+                    lifecycleMode = LifecycleMode.AUTO,
+                    notes = listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Specification")
+                    ),
+                    defaultTraits = listOf("needs-security-review")
+                )
+            )
+
+            private val traitNotes = mapOf(
+                "needs-security-review" to listOf(
+                    NoteSchemaEntry(key = "security-assessment", role = Role.REVIEW, required = true, description = "Security review")
+                )
+            )
+
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                tags.firstNotNullOfOrNull { typeSchemas[it]?.notes }
+
+            override fun getSchemaForType(type: String?): WorkItemSchema? =
+                if (type != null) typeSchemas[type] else null
+
+            override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = traitNotes[traitName]
+
+            override fun getDefaultTraits(type: String?): List<String> =
+                if (type != null) typeSchemas[type]?.defaultTraits ?: emptyList() else emptyList()
+        }
+
+        return ToolExecutionContext(repoProvider, schemaService)
+    }
+
+    private suspend fun createItemIn(
+        ctx: ToolExecutionContext,
+        title: String,
+        type: String? = null,
+        parentId: UUID? = null,
+        properties: String? = null
+    ): WorkItem {
+        val depth = if (parentId != null) {
+            val p = ctx.workItemRepository().getById(parentId)
+            (p as Result.Success).data.depth + 1
+        } else 0
+        val item = WorkItem(title = title, type = type, parentId = parentId, depth = depth, properties = properties)
+        return (ctx.workItemRepository().create(item) as Result.Success).data
+    }
+
+    private suspend fun createNoteIn(ctx: ToolExecutionContext, itemId: UUID, key: String, role: Role): Unit {
+        val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = "Filled")
+        ctx.noteRepository().upsert(note)
+    }
+
+    private suspend fun getItemIn(ctx: ToolExecutionContext, id: UUID): WorkItem =
+        (ctx.workItemRepository().getById(id) as Result.Success).data
+
+    private fun advanceParams(itemId: UUID, trigger: String) = JsonObject(
+        mapOf(
+            "transitions" to JsonArray(listOf(
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("trigger", JsonPrimitive(trigger))
+                }
+            ))
+        )
+    )
+
+    @Test
+    fun `type-based schema gates enforce required notes`(): Unit = runBlocking {
+        val ctx = createTypeAwareContext()
+        val item = createItemIn(ctx, "Type-gated item", type = "feature-task")
+
+        // Try to advance without required queue note → should fail
+        val result = transitionTool.execute(advanceParams(item.id, "start"), ctx) as JsonObject
+        val r = (result["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Should fail gate without required queue note")
+
+        // Fill required queue note and retry
+        createNoteIn(ctx, item.id, "task-scope", Role.QUEUE)
+        val result2 = transitionTool.execute(advanceParams(item.id, "start"), ctx) as JsonObject
+        val r2 = (result2["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+        assertTrue(r2["applied"]!!.jsonPrimitive.boolean, "Should advance after filling required note")
+        assertEquals("work", r2["newRole"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `MANUAL lifecycle parent does not cascade when all children terminal`(): Unit = runBlocking {
+        val ctx = createTypeAwareContext()
+        val parent = createItemIn(ctx, "Manual container", type = "container")
+        val child = createItemIn(ctx, "Child task", type = "feature-task", parentId = parent.id)
+
+        // Advance parent to WORK (start cascade from child starting)
+        transitionTool.execute(advanceParams(parent.id, "start"), ctx)
+        // Fill child notes and complete it
+        createNoteIn(ctx, child.id, "task-scope", Role.QUEUE)
+        transitionTool.execute(advanceParams(child.id, "start"), ctx) // queue→work
+        createNoteIn(ctx, child.id, "implementation-notes", Role.WORK)
+        transitionTool.execute(advanceParams(child.id, "start"), ctx) // work→review
+        createNoteIn(ctx, child.id, "review-checklist", Role.REVIEW)
+        transitionTool.execute(advanceParams(child.id, "start"), ctx) // review→terminal
+
+        // Child should be terminal
+        assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
+        // Parent should NOT have cascaded to terminal (MANUAL lifecycle)
+        assertEquals(Role.WORK, getItemIn(ctx, parent.id).role)
+    }
+
+    @Test
+    fun `PERMANENT lifecycle parent does not cascade when all children terminal`(): Unit = runBlocking {
+        val ctx = createTypeAwareContext()
+        val parent = createItemIn(ctx, "Permanent container", type = "permanent-container")
+        val child = createItemIn(ctx, "Child", parentId = parent.id)
+
+        transitionTool.execute(advanceParams(parent.id, "start"), ctx)
+        transitionTool.execute(advanceParams(child.id, "complete"), ctx) // schema-free, direct to terminal
+
+        assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
+        assertEquals(Role.WORK, getItemIn(ctx, parent.id).role)
+    }
+
+    @Test
+    fun `AUTO lifecycle parent cascades normally when all children terminal`(): Unit = runBlocking {
+        val ctx = createTypeAwareContext()
+        val parent = createItemIn(ctx, "Auto parent") // no type = schema-free = AUTO default
+        val child = createItemIn(ctx, "Child", parentId = parent.id)
+
+        transitionTool.execute(advanceParams(parent.id, "start"), ctx)
+        transitionTool.execute(advanceParams(child.id, "complete"), ctx)
+
+        assertEquals(Role.TERMINAL, getItemIn(ctx, child.id).role)
+        assertEquals(Role.TERMINAL, getItemIn(ctx, parent.id).role)
+    }
+
+    @Test
+    fun `traits add additional required notes to gate enforcement`(): Unit = runBlocking {
+        val ctx = createTypeAwareContext()
+        // feature-with-traits has default_traits: [needs-security-review]
+        // which adds security-assessment (review, required) to the base schema
+        val item = createItemIn(ctx, "Item with traits", type = "feature-with-traits")
+
+        // Fill base required queue note
+        createNoteIn(ctx, item.id, "spec", Role.QUEUE)
+        transitionTool.execute(advanceParams(item.id, "start"), ctx) // queue→work
+
+        assertEquals(Role.WORK, getItemIn(ctx, item.id).role)
+
+        // Try to complete — should fail because security-assessment (from trait) is not filled
+        val completeResult = transitionTool.execute(advanceParams(item.id, "complete"), ctx) as JsonObject
+        val r = (completeResult["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+        assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Should fail because trait note security-assessment is missing")
+
+        // Fill the trait-required note and complete
+        createNoteIn(ctx, item.id, "security-assessment", Role.REVIEW)
+        val completeResult2 = transitionTool.execute(advanceParams(item.id, "complete"), ctx) as JsonObject
+        val r2 = (completeResult2["data"] as JsonObject)["results"]!!.jsonArray[0].jsonObject
+        assertTrue(r2["applied"]!!.jsonPrimitive.boolean, "Should complete after filling trait note")
+    }
 }
