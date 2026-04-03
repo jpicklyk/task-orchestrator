@@ -480,12 +480,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val requiresVerification = (obj["requiresVerification"] as? JsonPrimitive)?.booleanOrNull ?: false
         val type = (obj["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val traitsStr = (obj["traits"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        val properties = if (traitsStr != null) {
-            val traitList = traitsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            PropertiesHelper.mergeTraits(null, traitList)
-        } else {
-            null
-        }
+        val properties = PropertiesHelper.mergeTraitsFromString(null, traitsStr)
 
         return try {
             WorkItem(

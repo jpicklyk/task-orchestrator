@@ -172,8 +172,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             val previousRole = item.role
 
+            // Resolve schema once per item — reused across gate checks and response building
+            val itemSchema = context.resolveSchema(item)
+
             // Phase 1: Resolve — schema-driven review phase detection
-            val hasReviewPhase = context.resolveHasReviewPhase(item)
+            val hasReviewPhase = itemSchema?.hasReviewPhase() ?: false
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
             val configLabel = context.statusLabelService().resolveLabel(trigger)
             if (!resolution.success || resolution.targetRole == null) {
@@ -221,8 +224,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Gate check: required notes for the CURRENT role must exist before advancing (start trigger)
             if (trigger == "start") {
-                val resolvedSchema = context.resolveSchema(item)
-                if (resolvedSchema != null) {
+                if (itemSchema != null) {
+                    val resolvedSchema = itemSchema
                     val requiredForCurrentPhase = resolvedSchema.notes.filter { it.role == item.role && it.required }
                     if (requiredForCurrentPhase.isNotEmpty()) {
                         val notesResult = context.noteRepository().findByItemId(item.id)
@@ -252,8 +255,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Gate check: all required notes across all phases must be filled (complete trigger)
             if (trigger == "complete") {
-                val resolvedSchema = context.resolveSchema(item)
-                if (resolvedSchema != null) {
+                if (itemSchema != null) {
+                    val resolvedSchema = itemSchema
                     val allRequired = resolvedSchema.notes.filter { it.required }
                     if (allRequired.isNotEmpty()) {
                         val notesResult = context.noteRepository().findByItemId(item.id)
@@ -432,7 +435,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             }
 
             // Schema-driven response fields: expectedNotes, guidancePointer, noteProgress
-            val resolvedSchema = context.resolveSchema(item)
+            val resolvedSchema = itemSchema
             // Only query notes when a schema exists (avoids unnecessary DB call)
             val expectedNotesJson: JsonArray
             val guidancePointer: String?

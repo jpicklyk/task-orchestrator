@@ -90,15 +90,18 @@ class ToolExecutionContext(
         item.type?.let { type ->
             service.getSchemaForType(type)?.let { return it }
         }
-        // Tag fallback: replicate existing getSchemaForTags behavior
+        // Tag fallback: find the matched tag, then look up the full WorkItemSchema
+        // to preserve lifecycleMode and defaultTraits from config
         val tags = item.tagList()
-        val entries = service.getSchemaForTags(tags) ?: return null
+        if (service.getSchemaForTags(tags) == null) return null
         val matchedType = if (tags.isEmpty()) {
             "default"
         } else {
             tags.firstOrNull { tag -> service.getSchemaForTags(listOf(tag)) != null } ?: "default"
         }
-        return WorkItemSchema(type = matchedType, notes = entries)
+        // Retrieve the full WorkItemSchema (with lifecycle/defaultTraits) if available
+        return service.getSchemaForType(matchedType)
+            ?: WorkItemSchema(type = matchedType, notes = service.getSchemaForTags(tags) ?: emptyList())
     }
 
     /**

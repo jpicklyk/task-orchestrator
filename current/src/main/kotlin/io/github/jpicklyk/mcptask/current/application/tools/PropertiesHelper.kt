@@ -8,6 +8,8 @@ import kotlinx.serialization.json.*
  */
 object PropertiesHelper {
 
+    private const val TRAITS_KEY = "traits"
+
     /**
      * Extract the traits list from a properties JSON string.
      * Returns empty list if properties is null, malformed, or has no "traits" key.
@@ -16,7 +18,7 @@ object PropertiesHelper {
         if (properties.isNullOrBlank()) return emptyList()
         return try {
             val json = Json.parseToJsonElement(properties).jsonObject
-            json["traits"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+            json[TRAITS_KEY]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
         } catch (_: Exception) {
             emptyList()
         }
@@ -44,11 +46,21 @@ object PropertiesHelper {
         val merged = buildJsonObject {
             // Preserve all existing keys except "traits"
             baseObject.forEach { (key, value) ->
-                if (key != "traits") put(key, value)
+                if (key != TRAITS_KEY) put(key, value)
             }
-            put("traits", traitsArray)
+            put(TRAITS_KEY, traitsArray)
         }
 
         return Json.encodeToString(JsonObject.serializer(), merged)
+    }
+
+    /**
+     * Parse a comma-separated traits string and merge into existing properties JSON.
+     * Returns [existingProperties] unchanged if [commaSeparatedTraits] is null.
+     */
+    fun mergeTraitsFromString(existingProperties: String?, commaSeparatedTraits: String?): String? {
+        if (commaSeparatedTraits == null) return existingProperties
+        val traitList = commaSeparatedTraits.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        return mergeTraits(existingProperties, traitList)
     }
 }

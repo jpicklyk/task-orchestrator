@@ -50,6 +50,9 @@ class GetContextToolTest {
         noteRepo = mockk()
         roleTransitionRepo = mockk()
         noteSchemaService = mockk()
+        every { noteSchemaService.getSchemaForType(any()) } returns null
+        every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
+        every { noteSchemaService.getTraitNotes(any()) } returns null
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo

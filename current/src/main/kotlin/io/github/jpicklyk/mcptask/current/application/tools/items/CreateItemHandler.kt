@@ -63,12 +63,7 @@ class CreateItemHandler(
                 val type = extractItemString(itemObj, "type")
                 val rawProperties = extractItemString(itemObj, "properties")
                 val traitsStr = extractItemString(itemObj, "traits")
-                val properties = if (traitsStr != null) {
-                    val traitList = traitsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    PropertiesHelper.mergeTraits(rawProperties, traitList)
-                } else {
-                    rawProperties
-                }
+                val properties = PropertiesHelper.mergeTraitsFromString(rawProperties, traitsStr)
 
                 // Pre-generate the UUID so we can guard against self-parent before construction
                 val itemId = UUID.randomUUID()

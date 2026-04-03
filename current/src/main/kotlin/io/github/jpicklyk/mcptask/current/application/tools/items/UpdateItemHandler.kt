@@ -89,12 +89,7 @@ class UpdateItemHandler(
                 val newType = extractItemStringAllowNull(itemObj, "type", existing.type)
                 val rawNewProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
                 val traitsStr = extractItemString(itemObj, "traits")
-                val newProperties = if (traitsStr != null) {
-                    val traitList = traitsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    PropertiesHelper.mergeTraits(rawNewProperties, traitList)
-                } else {
-                    rawNewProperties
-                }
+                val newProperties = PropertiesHelper.mergeTraitsFromString(rawNewProperties, traitsStr)
 
                 // Parse priority if provided
                 val newPriority =
