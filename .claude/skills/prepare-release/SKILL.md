@@ -1,14 +1,13 @@
 ---
-description: Prepare a versioned release — reads commits since last tag, infers semver bump, drafts changelog, creates release branch and PR, then provides the Docker publish trigger command.
+description: End-to-end release automation — reads commits since last tag, infers semver bump, drafts changelog, creates release PR, merges it, waits for CI green, tags, and monitors the Docker build to completion.
 disable-model-invocation: true
 ---
 
 # Prepare Release
 
-Prepares a release from the current state of `main`. Reads commits since the last release tag,
-infers the semver bump, drafts a user-facing changelog, confirms with you, then creates a
-`release/vX.Y.Z` branch, commits the version bump, and opens a PR. After you merge the PR,
-one command triggers the Docker build and GitHub release.
+End-to-end release workflow. Reads commits since the last release tag, infers the semver bump,
+drafts a user-facing changelog, confirms with you, creates a release PR, merges it, verifies
+CI is green, tags the release, and monitors the Docker build to completion.
 
 **Usage:** `/prepare-release`
 
@@ -338,9 +337,12 @@ code block instead of executing it.
 
 ---
 
-## Step 11 — Print Summary and Post-Merge Instructions
+## Step 11 — Merge, Verify, Tag, and Monitor
 
-Output this block after the PR is created:
+This step automates the post-PR flow. After the PR is created, drive the release
+to completion rather than printing manual instructions.
+
+### 11a. Print summary
 
 ```
 Release prepared: CURRENT -> vX.Y.Z  (<bump level>)
@@ -349,34 +351,107 @@ Branch:           release/vX.Y.Z
 PR:               <URL from gh pr create>
 ```
 
-**Server or both release** — append the tag command:
+### 11b. Merge the release PR
 
-```
-After merging the PR, create the release tag to trigger CI:
+Ask the user: "Ready to merge the release PR?"
 
-  git checkout main && git pull origin main
-  git tag vX.Y.Z
-  git push origin vX.Y.Z
-
-This triggers the "Build, Publish, and Release" workflow (docker-publish.yml)
-which builds the Docker image and creates a GitHub Release.
-
-Monitor: https://github.com/jpicklyk/task-orchestrator/actions/workflows/docker-publish.yml
+If confirmed:
+```bash
+gh pr merge <PR-number> --squash --delete-branch
 ```
 
-**Plugin-only release** — append this instead:
+If the user prefers to merge manually (e.g., via GitHub UI), wait for them to
+confirm it's merged before continuing.
+
+### 11c. Sync local main
+
+```bash
+git checkout main
+git pull origin main
+```
+
+Verify the pull is a fast-forward. If it's not (local main has diverged from
+origin), stop and investigate — this should not happen under the PR-per-feature
+workflow.
+
+### 11d. Wait for CI to pass on main
+
+**Server or both release:** CI must be green before tagging. Use `/loop` to
+monitor automatically:
 
 ```
+/loop 2m gh run list --branch main --limit 1 --json status,conclusion,displayTitle
+```
+
+While monitoring, check the first result immediately:
+```bash
+gh run list --branch main --limit 1 --json status,conclusion,displayTitle
+```
+
+- If `conclusion: success` — proceed to 11e immediately, cancel the loop
+- If `status: in_progress` — wait for the loop to report completion
+- If `conclusion: failure` — **stop and fix**. Do NOT tag. Report the failure
+  to the user, investigate the cause, and merge a fix. After fixing, re-check
+  CI before tagging. The tag must point to a green commit.
+
+**Plugin-only release:** Skip CI monitoring — no server code changed, no Docker
+image to build. Proceed directly to the plugin-only completion in 11g.
+
+### 11e. Tag and push (server or both release)
+
+Once CI is green, cancel the monitoring loop and create the tag:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+This triggers the "Build, Publish, and Release" workflow (docker-publish.yml).
+
+### 11f. Monitor the Docker build
+
+Use `/loop` to track the docker-publish workflow:
+
+```
+/loop 2m gh run list --workflow=docker-publish.yml --limit=1 --json status,conclusion,displayTitle
+```
+
+Check immediately:
+```bash
+gh run list --workflow=docker-publish.yml --limit=1 --json status,conclusion,displayTitle
+```
+
+- If `conclusion: success` — cancel the loop, proceed to 11h
+- If `status: in_progress` or `queued` — wait for the loop
+- If `conclusion: failure` — report the failure, investigate, and help the user
+  resolve it. The Docker build may need a re-tag or a fix-and-retag cycle.
+
+### 11g. Plugin-only completion
+
 No tag or Docker rebuild needed — only plugin content changed.
-Plugin users pick up the new version (vA.B.C) when they reinstall the marketplace.
-After merging, sync local main:
+Plugin users pick up the new version when they reinstall the marketplace.
 
-  git checkout main && git pull origin main
+Report:
 ```
+Release complete: vX.Y.Z (plugin-only)
+Plugin version:   vA.B.C
+```
+
+Skip to 11h.
+
+### 11h. Final report
+
+**Server or both release:**
+```
+Release complete: vX.Y.Z
+Docker image:     ghcr.io/jpicklyk/task-orchestrator:X.Y.Z (and :latest)
+GitHub Release:   https://github.com/jpicklyk/task-orchestrator/releases/tag/vX.Y.Z
+```
+
+Cancel any remaining monitoring loops.
 
 **IMPORTANT:** Do NOT use `gh workflow run` — the CI workflow is triggered by tag
-pushes (`v*`), not manual dispatch. The tag must be created on main after the release
-PR is merged.
+pushes (`v*`), not manual dispatch.
 
 ---
 
@@ -389,6 +464,7 @@ PR is merged.
 | patch | Bug fix, docs, refactor | X.Y.Z+1 |
 
 **Common mistakes to avoid:**
+- Do not tag before CI is green on main — tagging a broken commit ships a broken Docker image
 - Do not include raw commit hashes or internal file paths in the changelog
 - Do not bump version without confirmation from the user
 - Do not stage files other than `version.properties`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
