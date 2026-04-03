@@ -852,6 +852,27 @@ class QueryItemsToolTest {
         }
 
     @Test
+    fun `search results include type field in response objects`(): Unit =
+        runBlocking {
+            createItem("Typed item", type = "feature-task")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "type" to JsonPrimitive("feature-task")
+                    ),
+                    context
+                ) as JsonObject
+
+            val items = (result["data"] as JsonObject)["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            val item = items[0].jsonObject
+            assertTrue(item.containsKey("type"), "Search result should include type field")
+            assertEquals("feature-task", item["type"]!!.jsonPrimitive.content)
+        }
+
+    @Test
     fun `search by type with no matches returns empty results`(): Unit =
         runBlocking {
             createItem("Some item", type = "bug")

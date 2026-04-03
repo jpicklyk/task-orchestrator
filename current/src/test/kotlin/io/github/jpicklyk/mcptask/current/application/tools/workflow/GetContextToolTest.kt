@@ -71,6 +71,8 @@ class GetContextToolTest {
         title: String = "Test Item",
         role: Role = Role.WORK,
         tags: String? = null,
+        type: String? = null,
+        properties: String? = null,
         depth: Int = 0,
         parentId: UUID? = null
     ): WorkItem =
@@ -80,6 +82,8 @@ class GetContextToolTest {
             title = title,
             role = role,
             tags = tags,
+            type = type,
+            properties = properties,
             depth = depth
         )
 
@@ -1619,5 +1623,69 @@ class GetContextToolTest {
             assertEquals(1, noteProgress["filled"]!!.jsonPrimitive.int, "filled should be 1")
             assertEquals(2, noteProgress["remaining"]!!.jsonPrimitive.int, "remaining should be 2")
             assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int, "total should be 3")
+        }
+
+    // ──────────────────────────────────────────────
+    // Type-first schema resolution
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode uses type-based schema when item has type field`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, type = "feature-task")
+
+            val typeSchema = WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(
+                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Implementation notes")
+                )
+            )
+            every { noteSchemaService.getSchemaForType("feature-task") } returns typeSchema
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result = tool.execute(params("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
+            val data = extractData(result)
+
+            val schema = data["schema"]!!.jsonArray
+            assertEquals(1, schema.size)
+            assertEquals("impl-notes", schema[0].jsonObject["key"]!!.jsonPrimitive.content)
+
+            val gateStatus = data["gateStatus"]!!.jsonObject
+            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+        }
+
+    @Test
+    fun `item mode includes trait notes in schema when type has default_traits`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE, type = "feature-with-traits")
+
+            val typeSchema = WorkItemSchema(
+                type = "feature-with-traits",
+                notes = listOf(
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Specification")
+                ),
+                defaultTraits = listOf("security-trait")
+            )
+            every { noteSchemaService.getSchemaForType("feature-with-traits") } returns typeSchema
+            every { noteSchemaService.getDefaultTraits("feature-with-traits") } returns listOf("security-trait")
+            every { noteSchemaService.getTraitNotes("security-trait") } returns listOf(
+                NoteSchemaEntry(key = "security-review", role = Role.REVIEW, required = true, description = "Security review")
+            )
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result = tool.execute(params("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
+            val data = extractData(result)
+
+            val schema = data["schema"]!!.jsonArray
+            assertEquals(2, schema.size, "Should include base + trait notes")
+            val keys = schema.map { it.jsonObject["key"]!!.jsonPrimitive.content }
+            assertTrue("spec" in keys)
+            assertTrue("security-review" in keys)
         }
 }

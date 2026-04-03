@@ -142,4 +142,48 @@ class WorkItemSchemaTest {
         val schema = WorkItemSchema(type = "feature-task", lifecycleMode = LifecycleMode.PERMANENT)
         assertEquals(LifecycleMode.PERMANENT, schema.lifecycleMode)
     }
+
+    // ──────────────────────────────────────────────
+    // defaultTraits
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `default defaultTraits is empty list`() {
+        val schema = WorkItemSchema(type = "feature-task")
+        assertTrue(schema.defaultTraits.isEmpty())
+    }
+
+    @Test
+    fun `defaultTraits can be set explicitly`() {
+        val schema = WorkItemSchema(
+            type = "feature-task",
+            defaultTraits = listOf("needs-security-review", "needs-perf-review")
+        )
+        assertEquals(listOf("needs-security-review", "needs-perf-review"), schema.defaultTraits)
+    }
+
+    @Test
+    fun `defaultTraits does not affect hasReviewPhase`() {
+        val schema = WorkItemSchema(
+            type = "feature-task",
+            notes = listOf(
+                NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false)
+            ),
+            defaultTraits = listOf("some-trait")
+        )
+        assertFalse(schema.hasReviewPhase())
+    }
+
+    @Test
+    fun `defaultTraits does not affect requiredNotesForRole`() {
+        val schema = WorkItemSchema(
+            type = "feature-task",
+            notes = listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true)
+            ),
+            defaultTraits = listOf("some-trait")
+        )
+        assertEquals(1, schema.requiredNotesForRole(Role.QUEUE).size)
+        assertEquals("spec", schema.requiredNotesForRole(Role.QUEUE)[0].key)
+    }
 }
