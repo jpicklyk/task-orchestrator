@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -303,12 +305,13 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Uses iterative detect-apply pattern: after applying each cascade,
             // re-detect from the cascaded parent with fresh DB state.
             // Bounded by CascadeDetector.MAX_DEPTH to prevent runaway recursion.
+            val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
             val cascadeJsonList = mutableListOf<JsonObject>()
             if (targetRole == Role.TERMINAL) {
                 var cascadeSource = applyResult.item!!
                 var depth = 0
                 while (depth < CascadeDetector.MAX_DEPTH) {
-                    val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository())
+                    val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
                     if (events.isEmpty()) break
 
                     // Only the immediate parent cascade (first event) is reliable;
@@ -400,7 +403,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 4c: Reopen cascade detection (only when reopening to QUEUE)
             // When a child is reopened under a terminal parent, the parent should reopen to WORK.
             if (trigger == "reopen" && targetRole == Role.QUEUE) {
-                val reopenCascadeEvents = cascadeDetector.detectReopenCascades(applyResult.item!!, context.workItemRepository())
+                val reopenCascadeEvents = cascadeDetector.detectReopenCascades(applyResult.item!!, context.workItemRepository(), schemaResolver)
                 applyCascadeEvents(
                     reopenCascadeEvents,
                     "Auto-cascaded from child reopen",

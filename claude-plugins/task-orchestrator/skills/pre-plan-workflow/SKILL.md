@@ -36,7 +36,8 @@ get_context()
 Read `.taskorchestrator/config.yaml` in the project root (this is a file read, not an MCP call):
 
 - If the file exists, list the discovered schemas and their required notes per phase
-- Each schema key (e.g., `feature-implementation`, `bug-fix`) is a tag that items can carry to activate gate enforcement
+- Schemas are defined under `work_item_schemas:` (preferred) or `note_schemas:` (legacy)
+- Each schema key (e.g., `feature-implementation`, `bug-fix`) is a **type identifier** — set it as the item's `type` field to activate gate enforcement. Tags can be used for additional categorization but are no longer the primary schema activator.
 - Required queue-phase notes define what documentation must exist before work starts
 - Required work-phase notes define what must be captured during implementation
 - Use `guidancePointer` values from `get_context(itemId=...)` on existing items to understand how to author each note
@@ -44,7 +45,7 @@ Read `.taskorchestrator/config.yaml` in the project root (this is a file read, n
 If no config file exists, the project has no note schemas — items will be schema-free with no gate enforcement. Proceed with planning normally.
 
 **Use schemas to inform the plan:** When a schema applies, each planned task should:
-- Note which schema tag will be applied at materialization (e.g., `tags: "feature-implementation"`)
+- Note which schema type will be applied at materialization (e.g., `type: "feature-implementation"`)
 - Account for required notes — plan sections should naturally produce content that maps to required note keys
 - Respect dependency ordering — which tasks block others (these become `BLOCKS` edges)
 

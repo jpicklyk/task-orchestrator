@@ -13,22 +13,51 @@ YAML format and field rules for `.taskorchestrator/config.yaml`.
 
 ---
 
-## YAML Structure
+## YAML Structure (Preferred — work_item_schemas)
 
 ```yaml
-note_schemas:
+work_item_schemas:
 
-  your-schema-tag:           # Matches items whose tags include "your-schema-tag"
-    - key: note-key          # Stable identifier; kebab-case
-      role: queue            # Phase: "queue", "work", or "review"
-      required: true         # true = blocks advance_item gate | false = shown but not enforced
-      description: "..."     # Short label — shown in expectedNotes response
-      guidance: "..."        # Optional — shown as guidancePointer in get_context()
+  your-schema-type:            # Matches items whose type field equals "your-schema-type"
+    lifecycle: auto            # Optional: auto | manual | auto-reopen | permanent (default: auto)
+    notes:
+      - key: note-key          # Stable identifier; kebab-case
+        role: queue            # Phase: "queue", "work", or "review"
+        required: true         # true = blocks advance_item gate | false = shown but not enforced
+        description: "..."     # Short label — shown in expectedNotes response
+        guidance: "..."        # Optional — shown as guidancePointer in get_context()
 ```
 
 ---
 
+## YAML Structure (Legacy — note_schemas)
+
+The `note_schemas` format is still supported for backward compatibility. New configs should use `work_item_schemas`.
+
+```yaml
+note_schemas:
+
+  your-schema-tag:             # Matches items whose tags include "your-schema-tag"
+    - key: note-key
+      role: queue
+      required: true
+      description: "..."
+      guidance: "..."
+```
+
+When using `note_schemas`, the `lifecycle` field is not available — all schemas default to `AUTO` lifecycle mode.
+
+---
+
 ## Field Reference
+
+### Schema-level fields (work_item_schemas only)
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `lifecycle` | no | string | `auto`, `manual`, `auto-reopen`, or `permanent`. Defaults to `auto` |
+
+### Note-level fields
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
@@ -40,10 +69,31 @@ note_schemas:
 
 ---
 
+## Lifecycle Modes
+
+The `lifecycle` field on a schema controls automatic cascade behavior when children reach terminal:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Default — parent cascades to terminal when all children are terminal |
+| `manual` | Terminal cascade suppressed — parent must be explicitly completed. Reopen cascade also suppressed. |
+| `auto-reopen` | Terminal cascade allowed. Parent also auto-reopens when a new child is created under it. |
+| `permanent` | Parent never auto-terminates and never auto-reopens — always manual lifecycle. |
+
+---
+
 ## Matching Rules
 
-- Items have a `tags` field (comma-separated string)
-- The **first** tag in an item's tag list that matches a schema key wins
+Schema resolution uses **type-first lookup with tag fallback**:
+
+1. If the item has a `type` field, look up the schema by type in `work_item_schemas` → direct lookup (exact match)
+2. If no type or no type-based schema found, look up by first tag match in `note_schemas` (legacy)
+3. If no tag matches, fall back to the schema named `default` (in either section) if one exists
+4. If nothing matches, the item is schema-free — no gate enforcement
+
+**Key points:**
+- Setting `type` on an item is the preferred way to activate a schema
+- Tags can still be used for schema matching (legacy), but `type` takes precedence
 - Only one schema applies per item
 - Matching is exact and case-sensitive
 
@@ -68,22 +118,55 @@ queue ──(start)──► work ──(start)──► review ──(start)─
 - **Work gates = evidence of completion.** Implementation notes, test results — filled after implementation
 - **Review phase is optional.** Only add `role: review` notes for genuine deploy/verify/sign-off steps
 - **Optional notes are reminders.** `required: false` notes appear in `expectedNotes` without blocking
+- **Use `type` for schema selection, tags for categorization.** Mixing them causes confusion.
 
 ---
 
 ## Multiple Schemas
 
 ```yaml
-note_schemas:
+work_item_schemas:
 
   schema-one:
-    - key: ...
+    lifecycle: auto
+    notes:
+      - key: ...
 
   schema-two:
-    - key: ...
+    lifecycle: manual
+    notes:
+      - key: ...
 ```
 
-Each schema is independent. An item matches at most one schema (first tag match wins).
+Each schema is independent. An item matches at most one schema.
+
+---
+
+## Mixed Legacy Example
+
+If you have an existing config using `note_schemas`, you can add new schemas as `work_item_schemas` alongside it:
+
+```yaml
+work_item_schemas:
+
+  feature-task:
+    lifecycle: auto
+    notes:
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "What was built and why"
+
+note_schemas:
+
+  bug-fix:
+    - key: root-cause
+      role: queue
+      required: true
+      description: "Root cause analysis"
+```
+
+Items with `type: feature-task` use the `work_item_schemas` entry. Items with tag `bug-fix` use the legacy `note_schemas` entry.
 
 ---
 

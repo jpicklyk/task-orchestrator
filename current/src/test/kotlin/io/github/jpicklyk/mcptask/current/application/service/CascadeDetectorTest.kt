@@ -15,6 +15,10 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+/** Helper to build a [WorkItemSchema] with a specific [LifecycleMode] for tests. */
+private fun schemaWithLifecycle(lifecycleMode: LifecycleMode) =
+    WorkItemSchema(type = "test-type", lifecycleMode = lifecycleMode)
+
 class CascadeDetectorTest {
     private lateinit var detector: CascadeDetector
     private lateinit var workItemRepository: WorkItemRepository
@@ -215,6 +219,104 @@ class CascadeDetectorTest {
                 val result = detector.detectCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
             }
+
+        // -----------------------------------------------------------------------
+        // Lifecycle mode tests
+        // -----------------------------------------------------------------------
+
+        @Test
+        fun `MANUAL lifecycle parent suppresses terminal cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.WORK)
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
+                    Result.Success(mapOf(Role.TERMINAL to 2))
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.MANUAL) else null
+                }
+
+                val result = detector.detectCascades(child, workItemRepository, schemaResolver)
+                assertTrue(result.isEmpty(), "MANUAL lifecycle parent should suppress terminal cascade")
+            }
+
+        @Test
+        fun `PERMANENT lifecycle parent suppresses terminal cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.WORK)
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
+                    Result.Success(mapOf(Role.TERMINAL to 1))
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.PERMANENT) else null
+                }
+
+                val result = detector.detectCascades(child, workItemRepository, schemaResolver)
+                assertTrue(result.isEmpty(), "PERMANENT lifecycle parent should suppress terminal cascade")
+            }
+
+        @Test
+        fun `AUTO lifecycle parent proceeds with terminal cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.WORK)
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
+                    Result.Success(mapOf(Role.TERMINAL to 3))
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO) else null
+                }
+
+                val result = detector.detectCascades(child, workItemRepository, schemaResolver)
+                assertEquals(1, result.size, "AUTO lifecycle parent should allow terminal cascade")
+                assertEquals(parentId, result[0].itemId)
+            }
+
+        @Test
+        fun `AUTO_REOPEN lifecycle parent proceeds with terminal cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.WORK)
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
+                    Result.Success(mapOf(Role.TERMINAL to 2))
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO_REOPEN) else null
+                }
+
+                val result = detector.detectCascades(child, workItemRepository, schemaResolver)
+                assertEquals(1, result.size, "AUTO_REOPEN lifecycle parent should allow terminal cascade")
+                assertEquals(parentId, result[0].itemId)
+            }
+
+        @Test
+        fun `null schemaResolver preserves existing cascade behavior`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.WORK)
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
+                    Result.Success(mapOf(Role.TERMINAL to 1))
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                // No schemaResolver passed — should use default behavior (cascade allowed)
+                val result = detector.detectCascades(child, workItemRepository)
+                assertEquals(1, result.size, "No schemaResolver should allow cascade (default behavior)")
+            }
     }
 
     // -----------------------------------------------------------------------
@@ -372,6 +474,100 @@ class CascadeDetectorTest {
 
                 val result = detector.detectReopenCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
+            }
+
+        // -----------------------------------------------------------------------
+        // Lifecycle mode tests
+        // -----------------------------------------------------------------------
+
+        @Test
+        fun `MANUAL lifecycle parent suppresses reopen cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.TERMINAL)
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.MANUAL) else null
+                }
+
+                val result = detector.detectReopenCascades(child, workItemRepository, schemaResolver)
+                assertTrue(result.isEmpty(), "MANUAL lifecycle parent should suppress reopen cascade")
+            }
+
+        @Test
+        fun `PERMANENT lifecycle parent suppresses reopen cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.TERMINAL)
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.PERMANENT) else null
+                }
+
+                val result = detector.detectReopenCascades(child, workItemRepository, schemaResolver)
+                assertTrue(result.isEmpty(), "PERMANENT lifecycle parent should suppress reopen cascade")
+            }
+
+        @Test
+        fun `AUTO lifecycle parent allows reopen cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.TERMINAL)
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO) else null
+                }
+
+                val result = detector.detectReopenCascades(child, workItemRepository, schemaResolver)
+                assertEquals(1, result.size, "AUTO lifecycle parent should allow reopen cascade")
+                assertEquals(parentId, result[0].itemId)
+                assertEquals(Role.TERMINAL, result[0].currentRole)
+                assertEquals(Role.WORK, result[0].targetRole)
+            }
+
+        @Test
+        fun `AUTO_REOPEN lifecycle parent allows reopen cascade`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.TERMINAL)
+                val child = workItem(parentId = parentId, role = Role.QUEUE)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
+                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO_REOPEN) else null
+                }
+
+                val result = detector.detectReopenCascades(child, workItemRepository, schemaResolver)
+                assertEquals(1, result.size, "AUTO_REOPEN lifecycle parent should allow reopen cascade")
+                assertEquals(parentId, result[0].itemId)
+            }
+
+        @Test
+        fun `start cascade works regardless of lifecycle mode (no change)`() =
+            runBlocking {
+                // Start cascades always proceed — lifecycle mode is not checked
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.QUEUE)
+                val child = workItem(parentId = parentId, role = Role.WORK)
+
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                // detectStartCascades has no schemaResolver — always allows cascade
+                val result = detector.detectStartCascades(child, workItemRepository)
+                assertEquals(1, result.size, "Start cascade should always fire regardless of lifecycle mode")
+                assertEquals(parentId, result[0].itemId)
+                assertEquals(Role.QUEUE, result[0].currentRole)
+                assertEquals(Role.WORK, result[0].targetRole)
             }
     }
 
