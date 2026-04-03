@@ -149,8 +149,7 @@ Parameters:
                 )
             }
 
-        val itemTags = item.tagList()
-        val schema = context.noteSchemaService().getSchemaForTags(itemTags)
+        val resolvedSchema = context.resolveSchema(item)
 
         val notesResult = context.noteRepository().findByItemId(item.id)
         val notes =
@@ -164,13 +163,13 @@ Parameters:
         val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
         val schemaEntriesArray =
             buildExpectedNotesJson(
-                schema = schema,
+                schema = resolvedSchema?.notes,
                 existingNoteKeys = notesByKey.keys,
                 filledNoteKeys = filledKeys
             )
 
         // Gate status for current phase — uses shared computation
-        val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
+        val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
         val missingForPhase = phaseContext?.missingKeys ?: emptyList()
         val guidancePointer = phaseContext?.guidancePointer
 
@@ -452,16 +451,14 @@ Parameters:
         items: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>,
         context: ToolExecutionContext
     ): List<StalledItemEntry> {
-        val schemaService = context.noteSchemaService()
         val noteRepo = context.noteRepository()
         val result = mutableListOf<StalledItemEntry>()
 
         // Pre-filter to items that have a matching schema (avoids batch-fetching notes for schema-less items)
         val schemaItems =
             items.mapNotNull { item ->
-                val tags = item.tagList()
-                val schema = schemaService.getSchemaForTags(tags)
-                if (schema != null) Triple(item, tags, schema) else null
+                val schema = context.resolveSchema(item)
+                if (schema != null) Pair(item, schema) else null
             }
         if (schemaItems.isEmpty()) return emptyList()
 
@@ -474,7 +471,7 @@ Parameters:
             }
 
         // Check each item against its schema using shared computation
-        for ((item, _, schema) in schemaItems) {
+        for ((item, schema) in schemaItems) {
             val notesByKey = (notesByItemId[item.id] ?: emptyList()).associateBy { it.key }
             val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
 

@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
@@ -53,4 +55,39 @@ class ToolExecutionContext(
 
     /** Access to the atomic work-tree creation executor. */
     fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()
+
+    /**
+     * Resolves the [WorkItemSchema] for a [WorkItem] using type-first lookup with tag fallback.
+     *
+     * Resolution order:
+     * 1. If the item has a `type`, look up the schema by type via [NoteSchemaService.getSchemaForType].
+     * 2. If no type or no type-based schema found, look up by tags via [NoteSchemaService.getSchemaForTags]
+     *    (first matching tag wins; falls back to default schema if no tag matches).
+     * 3. Returns null if no schema matches (schema-free mode).
+     */
+    fun resolveSchema(item: WorkItem): WorkItemSchema? {
+        val service = noteSchemaService()
+        // Type-first lookup
+        item.type?.let { type ->
+            service.getSchemaForType(type)?.let { return it }
+        }
+        // Tag fallback: replicate existing getSchemaForTags behavior
+        // getSchemaForTags already handles first-match and default schema fallback internally
+        val tags = item.tagList()
+        val entries = service.getSchemaForTags(tags) ?: return null
+        // Determine the matched key: first tag that matches a schema, or "default" if tags were empty
+        val matchedType = if (tags.isEmpty()) {
+            "default"
+        } else {
+            tags.firstOrNull { tag -> service.getSchemaForTags(listOf(tag)) != null } ?: "default"
+        }
+        return WorkItemSchema(type = matchedType, notes = entries)
+    }
+
+    /**
+     * Returns true if the resolved schema for [item] has a REVIEW phase.
+     * Convenience wrapper around [resolveSchema] + [WorkItemSchema.hasReviewPhase].
+     * Returns false when no schema matches (schema-free mode — skip REVIEW).
+     */
+    fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
 }

@@ -304,10 +304,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val notesList = mutableListOf<Note>()
 
         if (createNotes) {
-            val noteSchemaService = context.noteSchemaService()
-            for ((ref, item) in refToItem) {
-                val schemaEntries = noteSchemaService.getSchemaForTags(item.tagList()) ?: continue
-                for (entry in schemaEntries) {
+            for ((_, item) in refToItem) {
+                val resolvedSchema = context.resolveSchema(item) ?: continue
+                for (entry in resolvedSchema.notes) {
                     notesList.add(
                         Note(
                             itemId = item.id,
@@ -352,10 +351,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val idToRef = treeResult.refToId.entries.associate { (ref, id) -> id to ref }
 
         val rootResultItem = treeResult.items.first()
-        val rootSchemaFields =
-            buildSchemaResponseFields(
-                context.noteSchemaService().getSchemaForTags(rootResultItem.tagList())
-            )
+        val rootSchemaFields = buildSchemaResponseFields(context.resolveSchema(rootResultItem))
         val rootJson =
             buildJsonObject {
                 put("id", JsonPrimitive(rootResultItem.id.toString()))
@@ -371,10 +367,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             JsonArray(
                 treeResult.items.drop(1).map { item ->
                     val ref = idToRef[item.id] ?: "unknown"
-                    val childSchemaFields =
-                        buildSchemaResponseFields(
-                            context.noteSchemaService().getSchemaForTags(item.tagList())
-                        )
+                    val childSchemaFields = buildSchemaResponseFields(context.resolveSchema(item))
                     buildJsonObject {
                         put("ref", JsonPrimitive(ref))
                         put("id", JsonPrimitive(item.id.toString()))

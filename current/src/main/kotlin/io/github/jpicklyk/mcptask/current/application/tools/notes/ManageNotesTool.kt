@@ -265,7 +265,7 @@ Unified write operations for Notes (upsert, delete).
                     val itemId = UUID.fromString(itemIdStr)
                     val item = validatedItems[itemId] ?: continue
 
-                    val schema = context.noteSchemaService().getSchemaForTags(item.tagList())
+                    val resolvedSchema = context.resolveSchema(item)
                     val allNotes =
                         when (val nr = noteRepo.findByItemId(itemId)) {
                             is Result.Success -> nr.data
@@ -273,7 +273,7 @@ Unified write operations for Notes (upsert, delete).
                         }
                     val notesByKey = allNotes.associateBy { it.key }
 
-                    val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
+                    val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
 
                     put(
                         itemIdStr,
