@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertNotNull
 
 class NoteSchemaServiceTest {
     @Test
@@ -49,8 +50,44 @@ class NoteSchemaServiceTest {
         val customService =
             object : NoteSchemaService {
                 override fun getSchemaForTags(tags: List<String>) = null
+                override fun getSchemaForType(type: String?) = null
             }
         assertFalse(customService.hasReviewPhase(listOf("tag1")))
         assertFalse(customService.hasReviewPhase(emptyList()))
+    }
+
+    // --- WorkItemSchemaService / typealias ---
+
+    @Test
+    fun `NoteSchemaService typealias resolves to WorkItemSchemaService`() {
+        // Verify that the typealias makes NoteSchemaService == WorkItemSchemaService.
+        // If the typealias is broken this assignment would fail to compile.
+        val service: NoteSchemaService = NoOpNoteSchemaService
+        val serviceAsAlias: WorkItemSchemaService = service
+        assertNotNull(serviceAsAlias)
+    }
+
+    @Test
+    fun `NoOp getSchemaForType returns null for any type`() {
+        assertNull(NoOpNoteSchemaService.getSchemaForType("feature-task"))
+        assertNull(NoOpNoteSchemaService.getSchemaForType(null))
+        assertNull(NoOpNoteSchemaService.getSchemaForType(""))
+    }
+
+    @Test
+    fun `NoOp hasReviewPhaseForType returns false for any type`() {
+        assertFalse(NoOpNoteSchemaService.hasReviewPhaseForType("feature-task"))
+        assertFalse(NoOpNoteSchemaService.hasReviewPhaseForType(null))
+    }
+
+    @Test
+    fun `hasReviewPhaseForType returns false when getSchemaForType returns null`() {
+        val customService =
+            object : WorkItemSchemaService {
+                override fun getSchemaForTags(tags: List<String>) = null
+                override fun getSchemaForType(type: String?) = null
+            }
+        assertFalse(customService.hasReviewPhaseForType("any-type"))
+        assertFalse(customService.hasReviewPhaseForType(null))
     }
 }

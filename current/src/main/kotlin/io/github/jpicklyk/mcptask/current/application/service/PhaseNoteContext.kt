@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
  * Snapshot of an item's required-note status for its current workflow phase.
@@ -58,3 +59,17 @@ fun computePhaseNoteContext(
         total = required.size
     )
 }
+
+/**
+ * Overload of [computePhaseNoteContext] that accepts a [WorkItemSchema] instead of a raw
+ * list of [NoteSchemaEntry] objects. Delegates to the primary overload using [WorkItemSchema.notes].
+ *
+ * @param role The item's current role
+ * @param schema The [WorkItemSchema] for the item's type
+ * @param notesByKey Map of existing notes keyed by their note key
+ */
+fun computePhaseNoteContext(
+    role: Role,
+    schema: WorkItemSchema,
+    notesByKey: Map<String, Note>
+): PhaseNoteContext? = computePhaseNoteContext(role, schema.notes, notesByKey)

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import kotlinx.serialization.json.*
 
 /**
@@ -65,3 +66,28 @@ fun buildSchemaResponseFields(schema: List<NoteSchemaEntry>?): SchemaResponseFie
         schemaMatch = schema != null,
         expectedNotes = buildExpectedNotesJson(schema)
     )
+
+/**
+ * Overload of [buildExpectedNotesJson] that accepts a [WorkItemSchema] instead of a raw list.
+ * Delegates to the primary overload using [WorkItemSchema.notes].
+ *
+ * @param schema The [WorkItemSchema] whose notes to serialize
+ * @param existingNoteKeys Keys of notes that exist (empty = all false)
+ * @param filledNoteKeys Keys of notes with non-blank body, or null to omit "filled" field
+ * @param filterRole If non-null, only include entries matching this role
+ */
+fun buildExpectedNotesJson(
+    schema: WorkItemSchema,
+    existingNoteKeys: Set<String> = emptySet(),
+    filledNoteKeys: Set<String>? = null,
+    filterRole: Role? = null
+): JsonArray = buildExpectedNotesJson(schema.notes, existingNoteKeys, filledNoteKeys, filterRole)
+
+/**
+ * Overload of [buildSchemaResponseFields] that accepts a [WorkItemSchema] instead of a raw list.
+ * Delegates to the primary overload using [WorkItemSchema.notes].
+ *
+ * @param schema The [WorkItemSchema] to serialize, or null for schema-free mode
+ */
+fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields =
+    buildSchemaResponseFields(schema?.notes)

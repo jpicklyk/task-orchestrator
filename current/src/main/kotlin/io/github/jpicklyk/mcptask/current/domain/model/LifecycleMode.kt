@@ -1,12 +1,13 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
- * Controls how a work item's lifecycle is managed after reaching terminal state.
+ * Controls how a work item's lifecycle is managed, particularly cascade behavior
+ * when children reach terminal state.
  *
- * - AUTO: item lifecycle is managed automatically by the system
- * - MANUAL: transitions must be triggered explicitly by the user or agent
- * - AUTO_REOPEN: item is automatically reopened when conditions are met
- * - PERMANENT: item stays in its terminal state permanently; cannot be reopened
+ * - AUTO: default behavior — parent cascades to terminal when all children are terminal
+ * - MANUAL: suppress terminal cascade — parent must be explicitly completed
+ * - AUTO_REOPEN: cascade + reopen parent when a new child is created under a terminal parent
+ * - PERMANENT: never auto-terminate — parent stays in its current role regardless of children
  */
 enum class LifecycleMode {
     AUTO,
