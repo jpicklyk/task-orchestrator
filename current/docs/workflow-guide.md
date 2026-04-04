@@ -77,11 +77,16 @@ Note schemas gate role transitions. They define what documentation an item must 
 
 ### What They Are
 
-A note schema is a named set of note definitions attached to an item via a **tag**. When an item's tag matches a schema key, the system enforces note requirements at `start` transitions.
+A note schema is a named set of note definitions. When an item matches a schema, the system enforces note requirements at `start` transitions.
+
+**Schema resolution order:**
+1. **Type-first lookup** — the item's `type` field (e.g., `feature`, `task`, `bug`) is looked up directly in `work_item_schemas`. If a match is found, that schema is used.
+2. **Tag fallback** — if no type match, the item's tags are checked against schema keys. The first matching tag wins.
+3. **Default schema** — if neither type nor tags match, the `default` schema is used (if configured). Items with no match at all advance freely with no gate enforcement.
 
 Schemas are defined in `.taskorchestrator/config.yaml` in the project root.
 
-> **Schemas vs notes:** Schemas and notes are independent systems. A schema is a set of rules defined in your project config that specifies what documentation an item must carry — it is never stored in the database. A note is actual content written by agents during implementation — it is stored in the database and carries no reference to any schema. The two meet only at gate-check time: `advance_item` fetches the item's notes from the database and checks them against the schema's requirements. Items with no matching schema tag advance freely with no gate enforcement.
+> **Schemas vs notes:** Schemas and notes are independent systems. A schema is a set of rules defined in your project config that specifies what documentation an item must carry — it is never stored in the database. A note is actual content written by agents during implementation — it is stored in the database and carries no reference to any schema. The two meet only at gate-check time: `advance_item` fetches the item's notes from the database and checks them against the schema's requirements.
 
 ### How They Gate Transitions
 
@@ -90,11 +95,27 @@ Schemas are defined in `.taskorchestrator/config.yaml` in the project root.
 - `advance_item(trigger="cancel")` does not enforce gates.
 - Optional notes never block transitions.
 
-Gate enforcement is tag-based: only items whose tags match a schema key are gated.
+Gate enforcement applies to items that resolve a schema via type, tag, or default fallback.
 
 ### Full YAML Schema Format
 
+The preferred format uses `work_item_schemas:`, which supports a `lifecycle:` field for cascade control. The legacy `note_schemas:` format is still accepted and fully backward-compatible.
+
 ```yaml
+# Preferred format
+work_item_schemas:
+  <schema-key>:
+    lifecycle: <AUTO|MANUAL|AUTO_REOPEN|PERMANENT>   # optional, default: AUTO
+    notes:
+      - key: <note-key>
+        role: <queue|work|review>
+        required: <true|false>
+        description: "<Short description of what this note should contain.>"
+        guidance: "<Optional longer guidance shown to agents filling the note.>"
+    traits:                    # optional — composable trait keys applied to this schema
+      - <trait-key>
+
+# Legacy format (still works)
 note_schemas:
   <schema-key>:
     - key: <note-key>
@@ -118,40 +139,68 @@ note_schemas:
 
 - `key` values must be unique within a schema.
 - The same `key` may appear in multiple schemas (schemas are independent).
-- First matching tag wins — each item matches at most one schema.
-- Schemas with no matching item tags have no effect.
+- Type lookup takes priority over tag matching — each item matches at most one schema.
+- Schemas with no matching item (no type, tag, or default fallback) have no effect.
+
+### Lifecycle Modes
+
+The `lifecycle:` field on a schema controls how parent items cascade when all children reach terminal. This is only relevant for container items (items with children).
+
+| Mode           | Behavior                                                                                      |
+|----------------|-----------------------------------------------------------------------------------------------|
+| `AUTO`         | *(default)* Parent automatically advances to terminal when all children reach terminal.       |
+| `MANUAL`       | Suppress auto-cascade — parent must be completed explicitly via `advance_item` or `complete`. |
+| `AUTO_REOPEN`  | Auto-cascade to terminal, and reopen the parent to work when a new child is created under a terminal parent. |
+| `PERMANENT`    | Parent never auto-terminates, regardless of child state.                                      |
+
+Set `lifecycle` at the schema level in `work_item_schemas:`:
+
+```yaml
+work_item_schemas:
+  feature:
+    lifecycle: MANUAL
+    notes:
+      - key: requirements
+        role: queue
+        required: true
+        description: "Problem statement and acceptance criteria."
+```
 
 ### Complete Example Schema
 
 ```yaml
-note_schemas:
+work_item_schemas:
   feature-implementation:
-    - key: requirements
-      role: queue
-      required: true
-      description: "Problem statement and acceptance criteria."
-      guidance: "Describe what problem this solves. List 2-5 acceptance criteria."
-    - key: design
-      role: queue
-      required: true
-      description: "Chosen approach, alternatives considered."
-      guidance: "Describe the chosen implementation approach. List alternatives considered and why they were rejected."
-    - key: implementation-notes
-      role: work
-      required: true
-      description: "Key decisions made during implementation."
-      guidance: "Document key decisions made during coding. Include any deviations from the design and why."
-    - key: test-results
-      role: work
-      required: true
-      description: "Test pass/fail count and new tests added."
-      guidance: "State total tests passing and failing. List new test cases added and what edge cases they cover."
-    - key: deploy-notes
-      role: review
-      required: false
-      description: "Deploy needed? Version bump? Reconnect required?"
-      guidance: "Note any deployment steps, config changes, version bumps, or client reconnection requirements."
+    lifecycle: AUTO
+    notes:
+      - key: requirements
+        role: queue
+        required: true
+        description: "Problem statement and acceptance criteria."
+        guidance: "Describe what problem this solves. List 2-5 acceptance criteria."
+      - key: design
+        role: queue
+        required: true
+        description: "Chosen approach, alternatives considered."
+        guidance: "Describe the chosen implementation approach. List alternatives considered and why they were rejected."
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "Key decisions made during implementation."
+        guidance: "Document key decisions made during coding. Include any deviations from the design and why."
+      - key: test-results
+        role: work
+        required: true
+        description: "Test pass/fail count and new tests added."
+        guidance: "State total tests passing and failing. List new test cases added and what edge cases they cover."
+      - key: deploy-notes
+        role: review
+        required: false
+        description: "Deploy needed? Version bump? Reconnect required?"
+        guidance: "Note any deployment steps, config changes, version bumps, or client reconnection requirements."
 ```
+
+> The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `traits:` fields.
 
 ### Phase Flow with Gates
 
@@ -702,8 +751,30 @@ The full schema for `.taskorchestrator/config.yaml`:
 ### Top-Level Structure
 
 ```yaml
+# Preferred — supports lifecycle, traits, default_traits
+work_item_schemas:
+  <schema-key>:
+    lifecycle: <AUTO|MANUAL|AUTO_REOPEN|PERMANENT>   # optional
+    notes:
+      - <note-entry>
+    traits:                    # optional list of trait keys to apply
+      - <trait-key>
+    default_traits:            # optional — traits added to every item matching this schema
+      - <trait-key>
+
+# Legacy — flat list under each key, still fully supported
 note_schemas:
-  <schema-key>: <note-list>
+  <schema-key>:
+    - <note-entry>
+
+# Composable traits (reusable note bundles)
+traits:
+  <trait-key>:
+    - key: <note-key>
+      role: <queue|work|review>
+      required: <true|false>
+      description: "<description>"
+      guidance: "<guidance>"
 ```
 
 Additional top-level keys (workflows, status, cascade) are supported but not covered in this guide.
@@ -720,24 +791,25 @@ Additional top-level keys (workflows, status, cascade) are supported but not cov
 
 ### Matching Rules
 
-1. An item's `tags` field is checked against all schema keys.
-2. First matching tag wins.
-3. Tags are matched as exact substrings within the comma-separated tags string.
-4. Items with no matching tag are ungated — they advance freely.
+1. **Type-first lookup** — the item's `type` field is looked up directly in `work_item_schemas`. If found, that schema is used.
+2. **Tag fallback** — if no type match, the item's tags are checked against schema keys. First matching tag wins. Tags are matched as exact substrings within the comma-separated tags string.
+3. **Default schema** — if neither type nor tags match, the `default` schema is used (if defined). Items with no match at all advance freely.
 
 ### Minimal Config Example
 
 ```yaml
-note_schemas:
+work_item_schemas:
   task-implementation:
-    - key: acceptance-criteria
-      role: queue
-      required: true
-      description: "Testable acceptance criteria for this task."
-    - key: done-criteria
-      role: work
-      required: true
-      description: "What does done look like? How was it verified?"
+    lifecycle: AUTO
+    notes:
+      - key: acceptance-criteria
+        role: queue
+        required: true
+        description: "Testable acceptance criteria for this task."
+      - key: done-criteria
+        role: work
+        required: true
+        description: "What does done look like? How was it verified?"
 ```
 
 ### Config Location

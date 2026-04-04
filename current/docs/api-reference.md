@@ -4,9 +4,10 @@
 
 The v3 server exposes 13 MCP tools organized around a single **WorkItem** graph model. Every
 entity — whether a project, feature, or task — is a WorkItem with a `role` (queue, work, review,
-blocked, terminal), optional `parentId`, and optional `tags` that drive note-schema gate
-enforcement. Notes are first-class keyed documents attached to items. Dependencies link items with
-typed blocking or relational edges.
+blocked, terminal), optional `parentId`, a `type` field that selects a work-item schema (lifecycle
+mode + required notes), optional `tags` for categorization, and optional `traits` that compose
+additional note requirements. Notes are first-class keyed documents attached to items. Dependencies
+link items with typed blocking or relational edges.
 
 ## Tool Categories
 
@@ -50,23 +51,26 @@ is computed automatically from the parent; the maximum nesting depth is 3.
 
 **Item object fields (create):**
 
-| Field | Type | Required | Default |
-|---|---|---|---|
-| `title` | string | Yes | — |
-| `description` | string | No | null |
-| `summary` | string | No | `""` |
-| `role` | string | No | `queue` |
-| `statusLabel` | string | No | null |
-| `priority` | string | No | `medium` |
-| `complexity` | integer (1–10) | No | null (not set) |
-| `parentId` | string (UUID) | No | shared `parentId` or null |
-| `tags` | string | No | null |
-| `metadata` | string | No | null |
-| `requiresVerification` | boolean | No | false |
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `title` | string | Yes | — | |
+| `description` | string | No | null | |
+| `summary` | string | No | `""` | |
+| `role` | string | No | `queue` | |
+| `statusLabel` | string | No | null | |
+| `priority` | string | No | `medium` | |
+| `complexity` | integer (1–10) | No | null (not set) | |
+| `parentId` | string (UUID) | No | shared `parentId` or null | |
+| `tags` | string | No | null | |
+| `metadata` | string | No | null | |
+| `type` | string | No | null | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). |
+| `properties` | string | No | null | JSON string for extensible item metadata. Traits are stored here automatically when using the `traits` parameter. |
+| `traits` | string | No | null | Comma-separated trait names (e.g., `needs-security-review,needs-perf-review`). Adds additional note requirements from the `traits:` config section. Merged into `properties` JSON automatically. |
+| `requiresVerification` | boolean | No | false | |
 
-**Item object fields (update):** Same fields as create plus required `id` (UUID). Only provided
-fields are changed; omitted fields retain existing values. Setting `parentId` to JSON null moves
-the item to root.
+**Item object fields (update):** Same fields as create plus required `id` (UUID), including `type`,
+`properties`, and `traits`. Only provided fields are changed; omitted fields retain existing values.
+Setting `parentId` to JSON null moves the item to root.
 
 **Note:** The `role` field is not accepted in update operations. Use `advance_item` with an appropriate trigger instead.
 
@@ -137,6 +141,7 @@ the item to root.
       "priority": "high",
       "requiresVerification": false,
       "tags": "task-implementation",
+      "type": null,
       "expectedNotes": [
         { "key": "requirements", "role": "queue", "required": true, "description": "...", "exists": false }
       ]
@@ -147,8 +152,7 @@ the item to root.
 }
 ```
 
-`expectedNotes` is included only when the item's `tags` match a configured note schema. Check it
-immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`.
+`expectedNotes` is included only when a note schema is resolved for the item (via `type`, tag match, or default fallback). Check it immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`. Both full item responses (from `get`) and minimal responses (from `search` and `overview`) include `type` when it is non-null.
 
 ---
 
@@ -171,6 +175,7 @@ hierarchical overview.
 | `role` | string | No (search) | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` |
 | `priority` | string | No (search) | Filter: `high`, `medium`, `low` |
 | `tags` | string | No (search) | Comma-separated tags filter (OR logic) |
+| `type` | string | No (search) | Filter by item type (exact match) |
 | `query` | string | No (search) | Text search in title and summary |
 | `createdAfter` | string (ISO 8601) | No (search) | Timestamp lower bound |
 | `createdBefore` | string (ISO 8601) | No (search) | Timestamp upper bound |
@@ -203,7 +208,7 @@ hierarchical overview.
 ```json
 {
   "items": [
-    { "id": "uuid", "parentId": "uuid", "title": "...", "role": "work", "priority": "high", "depth": 1, "tags": null }
+    { "id": "uuid", "parentId": "uuid", "title": "...", "role": "work", "priority": "high", "depth": 1, "tags": null, "type": null }
   ],
   "total": 42,
   "returned": 20,
@@ -212,7 +217,7 @@ hierarchical overview.
 }
 ```
 
-Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`). `statusLabel` is only present when non-null.
+Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). `statusLabel` and `type` are only present when non-null.
 Use `get` for full item JSON including `description`, `summary`, `statusLabel`, timestamps, and
 `roleChangedAt`.
 
@@ -244,9 +249,9 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `root` | object | Yes | Root item spec: `{ title, priority?, tags?, summary?, description?, requiresVerification? }` |
+| `root` | object | Yes | Root item spec: `{ title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }` |
 | `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1 |
-| `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
+| `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its tag schema (default: false) |
 
@@ -317,7 +322,7 @@ missing, that item fails and its downstream dependents within the set are skippe
 
 Exactly one of `rootId` or `itemIds` must be provided.
 
-**Gate enforcement and `trigger`:** When `trigger="complete"`, gate enforcement applies — items whose tags match a note schema must have all required notes filled before completing; items that fail gating are recorded as `gateErrors` and their dependents within the set are skipped. When `trigger="cancel"`, gate enforcement is bypassed — all items in the set are cancelled regardless of note state.
+**Gate enforcement and `trigger`:** When `trigger="complete"`, gate enforcement applies — items whose schema resolves (via `type`, tag match, or default fallback) must have all required notes filled before completing; items that fail gating are recorded as `gateErrors` and their dependents within the set are skipped. When `trigger="cancel"`, gate enforcement is bypassed — all items in the set are cancelled regardless of note state.
 
 **Example.**
 
@@ -659,9 +664,22 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 | `cancel` | Any non-terminal → TERMINAL with `statusLabel="cancelled"` |
 | `reopen` | TERMINAL → QUEUE (clears statusLabel, bypasses gate enforcement, cascades parent TERMINAL → WORK) |
 
-**Gate enforcement.** When the item's `tags` match a configured note schema:
+**Gate enforcement.** The schema used for gate checks is resolved in this order:
+1. `type` field → direct lookup in `work_item_schemas` (highest priority)
+2. Tag fallback → first tag in the item's `tags` that matches a schema key
+3. `default` schema fallback (if configured)
+
+When a schema is resolved:
 - `start`: required notes for the current phase must exist and be filled.
 - `complete`: all required notes across all phases must be filled.
+
+Trait notes are merged into the resolved schema: `default_traits` from config apply globally, and per-item traits (stored in `properties` JSON) add their note requirements on top.
+
+**Lifecycle modes** (set on the schema via `work_item_schemas`):
+- `AUTO` (default) — terminal cascade fires automatically when all children reach terminal
+- `MANUAL` — suppresses terminal cascade; parent must be advanced explicitly
+- `PERMANENT` — item never auto-terminates; intended for persistent containers
+- `AUTO_REOPEN` — cascade fires as in AUTO, and parent is also reopened when a new child is added
 
 **Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE (same cascade logic applies up the ancestor chain). This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 

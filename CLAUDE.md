@@ -37,7 +37,7 @@ Source lives under `current/`.
 
 ```
 domain/
-  model/       — WorkItem, Note, Dependency, Role, Priority, RoleTransition
+  model/       — WorkItem, Note, Dependency, Role, Priority, RoleTransition, LifecycleMode, WorkItemSchema
   repository/  — WorkItemRepository, NoteRepository, DependencyRepository, RoleTransitionRepository
 
 application/
@@ -52,7 +52,7 @@ infrastructure/
   database/schema/      — WorkItemsTable, NotesTable, DependenciesTable, RoleTransitionsTable
   database/schema/management/ — DirectDatabaseSchemaManager, FlywayDatabaseSchemaManager, SchemaManagerFactory
   repository/           — SQLite implementations, RepositoryProvider
-  config/               — YamlNoteSchemaService
+  config/               — YamlWorkItemSchemaService (typealias YamlNoteSchemaService)
 
 interfaces/mcp/
   CurrentMcpServer.kt, McpToolAdapter.kt
@@ -83,7 +83,7 @@ private fun getConfigPath(): Path {
 
 - In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
 - In local dev: not needed (uses working directory)
-- Currently used by: `YamlNoteSchemaService`
+- Currently used by: `YamlWorkItemSchemaService`
 
 ## Adding New Components
 
@@ -129,7 +129,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 | Repositories | `current/.../infrastructure/repository/` |
 | Migrations | `current/src/main/resources/db/migration/` |
 | Workflow config | `.taskorchestrator/config.yaml` |
-| Note schema service | `current/.../infrastructure/config/YamlNoteSchemaService.kt` |
+| Note schema service | `current/.../infrastructure/config/YamlWorkItemSchemaService.kt` (backward-compat typealias `YamlNoteSchemaService`) |
 | Plugin | `claude-plugins/task-orchestrator/` |
 | Tests | `current/src/test/kotlin/` |
 
