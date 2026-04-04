@@ -89,5 +89,4 @@ fun buildExpectedNotesJson(
  *
  * @param schema The [WorkItemSchema] to serialize, or null for schema-free mode
  */
-fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields =
-    buildSchemaResponseFields(schema?.notes)
+fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields = buildSchemaResponseFields(schema?.notes)

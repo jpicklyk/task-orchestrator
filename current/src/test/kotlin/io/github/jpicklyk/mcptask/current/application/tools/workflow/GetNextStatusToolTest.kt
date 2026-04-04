@@ -579,12 +579,14 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, type = "typed-task")
 
-            val typeSchema = WorkItemSchema(
-                type = "typed-task",
-                notes = listOf(
-                    NoteSchemaEntry(key = "review-note", role = Role.REVIEW, required = false, description = "Review")
+            val typeSchema =
+                WorkItemSchema(
+                    type = "typed-task",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "review-note", role = Role.REVIEW, required = false, description = "Review")
+                        )
                 )
-            )
             every { noteSchemaService.getSchemaForType("typed-task") } returns typeSchema
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
@@ -604,12 +606,14 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, type = "simple-type")
 
-            val typeSchema = WorkItemSchema(
-                type = "simple-type",
-                notes = listOf(
-                    NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false, description = "Work")
+            val typeSchema =
+                WorkItemSchema(
+                    type = "simple-type",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false, description = "Work")
+                        )
                 )
-            )
             every { noteSchemaService.getSchemaForType("simple-type") } returns typeSchema
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)

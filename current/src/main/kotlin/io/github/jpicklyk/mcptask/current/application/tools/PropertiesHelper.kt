@@ -7,7 +7,6 @@ import kotlinx.serialization.json.*
  * Properties is stored as a TEXT column containing a JSON string.
  */
 object PropertiesHelper {
-
     private const val TRAITS_KEY = "traits"
 
     /**
@@ -29,27 +28,32 @@ object PropertiesHelper {
      * If properties is null or empty, starts with an empty JSON object.
      * Deduplicates trait names, preserving order.
      */
-    fun mergeTraits(existingProperties: String?, traits: List<String>): String {
-        val baseObject = if (!existingProperties.isNullOrBlank()) {
-            try {
-                Json.parseToJsonElement(existingProperties).jsonObject
-            } catch (_: Exception) {
+    fun mergeTraits(
+        existingProperties: String?,
+        traits: List<String>
+    ): String {
+        val baseObject =
+            if (!existingProperties.isNullOrBlank()) {
+                try {
+                    Json.parseToJsonElement(existingProperties).jsonObject
+                } catch (_: Exception) {
+                    JsonObject(emptyMap())
+                }
+            } else {
                 JsonObject(emptyMap())
             }
-        } else {
-            JsonObject(emptyMap())
-        }
 
         val deduplicatedTraits = traits.distinct()
         val traitsArray = JsonArray(deduplicatedTraits.map { JsonPrimitive(it) })
 
-        val merged = buildJsonObject {
-            // Preserve all existing keys except "traits"
-            baseObject.forEach { (key, value) ->
-                if (key != TRAITS_KEY) put(key, value)
+        val merged =
+            buildJsonObject {
+                // Preserve all existing keys except "traits"
+                baseObject.forEach { (key, value) ->
+                    if (key != TRAITS_KEY) put(key, value)
+                }
+                put(TRAITS_KEY, traitsArray)
             }
-            put(TRAITS_KEY, traitsArray)
-        }
 
         return Json.encodeToString(JsonObject.serializer(), merged)
     }
@@ -58,7 +62,10 @@ object PropertiesHelper {
      * Parse a comma-separated traits string and merge into existing properties JSON.
      * Returns [existingProperties] unchanged if [commaSeparatedTraits] is null.
      */
-    fun mergeTraitsFromString(existingProperties: String?, commaSeparatedTraits: String?): String? {
+    fun mergeTraitsFromString(
+        existingProperties: String?,
+        commaSeparatedTraits: String?
+    ): String? {
         if (commaSeparatedTraits == null) return existingProperties
         val traitList = commaSeparatedTraits.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         return mergeTraits(existingProperties, traitList)

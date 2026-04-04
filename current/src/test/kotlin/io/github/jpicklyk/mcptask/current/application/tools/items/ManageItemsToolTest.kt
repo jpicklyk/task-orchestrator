@@ -1883,7 +1883,10 @@ class ManageItemsToolTest {
 
             val itemData = getResult["data"] as JsonObject
             val properties = itemData["properties"]!!.jsonPrimitive.content
-            val propsJson = kotlinx.serialization.json.Json.parseToJsonElement(properties).jsonObject
+            val propsJson =
+                kotlinx.serialization.json.Json
+                    .parseToJsonElement(properties)
+                    .jsonObject
             val traits = propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
             assertEquals(listOf("needs-security-review", "needs-perf-review"), traits)
         }
@@ -1944,7 +1947,10 @@ class ManageItemsToolTest {
                 ) as JsonObject
 
             val properties = (getResult["data"] as JsonObject)["properties"]!!.jsonPrimitive.content
-            val propsJson = kotlinx.serialization.json.Json.parseToJsonElement(properties).jsonObject
+            val propsJson =
+                kotlinx.serialization.json.Json
+                    .parseToJsonElement(properties)
+                    .jsonObject
             assertEquals("value", propsJson["custom"]!!.jsonPrimitive.content)
             assertEquals(listOf("new-trait"), propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
         }

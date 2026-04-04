@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class NoteSchemaServiceTest {
     @Test
@@ -50,6 +50,7 @@ class NoteSchemaServiceTest {
         val customService =
             object : NoteSchemaService {
                 override fun getSchemaForTags(tags: List<String>) = null
+
                 override fun getSchemaForType(type: String?) = null
             }
         assertFalse(customService.hasReviewPhase(listOf("tag1")))
@@ -85,6 +86,7 @@ class NoteSchemaServiceTest {
         val customService =
             object : WorkItemSchemaService {
                 override fun getSchemaForTags(tags: List<String>) = null
+
                 override fun getSchemaForType(type: String?) = null
             }
         assertFalse(customService.hasReviewPhaseForType("any-type"))

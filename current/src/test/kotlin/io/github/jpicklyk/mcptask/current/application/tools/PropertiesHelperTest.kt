@@ -10,7 +10,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PropertiesHelperTest {
-
     // ────────────────────────────────────────────────────────
     // extractTraits
     // ────────────────────────────────────────────────────────

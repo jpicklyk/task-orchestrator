@@ -240,10 +240,11 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `buildExpectedNotesJson WorkItemSchema overload produces same result as list overload`() {
-        val notes = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-            NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
-        )
+        val notes =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl")
+            )
         val schema = WorkItemSchema(type = "feature-task", notes = notes)
 
         val fromList = buildExpectedNotesJson(schema = notes, existingNoteKeys = setOf("spec"))
@@ -254,14 +255,16 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `buildExpectedNotesJson WorkItemSchema overload respects filterRole`() {
-        val schema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl"),
-                NoteSchemaEntry(key = "review-notes", role = Role.REVIEW, required = true, description = "Review")
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                        NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl"),
+                        NoteSchemaEntry(key = "review-notes", role = Role.REVIEW, required = true, description = "Review")
+                    )
             )
-        )
 
         val result = buildExpectedNotesJson(schema = schema, filterRole = Role.WORK)
         assertEquals(1, result.size)
@@ -270,12 +273,14 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `buildSchemaResponseFields WorkItemSchema overload returns schemaMatch true for non-null schema`() {
-        val schema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
+                    )
             )
-        )
 
         val result = buildSchemaResponseFields(schema = schema)
 
@@ -294,10 +299,11 @@ class SchemaEntryJsonBuilderTest {
 
     @Test
     fun `buildSchemaResponseFields WorkItemSchema overload produces same entries as list overload`() {
-        val notes = listOf(
-            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
-            NoteSchemaEntry(key = "review-notes", role = Role.REVIEW, required = false, description = "Review")
-        )
+        val notes =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec"),
+                NoteSchemaEntry(key = "review-notes", role = Role.REVIEW, required = false, description = "Review")
+            )
         val schema = WorkItemSchema(type = "feature-task", notes = notes)
 
         val fromList = buildSchemaResponseFields(schema = notes)

@@ -26,7 +26,6 @@ import kotlin.test.assertTrue
  * - resolveHasReviewPhase true/false delegation
  */
 class ToolExecutionContextResolveSchemaTest {
-
     private lateinit var noteSchemaService: NoteSchemaService
     private lateinit var context: ToolExecutionContext
 
@@ -59,17 +58,13 @@ class ToolExecutionContextResolveSchemaTest {
             depth = 0
         )
 
-    private fun reviewEntry(): NoteSchemaEntry =
-        NoteSchemaEntry(key = "review-note", role = Role.REVIEW, required = false)
+    private fun reviewEntry(): NoteSchemaEntry = NoteSchemaEntry(key = "review-note", role = Role.REVIEW, required = false)
 
-    private fun workEntry(): NoteSchemaEntry =
-        NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false)
+    private fun workEntry(): NoteSchemaEntry = NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false)
 
-    private fun schemaWithReview(type: String): WorkItemSchema =
-        WorkItemSchema(type = type, notes = listOf(reviewEntry()))
+    private fun schemaWithReview(type: String): WorkItemSchema = WorkItemSchema(type = type, notes = listOf(reviewEntry()))
 
-    private fun schemaWithoutReview(type: String): WorkItemSchema =
-        WorkItemSchema(type = type, notes = listOf(workEntry()))
+    private fun schemaWithoutReview(type: String): WorkItemSchema = WorkItemSchema(type = type, notes = listOf(workEntry()))
 
     // ──────────────────────────────────────────────
     // Type-first lookup
@@ -221,16 +216,19 @@ class ToolExecutionContextResolveSchemaTest {
             depth = 0
         )
 
-    private fun traitEntry(key: String, role: Role = Role.REVIEW): NoteSchemaEntry =
-        NoteSchemaEntry(key = key, role = role, required = true, description = "Trait note: $key")
+    private fun traitEntry(
+        key: String,
+        role: Role = Role.REVIEW
+    ): NoteSchemaEntry = NoteSchemaEntry(key = key, role = role, required = true, description = "Trait note: $key")
 
     @Test
     fun `resolveSchema merges trait notes after base schema notes`() {
-        val baseSchema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(workEntry()),
-            defaultTraits = listOf("needs-security-review")
-        )
+        val baseSchema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(workEntry()),
+                defaultTraits = listOf("needs-security-review")
+            )
         every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
         every { noteSchemaService.getTraitNotes("needs-security-review") } returns listOf(traitEntry("security-assessment"))
         every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-security-review")
@@ -245,15 +243,17 @@ class ToolExecutionContextResolveSchemaTest {
 
     @Test
     fun `resolveSchema base key wins over trait key with same name`() {
-        val baseSchema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(NoteSchemaEntry(key = "shared-key", role = Role.WORK, required = false, description = "base")),
-            defaultTraits = listOf("my-trait")
-        )
+        val baseSchema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(NoteSchemaEntry(key = "shared-key", role = Role.WORK, required = false, description = "base")),
+                defaultTraits = listOf("my-trait")
+            )
         every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-        every { noteSchemaService.getTraitNotes("my-trait") } returns listOf(
-            NoteSchemaEntry(key = "shared-key", role = Role.REVIEW, required = true, description = "trait")
-        )
+        every { noteSchemaService.getTraitNotes("my-trait") } returns
+            listOf(
+                NoteSchemaEntry(key = "shared-key", role = Role.REVIEW, required = true, description = "trait")
+            )
         every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("my-trait")
 
         val item = makeItem(type = "feature-task")
@@ -265,11 +265,12 @@ class ToolExecutionContextResolveSchemaTest {
 
     @Test
     fun `resolveSchema skips unknown traits with no error`() {
-        val baseSchema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(workEntry()),
-            defaultTraits = listOf("nonexistent-trait")
-        )
+        val baseSchema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(workEntry()),
+                defaultTraits = listOf("nonexistent-trait")
+            )
         every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
         every { noteSchemaService.getTraitNotes("nonexistent-trait") } returns null
         every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("nonexistent-trait")
@@ -288,10 +289,11 @@ class ToolExecutionContextResolveSchemaTest {
         every { noteSchemaService.getTraitNotes("needs-perf-review") } returns listOf(traitEntry("performance-baseline", Role.QUEUE))
         every { noteSchemaService.getDefaultTraits("feature-task") } returns emptyList()
 
-        val item = makeItemWithProperties(
-            type = "feature-task",
-            properties = """{"traits": ["needs-perf-review"]}"""
-        )
+        val item =
+            makeItemWithProperties(
+                type = "feature-task",
+                properties = """{"traits": ["needs-perf-review"]}"""
+            )
         val result = context.resolveSchema(item)!!
 
         assertEquals(2, result.notes.size)
@@ -300,20 +302,22 @@ class ToolExecutionContextResolveSchemaTest {
 
     @Test
     fun `resolveSchema unions default and per-item traits with deduplication`() {
-        val baseSchema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(workEntry()),
-            defaultTraits = listOf("trait-a")
-        )
+        val baseSchema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(workEntry()),
+                defaultTraits = listOf("trait-a")
+            )
         every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
         every { noteSchemaService.getTraitNotes("trait-a") } returns listOf(traitEntry("note-a"))
         every { noteSchemaService.getTraitNotes("trait-b") } returns listOf(traitEntry("note-b"))
         every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("trait-a")
 
-        val item = makeItemWithProperties(
-            type = "feature-task",
-            properties = """{"traits": ["trait-a", "trait-b"]}"""
-        )
+        val item =
+            makeItemWithProperties(
+                type = "feature-task",
+                properties = """{"traits": ["trait-a", "trait-b"]}"""
+            )
         val result = context.resolveSchema(item)!!
 
         assertEquals(3, result.notes.size)
@@ -335,11 +339,12 @@ class ToolExecutionContextResolveSchemaTest {
 
     @Test
     fun `resolveHasReviewPhase returns true when trait adds review note`() {
-        val baseSchema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(workEntry()),
-            defaultTraits = listOf("needs-review-trait")
-        )
+        val baseSchema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(workEntry()),
+                defaultTraits = listOf("needs-review-trait")
+            )
         every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
         every { noteSchemaService.getTraitNotes("needs-review-trait") } returns listOf(traitEntry("review-from-trait", Role.REVIEW))
         every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-review-trait")
@@ -350,18 +355,21 @@ class ToolExecutionContextResolveSchemaTest {
 
     @Test
     fun `resolveSchema first trait wins for duplicate trait note keys`() {
-        val baseSchema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(workEntry()),
-            defaultTraits = listOf("trait-a", "trait-b")
-        )
+        val baseSchema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes = listOf(workEntry()),
+                defaultTraits = listOf("trait-a", "trait-b")
+            )
         every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-        every { noteSchemaService.getTraitNotes("trait-a") } returns listOf(
-            NoteSchemaEntry(key = "duplicate-key", role = Role.REVIEW, required = true, description = "from trait-a")
-        )
-        every { noteSchemaService.getTraitNotes("trait-b") } returns listOf(
-            NoteSchemaEntry(key = "duplicate-key", role = Role.QUEUE, required = false, description = "from trait-b")
-        )
+        every { noteSchemaService.getTraitNotes("trait-a") } returns
+            listOf(
+                NoteSchemaEntry(key = "duplicate-key", role = Role.REVIEW, required = true, description = "from trait-a")
+            )
+        every { noteSchemaService.getTraitNotes("trait-b") } returns
+            listOf(
+                NoteSchemaEntry(key = "duplicate-key", role = Role.QUEUE, required = false, description = "from trait-b")
+            )
         every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("trait-a", "trait-b")
 
         val item = makeItem(type = "feature-task")

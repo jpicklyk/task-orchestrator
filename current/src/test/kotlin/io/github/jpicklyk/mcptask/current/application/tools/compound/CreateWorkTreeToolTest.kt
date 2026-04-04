@@ -1148,7 +1148,9 @@ class CreateWorkTreeToolTest {
 
             val rootItem = capturedInput!!.items.first()
             assertNotNull(rootItem.properties, "Root item with traits should have non-null properties")
-            val traits = io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper.extractTraits(rootItem.properties)
+            val traits =
+                io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
+                    .extractTraits(rootItem.properties)
             assertEquals(listOf("needs-security-review", "needs-perf-review"), traits)
         }
 
@@ -1176,7 +1178,9 @@ class CreateWorkTreeToolTest {
             val childItem = capturedInput!!.items.find { it.depth == 1 }
             assertNotNull(childItem, "Should have a child item")
             assertNotNull(childItem.properties, "Child with traits should have non-null properties")
-            val traits = io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper.extractTraits(childItem.properties)
+            val traits =
+                io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
+                    .extractTraits(childItem.properties)
             assertEquals(listOf("needs-perf-review"), traits)
         }
 }

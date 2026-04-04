@@ -160,35 +160,38 @@ class YamlWorkItemSchemaService(
             val schemaMap = rawValue as? Map<String, Any> ?: continue
 
             val lifecycleRaw = schemaMap["lifecycle"] as? String
-            val lifecycleMode = if (lifecycleRaw != null) {
-                val parsed = LifecycleMode.fromString(lifecycleRaw)
-                if (parsed == null) {
-                    warnings.add(
-                        "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
-                    )
-                    LifecycleMode.AUTO
+            val lifecycleMode =
+                if (lifecycleRaw != null) {
+                    val parsed = LifecycleMode.fromString(lifecycleRaw)
+                    if (parsed == null) {
+                        warnings.add(
+                            "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
+                        )
+                        LifecycleMode.AUTO
+                    } else {
+                        parsed
+                    }
                 } else {
-                    parsed
+                    LifecycleMode.AUTO
                 }
-            } else {
-                LifecycleMode.AUTO
-            }
 
             @Suppress("UNCHECKED_CAST")
             val defaultTraits = (schemaMap["default_traits"] as? List<String>) ?: emptyList()
 
             val rawNotes = schemaMap["notes"] as? List<Map<String, Any>> ?: emptyList()
-            val entries = rawNotes.mapIndexedNotNull { index, raw ->
-                parseEntry(raw, schemaName, index, warnings)
-            }
+            val entries =
+                rawNotes.mapIndexedNotNull { index, raw ->
+                    parseEntry(raw, schemaName, index, warnings)
+                }
 
             schemasMap[schemaName] = entries
-            workItemSchemasMap[schemaName] = WorkItemSchema(
-                type = schemaName,
-                lifecycleMode = lifecycleMode,
-                notes = entries,
-                defaultTraits = defaultTraits
-            )
+            workItemSchemasMap[schemaName] =
+                WorkItemSchema(
+                    type = schemaName,
+                    lifecycleMode = lifecycleMode,
+                    notes = entries,
+                    defaultTraits = defaultTraits
+                )
         }
 
         return SchemaLoadResult(schemasMap, workItemSchemasMap, emptyMap(), warnings)
@@ -208,16 +211,18 @@ class YamlWorkItemSchemaService(
 
         for ((schemaName, rawEntries) in noteSchemas) {
             val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
-            val entries = entryList.mapIndexedNotNull { index, raw ->
-                parseEntry(raw, schemaName, index, warnings)
-            }
+            val entries =
+                entryList.mapIndexedNotNull { index, raw ->
+                    parseEntry(raw, schemaName, index, warnings)
+                }
             schemasMap[schemaName] = entries
             // Wrap into WorkItemSchema with AUTO lifecycle for backward compat
-            workItemSchemasMap[schemaName] = WorkItemSchema(
-                type = schemaName,
-                lifecycleMode = LifecycleMode.AUTO,
-                notes = entries
-            )
+            workItemSchemasMap[schemaName] =
+                WorkItemSchema(
+                    type = schemaName,
+                    lifecycleMode = LifecycleMode.AUTO,
+                    notes = entries
+                )
         }
 
         return SchemaLoadResult(schemasMap, workItemSchemasMap, emptyMap(), warnings)
@@ -232,9 +237,10 @@ class YamlWorkItemSchemaService(
         return traitsRaw.entries.associate { (traitName, rawValue) ->
             val rawMap = rawValue as? Map<String, Any> ?: emptyMap()
             val notesList = rawMap["notes"] as? List<Map<String, Any>> ?: emptyList()
-            val entries = notesList.mapIndexedNotNull { index, raw ->
-                parseEntry(raw, "trait:$traitName", index, warnings)
-            }
+            val entries =
+                notesList.mapIndexedNotNull { index, raw ->
+                    parseEntry(raw, "trait:$traitName", index, warnings)
+                }
             traitName to entries
         }
     }

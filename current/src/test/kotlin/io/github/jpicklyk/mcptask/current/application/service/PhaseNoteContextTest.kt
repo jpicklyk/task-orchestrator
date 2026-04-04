@@ -155,13 +155,15 @@ class PhaseNoteContextTest {
 
     @Test
     fun `WorkItemSchema overload delegates correctly — all notes missing`() {
-        val schema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
-                NoteSchemaEntry(key = "design", role = Role.QUEUE, required = true, guidance = "Write design")
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
+                        NoteSchemaEntry(key = "design", role = Role.QUEUE, required = true, guidance = "Write design")
+                    )
             )
-        )
         val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
 
         assertNotNull(result)
@@ -174,25 +176,29 @@ class PhaseNoteContextTest {
 
     @Test
     fun `WorkItemSchema overload returns null for terminal role`() {
-        val schema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec")
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec")
+                    )
             )
-        )
         val result = computePhaseNoteContext(Role.TERMINAL, schema, emptyMap())
         assertNull(result)
     }
 
     @Test
     fun `WorkItemSchema overload respects only the current role`() {
-        val schema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Queue guidance"),
-                NoteSchemaEntry(key = "impl", role = Role.WORK, required = true, guidance = "Work guidance")
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Queue guidance"),
+                        NoteSchemaEntry(key = "impl", role = Role.WORK, required = true, guidance = "Work guidance")
+                    )
             )
-        )
         val result = computePhaseNoteContext(Role.WORK, schema, emptyMap())
 
         assertNotNull(result)
@@ -203,13 +209,15 @@ class PhaseNoteContextTest {
 
     @Test
     fun `WorkItemSchema overload counts filled notes correctly`() {
-        val schema = WorkItemSchema(
-            type = "feature-task",
-            notes = listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
-                NoteSchemaEntry(key = "risks", role = Role.QUEUE, required = true, guidance = "List risks")
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
+                        NoteSchemaEntry(key = "risks", role = Role.QUEUE, required = true, guidance = "List risks")
+                    )
             )
-        )
         val notesByKey = mapOf("spec" to note("spec"))
         val result = computePhaseNoteContext(Role.QUEUE, schema, notesByKey)
 

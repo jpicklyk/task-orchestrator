@@ -85,7 +85,10 @@ class ToolExecutionContext(
     /**
      * Resolves the base schema without trait merging. Type-first lookup with tag fallback.
      */
-    private fun resolveBaseSchema(item: WorkItem, service: NoteSchemaService): WorkItemSchema? {
+    private fun resolveBaseSchema(
+        item: WorkItem,
+        service: NoteSchemaService
+    ): WorkItemSchema? {
         // Type-first lookup
         item.type?.let { type ->
             service.getSchemaForType(type)?.let { return it }
@@ -94,11 +97,12 @@ class ToolExecutionContext(
         // to preserve lifecycleMode and defaultTraits from config
         val tags = item.tagList()
         if (service.getSchemaForTags(tags) == null) return null
-        val matchedType = if (tags.isEmpty()) {
-            "default"
-        } else {
-            tags.firstOrNull { tag -> service.getSchemaForTags(listOf(tag)) != null } ?: "default"
-        }
+        val matchedType =
+            if (tags.isEmpty()) {
+                "default"
+            } else {
+                tags.firstOrNull { tag -> service.getSchemaForTags(listOf(tag)) != null } ?: "default"
+            }
         // Retrieve the full WorkItemSchema (with lifecycle/defaultTraits) if available
         return service.getSchemaForType(matchedType)
             ?: WorkItemSchema(type = matchedType, notes = service.getSchemaForTags(tags) ?: emptyList())
@@ -109,7 +113,11 @@ class ToolExecutionContext(
      * per-item traits from properties JSON, looks up notes for each, and appends
      * to the base schema notes (base key wins on duplicates).
      */
-    private fun mergeTraits(item: WorkItem, baseSchema: WorkItemSchema, service: NoteSchemaService): WorkItemSchema {
+    private fun mergeTraits(
+        item: WorkItem,
+        baseSchema: WorkItemSchema,
+        service: NoteSchemaService
+    ): WorkItemSchema {
         val defaultTraits = baseSchema.defaultTraits
         val itemTraits = PropertiesHelper.extractTraits(item.properties)
         val allTraits = (defaultTraits + itemTraits).distinct()

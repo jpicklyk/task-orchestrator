@@ -1635,12 +1635,14 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, type = "feature-task")
 
-            val typeSchema = WorkItemSchema(
-                type = "feature-task",
-                notes = listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Implementation notes")
+            val typeSchema =
+                WorkItemSchema(
+                    type = "feature-task",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Implementation notes")
+                        )
                 )
-            )
             every { noteSchemaService.getSchemaForType("feature-task") } returns typeSchema
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
@@ -1663,18 +1665,21 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, type = "feature-with-traits")
 
-            val typeSchema = WorkItemSchema(
-                type = "feature-with-traits",
-                notes = listOf(
-                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Specification")
-                ),
-                defaultTraits = listOf("security-trait")
-            )
+            val typeSchema =
+                WorkItemSchema(
+                    type = "feature-with-traits",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Specification")
+                        ),
+                    defaultTraits = listOf("security-trait")
+                )
             every { noteSchemaService.getSchemaForType("feature-with-traits") } returns typeSchema
             every { noteSchemaService.getDefaultTraits("feature-with-traits") } returns listOf("security-trait")
-            every { noteSchemaService.getTraitNotes("security-trait") } returns listOf(
-                NoteSchemaEntry(key = "security-review", role = Role.REVIEW, required = true, description = "Security review")
-            )
+            every { noteSchemaService.getTraitNotes("security-trait") } returns
+                listOf(
+                    NoteSchemaEntry(key = "security-review", role = Role.REVIEW, required = true, description = "Security review")
+                )
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
             coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())

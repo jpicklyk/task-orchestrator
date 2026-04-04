@@ -31,6 +31,5 @@ data class WorkItemSchema(
      * @param role The workflow phase to filter by
      * @return Required [NoteSchemaEntry] items for that phase
      */
-    fun requiredNotesForRole(role: Role): List<NoteSchemaEntry> =
-        notes.filter { it.role == role && it.required }
+    fun requiredNotesForRole(role: Role): List<NoteSchemaEntry> = notes.filter { it.role == role && it.required }
 }

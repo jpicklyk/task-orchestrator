@@ -85,7 +85,10 @@ typealias NoteSchemaService = WorkItemSchemaService
  */
 object NoOpNoteSchemaService : WorkItemSchemaService {
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+
     override fun getSchemaForType(type: String?): WorkItemSchema? = null
+
     override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = null
+
     override fun getDefaultTraits(type: String?): List<String> = emptyList()
 }

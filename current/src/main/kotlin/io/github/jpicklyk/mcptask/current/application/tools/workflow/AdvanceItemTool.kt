@@ -406,7 +406,12 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 4c: Reopen cascade detection (only when reopening to QUEUE)
             // When a child is reopened under a terminal parent, the parent should reopen to WORK.
             if (trigger == "reopen" && targetRole == Role.QUEUE) {
-                val reopenCascadeEvents = cascadeDetector.detectReopenCascades(applyResult.item!!, context.workItemRepository(), schemaResolver)
+                val reopenCascadeEvents =
+                    cascadeDetector.detectReopenCascades(
+                        applyResult.item!!,
+                        context.workItemRepository(),
+                        schemaResolver
+                    )
                 applyCascadeEvents(
                     reopenCascadeEvents,
                     "Auto-cascaded from child reopen",

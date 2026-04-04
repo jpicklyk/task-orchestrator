@@ -16,8 +16,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** Helper to build a [WorkItemSchema] with a specific [LifecycleMode] for tests. */
-private fun schemaWithLifecycle(lifecycleMode: LifecycleMode) =
-    WorkItemSchema(type = "test-type", lifecycleMode = lifecycleMode)
+private fun schemaWithLifecycle(lifecycleMode: LifecycleMode) = WorkItemSchema(type = "test-type", lifecycleMode = lifecycleMode)
 
 class CascadeDetectorTest {
     private lateinit var detector: CascadeDetector
