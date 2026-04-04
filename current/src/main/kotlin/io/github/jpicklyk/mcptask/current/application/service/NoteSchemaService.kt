@@ -71,6 +71,11 @@ interface WorkItemSchemaService {
      * or an empty list if the type has no default traits or is not defined.
      */
     fun getDefaultTraits(type: String?): List<String> = emptyList()
+
+    /**
+     * Returns the names of all configured traits, or an empty list if none are defined.
+     */
+    fun getAvailableTraits(): List<String> = emptyList()
 }
 
 /**

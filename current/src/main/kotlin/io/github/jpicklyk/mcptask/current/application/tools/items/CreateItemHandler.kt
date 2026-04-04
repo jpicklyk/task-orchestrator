@@ -185,6 +185,7 @@ class CreateItemHandler(
             }
         }
 
+        val availableTraits = context.noteSchemaService().getAvailableTraits()
         val data =
             buildJsonObject {
                 put("items", JsonArray(createdItems))
@@ -192,6 +193,12 @@ class CreateItemHandler(
                 put("failed", JsonPrimitive(failures.size))
                 if (failures.isNotEmpty()) {
                     put("failures", JsonArray(failures))
+                }
+                if (availableTraits.isNotEmpty()) {
+                    put(
+                        "availableTraits",
+                        JsonArray(availableTraits.map { JsonPrimitive(it) })
+                    )
                 }
             }
 

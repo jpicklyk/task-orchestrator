@@ -98,6 +98,24 @@ If the inferred schema key exists in the config, set it as the item's `type` val
 
 > **Tags vs. type:** Set `type` for schema selection. Use `tags` only for additional categorization/filtering that is independent of schema matching.
 
+### Trait discovery
+
+While reading the config, also check for a top-level `traits:` section. Each key under `traits:` is a trait name that can be assigned to items via the `traits` parameter. Traits add additional note requirements on top of the base schema.
+
+**Assess whether any configured traits apply based on conversation context:**
+
+| Context signal | Trait to consider |
+|----------------|-------------------|
+| Database migration, schema change, ALTER TABLE | `needs-migration-review` (if configured) |
+| MCP tool parameter changes, response shape changes | `needs-api-compat-review` (if configured) |
+| Plugin skill/hook behavior changes | `needs-plugin-update` (if configured) |
+| Auth, input validation, external data handling | `needs-security-review` (if configured) |
+| Hot path changes, per-request work, startup impact | `needs-perf-review` (if configured) |
+
+Only assign traits that exist in the config. If no `traits:` section exists, skip trait assignment entirely.
+
+If multiple traits apply, combine them: `traits: "needs-migration-review,needs-api-compat-review"`
+
 ---
 
 ## Step 5 — Create the item(s)

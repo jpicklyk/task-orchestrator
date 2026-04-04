@@ -93,6 +93,8 @@ class YamlWorkItemSchemaService(
 
     override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = traitDefs[traitName]
 
+    override fun getAvailableTraits(): List<String> = traitDefs.keys.toList()
+
     override fun getDefaultTraits(type: String?): List<String> =
         if (type != null) workItemSchemas[type]?.defaultTraits ?: emptyList() else emptyList()
 
