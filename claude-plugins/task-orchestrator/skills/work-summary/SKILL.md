@@ -19,20 +19,18 @@ If `$ARGUMENTS` is provided:
 
 When scoped to a `parentId`, modify the data collection calls:
 1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview of that subtree
-2. `query_items(operation="search", parentId="<parentId>", limit=200)` — scoped item details
-3. `get_context(includeAncestors=true)` — still global (filter to scope in analysis phase)
-4. `get_next_item(limit=5, includeAncestors=true, parentId="<parentId>")` — scoped recommendations
+2. `get_context()` — still global (filter to scope in analysis phase)
+3. `get_next_item(limit=5, parentId="<parentId>")` — scoped recommendations
 
 If no `$ARGUMENTS`, proceed with the global (unscoped) data collection as written below.
 
-## Data Collection (4 calls, run in parallel)
+## Data Collection (3 calls, run in parallel)
 
 1. `query_items(operation="overview", includeChildren=true)` — all root items with childCounts per role and direct children
-2. `query_items(operation="search", limit=200)` — all items with full fields: `id, parentId, title, role, priority, depth, tags`
-3. `get_context(includeAncestors=true)` — active (work/review), blocked, and stalled items
-4. `get_next_item(limit=5, includeAncestors=true)` — dependency-aware ranked recommendations
+2. `get_context()` — active (work/review), blocked, and stalled items
+3. `get_next_item(limit=5)` — dependency-aware ranked recommendations
 
-**Why 4 calls:** Overview gives hierarchy structure and child counts. Search gives tags and priority for every item (overview children lack these fields). get_context gives active/blocked/stalled signals. get_next_item gives dependency-aware recommendations that search cannot provide.
+**Why 3 calls:** Overview gives hierarchy structure, child counts, tags, priority, type, and traits for all items. get_context gives active/blocked/stalled signals. get_next_item gives dependency-aware recommendations.
 
 ---
 
@@ -40,9 +38,9 @@ If no `$ARGUMENTS`, proceed with the global (unscoped) data collection as writte
 
 Before rendering, cross-reference the data sources:
 
-1. **Build a search lookup map:** `searchMap[id] = { priority, tags, role }` from the search results
-2. **Build child count map:** Group search results by `parentId`. For each parent, count children by role: `childRoleCounts[parentId] = { queue: N, work: N, review: N, blocked: N, terminal: N }`. This powers the Children column in tables.
-3. **Enrich overview children:** For each child in the overview tree, look up its `priority`, `tags`, and child role counts from the maps
+1. **Build lookup map from overview data:** Iterate overview root items and their children arrays. Each child in the overview includes `id, parentId, title, role, statusLabel, priority, depth, tags, type, childCounts, traits`. Build `overviewMap[id] = { priority, tags, type, traits, role, childCounts }`.
+2. **Build child count map:** Use the `childCounts` object directly from each child in the overview (no grouping needed). `childRoleCounts[id] = item.childCounts`.
+3. **Extract traits:** For items with `traits` arrays in the overview, note them for display in the Tags column.
 4. **Build active/blocked/stalled sets:** From get_context, create sets of item IDs that are active, blocked, or stalled
 5. **Classify root items:** Use the classification table below
 6. **Group standalone items by tag:** For root items classified as "Standalone item", group by their `tags` value (first tag if multiple). Items with no tag go into an "Uncategorized" group.
@@ -91,7 +89,7 @@ Omit this entire section if there are no blocked or stalled items.
 | `short-id` | <title> | <parent title or —> | Stalled: missing `<note-key>`, `<note-key>` |
 ```
 
-For blocked items, show what is blocking them. For stalled items, show which required notes are missing.
+For blocked items, show what is blocking them. For stalled items, show which required notes are missing. When a stalled item's missing note key matches a trait's note key (e.g., `migration-assessment` from trait `needs-migration-review`), mention the trait in the Issue column: `Stalled: missing \`migration-assessment\` (trait: needs-migration-review)`
 
 If there is actionable context (e.g., blocker is not in active work, or a stalled item has a `guidancePointer`), add a brief observation line below the table — one sentence max.
 
@@ -111,9 +109,9 @@ For each active container (has non-terminal children), render:
 
 | ID | Title | Status | Pri | Tags | Children |
 |----|-------|--------|-----|------|----------|
-| `xxxxxxxx` | <child title> | ◉ work | high | feature-task | — |
+| `xxxxxxxx` | <child title> | ◉ work | high | feature-task ▸migration | — |
 | `yyyyyyyy` | <child title> | ○ queue | med | — | 2○ 1◉ |
-| `zzzzzzzz` | <child title> | ⊘ blocked | high | bug | — |
+| `zzzzzzzz` | <child title> | ⊘ blocked | high | bug-fix ▸security | — |
 
 ✓ N completed: <comma-separated titles of terminal children>
 ```
@@ -125,7 +123,7 @@ For each active container (has non-terminal children), render:
 - The container header shows the short ID for user reference
 - `<N open>` = queue + work + review + blocked children count
 - **Children column:** If an item itself has children (detected from search results where other items have this item's ID as `parentId`), show a compact role summary using the format `N○ N◉ N⊘ N✓` (omit roles with zero count). If the item has no children, show `—`.
-- Tags column: show tag value or `—` if none
+- Tags column: show tag value or `—` if none. When an item has traits, append them after the tag using a `▸` prefix with shortened trait names (strip `needs-` prefix). Example: `feature-task ▸migration-review` or `bug-fix ▸security`. If no tag but has traits, show `▸<trait-name>` only.
 - Priority column: show `high`, `med`, `low`, or `—` if default/unset
 
 **If a container itself is in work/review role**, prefix its header with the role symbol: `#### ◉ Tech Debt \`89d02e32\``
@@ -239,3 +237,5 @@ Instead, retain the short→full UUID mapping as internal agent context. When th
 **Observations:** Write them sparingly — only when there is a genuine anomaly, bottleneck, or actionable insight. A healthy project needs zero observations. Do not fill space with "work is progressing normally" — the data speaks for itself.
 
 **Empty containers:** Root items where ALL childCounts are zero and role is non-terminal. If any exist, note them at the end of the inventory section: `**Empty (no items):** <title>, <title>`
+
+**Trait abbreviations:** Strip `needs-` prefix for display: `needs-migration-review` → `▸migration-review`
