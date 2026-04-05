@@ -217,9 +217,8 @@ hierarchical overview.
 }
 ```
 
-Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). `statusLabel` and `type` are only present when non-null.
-Use `get` for full item JSON including `description`, `summary`, `statusLabel`, timestamps, and
-`roleChangedAt`.
+Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null — they do not appear as JSON null.
+Use `get` for full item JSON including `description`, `summary`, timestamps, and `roleChangedAt`.
 
 **Response (overview — scoped mode, with `itemId`).**
 
@@ -228,12 +227,39 @@ Use `get` for full item JSON including `description`, `summary`, `statusLabel`, 
   "item": { "id": "uuid", "title": "Auth Feature", "role": "work", "priority": "high", "depth": 1, ... },
   "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
   "children": [
-    { "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "terminal", "priority": "high", "depth": 2, "tags": null }
+    { "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "terminal", "priority": "high", "depth": 2 }
   ]
 }
 ```
 
-Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (each child includes `statusLabel` when non-null). The global overview (no `itemId`) returns a flat `items` array of root items each with `id`, `title`, `role`, `statusLabel` (when non-null), `priority`, and `childCounts`. When `includeChildren` is true, each child object also includes `statusLabel` when non-null. In global mode `total` reflects the count of root items returned (not a total-in-DB count).
+Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (using `toMinimalJson` fields). Note: scoped overview children do not include `childCounts` or `traits`.
+
+**Response (overview — global mode, no `itemId`).**
+
+Global overview returns root items with the same minimal fields as search, plus `childCounts` and optional `traits`. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`.
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid", "title": "Auth Feature", "role": "work", "priority": "high", "depth": 0,
+      "tags": "backend", "type": "feature-implementation",
+      "traits": ["needs-migration-review"],
+      "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
+      "children": [
+        {
+          "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "work",
+          "priority": "high", "depth": 1, "tags": "backend", "type": "feature-task",
+          "childCounts": { "queue": 0, "work": 0, "review": 0, "blocked": 0, "terminal": 0 }
+        }
+      ]
+    }
+  ],
+  "total": 5
+}
+```
+
+Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true. `total` reflects the count of root items returned (not a total-in-DB count).
 
 ---
 
