@@ -439,16 +439,18 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 allUnblockedItems.add(unblockedJson)
             }
 
-            // Schema-driven response fields: expectedNotes, guidancePointer, noteProgress
+            // Schema-driven response fields: expectedNotes, guidancePointer, skillPointer, noteProgress
             val resolvedSchema = itemSchema
             // Only query notes when a schema exists (avoids unnecessary DB call)
             val expectedNotesJson: JsonArray
             val guidancePointer: String?
+            val skillPointer: String?
             val noteProgress: JsonObject?
 
             if (resolvedSchema == null) {
                 expectedNotesJson = JsonArray(emptyList())
                 guidancePointer = null
+                skillPointer = null
                 noteProgress = null
             } else {
                 val existingNotes =
@@ -467,9 +469,10 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         filterRole = targetRole
                     )
 
-                // Use shared PhaseNoteContext for guidancePointer and noteProgress
+                // Use shared PhaseNoteContext for guidancePointer, skillPointer, and noteProgress
                 val phaseContext = computePhaseNoteContext(targetRole, resolvedSchema, notesByKey)
                 guidancePointer = phaseContext?.guidancePointer
+                skillPointer = phaseContext?.skillPointer
                 noteProgress =
                     phaseContext?.let {
                         buildJsonObject {
@@ -494,6 +497,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
                     guidancePointer?.let { put("guidancePointer", JsonPrimitive(it)) }
+                    skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                     noteProgress?.let { put("noteProgress", it) }
                 }
             )

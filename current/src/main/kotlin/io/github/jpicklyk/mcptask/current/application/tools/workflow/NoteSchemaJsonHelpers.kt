@@ -29,6 +29,7 @@ object NoteSchemaJsonHelpers {
                     put("key", JsonPrimitive(entry.key))
                     put("description", JsonPrimitive(entry.description))
                     entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                    entry.skill?.let { put("skill", JsonPrimitive(it)) }
                 }
             }
         )

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * and GetContextTool.findStalledItems.
  *
  * @property guidancePointer Guidance text for the first unfilled required note, or null if all filled
+ * @property skillPointer Skill name for the first unfilled required note, or null if none specified
  * @property missingKeys Keys of required notes that are missing or have blank bodies
  * @property filled Count of required notes in this phase that have non-blank bodies
  * @property remaining Count of required notes in this phase that are missing or blank
@@ -20,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  */
 data class PhaseNoteContext(
     val guidancePointer: String?,
+    val skillPointer: String?,
     val missingKeys: List<String>,
     val filled: Int,
     val remaining: Int,
@@ -53,6 +55,7 @@ fun computePhaseNoteContext(
 
     return PhaseNoteContext(
         guidancePointer = missing.firstOrNull()?.guidance,
+        skillPointer = missing.firstOrNull()?.skill,
         missingKeys = missing.map { it.key },
         filled = required.size - missing.size,
         remaining = missing.size,

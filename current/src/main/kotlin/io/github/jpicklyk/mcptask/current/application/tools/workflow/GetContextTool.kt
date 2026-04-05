@@ -23,7 +23,8 @@ class GetContextTool : BaseToolDefinition() {
     private data class StalledItemEntry(
         val item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem,
         val missingKeys: List<String>,
-        val guidancePointer: String?
+        val guidancePointer: String?,
+        val skillPointer: String?
     )
 
     override val name = "get_context"
@@ -172,6 +173,7 @@ Parameters:
         val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
         val missingForPhase = phaseContext?.missingKeys ?: emptyList()
         val guidancePointer = phaseContext?.guidancePointer
+        val skillPointer = phaseContext?.skillPointer
 
         // Resolve ancestors if requested
         val ancestorsJson: JsonArray =
@@ -216,6 +218,7 @@ Parameters:
                 } else {
                     put("guidancePointer", JsonNull)
                 }
+                skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                 if (phaseContext != null) {
                     put(
                         "noteProgress",
@@ -329,6 +332,7 @@ Parameters:
                                 } else {
                                     put("guidancePointer", JsonNull)
                                 }
+                                entry.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
                             }
                         }
@@ -427,6 +431,7 @@ Parameters:
                                 } else {
                                     put("guidancePointer", JsonNull)
                                 }
+                                entry.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
                             }
                         }
@@ -476,7 +481,7 @@ Parameters:
             val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
 
             if (phaseContext != null && phaseContext.missingKeys.isNotEmpty()) {
-                result.add(StalledItemEntry(item, phaseContext.missingKeys, phaseContext.guidancePointer))
+                result.add(StalledItemEntry(item, phaseContext.missingKeys, phaseContext.guidancePointer, phaseContext.skillPointer))
             }
         }
 

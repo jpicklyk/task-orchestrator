@@ -36,5 +36,6 @@ data class NoteSchemaEntry(
     val role: Role,
     val required: Boolean = false,
     val description: String = "",
-    val guidance: String? = null
+    val guidance: String? = null,
+    val skill: String? = null
 )

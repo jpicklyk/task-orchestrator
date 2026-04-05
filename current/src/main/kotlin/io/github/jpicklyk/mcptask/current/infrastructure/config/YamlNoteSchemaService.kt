@@ -289,12 +289,14 @@ class YamlWorkItemSchemaService(
 
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
+        val skill = raw["skill"] as? String
         return NoteSchemaEntry(
             key = key,
             role = parsedRole,
             required = required,
             description = description,
             guidance = guidance,
+            skill = skill,
         )
     }
 

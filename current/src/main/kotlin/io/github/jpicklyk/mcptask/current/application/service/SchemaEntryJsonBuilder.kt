@@ -46,6 +46,7 @@ fun buildExpectedNotesJson(
                 put("required", JsonPrimitive(entry.required))
                 put("description", JsonPrimitive(entry.description))
                 entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                entry.skill?.let { put("skill", JsonPrimitive(it)) }
                 put("exists", JsonPrimitive(entry.key in existingNoteKeys))
                 if (filledNoteKeys != null) {
                     put("filled", JsonPrimitive(entry.key in filledNoteKeys))
