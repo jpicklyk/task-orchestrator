@@ -86,6 +86,13 @@ manage_notes(
 - If `guidancePointer` is null, the note has no specific authoring instructions — use the
   note's `description` field as a general guide
 
+**Skill-assisted note filling:**
+- If the `get_context` response includes `skillPointer` (a non-null string), invoke that skill via the Skill tool before filling the note
+- The skill provides a structured evaluation workflow — follow its steps, then use the output to fill the note
+- `skillPointer` is derived from the first unfilled required note's `skill` field in the schema
+- If `skillPointer` is null, use `guidancePointer` as the authoring guide (current behavior)
+- The `skill` field is also visible per-entry in `expectedNotes` for batch operations
+
 **Batch filling:** If you already know the content for multiple notes (e.g., from a completed
 plan or implementation), fill them all in one `manage_notes` call. You only need to re-check
 `get_context` between notes when you need the next `guidancePointer` for authoring direction.

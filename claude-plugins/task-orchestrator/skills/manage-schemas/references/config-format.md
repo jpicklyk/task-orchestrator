@@ -26,6 +26,7 @@ work_item_schemas:
         required: true         # true = blocks advance_item gate | false = shown but not enforced
         description: "..."     # Short label — shown in expectedNotes response
         guidance: "..."        # Optional — shown as guidancePointer in get_context()
+        skill: "review-quality" # Optional — skill to invoke when filling this note (shown as skillPointer)
 ```
 
 ---
@@ -66,6 +67,7 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | `required` | yes | boolean | `true` = blocks gate, `false` = shown but not enforced |
 | `description` | yes | string | Keep under 80 chars — quick label agents scan |
 | `guidance` | no | string | Free text shown as `guidancePointer` in `get_context` |
+| `skill` | no | string | Skill to invoke when filling this note (surfaced as `skillPointer` in `get_context`) |
 
 ---
 
