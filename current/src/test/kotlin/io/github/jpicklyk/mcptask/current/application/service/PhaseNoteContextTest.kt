@@ -226,4 +226,46 @@ class PhaseNoteContextTest {
         assertEquals(1, result.remaining)
         assertEquals("List risks", result.guidancePointer)
     }
+
+    // ──────────────────────────────────────────────
+    // skillPointer field
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `skillPointer comes from first unfilled required note`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(
+                    key = "review-notes",
+                    role = Role.REVIEW,
+                    required = true,
+                    guidance = "Review guidance",
+                    skill = "review-quality"
+                )
+            )
+        val result = computePhaseNoteContext(Role.REVIEW, schema, emptyMap())
+
+        assertNotNull(result)
+        assertEquals("review-quality", result.skillPointer)
+        assertEquals("Review guidance", result.guidancePointer)
+    }
+
+    @Test
+    fun `skillPointer is null when note has no skill`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(
+                    key = "spec",
+                    role = Role.QUEUE,
+                    required = true,
+                    guidance = "Write spec"
+                    // skill defaults to null
+                )
+            )
+        val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
+
+        assertNotNull(result)
+        assertNull(result.skillPointer)
+        assertEquals("Write spec", result.guidancePointer)
+    }
 }

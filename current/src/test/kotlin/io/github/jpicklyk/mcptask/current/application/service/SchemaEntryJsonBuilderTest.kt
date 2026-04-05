@@ -312,4 +312,43 @@ class SchemaEntryJsonBuilderTest {
         assertEquals(fromList.schemaMatch, fromWorkItemSchema.schemaMatch)
         assertEquals(fromList.expectedNotes, fromWorkItemSchema.expectedNotes)
     }
+
+    // ──────────────────────────────────────────────
+    // skill field serialization
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `entry with null skill omits skill field`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", skill = null)
+            )
+
+        val result = buildExpectedNotesJson(schema = schema)
+
+        assertEquals(1, result.size)
+        val entry = result[0].jsonObject
+        assertFalse(entry.containsKey("skill"), "skill field should be absent when null")
+    }
+
+    @Test
+    fun `entry with non-null skill includes skill field`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(
+                    key = "spec",
+                    role = Role.QUEUE,
+                    required = true,
+                    description = "Spec",
+                    skill = "review-quality"
+                )
+            )
+
+        val result = buildExpectedNotesJson(schema = schema)
+
+        assertEquals(1, result.size)
+        val entry = result[0].jsonObject
+        assertTrue(entry.containsKey("skill"), "skill field should be present when non-null")
+        assertEquals("review-quality", entry["skill"]!!.jsonPrimitive.content)
+    }
 }

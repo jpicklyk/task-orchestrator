@@ -1693,4 +1693,48 @@ class GetContextToolTest {
             assertTrue("spec" in keys)
             assertTrue("security-review" in keys)
         }
+
+    // ──────────────────────────────────────────────
+    // skillPointer in item mode response
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode response includes skillPointer when schema note has skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Notes on implementation",
+                        guidance = "Write your implementation notes here",
+                        skill = "review-quality"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            // No notes exist → first unfilled required note drives skillPointer
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    schemaContext
+                )
+
+            val data = extractData(result)
+            assertEquals("item", data["mode"]!!.jsonPrimitive.content)
+
+            // skillPointer should be present and equal to the skill on the first unfilled note
+            assertTrue(data.containsKey("skillPointer"), "skillPointer should be present in response")
+            assertEquals("review-quality", data["skillPointer"]!!.jsonPrimitive.content)
+
+            // guidancePointer should also be populated from the same note
+            assertEquals("Write your implementation notes here", data["guidancePointer"]!!.jsonPrimitive.content)
+        }
 }

@@ -1247,4 +1247,94 @@ traits:
         assertEquals(Role.REVIEW, notes[1].role)
         assertEquals(Role.WORK, notes[2].role)
     }
+
+    // ──────────────────────────────────────────────
+    // skill field parsing
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parses skill field from work_item_schemas note entry`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+work_item_schemas:
+  feature-task:
+    lifecycle: auto
+    notes:
+      - key: specification
+        role: queue
+        required: true
+        description: "Feature specification"
+        skill: "spec-quality"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("feature-task"))
+        assertNotNull(schema)
+        assertEquals(1, schema.size)
+        assertEquals("spec-quality", schema[0].skill)
+    }
+
+    @Test
+    fun `parses skill field from trait note entry`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  default:
+    - key: session-tracking
+      role: work
+      required: true
+      description: "Session tracking"
+
+traits:
+  needs-security-review:
+    notes:
+      - key: security-assessment
+        role: review
+        required: true
+        description: "Security review"
+        skill: "security-review"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val traitNotes = service.getTraitNotes("needs-security-review")
+        assertNotNull(traitNotes)
+        assertEquals(1, traitNotes.size)
+        assertEquals("security-review", traitNotes[0].skill)
+    }
+
+    @Test
+    fun `skill defaults to null when absent`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+work_item_schemas:
+  feature-task:
+    lifecycle: auto
+    notes:
+      - key: specification
+        role: queue
+        required: true
+        description: "Feature specification"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("feature-task"))
+        assertNotNull(schema)
+        assertEquals(1, schema.size)
+        assertNull(schema[0].skill)
+    }
 }
