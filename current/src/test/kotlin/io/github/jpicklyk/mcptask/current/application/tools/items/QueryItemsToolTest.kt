@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -17,6 +18,7 @@ class QueryItemsToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryItemsTool
     private lateinit var manageTool: ManageItemsTool
+    private lateinit var advanceTool: AdvanceItemTool
 
     @BeforeEach
     fun setUp() {
@@ -28,6 +30,7 @@ class QueryItemsToolTest {
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
+        advanceTool = AdvanceItemTool()
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
@@ -43,7 +46,8 @@ class QueryItemsToolTest {
         tags: String? = null,
         summary: String? = null,
         statusLabel: String? = null,
-        type: String? = null
+        type: String? = null,
+        properties: String? = null
     ): String {
         val itemObj =
             buildJsonObject {
@@ -55,6 +59,7 @@ class QueryItemsToolTest {
                 summary?.let { put("summary", JsonPrimitive(it)) }
                 statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                 type?.let { put("type", JsonPrimitive(it)) }
+                properties?.let { put("properties", JsonPrimitive(it)) }
             }
         val result =
             manageTool.execute(
@@ -462,6 +467,43 @@ class QueryItemsToolTest {
         }
 
     @Test
+    fun `global overview root items include tags and type when set`() =
+        runBlocking {
+            createItem("Typed and Tagged Root", tags = "backend,api", type = "feature-task")
+            createItem("Plain Root")
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val items = data["items"]!!.jsonArray
+
+            val typedRoot =
+                items.first {
+                    it.jsonObject["title"]!!.jsonPrimitive.content == "Typed and Tagged Root"
+                }.jsonObject
+
+            // tags and type should be present when set on the root item
+            assertTrue(typedRoot.containsKey("tags"), "Root item should include tags when set")
+            assertEquals("backend,api", typedRoot["tags"]!!.jsonPrimitive.content)
+            assertTrue(typedRoot.containsKey("type"), "Root item should include type when set")
+            assertEquals("feature-task", typedRoot["type"]!!.jsonPrimitive.content)
+
+            val plainRoot =
+                items.first {
+                    it.jsonObject["title"]!!.jsonPrimitive.content == "Plain Root"
+                }.jsonObject
+
+            // tags and type should be absent when not set
+            assertFalse(plainRoot.containsKey("tags"), "Root item should not include tags key when not set")
+            assertFalse(plainRoot.containsKey("type"), "Root item should not include type key when not set")
+        }
+
+    @Test
     fun `global overview includes child counts per root`() =
         runBlocking {
             val rootId = createItem("Root with kids")
@@ -639,7 +681,7 @@ class QueryItemsToolTest {
     fun `global overview with includeChildren true includes children array per root`(): Unit =
         runBlocking {
             val rootId = createItem("Root With Children")
-            createItem("Child One", parentId = rootId, role = "queue")
+            createItem("Child One", parentId = rootId, role = "queue", tags = "backend", type = "feature-task", priority = "high")
             createItem("Child Two", parentId = rootId, role = "work")
 
             val result =
@@ -668,13 +710,36 @@ class QueryItemsToolTest {
             assertTrue(childTitles.contains("Child One"))
             assertTrue(childTitles.contains("Child Two"))
 
-            // Verify child structure: id, title, role, depth
-            val firstChild = children[0].jsonObject
+            // Verify child structure: id, title, role, depth, priority, parentId, childCounts
+            val firstChild = children.first { it.jsonObject["title"]!!.jsonPrimitive.content == "Child One" }.jsonObject
             assertNotNull(firstChild["id"])
             assertNotNull(firstChild["title"])
             assertNotNull(firstChild["role"])
             assertNotNull(firstChild["depth"])
             assertEquals(1, firstChild["depth"]!!.jsonPrimitive.int)
+
+            // priority should be present (toMinimalJson includes it)
+            assertNotNull(firstChild["priority"], "Child should include priority field")
+            assertEquals("high", firstChild["priority"]!!.jsonPrimitive.content)
+
+            // parentId should be present and equal root id
+            assertNotNull(firstChild["parentId"], "Child should include parentId field")
+            assertEquals(rootId, firstChild["parentId"]!!.jsonPrimitive.content)
+
+            // tags should be present when set
+            assertTrue(firstChild.containsKey("tags"), "Child should include tags when set")
+            assertEquals("backend", firstChild["tags"]!!.jsonPrimitive.content)
+
+            // type should be present when set
+            assertTrue(firstChild.containsKey("type"), "Child should include type when set")
+            assertEquals("feature-task", firstChild["type"]!!.jsonPrimitive.content)
+
+            // childCounts should be present as an object with role keys
+            val childCounts = firstChild["childCounts"]
+            assertNotNull(childCounts, "Child should include childCounts object")
+            val childCountsObj = childCounts!!.jsonObject
+            assertNotNull(childCountsObj["queue"], "childCounts should have a queue key")
+            assertNotNull(childCountsObj["work"], "childCounts should have a work key")
         }
 
     @Test
@@ -890,6 +955,117 @@ class QueryItemsToolTest {
             val data = result["data"] as JsonObject
             assertEquals(0, data["total"]!!.jsonPrimitive.int)
             assertEquals(0, data["items"]!!.jsonArray.size)
+        }
+
+    // ──────────────────────────────────────────────
+    // traits in global overview
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `global overview root item includes traits when properties has traits set`(): Unit =
+        runBlocking {
+            // Create a root item with properties containing a traits array
+            val traitProperties = """{"traits":["needs-migration-review"]}"""
+            createItem("Root With Traits", properties = traitProperties)
+            createItem("Root Without Traits")
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val items = data["items"]!!.jsonArray
+
+            val withTraitsRoot =
+                items.first {
+                    it.jsonObject["title"]!!.jsonPrimitive.content == "Root With Traits"
+                }.jsonObject
+
+            // traits array should be present and contain the expected value
+            val traits = withTraitsRoot["traits"]
+            assertNotNull(traits, "Root item should include traits array when properties has traits")
+            val traitsArray = traits!!.jsonArray
+            assertEquals(1, traitsArray.size)
+            assertEquals("needs-migration-review", traitsArray[0].jsonPrimitive.content)
+
+            val withoutTraitsRoot =
+                items.first {
+                    it.jsonObject["title"]!!.jsonPrimitive.content == "Root Without Traits"
+                }.jsonObject
+
+            // traits key should be absent when item has no traits
+            assertFalse(
+                withoutTraitsRoot.containsKey("traits"),
+                "Root item should not include traits key when properties has no traits"
+            )
+        }
+
+    // ──────────────────────────────────────────────
+    // childCounts in includeChildren — 3-level hierarchy
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `global overview child has correct childCounts from 3-level hierarchy`(): Unit =
+        runBlocking {
+            // 3-level hierarchy: root -> child -> 2 grandchildren
+            val rootId = createItem("Root Three Level")
+            val childId = createItem("Middle Child", parentId = rootId, role = "queue")
+            // Create two grandchildren under child — one queue, one work
+            createItem("Grandchild Queue", parentId = childId, role = "queue")
+            val grandchildWorkId = createItem("Grandchild Work", parentId = childId, role = "queue")
+
+            // Advance grandchild to work role using AdvanceItemTool
+            advanceTool.execute(
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(grandchildWorkId))
+                                    put("trigger", JsonPrimitive("start"))
+                                }
+                            )
+                        )
+                    )
+                },
+                context
+            )
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "includeChildren" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val items = data["items"]!!.jsonArray
+
+            val rootItem =
+                items.first {
+                    it.jsonObject["title"]!!.jsonPrimitive.content == "Root Three Level"
+                }.jsonObject
+
+            // Root's children array should include Middle Child
+            val children = rootItem["children"]!!.jsonArray
+            assertEquals(1, children.size)
+
+            val middleChild = children[0].jsonObject
+            assertEquals(childId, middleChild["id"]!!.jsonPrimitive.content)
+
+            // Middle Child's childCounts should reflect 1 queue + 1 work grandchild
+            val childCounts = middleChild["childCounts"]
+            assertNotNull(childCounts, "Middle child should have childCounts")
+            val childCountsObj = childCounts!!.jsonObject
+            assertEquals(1, childCountsObj["queue"]!!.jsonPrimitive.int, "Should have 1 grandchild in queue role")
+            assertEquals(1, childCountsObj["work"]!!.jsonPrimitive.int, "Should have 1 grandchild in work role")
         }
 
     // ──────────────────────────────────────────────
