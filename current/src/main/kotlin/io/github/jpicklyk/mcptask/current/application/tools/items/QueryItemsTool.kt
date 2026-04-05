@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -672,13 +671,7 @@ Operations: get, search, overview
                     }
 
                 buildJsonObject {
-                    put("id", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.toJsonString()))
-                    item.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                    put("priority", JsonPrimitive(item.priority.toJsonString()))
-                    item.tags?.let { put("tags", JsonPrimitive(it)) }
-                    item.type?.let { put("type", JsonPrimitive(it)) }
+                    item.toMinimalJson().forEach { (k, v) -> put(k, v) }
                     val rootTraits = PropertiesHelper.extractTraits(item.properties)
                     if (rootTraits.isNotEmpty()) {
                         put("traits", JsonArray(rootTraits.map { JsonPrimitive(it) }))
@@ -694,14 +687,14 @@ Operations: get, search, overview
                             "children",
                             JsonArray(
                                 children.map { child ->
-                                    val childCounts = when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
+                                    val grandchildCounts = when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
                                         is Result.Success -> result.data
                                         is Result.Error -> emptyMap()
                                     }
                                     val childTraits = PropertiesHelper.extractTraits(child.properties)
                                     buildJsonObject {
                                         child.toMinimalJson().forEach { (k, v) -> put(k, v) }
-                                        put("childCounts", roleCountToJson(childCounts))
+                                        put("childCounts", roleCountToJson(grandchildCounts))
                                         if (childTraits.isNotEmpty()) {
                                             put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
                                         }
