@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -676,6 +677,12 @@ Operations: get, search, overview
                     put("role", JsonPrimitive(item.role.toJsonString()))
                     item.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     put("priority", JsonPrimitive(item.priority.toJsonString()))
+                    item.tags?.let { put("tags", JsonPrimitive(it)) }
+                    item.type?.let { put("type", JsonPrimitive(it)) }
+                    val rootTraits = PropertiesHelper.extractTraits(item.properties)
+                    if (rootTraits.isNotEmpty()) {
+                        put("traits", JsonArray(rootTraits.map { JsonPrimitive(it) }))
+                    }
                     put("childCounts", roleCountToJson(childCounts))
                     if (includeChildren) {
                         val children =
@@ -687,12 +694,17 @@ Operations: get, search, overview
                             "children",
                             JsonArray(
                                 children.map { child ->
+                                    val childCounts = when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
+                                        is Result.Success -> result.data
+                                        is Result.Error -> emptyMap()
+                                    }
+                                    val childTraits = PropertiesHelper.extractTraits(child.properties)
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(child.id.toString()))
-                                        put("title", JsonPrimitive(child.title))
-                                        put("role", JsonPrimitive(child.role.toJsonString()))
-                                        child.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                                        put("depth", JsonPrimitive(child.depth))
+                                        child.toMinimalJson().forEach { (k, v) -> put(k, v) }
+                                        put("childCounts", roleCountToJson(childCounts))
+                                        if (childTraits.isNotEmpty()) {
+                                            put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
+                                        }
                                     }
                                 }
                             )
