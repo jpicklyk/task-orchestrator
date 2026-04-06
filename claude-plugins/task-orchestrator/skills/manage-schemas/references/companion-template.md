@@ -9,12 +9,12 @@ Replace all `<placeholders>` with actual values from the schema built in Steps 1
 ```markdown
 ---
 name: <schema-name>
-description: Guide the full lifecycle of a <schema-name> tagged MCP item — from queue through work to terminal. Use when working on a <schema-name> item, advancing through gates, or filling required notes for <schema-name>.
+description: Guide the full lifecycle of a <schema-name> typed MCP item — from queue through work to terminal. Use when working on a <schema-name> item, advancing through gates, or filling required notes for <schema-name>.
 ---
 
 # <Schema Display Name> Workflow
 
-End-to-end workflow for a `<schema-name>` tagged item.
+End-to-end workflow for a `<schema-name>` typed item.
 
 **Usage:** `/<schema-name> [item-uuid]`
 
@@ -25,13 +25,13 @@ End-to-end workflow for a `<schema-name>` tagged item.
 
 ## Phase 0 — Setup
 
-If UUID provided, call `get_context(itemId="<uuid>")` to check current role and gate status, then jump to the appropriate phase.
+If UUID provided, call `get_context(itemId="<uuid>")` to check current role, gate status, and `skillPointer`. Jump to the appropriate phase.
 
 If no UUID, create the item:
 ```
 manage_items(
   operation="create",
-  items=[{ title: "<title>", tags: "<schema-name>", priority: "medium" }]
+  items=[{ title: "<title>", type: "<schema-name>", priority: "medium" }]
 )
 ```
 Note the UUID and `expectedNotes` list. Confirm `role: queue`, then continue to Phase 1.
@@ -44,6 +44,8 @@ Note the UUID and `expectedNotes` list. Confirm `role: queue`, then continue to 
 
 <For each queue note:>
 ### Fill `<key>`
+
+If `skillPointer` points to a skill for this note, invoke that skill first via the Skill tool, then use its output to compose the note body.
 
 ```
 manage_notes(
@@ -97,6 +99,8 @@ Gate check: all required work notes must be filled. Confirm `newRole: "review"` 
 
 <For each review note:>
 ### Fill `<key>` (<required or optional>)
+
+If `skillPointer` points to a skill for this note, invoke that skill first.
 
 ```
 manage_notes(

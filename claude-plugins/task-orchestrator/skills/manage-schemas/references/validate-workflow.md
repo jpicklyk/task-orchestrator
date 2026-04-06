@@ -12,31 +12,49 @@ Run the following checks in order. Collect all issues before reporting.
 Parse the file. If YAML is invalid, report the parse error with line number (if available) and stop — further checks cannot proceed.
 
 ### 2. Top-Level Structure
-- `note_schemas` key must exist at the top level
-- `note_schemas` must be a mapping (not a list or scalar)
-- No other top-level keys expected (warn if found — they may be from a different tool)
+- At least one of `work_item_schemas` or `note_schemas` must exist at the top level
+- Each must be a mapping (not a list or scalar)
+- `traits` is an optional top-level key — if present, must be a mapping
+- No other top-level keys expected (warn if found)
 
 ### 3. Schema Entry Structure
-For each schema under `note_schemas`:
-- Schema key should be kebab-case (warn if not — e.g., contains underscores or uppercase)
-- Value must be a list of note definitions (not a mapping or scalar)
+
+**For `work_item_schemas` entries:**
+- Schema key should be kebab-case (warn if not)
+- Value must be a mapping containing optional `lifecycle`, optional `default_traits`, and a `notes` list
+- `lifecycle` (if present) must be one of: `auto`, `manual`, `auto-reopen`, `permanent`
+- `default_traits` (if present) must be a list of strings
+- `notes` must be a list of note definitions
+
+**For `note_schemas` entries (legacy):**
+- Schema key should be kebab-case (warn if not)
+- Value must be a list of note definitions (flat format, no `lifecycle` or `notes` wrapper)
+
+**For `traits` entries:**
+- Trait key should be kebab-case (warn if not)
+- Value must be a mapping containing a `notes` list
+- Each note follows the same field rules as schema notes
 
 ### 4. Note Definition Fields
-For each note in each schema:
+For each note in each schema (and trait):
 - `key` — required, must be a string, should be kebab-case
 - `role` — required, must be one of: `queue`, `work`, `review`
 - `required` — required, must be a boolean (`true` or `false`)
 - `description` — required, must be a string
 - `guidance` — optional, must be a string if present
+- `skill` — optional, must be a string if present
 
 ### 5. Field Quality
 - `description` should be under 80 characters (warn if longer)
 - `key` values must be unique within a schema (error if duplicated)
 - At least one note should have `required: true` (warn if all notes in a schema are optional — the schema has no gate effect)
+- `skill` values should reference skills that exist in the project (warn if unknown — not an error since skill availability varies)
 
 ### 6. Cross-Schema Consistency
-- No duplicate schema keys under `note_schemas` (YAML silently uses the last one)
+- No duplicate schema keys within `work_item_schemas` or `note_schemas` (YAML silently uses the last one)
+- Warn if the same schema key appears in both `work_item_schemas` and `note_schemas` (type-first lookup will always prefer `work_item_schemas`)
 - Warn if a schema has only `role: review` notes and no queue/work notes (unusual pattern)
+- `default_traits` values should reference trait keys defined in the `traits:` section (warn if not found)
 
 ---
 
@@ -45,8 +63,9 @@ For each note in each schema:
 ```
 ◆ Config Validation — .taskorchestrator/config.yaml
 
-  Schemas found: 3
-  Total notes: 12
+  work_item_schemas: 3 schemas
+  note_schemas: 1 schema (legacy)
+  traits: 2 traits
 
   Errors (must fix):
     ✗ bug-fix.fix-summary: missing "required" field
@@ -55,8 +74,9 @@ For each note in each schema:
   Warnings (recommended):
     ! feature-implementation.deploy-notes: description is 94 chars (recommended: under 80)
     ! research-spike: all notes are optional — schema has no gate effect
+    ! container: lifecycle is "auto" — consider "manual" for organizational containers
 
-  ✓ 1 schema passed all checks: agent-observation
+  ✓ 2 schemas passed all checks: feature-task, agent-observation
 ```
 
 If no issues are found:
@@ -64,5 +84,5 @@ If no issues are found:
 ```
 ◆ Config Validation — .taskorchestrator/config.yaml
 
-  ✓ Valid — 3 schemas, 12 notes, no issues found
+  ✓ Valid — 3 schemas, 2 traits, 14 notes, no issues found
 ```
