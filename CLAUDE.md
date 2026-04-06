@@ -5,7 +5,7 @@ A Kotlin-based MCP server providing hierarchical work item management with depen
 **Key Technologies:**
 - Kotlin 2.2.0 with Coroutines
 - Exposed ORM 1.0.0-beta-2 for SQLite
-- MCP SDK 0.8.4 (with Ktor Streamable HTTP transport)
+- MCP SDK 0.9.0 (with Ktor Streamable HTTP transport)
 - Flyway for database migrations
 - Gradle with Kotlin DSL / Docker
 
@@ -102,7 +102,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 ## Database Management
 
 **Key environment variables:**
-- `DATABASE_PATH` — SQLite file path (default: `data/tasks.db`)
+- `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`)
 - `USE_FLYWAY` — enable Flyway migrations (default: `true` in Docker)
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`

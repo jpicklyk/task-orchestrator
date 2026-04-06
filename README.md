@@ -266,7 +266,7 @@ Define schemas in `.taskorchestrator/config.yaml` in your project root:
 ```yaml
 work_item_schemas:
   task-implementation:
-    lifecycle: linear          # linear | milestone | exploratory
+    lifecycle: auto            # auto | manual | auto-reopen | permanent
     notes:
       - key: requirements
         role: queue
@@ -360,7 +360,7 @@ The server exposes **13 tools** organized around the WorkItem graph:
 You: "I want to build user authentication"
 AI: → create_work_tree("User Auth", children=[schema, login-api, tests], deps=[schema→api→tests])
    → 3 WorkItems created with linear dependency chain
-   → Note schema gates applied to items tagged task-implementation
+   → Note schema gates applied to items with type task-implementation
 
 You: "What's next?"
 AI: → get_next_item() → "Database schema" [queue, no blockers, high priority]

@@ -20,6 +20,8 @@ work_item_schemas:
 
   your-schema-type:            # Matches items whose type field equals "your-schema-type"
     lifecycle: auto            # Optional: auto | manual | auto-reopen | permanent (default: auto)
+    default_traits:            # Optional: traits applied to every item matching this schema
+      - needs-security-review
     notes:
       - key: note-key          # Stable identifier; kebab-case
         role: queue            # Phase: "queue", "work", or "review"
@@ -27,6 +29,17 @@ work_item_schemas:
         description: "..."     # Short label — shown in expectedNotes response
         guidance: "..."        # Optional — shown as guidancePointer in get_context()
         skill: "review-quality" # Optional — skill to invoke when filling this note (shown as skillPointer)
+
+traits:
+
+  needs-security-review:       # Trait name — referenced by default_traits or per-item traits parameter
+    notes:
+      - key: security-assessment
+        role: review
+        required: true
+        description: "Security review"
+        skill: "security-review"
+        guidance: "Evaluate input validation, injection risks, access control..."
 ```
 
 ---
@@ -57,6 +70,7 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `lifecycle` | no | string | `auto`, `manual`, `auto-reopen`, or `permanent`. Defaults to `auto` |
+| `default_traits` | no | list | Trait names applied to every item matching this schema |
 
 ### Note-level fields
 

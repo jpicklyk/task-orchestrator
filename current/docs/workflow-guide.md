@@ -134,6 +134,7 @@ note_schemas:
 | `required`    | boolean | yes      | Whether this note must be filled before advancing past this phase.                   |
 | `description` | string  | yes      | Short description of expected content. Shown in `get_context` gate status.           |
 | `guidance`    | string  | no       | Longer authoring guidance for agents. Shown in `get_context` as `guidancePointer`.   |
+| `skill`       | string  | no       | Skill to invoke when filling this note. Shown in `get_context` as `skillPointer`.    |
 
 #### Constraints
 
@@ -298,7 +299,7 @@ manage_notes(operation="list", itemId="abc-123")
 
 ## 5. Filling Notes Workflow — Step by Step
 
-This walkthrough covers a complete lifecycle for a `feature-implementation` tagged item.
+This walkthrough covers a complete lifecycle for a `feature-implementation` item.
 
 **Step 1: Create the item**
 
@@ -306,13 +307,14 @@ This walkthrough covers a complete lifecycle for a `feature-implementation` tagg
 manage_items(operation="create", items=[
   {
     "title": "Password Reset Feature",
-    "tags": "feature-implementation",
+    "type": "feature-implementation",
+    "tags": "backend,auth",
     "priority": "high"
   }
 ])
 ```
 
-The response includes `expectedNotes` when the tag matches a schema:
+The response includes `expectedNotes` when the type (or tags) match a schema:
 
 ```json
 {
@@ -788,6 +790,7 @@ Additional top-level keys (workflows, status, cascade) are supported but not cov
 | `required`    | boolean | yes      | `true`, `false`           | If true, must be filled before `start` advances past this phase.   |
 | `description` | string  | yes      | Any string                | Short description. Shown in `get_context` gate status output.      |
 | `guidance`    | string  | no       | Any string                | Longer authoring hint. Shown as `guidancePointer` in gate status.  |
+| `skill`       | string  | no       | Skill name                | Skill to invoke before filling. Shown as `skillPointer`.           |
 
 ### Matching Rules
 
