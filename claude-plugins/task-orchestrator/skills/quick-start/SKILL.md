@@ -179,7 +179,7 @@ Briefly mention that MCP items can have **required notes** that act as documenta
 - Each schema can set a **lifecycle mode** (auto, manual, auto-reopen, permanent) controlling cascade behavior
 - Notes can carry a `guidance` field (authoring hints) and a `skill` field (structured evaluation framework to invoke before filling)
 - **Composable traits** add additional note requirements per-item — e.g., `traits: "needs-security-review"` adds a `security-assessment` note at the review phase
-- Run `/manage-schemas` to set one up interactively, or `/feature-implementation` to see the full lifecycle in action
+- Run `/manage-schemas` to set one up interactively — it can also generate a companion lifecycle skill for your schema
 
 ---
 
@@ -189,7 +189,7 @@ Present this capabilities table:
 
 | Want to... | Skill | What it does |
 |---|---|---|
-| Track a feature with documentation gates | `/feature-implementation` | Full lifecycle with required notes at each phase |
+| Track a feature with documentation gates | `/manage-schemas` | Create schemas with lifecycle gates, then use companion skills |
 | Create items from conversation context | `/create-item` | Infers type, priority, and container placement |
 | Build custom workflow schemas | `/manage-schemas` | Create, view, edit, delete, and validate note schemas |
 | See project health dashboard | `/work-summary` | Active work, blockers, next actions at a glance |
