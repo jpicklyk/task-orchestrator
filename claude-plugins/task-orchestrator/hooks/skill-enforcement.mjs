@@ -26,15 +26,33 @@ if (!toolInput || toolInput.operation !== 'upsert' || !Array.isArray(toolInput.n
   process.exit(0);
 }
 
-// Locate config.yaml
-const configDir = process.env.AGENT_CONFIG_DIR || process.cwd();
-const configPath = resolve(configDir, '.taskorchestrator', 'config.yaml');
+// Locate config.yaml — check AGENT_CONFIG_DIR, then walk up from cwd to find
+// the project root containing .taskorchestrator/. This handles worktrees where
+// cwd is nested under .claude/worktrees/<name>/ but config is at the repo root.
+function findConfigPath() {
+  const candidates = [];
+  if (process.env.AGENT_CONFIG_DIR) {
+    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
+  }
+  let dir = process.cwd();
+  const root = resolve(dir, '/');
+  while (dir !== root) {
+    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
+    dir = resolve(dir, '..');
+  }
+  for (const candidate of candidates) {
+    try {
+      return readFileSync(candidate, 'utf-8');
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
-let configContent;
-try {
-  configContent = readFileSync(configPath, 'utf-8');
-} catch {
-  // No config file — no skill requirements to enforce
+const configContent = findConfigPath();
+if (!configContent) {
+  // No config file found — no skill requirements to enforce
   process.exit(0);
 }
 
