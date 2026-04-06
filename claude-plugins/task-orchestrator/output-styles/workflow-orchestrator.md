@@ -74,8 +74,6 @@ Set via the `model` parameter on the Agent tool. Default inherits orchestrator m
 
 Direct tier work does not use the delegation table — the orchestrator implements directly. The table applies to Delegated and Parallel tiers only.
 
-**Skill-routed notes:** When `expectedNotes` includes a `skill` field or the response contains a non-null `skillPointer`, include the skill invocation in the delegation prompt: "Before filling the `<note-key>` note, invoke `/<skill-name>` and follow its framework." This ensures subagents receive deterministic skill routing for trait-driven review notes.
-
 **Rule: Never make 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged. Use the Agent tool with `model: "haiku"` to delegate bulk MCP write work (multiple item/dependency/note creates) and keep the orchestrator context clean.
 
 Delegation prompts must include entity IDs and full context — subagents start fresh with no ambient context.
