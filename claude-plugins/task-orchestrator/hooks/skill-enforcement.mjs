@@ -40,6 +40,7 @@ try {
 
 // Parse skill requirements from config using a line-based state machine.
 // Builds a map: noteKey → skillName for entries that have a `skill:` field.
+// Note: if multiple schemas define the same key with different skills, last wins.
 const skillMap = new Map();
 let currentKey = null;
 
@@ -60,8 +61,8 @@ for (const line of configContent.split('\n')) {
     continue;
   }
 
-  // Reset on new note entry or section boundary
-  if (trimmed.startsWith('- key:') || trimmed.endsWith(':') && !trimmed.startsWith('skill:')) {
+  // Reset on section boundary (any line ending in `:` except `skill:`)
+  if (trimmed.endsWith(':') && !trimmed.startsWith('skill:')) {
     currentKey = null;
   }
 }
@@ -69,6 +70,23 @@ for (const line of configContent.split('\n')) {
 if (skillMap.size === 0) {
   process.exit(0);
 }
+
+// Placeholder patterns that indicate the skill framework was NOT followed.
+// Defined at module scope — compiled once, shared across all note checks.
+const PLACEHOLDER_PATTERNS = [
+  /^n\/?a$/i,
+  /^looks?\s+(fine|good|ok)/i,
+  /^no\s+issues?\s*(found)?/i,
+  /^todo$/i,
+  /^placeholder$/i,
+  /^tbd$/i,
+  /^pending$/i,
+  /^will\s+fill\s+(later|soon)/i
+];
+
+// Minimum character count for a note body to be considered substantive.
+// Notes below this threshold trigger the skill-invocation directive.
+const MIN_SUBSTANTIVE_LENGTH = 200;
 
 // Check each note being upserted against skill requirements
 const warnings = [];
@@ -78,23 +96,15 @@ for (const note of toolInput.notes) {
   if (!key || !skillMap.has(key)) continue;
 
   const skill = skillMap.get(key);
-  const bodyLen = (body || '').trim().length;
+  const trimmedBody = (body || '').trim();
+  const bodyLen = trimmedBody.length;
 
-  // Placeholder patterns that indicate the skill framework was NOT followed
-  const placeholders = [
-    /^n\/?a$/i,
-    /^looks?\s+(fine|good|ok)/i,
-    /^no\s+issues?\s*(found)?/i,
-    /^todo$/i,
-    /^placeholder$/i,
-    /^tbd$/i,
-    /^pending$/i,
-    /^will\s+fill\s+(later|soon)/i
-  ];
+  // Only check placeholders on short bodies — long notes that happen to start
+  // with "Looks fine..." followed by substantive analysis should not be blocked.
+  const isPlaceholder = bodyLen < MIN_SUBSTANTIVE_LENGTH &&
+    PLACEHOLDER_PATTERNS.some(p => p.test(trimmedBody));
 
-  const isPlaceholder = placeholders.some(p => p.test((body || '').trim()));
-
-  if (!body || bodyLen < 200 || isPlaceholder) {
+  if (!body || bodyLen < MIN_SUBSTANTIVE_LENGTH || isPlaceholder) {
     warnings.push(
       `⊘ SKILL REQUIRED — The note "${key}" requires the /${skill} skill framework.\n` +
       `Before filling this note, invoke the Skill tool with skill="${skill}" and follow its structured evaluation.\n` +
