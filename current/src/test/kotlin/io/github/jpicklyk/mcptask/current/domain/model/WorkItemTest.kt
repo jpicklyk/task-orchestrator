@@ -285,4 +285,39 @@ class WorkItemTest {
         val updated = original.update { it.copy(title = "updated") }
         assertNotEquals(original, updated)
     }
+
+    // --- type and properties fields ---
+
+    @Test
+    fun `type defaults to null`() {
+        val item = WorkItem(title = "test")
+        assertEquals(null, item.type)
+    }
+
+    @Test
+    fun `properties defaults to null`() {
+        val item = WorkItem(title = "test")
+        assertEquals(null, item.properties)
+    }
+
+    @Test
+    fun `type can be set to any string`() {
+        val item = WorkItem(title = "test", type = "task")
+        assertEquals("task", item.type)
+    }
+
+    @Test
+    fun `properties can be set to a JSON string`() {
+        val json = """{"key":"value"}"""
+        val item = WorkItem(title = "test", properties = json)
+        assertEquals(json, item.properties)
+    }
+
+    @Test
+    fun `type and properties are preserved through update`() {
+        val original = WorkItem(title = "test", type = "feature", properties = """{"priority":"high"}""")
+        val updated = original.update { it.copy(title = "updated") }
+        assertEquals("feature", updated.type)
+        assertEquals("""{"priority":"high"}""", updated.properties)
+    }
 }

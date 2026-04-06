@@ -110,8 +110,7 @@ Read-only status progression recommendation for a WorkItem.
 
             Role.QUEUE, Role.WORK, Role.REVIEW -> {
                 // Resolve next role via "start" trigger, respecting schema-driven review phase
-                val itemTags = item.tagList()
-                val hasReviewPhase = context.noteSchemaService().hasReviewPhase(itemTags)
+                val hasReviewPhase = context.resolveHasReviewPhase(item)
                 val resolution = handler.resolveTransition(item, "start", hasReviewPhase)
 
                 if (!resolution.success || resolution.targetRole == null) {

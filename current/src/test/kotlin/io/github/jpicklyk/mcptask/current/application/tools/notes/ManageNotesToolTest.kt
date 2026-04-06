@@ -861,4 +861,92 @@ class ManageNotesToolTest {
             assertEquals(1, progress["remaining"]!!.jsonPrimitive.int)
             assertEquals(3, progress["total"]!!.jsonPrimitive.int)
         }
+
+    // ──────────────────────────────────────────────
+    // skillPointer in itemContext
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `upsert returns skillPointer in itemContext when schema note has skill`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "spec",
+                        role = Role.QUEUE,
+                        required = true,
+                        guidance = "Write the spec",
+                        skill = "spec-quality"
+                    ),
+                    NoteSchemaEntry(
+                        key = "design",
+                        role = Role.QUEUE,
+                        required = true,
+                        guidance = "Write the design"
+                    )
+                )
+            val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+            val itemId = createTestItemWithTags(tags = "test-schema")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("design"))
+                                        put("role", JsonPrimitive("queue"))
+                                        put("body", JsonPrimitive("Design content"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+
+            // First unfilled required note is "spec" which has skill = "spec-quality"
+            assertEquals("Write the spec", ctx["guidancePointer"]!!.jsonPrimitive.content)
+            assertTrue(ctx.containsKey("skillPointer"), "skillPointer should be present when first unfilled note has skill")
+            assertEquals("spec-quality", ctx["skillPointer"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `upsert omits skillPointer when schema note has no skill`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write the spec")
+                )
+            val schemaContext = contextWithSchema(schemaEntries, "test-schema")
+            val itemId = createTestItemWithTags(tags = "test-schema")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("other-note"))
+                                        put("role", JsonPrimitive("queue"))
+                                        put("body", JsonPrimitive("Some content"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
+            assertFalse(ctx.containsKey("skillPointer"), "skillPointer should be absent when note has no skill")
+        }
 }

@@ -27,6 +27,7 @@ Dispatch subagents to execute the plan:
 
 - Each subagent **owns one MCP item** — include the item UUID in the delegation prompt
 - If `expectedNotes` entries include `guidance`, embed it in the delegation prompt as authoring instructions when filling notes
+- If `expectedNotes` entries include a `skill` field, include in the delegation prompt: "Before filling the `<key>` note, invoke `/<skill>` and follow its framework." This ensures subagents receive deterministic skill routing rather than relying on guidance prose
 - **Agents own their work-phase transitions** — each agent calls `advance_item(trigger="start")` to enter work, and `advance_item(trigger="start")` again to advance to review before returning. Agents do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
 - Fill work-phase notes (`implementation-notes`, `test-results`, etc.) as the agent works
 - Respect dependency ordering — do not dispatch an agent for a blocked item until its blockers complete

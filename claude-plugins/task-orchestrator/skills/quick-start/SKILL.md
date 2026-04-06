@@ -209,7 +209,7 @@ For users with an existing populated workspace.
 Run two calls in parallel:
 
 ```
-get_context(includeAncestors=true)
+get_context()
 query_items(operation="overview", includeChildren=true)
 ```
 

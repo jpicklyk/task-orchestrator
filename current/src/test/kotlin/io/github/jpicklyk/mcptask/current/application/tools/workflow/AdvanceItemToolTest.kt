@@ -1709,6 +1709,109 @@ class AdvanceItemToolTest {
             assertEquals(0, progress["total"]!!.jsonPrimitive.int)
         }
 
+    // ──────────────────────────────────────────────
+    // skillPointer in transition result
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `advance with schema returns skillPointer when note has skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = WorkItem(id = itemId, title = "Skill-routed item", role = Role.QUEUE, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "acceptance-criteria",
+                        role = Role.QUEUE,
+                        required = true,
+                        description = "Acceptance criteria",
+                        guidance = "List criteria"
+                    ),
+                    NoteSchemaEntry(
+                        key = "review-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Review notes",
+                        guidance = "Write review",
+                        skill = "review-quality"
+                    )
+                )
+            val noteSchemaService = schemaServiceWith(schemaEntries)
+
+            val noteRepo = mockk<NoteRepository>()
+            val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "Done")
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote))
+
+            val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, gatedContext)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+
+            assertEquals("Write review", r["guidancePointer"]!!.jsonPrimitive.content)
+            assertTrue(r.containsKey("skillPointer"), "skillPointer should be present when note has skill")
+            assertEquals("review-quality", r["skillPointer"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `advance without skill on note omits skillPointer`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = WorkItem(id = itemId, title = "No-skill item", role = Role.QUEUE, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "acceptance-criteria",
+                        role = Role.QUEUE,
+                        required = true,
+                        description = "Criteria",
+                        guidance = "List criteria"
+                    ),
+                    NoteSchemaEntry(
+                        key = "impl-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Implementation notes",
+                        guidance = "Write notes"
+                    )
+                )
+            val noteSchemaService = schemaServiceWith(schemaEntries)
+
+            val noteRepo = mockk<NoteRepository>()
+            val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "Done")
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote))
+
+            val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, gatedContext)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertFalse(r.containsKey("skillPointer"), "skillPointer should be absent when note has no skill")
+        }
+
     @Test
     fun `dependency block error has no missingNotes`(): Unit =
         runBlocking {

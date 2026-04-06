@@ -14,8 +14,9 @@ Drive any schema-tagged MCP work item through its gate-enforced lifecycle. This 
 schema-driven — it reads note requirements and authoring guidance from the item's tag schema
 at runtime, never hardcoding what notes should contain.
 
-**When this skill applies:** Any item whose `tags` match a schema defined in
-`.taskorchestrator/config.yaml`. Items without matching schemas advance freely (no gates).
+**When this skill applies:** Any item whose `type` field matches a schema defined in
+`work_item_schemas:` in `.taskorchestrator/config.yaml`, or whose tags match a schema in
+`note_schemas:` (legacy). Items without a matching type or tags advance freely (no gates).
 
 ---
 
@@ -40,11 +41,13 @@ The response tells you everything needed to proceed:
 
 If `currentRole` is `terminal`, the item is already complete — nothing to do.
 
-If `noteSchema` is null or empty, no schema matches the item's tags. This means either:
-- `.taskorchestrator/config.yaml` doesn't exist or has no `note_schemas` section
-- The item's tags don't match any configured schema key
+If `noteSchema` is null or empty, no schema matches the item. This means either:
+- `.taskorchestrator/config.yaml` doesn't exist or has no `work_item_schemas` or `note_schemas` section
+- The item's `type` field doesn't match any configured schema key in `work_item_schemas`
+- The item's tags don't match any configured schema key in `note_schemas` (legacy fallback)
+- No `default` schema exists as a fallback
 
-Inform the user: "No note schema found for tag `<tag>`. Use `/manage-schemas` to configure gate workflows." The item can still advance freely — this is non-blocking, but gate enforcement won't apply.
+Inform the user: "No schema found for this item's type/tags. Use `/manage-schemas` to configure gate workflows." The item can still advance freely — this is non-blocking, but gate enforcement won't apply.
 
 ---
 
@@ -82,6 +85,13 @@ manage_notes(
 - The pointer comes from the `guidance` field in `.taskorchestrator/config.yaml`
 - If `guidancePointer` is null, the note has no specific authoring instructions — use the
   note's `description` field as a general guide
+
+**Skill-assisted note filling:**
+- If the `get_context` response includes `skillPointer` (a non-null string), invoke that skill via the Skill tool before filling the note
+- The skill provides a structured evaluation workflow — follow its steps, then use the output to fill the note
+- `skillPointer` is derived from the first unfilled required note's `skill` field in the schema
+- If `skillPointer` is null, use `guidancePointer` as the authoring guide (current behavior)
+- The `skill` field is also visible per-entry in `expectedNotes` for batch operations
 
 **Batch filling:** If you already know the content for multiple notes (e.g., from a completed
 plan or implementation), fill them all in one `manage_notes` call. You only need to re-check
@@ -156,16 +166,20 @@ rather than assuming specific keys exist.
 
 ---
 
-## Creating a New Schema-Tagged Item
+## Creating a New Schema Item
 
-When creating a new item with a schema tag:
+When creating a new item with a schema, set the `type` field to the schema key:
 
 ```
 manage_items(
   operation="create",
-  items=[{ title: "...", tags: "<schema-tag>", priority: "medium" }]
+  items=[{ title: "...", type: "<schema-key>", priority: "medium" }]
 )
 ```
+
+The `type` field is the primary schema selector — it maps directly to a key in `work_item_schemas:`.
+Tags can still be used for additional categorization and as a legacy schema fallback, but `type`
+takes precedence.
 
 Check `expectedNotes` in the response — it lists all notes the schema requires across all
 phases. Begin filling queue-phase notes immediately, then follow the progression loop above.
@@ -184,6 +198,7 @@ satisfy a gate for a different phase. Always match the note's `role` to the sche
 **Blocked items:** If `advance_item` fails because the item is blocked by a dependency,
 resolve the blocking item first. Use `get_blocked_items` or `query_dependencies` to diagnose.
 
-**No schema match:** Items whose tags don't match any schema in config.yaml have no gate
-enforcement. `advance_item` will succeed without notes. This is by design — only schema-tagged
-items require structured note workflows.
+**No schema match:** Items whose `type` doesn't match any schema in `work_item_schemas` and
+whose tags don't match any schema in `note_schemas` have no gate enforcement. `advance_item`
+will succeed without notes. This is by design — only typed or tagged items require structured
+note workflows.

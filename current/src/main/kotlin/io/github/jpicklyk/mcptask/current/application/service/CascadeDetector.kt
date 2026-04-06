@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import org.slf4j.LoggerFactory
 import java.util.UUID
 
 /**
@@ -63,6 +64,8 @@ class CascadeDetector {
     companion object {
         /** Maximum ancestor depth for recursive cascade detection. */
         const val MAX_DEPTH = 3
+
+        private val logger = LoggerFactory.getLogger(CascadeDetector::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -77,26 +80,34 @@ class CascadeDetector {
      * If so, creates a [CascadeEvent] for that parent and recursively
      * checks the grandparent, bounded by [MAX_DEPTH].
      *
+     * **Lifecycle-aware:** If [schemaResolver] is provided, the parent's [WorkItemSchema]
+     * is checked before creating a cascade event. Parents with [LifecycleMode.MANUAL] or
+     * [LifecycleMode.PERMANENT] will suppress terminal cascades and stop further recursion.
+     *
      * **Important:** Detection reads current persisted DB state. When cascading
      * multi-level hierarchies, only the first returned event is guaranteed to
      * reflect accurate state. Callers must apply cascades iteratively --
      * apply the first event, persist it, then re-invoke this method on the
      * cascaded parent to detect the next level.
      *
+     * @param schemaResolver optional function to resolve the [WorkItemSchema] for a parent item.
+     *   Used to check [LifecycleMode] and suppress cascades for MANUAL or PERMANENT schemas.
      * @return cascade events in order from closest parent to most distant ancestor
      */
     suspend fun detectCascades(
         item: WorkItem,
-        workItemRepository: WorkItemRepository
+        workItemRepository: WorkItemRepository,
+        schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         val parentId = item.parentId ?: return emptyList()
-        return detectCascadesRecursive(parentId, workItemRepository, depth = 0)
+        return detectCascadesRecursive(parentId, workItemRepository, depth = 0, schemaResolver = schemaResolver)
     }
 
     private suspend fun detectCascadesRecursive(
         parentId: UUID,
         workItemRepository: WorkItemRepository,
-        depth: Int
+        depth: Int,
+        schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         if (depth >= MAX_DEPTH) return emptyList()
 
@@ -126,6 +137,20 @@ class CascadeDetector {
         // If parent is already terminal, no cascade needed
         if (parent.role == Role.TERMINAL) return emptyList()
 
+        // Check lifecycle mode: MANUAL or PERMANENT suppress terminal cascade
+        if (schemaResolver != null) {
+            val schema = schemaResolver(parent)
+            val lifecycleMode = schema?.lifecycleMode
+            if (lifecycleMode == LifecycleMode.MANUAL || lifecycleMode == LifecycleMode.PERMANENT) {
+                logger.debug(
+                    "Terminal cascade suppressed for item {} (lifecycleMode={})",
+                    parent.id,
+                    lifecycleMode
+                )
+                return emptyList()
+            }
+        }
+
         val event =
             CascadeEvent(
                 itemId = parent.id,
@@ -136,7 +161,7 @@ class CascadeDetector {
         // Recursively check the parent's parent
         val upstreamEvents =
             if (parent.parentId != null) {
-                detectCascadesRecursive(parent.parentId, workItemRepository, depth + 1)
+                detectCascadesRecursive(parent.parentId, workItemRepository, depth + 1, schemaResolver)
             } else {
                 emptyList()
             }
@@ -194,10 +219,19 @@ class CascadeDetector {
      * If the item was just reopened (now in QUEUE) and its parent is TERMINAL,
      * the parent should reopen to WORK since it now has a non-terminal child.
      * Only checks immediate parent — no recursion.
+     *
+     * **Lifecycle-aware:** If [schemaResolver] is provided, the parent's [WorkItemSchema]
+     * is checked before creating a reopen cascade event. Parents with [LifecycleMode.MANUAL]
+     * or [LifecycleMode.PERMANENT] will suppress reopen cascades. [LifecycleMode.AUTO_REOPEN]
+     * and [LifecycleMode.AUTO] allow the reopen cascade.
+     *
+     * @param schemaResolver optional function to resolve the [WorkItemSchema] for a parent item.
+     *   Used to check [LifecycleMode] and suppress reopen cascades for MANUAL or PERMANENT schemas.
      */
     suspend fun detectReopenCascades(
         item: WorkItem,
-        workItemRepository: WorkItemRepository
+        workItemRepository: WorkItemRepository,
+        schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         // Only applies to items that just entered QUEUE via reopen
         if (item.role != Role.QUEUE) return emptyList()
@@ -212,6 +246,20 @@ class CascadeDetector {
 
         // Only cascade if parent is TERMINAL
         if (parent.role != Role.TERMINAL) return emptyList()
+
+        // Check lifecycle mode: MANUAL or PERMANENT suppress reopen cascade
+        if (schemaResolver != null) {
+            val schema = schemaResolver(parent)
+            val lifecycleMode = schema?.lifecycleMode
+            if (lifecycleMode == LifecycleMode.MANUAL || lifecycleMode == LifecycleMode.PERMANENT) {
+                logger.debug(
+                    "Reopen cascade suppressed for item {} (lifecycleMode={})",
+                    parent.id,
+                    lifecycleMode
+                )
+                return emptyList()
+            }
+        }
 
         return listOf(
             CascadeEvent(

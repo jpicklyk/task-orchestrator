@@ -5,7 +5,7 @@ A Kotlin-based MCP server providing hierarchical work item management with depen
 **Key Technologies:**
 - Kotlin 2.2.0 with Coroutines
 - Exposed ORM 1.0.0-beta-2 for SQLite
-- MCP SDK 0.8.4 (with Ktor Streamable HTTP transport)
+- MCP SDK 0.9.0 (with Ktor Streamable HTTP transport)
 - Flyway for database migrations
 - Gradle with Kotlin DSL / Docker
 
@@ -37,7 +37,7 @@ Source lives under `current/`.
 
 ```
 domain/
-  model/       — WorkItem, Note, Dependency, Role, Priority, RoleTransition
+  model/       — WorkItem, Note, Dependency, Role, Priority, RoleTransition, LifecycleMode, WorkItemSchema
   repository/  — WorkItemRepository, NoteRepository, DependencyRepository, RoleTransitionRepository
 
 application/
@@ -52,7 +52,7 @@ infrastructure/
   database/schema/      — WorkItemsTable, NotesTable, DependenciesTable, RoleTransitionsTable
   database/schema/management/ — DirectDatabaseSchemaManager, FlywayDatabaseSchemaManager, SchemaManagerFactory
   repository/           — SQLite implementations, RepositoryProvider
-  config/               — YamlNoteSchemaService
+  config/               — YamlWorkItemSchemaService (typealias YamlNoteSchemaService)
 
 interfaces/mcp/
   CurrentMcpServer.kt, McpToolAdapter.kt
@@ -83,7 +83,7 @@ private fun getConfigPath(): Path {
 
 - In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
 - In local dev: not needed (uses working directory)
-- Currently used by: `YamlNoteSchemaService`
+- Currently used by: `YamlWorkItemSchemaService`
 
 ## Adding New Components
 
@@ -102,7 +102,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 ## Database Management
 
 **Key environment variables:**
-- `DATABASE_PATH` — SQLite file path (default: `data/tasks.db`)
+- `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`)
 - `USE_FLYWAY` — enable Flyway migrations (default: `true` in Docker)
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
@@ -129,7 +129,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 | Repositories | `current/.../infrastructure/repository/` |
 | Migrations | `current/src/main/resources/db/migration/` |
 | Workflow config | `.taskorchestrator/config.yaml` |
-| Note schema service | `current/.../infrastructure/config/YamlNoteSchemaService.kt` |
+| Note schema service | `current/.../infrastructure/config/YamlWorkItemSchemaService.kt` (backward-compat typealias `YamlNoteSchemaService`) |
 | Plugin | `claude-plugins/task-orchestrator/` |
 | Tests | `current/src/test/kotlin/` |
 

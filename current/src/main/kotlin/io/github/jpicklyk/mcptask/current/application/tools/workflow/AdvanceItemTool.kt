@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -141,7 +143,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
         val handler = RoleTransitionHandler()
         val cascadeDetector = CascadeDetector()
-        val noteSchemaService = context.noteSchemaService()
 
         val resultsList = mutableListOf<JsonObject>()
         val allUnblockedItems = mutableListOf<JsonObject>()
@@ -171,11 +172,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             val previousRole = item.role
 
-            // Parse item tags for schema lookup
-            val itemTags = item.tagList()
+            // Resolve schema once per item — reused across gate checks and response building
+            val itemSchema = context.resolveSchema(item)
 
             // Phase 1: Resolve — schema-driven review phase detection
-            val hasReviewPhase = noteSchemaService.hasReviewPhase(itemTags)
+            val hasReviewPhase = itemSchema?.hasReviewPhase() ?: false
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
             val configLabel = context.statusLabelService().resolveLabel(trigger)
             if (!resolution.success || resolution.targetRole == null) {
@@ -223,9 +224,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Gate check: required notes for the CURRENT role must exist before advancing (start trigger)
             if (trigger == "start") {
-                val schema = noteSchemaService.getSchemaForTags(itemTags)
-                if (schema != null) {
-                    val requiredForCurrentPhase = schema.filter { it.role == item.role && it.required }
+                if (itemSchema != null) {
+                    val resolvedSchema = itemSchema
+                    val requiredForCurrentPhase = resolvedSchema.notes.filter { it.role == item.role && it.required }
                     if (requiredForCurrentPhase.isNotEmpty()) {
                         val notesResult = context.noteRepository().findByItemId(item.id)
                         val existingNotes =
@@ -254,9 +255,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Gate check: all required notes across all phases must be filled (complete trigger)
             if (trigger == "complete") {
-                val schema = noteSchemaService.getSchemaForTags(itemTags)
-                if (schema != null) {
-                    val allRequired = schema.filter { it.required }
+                if (itemSchema != null) {
+                    val resolvedSchema = itemSchema
+                    val allRequired = resolvedSchema.notes.filter { it.required }
                     if (allRequired.isNotEmpty()) {
                         val notesResult = context.noteRepository().findByItemId(item.id)
                         val existingNotes =
@@ -307,12 +308,13 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Uses iterative detect-apply pattern: after applying each cascade,
             // re-detect from the cascaded parent with fresh DB state.
             // Bounded by CascadeDetector.MAX_DEPTH to prevent runaway recursion.
+            val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
             val cascadeJsonList = mutableListOf<JsonObject>()
             if (targetRole == Role.TERMINAL) {
                 var cascadeSource = applyResult.item!!
                 var depth = 0
                 while (depth < CascadeDetector.MAX_DEPTH) {
-                    val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository())
+                    val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
                     if (events.isEmpty()) break
 
                     // Only the immediate parent cascade (first event) is reliable;
@@ -328,10 +330,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
                     // Gate check: cascade-to-TERMINAL requires all required notes (like "complete" trigger)
                     if (event.targetRole == Role.TERMINAL) {
-                        val parentTags = parentItem.tagList()
-                        val parentSchema = noteSchemaService.getSchemaForTags(parentTags)
+                        val parentSchema = context.resolveSchema(parentItem)
                         if (parentSchema != null) {
-                            val allRequired = parentSchema.filter { it.required }
+                            val allRequired = parentSchema.notes.filter { it.required }
                             if (allRequired.isNotEmpty()) {
                                 val parentNotes =
                                     when (val nr = context.noteRepository().findByItemId(parentItem.id)) {
@@ -405,7 +406,12 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 4c: Reopen cascade detection (only when reopening to QUEUE)
             // When a child is reopened under a terminal parent, the parent should reopen to WORK.
             if (trigger == "reopen" && targetRole == Role.QUEUE) {
-                val reopenCascadeEvents = cascadeDetector.detectReopenCascades(applyResult.item!!, context.workItemRepository())
+                val reopenCascadeEvents =
+                    cascadeDetector.detectReopenCascades(
+                        applyResult.item!!,
+                        context.workItemRepository(),
+                        schemaResolver
+                    )
                 applyCascadeEvents(
                     reopenCascadeEvents,
                     "Auto-cascaded from child reopen",
@@ -433,16 +439,18 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 allUnblockedItems.add(unblockedJson)
             }
 
-            // Schema-driven response fields: expectedNotes, guidancePointer, noteProgress
-            val schema = noteSchemaService.getSchemaForTags(itemTags)
+            // Schema-driven response fields: expectedNotes, guidancePointer, skillPointer, noteProgress
+            val resolvedSchema = itemSchema
             // Only query notes when a schema exists (avoids unnecessary DB call)
             val expectedNotesJson: JsonArray
             val guidancePointer: String?
+            val skillPointer: String?
             val noteProgress: JsonObject?
 
-            if (schema == null) {
+            if (resolvedSchema == null) {
                 expectedNotesJson = JsonArray(emptyList())
                 guidancePointer = null
+                skillPointer = null
                 noteProgress = null
             } else {
                 val existingNotes =
@@ -456,14 +464,15 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
                 expectedNotesJson =
                     buildExpectedNotesJson(
-                        schema = schema,
+                        schema = resolvedSchema,
                         existingNoteKeys = existingKeys,
                         filterRole = targetRole
                     )
 
-                // Use shared PhaseNoteContext for guidancePointer and noteProgress
-                val phaseContext = computePhaseNoteContext(targetRole, schema, notesByKey)
+                // Use shared PhaseNoteContext for guidancePointer, skillPointer, and noteProgress
+                val phaseContext = computePhaseNoteContext(targetRole, resolvedSchema, notesByKey)
                 guidancePointer = phaseContext?.guidancePointer
+                skillPointer = phaseContext?.skillPointer
                 noteProgress =
                     phaseContext?.let {
                         buildJsonObject {
@@ -488,6 +497,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
                     guidancePointer?.let { put("guidancePointer", JsonPrimitive(it)) }
+                    skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                     noteProgress?.let { put("noteProgress", it) }
                 }
             )

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -85,6 +86,10 @@ class UpdateItemHandler(
                 val newRequiresVerification = extractItemBoolean(itemObj, "requiresVerification")
                 val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
+                val newType = extractItemStringAllowNull(itemObj, "type", existing.type)
+                val rawNewProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
+                val traitsStr = extractItemString(itemObj, "traits")
+                val newProperties = PropertiesHelper.mergeTraitsFromString(rawNewProperties, traitsStr)
 
                 // Parse priority if provided
                 val newPriority =
@@ -146,7 +151,9 @@ class UpdateItemHandler(
                             requiresVerification = newRequiresVerification ?: item.requiresVerification,
                             depth = newDepth,
                             metadata = newMetadata,
-                            tags = newTags
+                            tags = newTags,
+                            type = newType,
+                            properties = newProperties
                         )
                     }
 

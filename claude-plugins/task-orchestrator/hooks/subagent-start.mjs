@@ -16,7 +16,7 @@ const output = {
 
 ### Just-in-time note progression
 
-2. **Read guidance:** \`guidancePointer\` tells you what the schema author expects for the current note. If it references a skill, load it via the Skill tool.
+2. **Read guidance:** \`guidancePointer\` tells you what the schema author expects for the current note. If the response includes a non-null \`skillPointer\`, you MUST invoke that skill via the Skill tool before filling the note — the skill provides the structured evaluation framework. Follow its steps, then use the output to compose the note body.
 3. **Do work and fill the note:** Implement what the guidance asks, then call \`manage_notes(operation="upsert", notes=[{itemId, key, role, body}])\`
    - If \`noteProgress.total\` is 1 (or absent), this was the only note — skip to step 6.
 4. **Get next guidance:** Call \`get_context(itemId="<your-item-UUID>")\` — returns updated \`guidancePointer\` and \`noteProgress\`.
