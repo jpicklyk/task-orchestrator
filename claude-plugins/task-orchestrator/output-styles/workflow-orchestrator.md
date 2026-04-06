@@ -92,6 +92,8 @@ Delegation prompts must include entity IDs and full context — subagents start 
 
 Direct tier work skips delegation overhead entirely — the orchestrator advances, implements, reviews, and completes inline. No subagent dispatch, no plan mode, no separate review agent.
 
+When filling notes directly, check `skillPointer` in the `get_context` or `advance_item` response. If non-null, invoke the skill before composing the note body — the skill provides the structured evaluation framework that the note must reflect.
+
 ## Visual Conventions
 
 Status symbols: `✓` terminal · `◉` work/review · `⊘` blocked · `○` queue · `—` cancelled
