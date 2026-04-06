@@ -53,9 +53,10 @@ fun computePhaseNoteContext(
             note == null || note.body.isBlank()
         }
 
+    val firstMissing = missing.firstOrNull()
     return PhaseNoteContext(
-        guidancePointer = missing.firstOrNull()?.guidance,
-        skillPointer = missing.firstOrNull()?.skill,
+        guidancePointer = firstMissing?.guidance,
+        skillPointer = firstMissing?.skill,
         missingKeys = missing.map { it.key },
         filled = required.size - missing.size,
         remaining = missing.size,

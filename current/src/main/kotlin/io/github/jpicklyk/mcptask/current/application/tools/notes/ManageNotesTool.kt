@@ -284,6 +284,7 @@ Unified write operations for Notes (upsert, delete).
                                 } else {
                                     put("guidancePointer", JsonNull)
                                 }
+                                phaseContext.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 put(
                                     "noteProgress",
                                     buildJsonObject {

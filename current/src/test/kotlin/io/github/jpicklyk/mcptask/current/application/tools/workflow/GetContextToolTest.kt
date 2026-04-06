@@ -1132,6 +1132,75 @@ class GetContextToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // skillPointer in stalled items
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `health-check stalled items include skillPointer when schema note has skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Impl notes",
+                        guidance = "Write the implementation",
+                        skill = "review-quality"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params(), schemaContext)
+
+            val data = extractData(result)
+            val stalledItems = data["stalledItems"]!!.jsonArray
+            assertEquals(1, stalledItems.size)
+
+            val stalledItem = stalledItems[0].jsonObject
+            assertTrue(stalledItem.containsKey("skillPointer"), "skillPointer should be present in stalled item")
+            assertEquals("review-quality", stalledItem["skillPointer"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `health-check stalled items omit skillPointer when note has no skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Impl notes",
+                        guidance = "Write the implementation"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params(), schemaContext)
+
+            val data = extractData(result)
+            val stalledItem = data["stalledItems"]!!.jsonArray[0].jsonObject
+            assertFalse(stalledItem.containsKey("skillPointer"), "skillPointer should be absent when note has no skill")
+        }
+
+    // ──────────────────────────────────────────────
     // StalledItemEntry: multiple missing notes listed correctly
     // ──────────────────────────────────────────────
 

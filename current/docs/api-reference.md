@@ -746,10 +746,9 @@ All cascade types are recorded in `cascadeEvents`.
       ],
       "unblockedItems": [{ "itemId": "uuid-next", "title": "Next task" }],
       "expectedNotes": [
-        { "key": "done-criteria", "role": "work", "required": true, "description": "...", "exists": false, "skill": null }
+        { "key": "done-criteria", "role": "work", "required": true, "description": "...", "exists": false }
       ],
       "guidancePointer": "Fill the done-criteria note with...",
-      "skillPointer": null,
       "noteProgress": { "filled": 0, "remaining": 1, "total": 1 }
     }
   ],
@@ -758,11 +757,11 @@ All cascade types are recorded in `cascadeEvents`.
 }
 ```
 
-`unblockedItems` and `allUnblockedItems` are always present (as `[]` when empty). `cascadeEvents` is always present (as `[]` when no cascades occurred). `expectedNotes` is always present (as `[]` when no schema matches the item's tags). Each entry in `expectedNotes` includes: `key`, `role`, `required`, `description`, `exists`, and optionally `skill` (the skill name configured for that note, or null when none is set).
+`unblockedItems` and `allUnblockedItems` are always present (as `[]` when empty). `cascadeEvents` is always present (as `[]` when no cascades occurred). `expectedNotes` is always present (as `[]` when no schema matches the item's tags). Each entry in `expectedNotes` includes: `key`, `role`, `required`, `description`, `exists`, and optionally `skill` (present only when a skill is configured for that note).
 
 `guidancePointer` (string or null) is the guidance text for the first unfilled required note in the **new** role. It is null when no schema matches, no required notes exist for the new role, or all required notes are already filled. Omitted from the response when null.
 
-`skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Null when no skill is configured or all required notes are filled.
+`skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled.
 
 `noteProgress` provides counts of required notes for the new role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Omitted from the response when no schema matches the item's tags.
 
@@ -884,23 +883,22 @@ supplied. Use for session startup, work-summary dashboards, and pre-advance gate
   "mode": "item",
   "item": { "id": "uuid", "title": "JWT Handler", "role": "queue", "tags": "task-implementation", "depth": 1 },
   "schema": [
-    { "key": "requirements", "role": "queue", "required": true, "description": "...", "exists": true, "filled": true, "skill": null },
-    { "key": "done-criteria", "role": "work", "required": true, "description": "...", "exists": false, "filled": false, "skill": null }
+    { "key": "requirements", "role": "queue", "required": true, "description": "...", "exists": true, "filled": true },
+    { "key": "done-criteria", "role": "work", "required": true, "description": "...", "exists": false, "filled": false }
   ],
   "gateStatus": { "canAdvance": true, "phase": "queue", "missing": [] },
   "guidancePointer": null,
-  "skillPointer": null,
   "noteProgress": { "filled": 1, "remaining": 1, "total": 2 }
 }
 ```
 
 `guidancePointer` (string or null) is the guidance text for the first unfilled required note in the current role. Null when no schema matches, no required notes exist, or all are filled.
 
-`skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Null when no skill is configured or all required notes are filled. Derived from the `skill` field on the first unfilled required note in the schema.
+`skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled. Derived from the `skill` field on the first unfilled required note in the schema.
 
 `noteProgress` provides counts of required notes for the **current** role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Null when no schema matches the item's tags or the item is in terminal role (distinguishes "no schema" from "empty schema").
 
-Each entry in the `schema` array includes: `key`, `role`, `required`, `description`, `exists`, `filled`, and optionally `skill` (the skill name configured for that note entry, or null).
+Each entry in the `schema` array includes: `key`, `role`, `required`, `description`, `exists`, `filled`, and optionally `skill` (present only when a skill is configured for that note entry).
 
 **Response (health-check mode).**
 
