@@ -203,6 +203,7 @@ Unified write operations for WorkItems (create, update, delete).
                 createHandler.execute(
                     requireJsonArray(params, "items"),
                     extractUUID(params, "parentId", required = false),
+                    optionalString(params, "traits"),
                     context
                 )
             "update" ->

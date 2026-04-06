@@ -34,6 +34,7 @@ class CreateItemHandler(
     suspend fun execute(
         items: JsonArray,
         sharedParentId: UUID?,
+        sharedTraits: String?,
         context: ToolExecutionContext
     ): JsonElement {
         val repo = context.workItemRepository()
@@ -62,7 +63,7 @@ class CreateItemHandler(
                 val tags = extractItemString(itemObj, "tags")
                 val type = extractItemString(itemObj, "type")
                 val rawProperties = extractItemString(itemObj, "properties")
-                val traitsStr = extractItemString(itemObj, "traits")
+                val traitsStr = extractItemString(itemObj, "traits") ?: sharedTraits
                 val properties = PropertiesHelper.mergeTraitsFromString(rawProperties, traitsStr)
 
                 // Pre-generate the UUID so we can guard against self-parent before construction
