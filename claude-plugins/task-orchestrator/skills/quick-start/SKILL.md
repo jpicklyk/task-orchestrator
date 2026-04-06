@@ -86,12 +86,13 @@ create_work_tree(
   root: {
     title: "<Project Name> — Tutorial",
     summary: "Quick-start tutorial project to learn MCP Task Orchestrator",
+    type: "container",
     priority: "medium"
   },
   children: [
-    { ref: "design", title: "Design <topic>", summary: "Define requirements and approach", priority: "high" },
-    { ref: "implement", title: "Implement <topic>", summary: "Build the solution", priority: "high" },
-    { ref: "test", title: "Test <topic>", summary: "Verify the implementation", priority: "medium" }
+    { ref: "design", title: "Design <topic>", summary: "Define requirements and approach", type: "feature-task", priority: "high" },
+    { ref: "implement", title: "Implement <topic>", summary: "Build the solution", type: "feature-task", priority: "high" },
+    { ref: "test", title: "Test <topic>", summary: "Verify the implementation", type: "feature-task", priority: "medium" }
   ],
   deps: [
     { from: "design", to: "implement", type: "BLOCKS" },
@@ -172,11 +173,13 @@ This is the difference between having a plan document alone vs. having a plan do
 
 Briefly mention that MCP items can have **required notes** that act as documentation gates:
 
-- A `.taskorchestrator/config.yaml` file defines note schemas — which notes must be filled before an item can advance
-- Example: a `feature-implementation` schema might require `requirements` and `design` notes before work can start
-- This enforces documentation discipline — Claude must fill the notes before `advance_item` allows progression
-- Schemas can also carry a `guidance` field — authoring hints that tell agents exactly what to write in each note.
-- Run `/manage-schemas` to set one up interactively, or `/feature-implementation` to see the full lifecycle in action
+- A `.taskorchestrator/config.yaml` file defines schemas under `work_item_schemas:` — which notes must be filled before an item can advance
+- Items match schemas via their `type` field (e.g., `type: "feature-implementation"` activates that schema's notes and gates)
+- Example: the `feature-implementation` schema requires a `specification` note before work can start, and a `review-checklist` note before completion
+- Each schema can set a **lifecycle mode** (auto, manual, auto-reopen, permanent) controlling cascade behavior
+- Notes can carry a `guidance` field (authoring hints) and a `skill` field (structured evaluation framework to invoke before filling)
+- **Composable traits** add additional note requirements per-item — e.g., `traits: "needs-security-review"` adds a `security-assessment` note at the review phase
+- Run `/manage-schemas` to set one up interactively — it can also generate a companion lifecycle skill for your schema
 
 ---
 
@@ -186,7 +189,7 @@ Present this capabilities table:
 
 | Want to... | Skill | What it does |
 |---|---|---|
-| Track a feature with documentation gates | `/feature-implementation` | Full lifecycle with required notes at each phase |
+| Track a feature with documentation gates | `/manage-schemas` | Create schemas with lifecycle gates, then use companion skills |
 | Create items from conversation context | `/create-item` | Infers type, priority, and container placement |
 | Build custom workflow schemas | `/manage-schemas` | Create, view, edit, delete, and validate note schemas |
 | See project health dashboard | `/work-summary` | Active work, blockers, next actions at a glance |

@@ -28,27 +28,32 @@ Otherwise, ask via `AskUserQuestion`:
 Show this schema to the user:
 
 ```yaml
-feature-implementation:
-  - key: specification
-    role: queue
-    required: true
-    description: "Problem statement, approach, and pre-work plan."
-    guidance: "This note is read by the implementation agent before writing code. Cover: **Problem statement** — what breaks or is missing, who is affected. **Acceptance criteria** — 2-5 concrete, testable criteria that define done. **Alternatives considered** — min 2 real options plus 'do nothing'; for each, state the trade-off that ruled it out (not strawman rejections). **Non-goals** — at least one thing a reader might expect this work to include that is deliberately excluded. **Blast radius** — every file, module, and interface the change touches; trace downstream consumers. **Risk flags** — the 1-2 things most likely to go wrong. **Test strategy** — name specific scenarios for happy paths, failure paths, and edge cases; 'add tests' is not a strategy."
-  - key: implementation-notes
-    role: work
-    required: true
-    description: "Context handoff for downstream agents — deviations, surprises, decisions."
-    guidance: "This note is read by review agents and dependent tasks. They need to know: what decisions were made that weren't in the specification, which files were changed and why, any API or interface surprises encountered, assumptions from the specification that turned out wrong, and patterns discovered that affect dependent work."
-  - key: session-tracking
-    role: work
-    required: true
-    description: "Session context — what was done, how it went, anything the retrospective should know."
-    guidance: "This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: anything that differed from the specification. **Friction**: tool errors, unexpected roundtrips, API confusion — include type (optimization/friction/bug/missing-capability) and description. **Test results**: pass/fail counts, new tests added."
-  - key: review-checklist
-    role: review
-    required: true
-    description: "Quality gate — plan alignment, test quality, simplification, verdict."
-    guidance: "Run the test suite first — record total count and pass/fail. Then verify: (1) **Plan alignment** — walk each acceptance criterion from the specification and identify the code that satisfies it; flag criteria with no implementation and unplanned changes with no justification. (2) **Test quality** — map tests to the specification's test strategy; watch for tautological assertions, mock-heavy tests that verify nothing real, happy-path-only coverage when failure paths were required, and overly broad assertions like 'result != null'. (3) **Simplification** — note any unnecessary complexity, duplication, or over-engineering in changed files (do not apply fixes, only report). End with a verdict: **Pass** | **Fail — blocking issues** (list each) | **Pass with observations**."
+work_item_schemas:
+  feature-implementation:
+    lifecycle: auto
+    notes:
+      - key: specification
+        role: queue
+        required: true
+        description: "Problem statement, approach, and pre-work plan."
+        skill: "spec-quality"
+        guidance: "This note must cover: problem statement and who benefits, acceptance criteria, non-goals, alternatives considered (min 2 real options + 'do nothing'), blast radius (affected modules and tests), risk flags, and test strategy."
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "Context handoff for downstream agents — deviations, surprises, decisions."
+        guidance: "Document decisions not in the specification. Focus on what downstream agents need: deviations, API surprises, wrong assumptions, patterns affecting dependent work."
+      - key: session-tracking
+        role: work
+        required: true
+        description: "Session context — what was done, how it went, anything the retrospective should know."
+        guidance: "Record: Outcome (success/partial/failure), files changed with rationale, deviations from plan, friction (tool errors, roundtrips), test results (pass/fail counts, new tests added)."
+      - key: review-checklist
+        role: review
+        required: true
+        description: "Quality gate — plan alignment, test quality, simplification, verdict."
+        skill: "review-quality"
+        guidance: "Verify: (1) what was built aligns with the specification, (2) tests cover the test strategy — not strawman tests, (3) no unnecessary complexity in changed files. End with a verdict."
 ```
 
 ### Bug Fix Template
@@ -56,27 +61,31 @@ feature-implementation:
 Show this schema to the user:
 
 ```yaml
-bug-fix:
-  - key: diagnosis
-    role: queue
-    required: true
-    description: "Reproduction, root cause, fix approach, and test strategy."
-    guidance: "This note is read by the implementation agent before writing code. Cover: **Reproduction steps** — exact inputs (tool call, parameters, or user action) plus expected output and actual output. **Root cause** — the specific file, function, and condition that causes the bug; state why that code path produces the wrong result. **Fix approach** — your chosen approach plus min 2 alternatives (including 'do nothing'); for each, state the trade-off that ruled it out. **Blast radius** — files and interfaces the fix touches; similar code paths that may have the same defect. **Test strategy** — a regression test that would have caught the original bug, plus edge cases around the fix boundary."
-  - key: implementation-notes
-    role: work
-    required: true
-    description: "Context handoff — what changed, deviations from diagnosis, patterns to apply."
-    guidance: "This note is read by review agents and dependent tasks. State: which files changed and what the specific change was, whether the root cause matched the diagnosis or differed (and how), patterns found in similar code paths that should be applied elsewhere, and edge cases discovered during implementation that weren't in the diagnosis."
-  - key: session-tracking
-    role: work
-    required: true
-    description: "Session context — what was done, how it went, anything the retrospective should know."
-    guidance: "This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: anything that differed from the diagnosis. **Friction**: tool errors, unexpected roundtrips, API confusion — include type (optimization/friction/bug/missing-capability) and description. **Test results**: pass/fail counts, new tests added."
-  - key: review-checklist
-    role: review
-    required: true
-    description: "Quality gate — fix alignment, regression coverage, simplification, verdict."
-    guidance: "Run the test suite first — record total count and pass/fail. Then verify: (1) **Fix alignment** — confirm the fix addresses the diagnosed root cause and does not merely mask symptoms; check implementation-notes for any deviation from the diagnosis. (2) **Regression test** — a test must exist that would have caught the original bug; verify it tests the actual failure condition, not just 'result != null'. (3) **Edge case coverage** — verify tests exist for edge cases named in the diagnosis test strategy. (4) **Simplification** — note any unnecessary complexity in changed files (do not apply fixes, only report). End with a verdict: **Pass** | **Fail — blocking issues** (list each) | **Pass with observations**."
+  bug-fix:
+    lifecycle: auto
+    notes:
+      - key: diagnosis
+        role: queue
+        required: true
+        description: "Reproduction, root cause, fix approach, and test strategy."
+        skill: "spec-quality"
+        guidance: "This note must cover: reproduction steps (exact inputs, expected vs actual output), root cause (specific file, function, condition), fix approach with alternatives, blast radius, and test strategy."
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "Context handoff — what changed, deviations from diagnosis, patterns to apply."
+        guidance: "Document what changed and why. Note if root cause differed from diagnosis, patterns for similar code paths, edge cases discovered."
+      - key: session-tracking
+        role: work
+        required: true
+        description: "Session context for retrospective."
+        guidance: "Record: Outcome, files changed, deviations from diagnosis, friction, test results."
+      - key: review-checklist
+        role: review
+        required: true
+        description: "Quality gate — fix alignment, regression coverage, simplification, verdict."
+        skill: "review-quality"
+        guidance: "Verify: (1) fix addresses diagnosed root cause, (2) regression test exists, (3) edge cases covered. End with verdict."
 ```
 
 ### After showing the template
@@ -91,7 +100,7 @@ Ask via `AskUserQuestion`:
 ```
 
 - **Use as-is:** Skip to Write Config (Step 4).
-- **Customize:** Show each note in a numbered list. Ask what to change (add a note, remove a note, edit description/guidance, toggle required). Apply changes, show the updated YAML, confirm, then proceed to Write Config (Step 4).
+- **Customize:** Show each note in a numbered list. Ask what to change (add a note, remove a note, edit description/guidance/skill, toggle required, change lifecycle). Apply changes, show the updated YAML, confirm, then proceed to Write Config (Step 4).
 - **Cancel:** Return to Step 1.
 
 ---
@@ -101,36 +110,47 @@ Ask via `AskUserQuestion`:
 Ask the user the following questions (use `AskUserQuestion` for structured input):
 
 **Question 1:** "What type of work item will use this schema?"
-- If `$ARGUMENTS` contained a schema name, use it as the tag name
+- If `$ARGUMENTS` contained a schema name, use it as the type name
 - Otherwise, prompt with examples: `research-spike`, `infrastructure-change`, `plugin-update`
-- This becomes the schema key and the tag agents apply to items
+- This becomes the schema key and the `type` value agents set on items
 
-**Question 2:** "Does this work type need a review/deploy phase after implementation, or does it go straight to done?"
+**Question 2:** "What lifecycle mode? (auto = cascades to terminal when children complete, manual = no auto-cascade, auto-reopen = reopens when new children added, permanent = never auto-terminates)"
+- Default to `auto` if the user is unsure
+
+**Question 3:** "Does this work type need a review/deploy phase after implementation, or does it go straight to done?"
 - Yes → include `role: review` notes
 - No → schema ends at work phase (terminal reached after work notes filled)
 
-**Question 3:** "What must be documented *before* work starts (queue phase)?"
+**Question 4:** "What must be documented *before* work starts (queue phase)?"
 - Prompt with examples: requirements/acceptance criteria, research question, change scope
 - Aim for 1-3 notes; ask for each: key name, whether required, what agents should capture
+- For each note, ask: "Should this note have a skill framework? If so, what skill name?"
 
-**Question 4:** "What must be documented *after* implementation (work phase)?"
+**Question 5:** "What must be documented *after* implementation (work phase)?"
 - Prompt with examples: implementation summary, test results, files changed
 - Aim for 1-3 notes
 
-**Question 5 (if review phase):** "What must be documented/verified before closing (review phase)?"
+**Question 6 (if review phase):** "What must be documented/verified before closing (review phase)?"
 - Prompt with examples: deploy confirmation, smoke test results, sign-off
+- For each note, ask about the skill field
 
-**Question 6:** "Should we create a companion lifecycle skill at `.claude/skills/<schema-name>/SKILL.md`?"
+**Question 7:** "Should we create a companion lifecycle skill at `.claude/skills/<schema-name>/SKILL.md`?"
 - This gives agents a `/<schema-name>` slash command with full phase-by-phase lifecycle guidance
 - Recommended when the workflow has 3+ notes or involves non-obvious sequencing
 
+**Question 8:** "Should any traits be applied by default to items of this type?"
+- Explain: traits add additional note requirements (e.g., `needs-migration-review` adds a migration assessment)
+- Show available traits from the `traits:` section of config if it exists
+- If yes, add to `default_traits` list
+
 ### Generate YAML
 
-Using answers from the gathering step, produce the YAML block. Apply these defaults:
+Using answers from the gathering step, produce the YAML block in `work_item_schemas` format. Apply these defaults:
 - First queue note's `guidance` should open with: `"Run /<schema-name> for the full lifecycle guide. For this note: <specific guidance>."` if a companion skill will be created
 - Use kebab-case for all keys
 - Keep `description` values under 80 chars
 - If a `session-tracking` note was added, use the standard structured guidance (see rule 4 below)
+- Include `lifecycle:` even if `auto` (explicit is clearer)
 
 Show the generated YAML to the user and ask for confirmation before writing.
 
@@ -146,21 +166,21 @@ Apply these four disciplines when writing `guidance` values for any note — whe
 
 3. **Concrete over generic.** Specify the actual verification action, not the category. "State which files changed and the specific function modified" instead of "describe the approach." "Name specific test scenarios for happy paths and failure paths" instead of "add tests."
 
-4. **Session-tracking prompt.** If the schema includes a work phase, ask: "Most schemas include a session-tracking note (work phase) for retrospective analysis. Add one? [Yes/No]" If yes, use this standard guidance: `"This note feeds retrospective analysis. Structure: **Outcome**: success | partial | failure. **Files changed**: list with one-line rationale each. **Deviations**: from plan or diagnosis. **Friction**: tool errors, unexpected roundtrips, API confusion — include type (optimization/friction/bug/missing-capability) and description. **Test results**: pass/fail counts, new tests added."`
+4. **Session-tracking prompt.** If the schema includes a work phase, ask: "Most schemas include a session-tracking note (work phase) for retrospective analysis. Add one? [Yes/No]" If yes, use this standard guidance: `"Record: Outcome (success/partial/failure), files changed with rationale, deviations from plan, friction (tool errors, roundtrips), test results (pass/fail counts, new tests added)."`
 
 ---
 
 ## Step 4 — Write Config
 
 Check if `.taskorchestrator/config.yaml` exists:
-- **Exists:** Read it, merge the new schema under `note_schemas:`, write back
-- **Doesn't exist:** Create `.taskorchestrator/` directory and write the file with the new schema
+- **Exists:** Read it, merge the new schema under `work_item_schemas:`, write back
+- **Doesn't exist:** Create `.taskorchestrator/` directory and write the file with the new schema under `work_item_schemas:`
 
 After writing, remind the user: **MCP reconnect required** (`/mcp`) for the schema to take effect.
 
 ---
 
-## Step 5 — Generate Companion Skill (if requested or if from-scratch Q6 said yes)
+## Step 5 — Generate Companion Skill (if requested or if from-scratch Q7 said yes)
 
 For template paths, ask via `AskUserQuestion` whether to generate a companion skill before proceeding.
 
@@ -177,7 +197,7 @@ Create a temporary item to confirm the schema loads:
 ```
 manage_items(
   operation="create",
-  items=[{ title: "Schema smoke test", tags: "<schema-name>", priority: "low" }]
+  items=[{ title: "Schema smoke test", type: "<schema-name>", priority: "low" }]
 )
 ```
 

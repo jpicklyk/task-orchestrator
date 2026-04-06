@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-04-06 (Plugin v3.0.0)
+
+### Breaking Changes
+- Changed schema matching from tag-based to type-based — items now use a dedicated `type` field for schema activation; tags remain for categorization only
+- Evolved config format from `note_schemas:` to `work_item_schemas:` with lifecycle modes and trait support (legacy format still parsed for backward compat)
+
+### Added
+- Added `type` and `properties` fields to WorkItem — `type` drives schema resolution, `properties` stores extensible JSON including traits
+- Added `LifecycleMode` enum (AUTO, MANUAL, AUTO_REOPEN, PERMANENT) — controls cascade behavior per work item type
+- Added composable traits — agents assign traits per-item that merge additional note requirements into the base schema at gate-check time
+- Added `skill` field on note schema entries — surfaces as `skillPointer` in `get_context` and `advance_item` responses for deterministic skill routing
+- Added `skill-enforcement` PreToolUse hook on `manage_notes` — detects shallow notes on skill-required entries and injects skill-invocation directive
+- Added 3 trait-specific review skills: `migration-review`, `plugin-impact-review`, `perf-review`
+- Added `traits` as shared default parameter on `manage_items(create)` — applies to all items when per-item traits not specified
+- Enriched `query_items(overview)` response — root items and children now include `tags`, `type`, `childCounts`, and `traits`
+
+### Changed
+- Reduced `/work-summary` skill from 4 to 3 MCP calls by leveraging enriched overview response
+- Updated `subagent-start` hook with deterministic `skillPointer` instruction
+- Updated `post-plan-workflow` skill with skill-aware delegation instructions
+- Bumped plugin version to 3.0.0 — aligned with server major version
+
+---
+
 ## [2.5.2] - 2026-04-03 (Plugin v2.7.3)
 
 ### Fixed
