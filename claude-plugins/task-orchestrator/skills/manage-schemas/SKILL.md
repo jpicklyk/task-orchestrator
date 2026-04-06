@@ -58,17 +58,30 @@ Read `.taskorchestrator/config.yaml` and display schemas in a summary table:
 ```
 ◆ Note Schemas — .taskorchestrator/config.yaml
 
-| Schema Tag | Queue Notes | Work Notes | Review Notes | Total |
-|---|---|---|---|---|
-| feature-implementation | 2 (2 req) | 2 (2 req) | 1 (0 req) | 5 |
-| bug-fix | 2 (2 req) | 2 (2 req) | — | 4 |
+| Schema Type | Lifecycle | Queue Notes | Work Notes | Review Notes | Total |
+|---|---|---|---|---|---|
+| feature-implementation | auto | 1 (1 req) | 2 (2 req) | 1 (1 req) | 4 |
+| bug-fix | auto | 1 (1 req) | 2 (2 req) | 1 (1 req) | 4 |
 ```
 
-If the user specified a schema name, show that schema's full detail: each note with key, role, required, description, and guidance.
+If the user specified a schema name, show that schema's full detail: each note with key, role, required, description, guidance, and skill (if set). Also show the schema's lifecycle mode and default_traits (if any).
+
+If the config has a `traits:` section, show a separate traits summary table:
+
+```
+◆ Traits
+
+| Trait | Notes | Skills |
+|---|---|---|
+| needs-security-review | security-assessment (review, req) | security-review |
+| needs-migration-review | migration-assessment (queue, req) | migration-review |
+```
 
 ### EDIT — Modify an Existing Schema
 
-Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance, rename key), apply changes, write back.
+Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance/skill, change lifecycle mode, add/remove default_traits, rename key), apply changes, write back.
+
+When adding or editing a note, offer the `skill` field: "Should this note have a skill framework? If so, provide the skill name (e.g., `review-quality`). The skill will be invoked before the agent fills the note."
 
 If the target schema is not found in config.yaml, inform the user and offer to CREATE instead.
 
@@ -113,7 +126,7 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 
 **Duplicate schema key in config file**
 - Cause: YAML allows duplicate keys but only the last one is used
-- Solution: Check for duplicate entries under `note_schemas:` and merge them
+- Solution: Check for duplicate entries under `work_item_schemas:` (or `note_schemas:`) and merge them
 
 **Changes not taking effect after editing config**
 - Cause: The server caches schemas on first access — changes are not hot-reloaded
