@@ -314,7 +314,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             }
 
             // Resolve transition
-            val hasReviewPhase = context.noteSchemaService().hasReviewPhase(item.tagList())
+            val hasReviewPhase = context.resolveHasReviewPhase(item)
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
             if (!resolution.success || resolution.targetRole == null) {
                 // Item may already be terminal or otherwise can't transition — skip silently
@@ -429,8 +429,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         onComplete: () -> Unit,
         onSkip: () -> Unit
     ) {
-        val itemTags = item.tagList()
-        val hasReviewPhase = context.noteSchemaService().hasReviewPhase(itemTags)
+        val hasReviewPhase = context.resolveHasReviewPhase(item)
         val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
         if (!resolution.success || resolution.targetRole == null) {
             onSkip()
@@ -495,8 +494,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         context: ToolExecutionContext
     ): List<String> {
         if (trigger != "complete") return emptyList()
-        val schema = context.noteSchemaService().getSchemaForTags(item.tagList()) ?: return emptyList()
-        val allRequired = schema.filter { it.required }
+        val resolvedSchema = context.resolveSchema(item) ?: return emptyList()
+        val allRequired = resolvedSchema.notes.filter { it.required }
         if (allRequired.isEmpty()) return emptyList()
 
         val notes =

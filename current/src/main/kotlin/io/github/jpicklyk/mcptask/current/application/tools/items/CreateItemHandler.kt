@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
+import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -33,6 +34,7 @@ class CreateItemHandler(
     suspend fun execute(
         items: JsonArray,
         sharedParentId: UUID?,
+        sharedTraits: String?,
         context: ToolExecutionContext
     ): JsonElement {
         val repo = context.workItemRepository()
@@ -59,6 +61,10 @@ class CreateItemHandler(
                 val requiresVerification = extractItemBoolean(itemObj, "requiresVerification") ?: false
                 val metadata = extractItemString(itemObj, "metadata")
                 val tags = extractItemString(itemObj, "tags")
+                val type = extractItemString(itemObj, "type")
+                val rawProperties = extractItemString(itemObj, "properties")
+                val traitsStr = extractItemString(itemObj, "traits") ?: sharedTraits
+                val properties = PropertiesHelper.mergeTraitsFromString(rawProperties, traitsStr)
 
                 // Pre-generate the UUID so we can guard against self-parent before construction
                 val itemId = UUID.randomUUID()
@@ -126,20 +132,16 @@ class CreateItemHandler(
                         requiresVerification = requiresVerification,
                         depth = depth,
                         metadata = metadata,
-                        tags = tags
+                        tags = tags,
+                        type = type,
+                        properties = properties
                     )
 
                 when (val result = repo.create(workItem)) {
                     is Result.Success -> {
                         val createdTags = result.data.tags
-                        val tagList =
-                            createdTags
-                                ?.split(",")
-                                ?.map { it.trim() }
-                                ?.filter { it.isNotBlank() }
-                                ?: emptyList()
-                        val schemaEntries = context.noteSchemaService().getSchemaForTags(tagList)
-                        val schemaFields = buildSchemaResponseFields(schemaEntries)
+                        val resolvedSchema = context.resolveSchema(result.data)
+                        val schemaFields = buildSchemaResponseFields(resolvedSchema)
                         createdItems.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(result.data.id.toString()))
@@ -184,6 +186,7 @@ class CreateItemHandler(
             }
         }
 
+        val availableTraits = context.noteSchemaService().getAvailableTraits()
         val data =
             buildJsonObject {
                 put("items", JsonArray(createdItems))
@@ -191,6 +194,12 @@ class CreateItemHandler(
                 put("failed", JsonPrimitive(failures.size))
                 if (failures.isNotEmpty()) {
                     put("failures", JsonArray(failures))
+                }
+                if (availableTraits.isNotEmpty()) {
+                    put(
+                        "availableTraits",
+                        JsonArray(availableTraits.map { JsonPrimitive(it) })
+                    )
                 }
             }
 

@@ -23,7 +23,7 @@ Task Orchestrator gives agents a structured backbone: a **persistent work item g
 - ✅ **Persistent Memory** — AI remembers project state, completed work, and decisions across sessions
 - ✅ **Token Efficiency** — Agents read concise per-phase notes instead of replaying conversation history; overview queries and metadata-only modes minimize payload size
 - ✅ **Hierarchical WorkItems** — Flexible depth hierarchy (up to 4 levels) with any nesting structure you need
-- ✅ **Note Schemas** — Per-item documentation requirements that gate phase transitions; enforced by the server
+- ✅ **Note Schemas** — Per-item documentation requirements that gate phase transitions; enforced by the server. Supports lifecycle modes (`linear`, `milestone`, `exploratory`) and composable traits for fine-grained schema reuse
 - ✅ **Role-Based Workflow** — `queue → work → review → terminal` with named triggers and automatic dependency enforcement
 - ✅ **Dependency Graph** — Typed BLOCKS edges with pattern shortcuts (linear chains, fan-out, fan-in) and BFS traversal
 - ✅ **Sub-Agent Orchestration** — Delegated execution for complex work (Claude Code)
@@ -259,24 +259,28 @@ Transitions use named triggers — no raw status assignments:
 
 ## Note Schemas
 
-Note schemas are the key feature that makes phase transitions meaningful. When an item's `tags` match a configured schema, required notes must be filled before `advance_item` allows progression to the next phase.
+Note schemas are the key feature that makes phase transitions meaningful. When an item's `type` matches a configured schema, required notes must be filled before `advance_item` allows progression to the next phase. Tags also work as a fallback for backward compatibility.
 
 Define schemas in `.taskorchestrator/config.yaml` in your project root:
 
 ```yaml
-note_schemas:
+work_item_schemas:
   task-implementation:
-    - key: requirements
-      role: queue
-      required: true
-      description: "Testable acceptance criteria before starting"
-    - key: done-criteria
-      role: work
-      required: true
-      description: "What does done look like? How was it verified?"
+    lifecycle: auto            # auto | manual | auto-reopen | permanent
+    notes:
+      - key: requirements
+        role: queue
+        required: true
+        description: "Testable acceptance criteria before starting"
+      - key: done-criteria
+        role: work
+        required: true
+        description: "What does done look like? How was it verified?"
 ```
 
-Items tagged `task-implementation` are now gated:
+> **Legacy format:** `note_schemas:` (without `lifecycle:` or the nested `notes:` key) is still supported for backward compatibility.
+
+Items with `type: task-implementation` are now gated (tags also work as fallback):
 
 - `advance_item(trigger="start")` from **queue** requires `requirements` to be filled
 - `advance_item(trigger="start")` from **work** requires `done-criteria` to be filled
@@ -356,7 +360,7 @@ The server exposes **13 tools** organized around the WorkItem graph:
 You: "I want to build user authentication"
 AI: → create_work_tree("User Auth", children=[schema, login-api, tests], deps=[schema→api→tests])
    → 3 WorkItems created with linear dependency chain
-   → Note schema gates applied to items tagged task-implementation
+   → Note schema gates applied to items with type task-implementation
 
 You: "What's next?"
 AI: → get_next_item() → "Database schema" [queue, no blockers, high priority]

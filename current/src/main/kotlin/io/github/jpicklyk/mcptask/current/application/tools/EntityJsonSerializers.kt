@@ -40,6 +40,8 @@ fun WorkItem.toFullJson(): JsonObject =
         put("depth", JsonPrimitive(depth))
         metadata?.let { put("metadata", JsonPrimitive(it)) }
         tags?.let { put("tags", JsonPrimitive(it)) }
+        type?.let { put("type", JsonPrimitive(it)) }
+        properties?.let { put("properties", JsonPrimitive(it)) }
         put("createdAt", JsonPrimitive(createdAt.toString()))
         put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
         put("roleChangedAt", JsonPrimitive(roleChangedAt.toString()))
@@ -59,6 +61,7 @@ fun WorkItem.toMinimalJson(): JsonObject =
         put("priority", JsonPrimitive(priority.toJsonString()))
         put("depth", JsonPrimitive(depth))
         tags?.let { put("tags", JsonPrimitive(it)) }
+        type?.let { put("type", JsonPrimitive(it)) }
     }
 
 /**

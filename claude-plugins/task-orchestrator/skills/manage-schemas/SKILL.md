@@ -34,9 +34,9 @@ Check if `.taskorchestrator/config.yaml` exists by reading it.
 
 **If the file does not exist:**
 - For **VIEW** or **VALIDATE**: report "No schemas configured — `.taskorchestrator/config.yaml` does not exist." and stop.
-- For **CREATE**, **EDIT**, or **DELETE**: create the `.taskorchestrator/` directory if missing, then create `config.yaml` with an empty `note_schemas:` key:
+- For **CREATE**, **EDIT**, or **DELETE**: create the `.taskorchestrator/` directory if missing, then create `config.yaml` with an empty `work_item_schemas:` key:
   ```yaml
-  note_schemas:
+  work_item_schemas:
   ```
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
@@ -106,9 +106,10 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 - Cause: MCP server hasn't loaded the updated config file
 - Solution: Run `/mcp` in Claude Code to reconnect the server, then retry
 
-**Schema key doesn't match — item has no schema applied**
-- Cause: The item's `tags` field doesn't contain a string matching any `note_schemas` key
-- Solution: Verify the item's tags with `query_items(operation="get", id="<uuid>")`. The first tag matching a schema key wins.
+**Schema not applied — item has no schema**
+- Cause: The item's `type` field doesn't match any key in `work_item_schemas`, and its tags don't match any `note_schemas` key (legacy fallback)
+- Resolution order: `type` field → direct lookup in `work_item_schemas`; if no type or no match, first tag match in `note_schemas`; if no match, falls back to `default` schema if one exists
+- Solution: Verify the item's type and tags with `query_items(operation="get", id="<uuid>")`. Set `type` to a key that exists in `work_item_schemas` for reliable schema selection.
 
 **Duplicate schema key in config file**
 - Cause: YAML allows duplicate keys but only the last one is used

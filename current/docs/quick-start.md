@@ -210,7 +210,7 @@ The conversational examples above translate to these tool calls:
 ```
 # Build a work tree with children and dependencies in one call
 create_work_tree(
-  root={title: "Authentication system", priority: "high"},
+  root={title: "Authentication system", type: "feature", priority: "high"},
   children=[
     {ref: "schema", title: "Database schema"},
     {ref: "api",    title: "Auth API endpoints"},
@@ -268,24 +268,29 @@ This calls `get_context()` and `get_blocked_items()` and presents a structured v
 
 > **Schemas vs notes:** Schemas are user-configured rules in `.taskorchestrator/config.yaml` — they define what documentation agents must provide at each workflow phase. Notes are the actual content agents write as they work on items. Schemas live in your project config; notes live in the MCP database. Schemas define the gates; agents fill the notes to pass them.
 
-Note schemas enforce per-phase documentation requirements. When an item's `tags` match a schema, `advance_item` gates progression until the required notes are filled.
+Note schemas enforce per-phase documentation requirements. When an item's `type` or `tags` match a schema, `advance_item` gates progression until the required notes are filled.
 
 Create `.taskorchestrator/config.yaml` in your project root:
 
 ```yaml
-note_schemas:
+# Preferred format — supports lifecycle and traits fields
+work_item_schemas:
   task-implementation:
-    - key: acceptance-criteria
-      role: queue
-      required: true
-      description: "Testable acceptance criteria for this task."
-    - key: done-criteria
-      role: work
-      required: true
-      description: "What does done look like? How was it verified?"
+    lifecycle: AUTO          # AUTO (default), MANUAL, AUTO_REOPEN, or PERMANENT
+    notes:
+      - key: acceptance-criteria
+        role: queue
+        required: true
+        description: "Testable acceptance criteria for this task."
+      - key: done-criteria
+        role: work
+        required: true
+        description: "What does done look like? How was it verified?"
 ```
 
-Items tagged `task-implementation` will now require an `acceptance-criteria` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
+> The legacy `note_schemas:` flat-list format is still accepted and fully backward-compatible. New configs should prefer `work_item_schemas:`.
+
+Items whose `type` is `task-implementation`, or that carry the `task-implementation` tag, will require an `acceptance-criteria` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
 
 The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, and validating schemas without editing YAML directly.
 
@@ -320,11 +325,11 @@ After adding or editing this file, reconnect the MCP server:
 
 | Concept | Description |
 |---------|-------------|
-| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), `priority`, `tags`, `depth` (0-3), and optional `parentId`. |
+| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), `type` (e.g. `feature`, `task`, `bug`), `priority`, `tags`, `depth` (0-3), optional `parentId`, and a `properties` map for custom metadata. |
 | `Note` | Key-value text attached to an item. Has a `role` indicating which workflow phase it belongs to. |
 | `Dependency` | Directed edge between items: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO`. |
 | Role progression | Items advance via triggers: `start` (queue→work, work→review), `complete` (any→terminal), `block`/`hold` (any→blocked), `resume` (blocked→previous). |
-| Note schema gating | When enabled, `advance_item` checks required notes exist and are non-empty before allowing phase transitions. |
+| Note schema gating | When enabled, `advance_item` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then tags, then the `default` schema. |
 
 ---
 

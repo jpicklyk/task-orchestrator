@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
@@ -146,5 +147,125 @@ class PhaseNoteContextTest {
         assertEquals(0, result.filled)
         assertEquals(0, result.remaining)
         assertEquals(0, result.total)
+    }
+
+    // ──────────────────────────────────────────────
+    // WorkItemSchema overload
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `WorkItemSchema overload delegates correctly — all notes missing`() {
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
+                        NoteSchemaEntry(key = "design", role = Role.QUEUE, required = true, guidance = "Write design")
+                    )
+            )
+        val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
+
+        assertNotNull(result)
+        assertEquals("Write spec", result.guidancePointer)
+        assertEquals(listOf("spec", "design"), result.missingKeys)
+        assertEquals(0, result.filled)
+        assertEquals(2, result.remaining)
+        assertEquals(2, result.total)
+    }
+
+    @Test
+    fun `WorkItemSchema overload returns null for terminal role`() {
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec")
+                    )
+            )
+        val result = computePhaseNoteContext(Role.TERMINAL, schema, emptyMap())
+        assertNull(result)
+    }
+
+    @Test
+    fun `WorkItemSchema overload respects only the current role`() {
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Queue guidance"),
+                        NoteSchemaEntry(key = "impl", role = Role.WORK, required = true, guidance = "Work guidance")
+                    )
+            )
+        val result = computePhaseNoteContext(Role.WORK, schema, emptyMap())
+
+        assertNotNull(result)
+        assertEquals("Work guidance", result.guidancePointer)
+        assertEquals(listOf("impl"), result.missingKeys)
+        assertEquals(1, result.total)
+    }
+
+    @Test
+    fun `WorkItemSchema overload counts filled notes correctly`() {
+        val schema =
+            WorkItemSchema(
+                type = "feature-task",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
+                        NoteSchemaEntry(key = "risks", role = Role.QUEUE, required = true, guidance = "List risks")
+                    )
+            )
+        val notesByKey = mapOf("spec" to note("spec"))
+        val result = computePhaseNoteContext(Role.QUEUE, schema, notesByKey)
+
+        assertNotNull(result)
+        assertEquals(1, result.filled)
+        assertEquals(1, result.remaining)
+        assertEquals("List risks", result.guidancePointer)
+    }
+
+    // ──────────────────────────────────────────────
+    // skillPointer field
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `skillPointer comes from first unfilled required note`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(
+                    key = "review-notes",
+                    role = Role.REVIEW,
+                    required = true,
+                    guidance = "Review guidance",
+                    skill = "review-quality"
+                )
+            )
+        val result = computePhaseNoteContext(Role.REVIEW, schema, emptyMap())
+
+        assertNotNull(result)
+        assertEquals("review-quality", result.skillPointer)
+        assertEquals("Review guidance", result.guidancePointer)
+    }
+
+    @Test
+    fun `skillPointer is null when note has no skill`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(
+                    key = "spec",
+                    role = Role.QUEUE,
+                    required = true,
+                    guidance = "Write spec"
+                    // skill defaults to null
+                )
+            )
+        val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
+
+        assertNotNull(result)
+        assertNull(result.skillPointer)
+        assertEquals("Write spec", result.guidancePointer)
     }
 }

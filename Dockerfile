@@ -13,7 +13,7 @@ COPY gradle gradle
 COPY build.gradle.kts settings.gradle.kts ./
 COPY version.properties ./
 COPY current/build.gradle.kts current/
-RUN chmod +x gradlew
+RUN sed -i 's/\r$//' gradlew && chmod +x gradlew
 
 # Download dependencies (cached until build files change)
 RUN ./gradlew dependencies --no-daemon

@@ -41,7 +41,7 @@ Unified write operations for WorkItems (create, update, delete).
 **Operations:**
 
 **create** - Create WorkItems from `items` array.
-- Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags? }`
+- Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`
 - Shared `parentId` at top level serves as default for all items (per-item parentId overrides)
 - Depth auto-computed from parent (root=0, child=parent.depth+1, max=$MAX_DEPTH)
 - Defaults: role=queue, priority=medium, complexity=5
@@ -49,7 +49,7 @@ Unified write operations for WorkItems (create, update, delete).
 - `tags` is always included (null if not set). `expectedNotes` is always included (empty array when no schema matches). `schemaMatch` indicates whether the item's tags matched a configured note schema.
 
 **update** - Partial update from `items` array.
-- Each item: `{ id (required), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags? }`
+- Each item: `{ id (required), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`
 - Note: role changes are not allowed in update operations. Use advance_item with triggers (start, complete, block, hold, resume, cancel, reopen) instead.
 - Only provided fields are changed; omitted fields retain existing values
 - If parentId changes, depth is recomputed from new parent
@@ -124,6 +124,46 @@ Unified write operations for WorkItems (create, update, delete).
                             put("description", JsonPrimitive("Whether this item requires explicit verification before completion"))
                         }
                     )
+                    put(
+                        "type",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Schema type identifier for this work item. Determines which work_item_schema applies " +
+                                        "(lifecycle mode, required notes). One-to-one lookup — unlike tags, only one type per item."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "properties",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "JSON string containing extensible item properties (e.g., lifecycle overrides, traits). " +
+                                        "Stored as-is; validated by consuming code."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "traits",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Comma-separated list of trait names to apply (e.g., 'needs-security-review,needs-perf-review'). " +
+                                        "Traits add additional note requirements from the traits: config section. " +
+                                        "Merged into the properties JSON automatically."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -163,6 +203,7 @@ Unified write operations for WorkItems (create, update, delete).
                 createHandler.execute(
                     requireJsonArray(params, "items"),
                     extractUUID(params, "parentId", required = false),
+                    optionalString(params, "traits"),
                     context
                 )
             "update" ->

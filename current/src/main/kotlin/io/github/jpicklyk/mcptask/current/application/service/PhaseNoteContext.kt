@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
  * Snapshot of an item's required-note status for its current workflow phase.
@@ -12,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
  * and GetContextTool.findStalledItems.
  *
  * @property guidancePointer Guidance text for the first unfilled required note, or null if all filled
+ * @property skillPointer Skill name for the first unfilled required note, or null if none specified
  * @property missingKeys Keys of required notes that are missing or have blank bodies
  * @property filled Count of required notes in this phase that have non-blank bodies
  * @property remaining Count of required notes in this phase that are missing or blank
@@ -19,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
  */
 data class PhaseNoteContext(
     val guidancePointer: String?,
+    val skillPointer: String?,
     val missingKeys: List<String>,
     val filled: Int,
     val remaining: Int,
@@ -50,11 +53,27 @@ fun computePhaseNoteContext(
             note == null || note.body.isBlank()
         }
 
+    val firstMissing = missing.firstOrNull()
     return PhaseNoteContext(
-        guidancePointer = missing.firstOrNull()?.guidance,
+        guidancePointer = firstMissing?.guidance,
+        skillPointer = firstMissing?.skill,
         missingKeys = missing.map { it.key },
         filled = required.size - missing.size,
         remaining = missing.size,
         total = required.size
     )
 }
+
+/**
+ * Overload of [computePhaseNoteContext] that accepts a [WorkItemSchema] instead of a raw
+ * list of [NoteSchemaEntry] objects. Delegates to the primary overload using [WorkItemSchema.notes].
+ *
+ * @param role The item's current role
+ * @param schema The [WorkItemSchema] for the item's type
+ * @param notesByKey Map of existing notes keyed by their note key
+ */
+fun computePhaseNoteContext(
+    role: Role,
+    schema: WorkItemSchema,
+    notesByKey: Map<String, Note>
+): PhaseNoteContext? = computePhaseNoteContext(role, schema.notes, notesByKey)

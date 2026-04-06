@@ -228,6 +228,13 @@ Operations: get, search, overview
                             )
                         }
                     )
+                    put(
+                        "type",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Filter by type identifier (exact match)"))
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -447,6 +454,7 @@ Operations: get, search, overview
         val modifiedBefore = parseInstant(params, "modifiedBefore")
         val roleChangedAfter = parseInstant(params, "roleChangedAfter")
         val roleChangedBefore = parseInstant(params, "roleChangedBefore")
+        val typeFilter = optionalString(params, "type")
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
         val limit = optionalInt(params, "limit") ?: 50
@@ -500,7 +508,8 @@ Operations: get, search, overview
                         modifiedAfter = modifiedAfter,
                         modifiedBefore = modifiedBefore,
                         roleChangedAfter = roleChangedAfter,
-                        roleChangedBefore = roleChangedBefore
+                        roleChangedBefore = roleChangedBefore,
+                        type = typeFilter
                     )
             ) {
                 is Result.Success -> countResult.data
@@ -525,7 +534,8 @@ Operations: get, search, overview
                     sortBy = sortBy,
                     sortOrder = sortOrder,
                     limit = limit,
-                    offset = offset
+                    offset = offset,
+                    type = typeFilter
                 )
         ) {
             is Result.Success -> {
@@ -661,11 +671,11 @@ Operations: get, search, overview
                     }
 
                 buildJsonObject {
-                    put("id", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("role", JsonPrimitive(item.role.toJsonString()))
-                    item.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                    put("priority", JsonPrimitive(item.priority.toJsonString()))
+                    item.toMinimalJson().forEach { (k, v) -> put(k, v) }
+                    val rootTraits = PropertiesHelper.extractTraits(item.properties)
+                    if (rootTraits.isNotEmpty()) {
+                        put("traits", JsonArray(rootTraits.map { JsonPrimitive(it) }))
+                    }
                     put("childCounts", roleCountToJson(childCounts))
                     if (includeChildren) {
                         val children =
@@ -677,12 +687,18 @@ Operations: get, search, overview
                             "children",
                             JsonArray(
                                 children.map { child ->
+                                    val grandchildCounts =
+                                        when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
+                                            is Result.Success -> result.data
+                                            is Result.Error -> emptyMap()
+                                        }
+                                    val childTraits = PropertiesHelper.extractTraits(child.properties)
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(child.id.toString()))
-                                        put("title", JsonPrimitive(child.title))
-                                        put("role", JsonPrimitive(child.role.toJsonString()))
-                                        child.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                                        put("depth", JsonPrimitive(child.depth))
+                                        child.toMinimalJson().forEach { (k, v) -> put(k, v) }
+                                        put("childCounts", roleCountToJson(grandchildCounts))
+                                        if (childTraits.isNotEmpty()) {
+                                            put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
+                                        }
                                     }
                                 }
                             )

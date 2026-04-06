@@ -50,6 +50,9 @@ class GetContextToolTest {
         noteRepo = mockk()
         roleTransitionRepo = mockk()
         noteSchemaService = mockk()
+        every { noteSchemaService.getSchemaForType(any()) } returns null
+        every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
+        every { noteSchemaService.getTraitNotes(any()) } returns null
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -68,6 +71,8 @@ class GetContextToolTest {
         title: String = "Test Item",
         role: Role = Role.WORK,
         tags: String? = null,
+        type: String? = null,
+        properties: String? = null,
         depth: Int = 0,
         parentId: UUID? = null
     ): WorkItem =
@@ -77,6 +82,8 @@ class GetContextToolTest {
             title = title,
             role = role,
             tags = tags,
+            type = type,
+            properties = properties,
             depth = depth
         )
 
@@ -1125,6 +1132,75 @@ class GetContextToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // skillPointer in stalled items
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `health-check stalled items include skillPointer when schema note has skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Impl notes",
+                        guidance = "Write the implementation",
+                        skill = "review-quality"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params(), schemaContext)
+
+            val data = extractData(result)
+            val stalledItems = data["stalledItems"]!!.jsonArray
+            assertEquals(1, stalledItems.size)
+
+            val stalledItem = stalledItems[0].jsonObject
+            assertTrue(stalledItem.containsKey("skillPointer"), "skillPointer should be present in stalled item")
+            assertEquals("review-quality", stalledItem["skillPointer"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `health-check stalled items omit skillPointer when note has no skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Impl notes",
+                        guidance = "Write the implementation"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+
+            val result = tool.execute(params(), schemaContext)
+
+            val data = extractData(result)
+            val stalledItem = data["stalledItems"]!!.jsonArray[0].jsonObject
+            assertFalse(stalledItem.containsKey("skillPointer"), "skillPointer should be absent when note has no skill")
+        }
+
+    // ──────────────────────────────────────────────
     // StalledItemEntry: multiple missing notes listed correctly
     // ──────────────────────────────────────────────
 
@@ -1616,5 +1692,118 @@ class GetContextToolTest {
             assertEquals(1, noteProgress["filled"]!!.jsonPrimitive.int, "filled should be 1")
             assertEquals(2, noteProgress["remaining"]!!.jsonPrimitive.int, "remaining should be 2")
             assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int, "total should be 3")
+        }
+
+    // ──────────────────────────────────────────────
+    // Type-first schema resolution
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode uses type-based schema when item has type field`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, type = "feature-task")
+
+            val typeSchema =
+                WorkItemSchema(
+                    type = "feature-task",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Implementation notes")
+                        )
+                )
+            every { noteSchemaService.getSchemaForType("feature-task") } returns typeSchema
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result = tool.execute(params("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
+            val data = extractData(result)
+
+            val schema = data["schema"]!!.jsonArray
+            assertEquals(1, schema.size)
+            assertEquals("impl-notes", schema[0].jsonObject["key"]!!.jsonPrimitive.content)
+
+            val gateStatus = data["gateStatus"]!!.jsonObject
+            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+        }
+
+    @Test
+    fun `item mode includes trait notes in schema when type has default_traits`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE, type = "feature-with-traits")
+
+            val typeSchema =
+                WorkItemSchema(
+                    type = "feature-with-traits",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Specification")
+                        ),
+                    defaultTraits = listOf("security-trait")
+                )
+            every { noteSchemaService.getSchemaForType("feature-with-traits") } returns typeSchema
+            every { noteSchemaService.getDefaultTraits("feature-with-traits") } returns listOf("security-trait")
+            every { noteSchemaService.getTraitNotes("security-trait") } returns
+                listOf(
+                    NoteSchemaEntry(key = "security-review", role = Role.REVIEW, required = true, description = "Security review")
+                )
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result = tool.execute(params("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
+            val data = extractData(result)
+
+            val schema = data["schema"]!!.jsonArray
+            assertEquals(2, schema.size, "Should include base + trait notes")
+            val keys = schema.map { it.jsonObject["key"]!!.jsonPrimitive.content }
+            assertTrue("spec" in keys)
+            assertTrue("security-review" in keys)
+        }
+
+    // ──────────────────────────────────────────────
+    // skillPointer in item mode response
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode response includes skillPointer when schema note has skill`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Notes on implementation",
+                        guidance = "Write your implementation notes here",
+                        skill = "review-quality"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            // No notes exist → first unfilled required note drives skillPointer
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    schemaContext
+                )
+
+            val data = extractData(result)
+            assertEquals("item", data["mode"]!!.jsonPrimitive.content)
+
+            // skillPointer should be present and equal to the skill on the first unfilled note
+            assertTrue(data.containsKey("skillPointer"), "skillPointer should be present in response")
+            assertEquals("review-quality", data["skillPointer"]!!.jsonPrimitive.content)
+
+            // guidancePointer should also be populated from the same note
+            assertEquals("Write your implementation notes here", data["guidancePointer"]!!.jsonPrimitive.content)
         }
 }
