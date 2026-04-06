@@ -687,10 +687,11 @@ Operations: get, search, overview
                             "children",
                             JsonArray(
                                 children.map { child ->
-                                    val grandchildCounts = when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
-                                        is Result.Success -> result.data
-                                        is Result.Error -> emptyMap()
-                                    }
+                                    val grandchildCounts =
+                                        when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
+                                            is Result.Success -> result.data
+                                            is Result.Error -> emptyMap()
+                                        }
                                     val childTraits = PropertiesHelper.extractTraits(child.properties)
                                     buildJsonObject {
                                         child.toMinimalJson().forEach { (k, v) -> put(k, v) }

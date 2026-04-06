@@ -483,9 +483,10 @@ class QueryItemsToolTest {
             val items = data["items"]!!.jsonArray
 
             val typedRoot =
-                items.first {
-                    it.jsonObject["title"]!!.jsonPrimitive.content == "Typed and Tagged Root"
-                }.jsonObject
+                items
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Typed and Tagged Root"
+                    }.jsonObject
 
             // tags and type should be present when set on the root item
             assertTrue(typedRoot.containsKey("tags"), "Root item should include tags when set")
@@ -494,9 +495,10 @@ class QueryItemsToolTest {
             assertEquals("feature-task", typedRoot["type"]!!.jsonPrimitive.content)
 
             val plainRoot =
-                items.first {
-                    it.jsonObject["title"]!!.jsonPrimitive.content == "Plain Root"
-                }.jsonObject
+                items
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Plain Root"
+                    }.jsonObject
 
             // tags and type should be absent when not set
             assertFalse(plainRoot.containsKey("tags"), "Root item should not include tags key when not set")
@@ -980,9 +982,10 @@ class QueryItemsToolTest {
             val items = data["items"]!!.jsonArray
 
             val withTraitsRoot =
-                items.first {
-                    it.jsonObject["title"]!!.jsonPrimitive.content == "Root With Traits"
-                }.jsonObject
+                items
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Root With Traits"
+                    }.jsonObject
 
             // traits array should be present and contain the expected value
             val traits = withTraitsRoot["traits"]
@@ -992,9 +995,10 @@ class QueryItemsToolTest {
             assertEquals("needs-migration-review", traitsArray[0].jsonPrimitive.content)
 
             val withoutTraitsRoot =
-                items.first {
-                    it.jsonObject["title"]!!.jsonPrimitive.content == "Root Without Traits"
-                }.jsonObject
+                items
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Root Without Traits"
+                    }.jsonObject
 
             // traits key should be absent when item has no traits
             assertFalse(
@@ -1166,9 +1170,10 @@ class QueryItemsToolTest {
             val items = data["items"]!!.jsonArray
 
             val rootItem =
-                items.first {
-                    it.jsonObject["title"]!!.jsonPrimitive.content == "Root Three Level"
-                }.jsonObject
+                items
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Root Three Level"
+                    }.jsonObject
 
             // Root's children array should include Middle Child
             val children = rootItem["children"]!!.jsonArray
