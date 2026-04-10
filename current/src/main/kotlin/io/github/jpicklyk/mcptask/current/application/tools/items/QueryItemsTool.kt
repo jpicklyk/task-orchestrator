@@ -572,26 +572,7 @@ Operations: get, search, overview
             buildJsonObject {
                 put("item", item.toFullJson())
                 put("childCounts", roleCountToJson(childCounts))
-                put(
-                    "children",
-                    JsonArray(
-                        children.map { child ->
-                            val grandchildCounts =
-                                when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
-                                    is Result.Success -> result.data
-                                    is Result.Error -> emptyMap()
-                                }
-                            val childTraits = PropertiesHelper.extractTraits(child.properties)
-                            buildJsonObject {
-                                child.toMinimalJson().forEach { (k, v) -> put(k, v) }
-                                put("childCounts", roleCountToJson(grandchildCounts))
-                                if (childTraits.isNotEmpty()) {
-                                    put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
-                                }
-                            }
-                        }
-                    )
-                )
+                put("children", JsonArray(children.map { enrichChildJson(it, context) }))
             }
 
         return successResponse(data)
@@ -636,26 +617,7 @@ Operations: get, search, overview
                                 is Result.Success -> result.data
                                 is Result.Error -> emptyList()
                             }
-                        put(
-                            "children",
-                            JsonArray(
-                                children.map { child ->
-                                    val grandchildCounts =
-                                        when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
-                                            is Result.Success -> result.data
-                                            is Result.Error -> emptyMap()
-                                        }
-                                    val childTraits = PropertiesHelper.extractTraits(child.properties)
-                                    buildJsonObject {
-                                        child.toMinimalJson().forEach { (k, v) -> put(k, v) }
-                                        put("childCounts", roleCountToJson(grandchildCounts))
-                                        if (childTraits.isNotEmpty()) {
-                                            put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
-                                        }
-                                    }
-                                }
-                            )
-                        )
+                        put("children", JsonArray(children.map { enrichChildJson(it, context) }))
                     }
                 }
             }
@@ -667,5 +629,28 @@ Operations: get, search, overview
             }
 
         return successResponse(data)
+    }
+
+    /**
+     * Enriches a child WorkItem with childCounts and traits for overview responses.
+     * Shared by both scoped and global overview to keep child rendering consistent.
+     */
+    private suspend fun enrichChildJson(
+        child: WorkItem,
+        context: ToolExecutionContext
+    ): JsonObject {
+        val grandchildCounts =
+            when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
+                is Result.Success -> result.data
+                is Result.Error -> emptyMap()
+            }
+        val childTraits = PropertiesHelper.extractTraits(child.properties)
+        return buildJsonObject {
+            child.toMinimalJson().forEach { (k, v) -> put(k, v) }
+            put("childCounts", roleCountToJson(grandchildCounts))
+            if (childTraits.isNotEmpty()) {
+                put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
+            }
+        }
     }
 }
