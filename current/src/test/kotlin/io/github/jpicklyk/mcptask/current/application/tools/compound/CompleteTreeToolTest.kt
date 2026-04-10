@@ -992,4 +992,127 @@ class CompleteTreeToolTest {
             // Hardcoded "cancelled" from resolution.statusLabel takes precedence over config "dropped"
             assertEquals("cancelled", r["statusLabel"]!!.jsonPrimitive.content)
         }
+
+    // ──────────────────────────────────────────────
+    // Short prefix resolution
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `rootId accepts short hex prefix and resolves`(): Unit =
+        runBlocking {
+            val item = makeItem(title = "Prefix Root", role = Role.QUEUE)
+            val prefix = item.id.toString().substring(0, 8)
+
+            coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns Result.Success(listOf(item))
+            coEvery { workItemRepo.findDescendants(item.id) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(item.id) } returns emptyList()
+
+            val params =
+                buildJsonObject {
+                    put("rootId", JsonPrimitive(prefix))
+                    put("trigger", JsonPrimitive("complete"))
+                }
+            val result = tool.execute(params, context)
+
+            val data = extractData(result)
+            assertNotNull(data["summary"])
+        }
+
+    @Test
+    fun `rootId with unresolvable prefix throws validation error`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.findByIdPrefix("dead0000", any()) } returns Result.Success(emptyList())
+
+            val params =
+                buildJsonObject {
+                    put("rootId", JsonPrimitive("dead0000"))
+                    put("trigger", JsonPrimitive("complete"))
+                }
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.execute(params, context)
+                }
+            assertTrue(ex.message!!.contains("resolve"))
+        }
+
+    @Test
+    fun `itemIds accepts short hex prefixes and resolves`(): Unit =
+        runBlocking {
+            val item = makeItem(title = "Prefix Item", role = Role.QUEUE)
+            val prefix = item.id.toString().substring(0, 8)
+
+            coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns Result.Success(listOf(item))
+            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(item.id) } returns emptyList()
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "itemIds",
+                        buildJsonArray { add(JsonPrimitive(prefix)) }
+                    )
+                    put("trigger", JsonPrimitive("complete"))
+                }
+            val result = tool.execute(params, context)
+
+            val data = extractData(result)
+            assertNotNull(data["summary"])
+        }
+
+    @Test
+    fun `itemIds with unresolvable prefix throws validation error`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.findByIdPrefix("dead0000", any()) } returns Result.Success(emptyList())
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "itemIds",
+                        buildJsonArray { add(JsonPrimitive("dead0000")) }
+                    )
+                    put("trigger", JsonPrimitive("complete"))
+                }
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.execute(params, context)
+                }
+            assertTrue(ex.message!!.contains("resolve"))
+        }
+
+    @Test
+    fun `validateParams accepts short hex prefix in rootId`() {
+        tool.validateParams(
+            buildJsonObject {
+                put("rootId", JsonPrimitive("abcd1234"))
+            }
+        )
+    }
+
+    @Test
+    fun `validateParams accepts short hex prefix in itemIds`() {
+        tool.validateParams(
+            buildJsonObject {
+                put(
+                    "itemIds",
+                    buildJsonArray { add(JsonPrimitive("abcd1234")) }
+                )
+            }
+        )
+    }
+
+    @Test
+    fun `validateParams rejects too-short prefix in rootId`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                buildJsonObject {
+                    put("rootId", JsonPrimitive("abc"))
+                }
+            )
+        }
+    }
 }

@@ -39,7 +39,7 @@ class AdvanceItemTool : BaseToolDefinition() {
 Trigger-based role transitions for WorkItems with validation, cascade detection, and unblock reporting.
 
 **Parameters:**
-- `transitions` (required array): Each element: `{ itemId (required UUID), trigger (required string), summary? (optional string) }`
+- `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string) }`
 - Valid triggers: start, complete, block, hold, resume, cancel, reopen
 
 **Trigger effects:**
@@ -121,11 +121,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             if (!itemIdPrim.isString || itemIdPrim.content.isBlank()) {
                 throw ToolValidationException("transitions[$index].itemId must be a non-empty string")
             }
-            try {
-                UUID.fromString(itemIdPrim.content)
-            } catch (_: IllegalArgumentException) {
-                throw ToolValidationException("transitions[$index].itemId must be a valid UUID")
-            }
+            validateIdStringOrPrefix(itemIdPrim.content, "transitions[$index].itemId")
             val triggerPrim =
                 obj["trigger"] as? JsonPrimitive
                     ?: throw ToolValidationException("transitions[$index] missing required field: trigger")
@@ -151,7 +147,20 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
         for (element in transitions) {
             val obj = element as JsonObject
-            val itemId = UUID.fromString((obj["itemId"] as JsonPrimitive).content)
+            val itemIdStr = (obj["itemId"] as JsonPrimitive).content
+            val (resolvedItemId, idError) = resolveIdString(itemIdStr, context)
+            if (idError != null) {
+                failCount++
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemIdStr))
+                        put("applied", JsonPrimitive(false))
+                        put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+                    }
+                )
+                continue
+            }
+            val itemId = resolvedItemId!!
             val trigger = (obj["trigger"] as JsonPrimitive).content.lowercase()
             val summary =
                 (obj["summary"] as? JsonPrimitive)?.let {

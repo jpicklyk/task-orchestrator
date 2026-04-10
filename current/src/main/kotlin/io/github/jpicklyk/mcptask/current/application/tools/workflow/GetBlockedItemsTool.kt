@@ -89,7 +89,10 @@ Items in TERMINAL role are never included.
                         "parentId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Scope results to items under this parent UUID"))
+                            put(
+                                "description",
+                                JsonPrimitive("Scope to items under this parent (UUID or hex prefix 4+ chars)")
+                            )
                         }
                     )
                     put(
@@ -119,7 +122,8 @@ Items in TERMINAL role are never included.
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val parentId = extractUUID(params, "parentId", required = false)
+        val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+        if (parentIdError != null) return parentIdError
         val includeDetails = optionalBoolean(params, "includeItemDetails", false)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 

@@ -114,7 +114,7 @@ Unified write operations for WorkItems (create, update, delete).
                         "parentId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Shared default parent ID for create"))
+                            put("description", JsonPrimitive("Shared default parent ID for create (UUID or hex prefix 4+ chars)"))
                         }
                     )
                     put(
@@ -199,13 +199,16 @@ Unified write operations for WorkItems (create, update, delete).
     ): JsonElement {
         val operation = requireString(params, "operation")
         return when (operation) {
-            "create" ->
+            "create" -> {
+                val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+                if (parentIdError != null) return parentIdError
                 createHandler.execute(
                     requireJsonArray(params, "items"),
-                    extractUUID(params, "parentId", required = false),
+                    parentId,
                     optionalString(params, "traits"),
                     context
                 )
+            }
             "update" ->
                 updateHandler.execute(
                     requireJsonArray(params, "items"),

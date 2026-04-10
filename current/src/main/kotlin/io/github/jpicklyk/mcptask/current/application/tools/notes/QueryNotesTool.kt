@@ -66,7 +66,7 @@ Read-only query operations for Notes (get, list).
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("WorkItem UUID (required for list)"))
+                            put("description", JsonPrimitive("WorkItem UUID or hex prefix (4+ chars), required for list"))
                         }
                     )
                     put(
@@ -94,7 +94,7 @@ Read-only query operations for Notes (get, list).
                 extractUUID(params, "id", required = true)
             }
             "list" -> {
-                extractUUID(params, "itemId", required = true)
+                validateIdOrPrefix(params, "itemId", required = true)
                 val role = optionalString(params, "role")
                 if (role != null) {
                     val validRoles = setOf("queue", "work", "review")
@@ -178,7 +178,9 @@ Read-only query operations for Notes (get, list).
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val itemId = requireUUID(params, "itemId")
+        val (resolvedItemId, idError) = resolveItemId(params, "itemId", context)
+        if (idError != null) return idError
+        val itemId = resolvedItemId!!
         val role = optionalString(params, "role")
         val includeBody = optionalBoolean(params, "includeBody", defaultValue = true)
         val noteRepo = context.noteRepository()

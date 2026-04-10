@@ -80,7 +80,9 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive("UUID of root item whose descendants should be completed. Mutually exclusive with itemIds.")
+                                JsonPrimitive(
+                                    "UUID or hex prefix (4+ chars) of root item whose descendants should be completed. Mutually exclusive with itemIds."
+                                )
                             )
                         }
                     )
@@ -88,7 +90,12 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                         "itemIds",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Explicit list of item UUIDs to complete. Mutually exclusive with rootId."))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Item UUIDs or hex prefixes (4+ chars) to complete. Mutually exclusive with rootId."
+                                )
+                            )
                             put(
                                 "items",
                                 buildJsonObject {
@@ -148,15 +155,11 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         if (hasRootId) {
             val prim =
                 rootId as? JsonPrimitive
-                    ?: throw ToolValidationException("rootId must be a string UUID")
+                    ?: throw ToolValidationException("rootId must be a string")
             if (!prim.isString || prim.content.isBlank()) {
-                throw ToolValidationException("rootId must be a non-empty string UUID")
+                throw ToolValidationException("rootId must be a non-empty string")
             }
-            try {
-                UUID.fromString(prim.content)
-            } catch (_: IllegalArgumentException) {
-                throw ToolValidationException("rootId must be a valid UUID, got: ${prim.content}")
-            }
+            validateIdStringOrPrefix(prim.content, "rootId")
         }
 
         if (hasItemIds) {
@@ -166,15 +169,11 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             arr.forEachIndexed { index, element ->
                 val prim =
                     element as? JsonPrimitive
-                        ?: throw ToolValidationException("itemIds[$index] must be a string UUID")
+                        ?: throw ToolValidationException("itemIds[$index] must be a string")
                 if (!prim.isString || prim.content.isBlank()) {
-                    throw ToolValidationException("itemIds[$index] must be a non-empty string UUID")
+                    throw ToolValidationException("itemIds[$index] must be a non-empty string")
                 }
-                try {
-                    UUID.fromString(prim.content)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("itemIds[$index] must be a valid UUID, got: ${prim.content}")
-                }
+                validateIdStringOrPrefix(prim.content, "itemIds[$index]")
             }
         }
 
@@ -538,7 +537,12 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
     ): Pair<List<WorkItem>, WorkItem?> {
         val rootIdElem = paramsObj["rootId"]
         if (rootIdElem != null && rootIdElem !is JsonNull) {
-            val rootId = UUID.fromString((rootIdElem as JsonPrimitive).content)
+            val rootIdStr = (rootIdElem as JsonPrimitive).content
+            val (resolvedRootId, rootIdErr) = resolveIdString(rootIdStr, context)
+            if (rootIdErr != null || resolvedRootId == null) {
+                throw ToolValidationException("Could not resolve rootId: $rootIdStr")
+            }
+            val rootId = resolvedRootId
             val descendants =
                 when (val result = context.workItemRepository().findDescendants(rootId)) {
                     is Result.Success -> result.data
@@ -558,8 +562,12 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         val itemIdsElem = paramsObj["itemIds"] as? JsonArray ?: return Pair(emptyList(), null)
         val items = mutableListOf<WorkItem>()
         for (element in itemIdsElem) {
-            val id = UUID.fromString((element as JsonPrimitive).content)
-            when (val result = context.workItemRepository().getById(id)) {
+            val idStr = (element as JsonPrimitive).content
+            val (resolvedId, idErr) = resolveIdString(idStr, context)
+            if (idErr != null || resolvedId == null) {
+                throw ToolValidationException("Could not resolve itemId: $idStr")
+            }
+            when (val result = context.workItemRepository().getById(resolvedId)) {
                 is Result.Success -> items.add(result.data)
                 is Result.Error -> { /* skip missing items */ }
             }

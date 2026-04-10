@@ -52,7 +52,10 @@ Parameters:
                         "parentId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Scope recommendations to items under this parent (UUID)"))
+                            put(
+                                "description",
+                                JsonPrimitive("Scope to items under this parent (UUID or hex prefix 4+ chars)")
+                            )
                         }
                     )
                     put(
@@ -87,7 +90,7 @@ Parameters:
 
     override fun validateParams(params: JsonElement) {
         // All parameters are optional — just validate types if present
-        extractUUID(params, "parentId", required = false)
+        validateIdOrPrefix(params, "parentId", required = false)
         val limit = optionalInt(params, "limit")
         if (limit != null && (limit < 1 || limit > 20)) {
             throw ToolValidationException("limit must be between 1 and 20, got: $limit")
@@ -98,7 +101,8 @@ Parameters:
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val parentId = extractUUID(params, "parentId", required = false)
+        val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+        if (parentIdError != null) return parentIdError
         val limit = optionalInt(params, "limit") ?: 1
         val includeDetails = optionalBoolean(params, "includeDetails", defaultValue = false)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)

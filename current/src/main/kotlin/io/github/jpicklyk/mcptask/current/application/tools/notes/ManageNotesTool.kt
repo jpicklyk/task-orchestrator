@@ -78,7 +78,10 @@ Unified write operations for Notes (upsert, delete).
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("WorkItem UUID — delete all notes for this item"))
+                            put(
+                                "description",
+                                JsonPrimitive("WorkItem UUID or hex prefix (4+ chars) — delete all notes for this item")
+                            )
                         }
                     )
                     put(
@@ -182,12 +185,11 @@ Unified write operations for Notes (upsert, delete).
                         ?: throw ToolValidationException("Note at index $index: 'role' is required")
                 val body = extractNoteString(noteObj, "body") ?: ""
 
-                val itemId =
-                    try {
-                        UUID.fromString(itemIdStr)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Note at index $index: 'itemId' is not a valid UUID: $itemIdStr")
-                    }
+                val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
+                if (itemIdErr != null || resolvedItemId == null) {
+                    throw ToolValidationException("Note at index $index: could not resolve 'itemId': $itemIdStr")
+                }
+                val itemId = resolvedItemId
 
                 // Validate that the WorkItem exists (cache for itemContext reuse)
                 if (itemId !in validatedItems) {
@@ -385,15 +387,9 @@ Unified write operations for Notes (upsert, delete).
 
         // Delete by itemId (+ optional key)
         if (itemIdStr != null) {
-            val itemId =
-                try {
-                    UUID.fromString(itemIdStr)
-                } catch (_: IllegalArgumentException) {
-                    return errorResponse(
-                        "Parameter 'itemId' is not a valid UUID: $itemIdStr",
-                        ErrorCodes.VALIDATION_ERROR
-                    )
-                }
+            val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
+            if (itemIdErr != null) return itemIdErr
+            val itemId = resolvedItemId!!
 
             if (key != null) {
                 // Delete specific note by (itemId, key)

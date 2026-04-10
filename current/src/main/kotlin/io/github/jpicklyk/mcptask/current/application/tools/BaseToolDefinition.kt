@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -375,6 +376,203 @@ abstract class BaseToolDefinition : ToolDefinition {
         } catch (_: IllegalArgumentException) {
             throw ToolValidationException("Parameter $name must be a valid UUID, got: $content")
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // Short-ID prefix resolution
+    // ──────────────────────────────────────────────
+
+    companion object {
+        /** Minimum hex prefix length for short-ID resolution. */
+        const val MIN_PREFIX_LENGTH = 4
+
+        /** Regex for a valid hex string (UUID prefix). */
+        val HEX_PATTERN: Regex = Regex("^[0-9a-fA-F]+$")
+    }
+
+    /**
+     * Validates that a raw string value is either a full UUID or a valid hex prefix.
+     * Use this in [validateParams] for array elements or extracted strings.
+     *
+     * @param value The string value to validate
+     * @param fieldLabel Human-readable field label for error messages (e.g. "transitions[0].itemId")
+     * @throws ToolValidationException if the value is neither a valid UUID nor a valid hex prefix
+     */
+    protected fun validateIdStringOrPrefix(
+        value: String,
+        fieldLabel: String
+    ) {
+        if (value.length == 36) {
+            try {
+                UUID.fromString(value)
+            } catch (_: IllegalArgumentException) {
+                throw ToolValidationException("$fieldLabel must be a valid UUID or hex prefix, got: $value")
+            }
+            return
+        }
+        if (!value.matches(HEX_PATTERN)) {
+            throw ToolValidationException(
+                "$fieldLabel must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $value"
+            )
+        }
+        if (value.length < MIN_PREFIX_LENGTH) {
+            throw ToolValidationException(
+                "ID prefix too short for $fieldLabel: minimum $MIN_PREFIX_LENGTH hex characters required, got ${value.length}"
+            )
+        }
+    }
+
+    /**
+     * Validates that a string parameter is either a full UUID or a valid hex prefix.
+     * Use this in [validateParams] for top-level parameters that accept short IDs.
+     * Delegates to [validateIdStringOrPrefix] after extracting the value.
+     *
+     * @param params The input parameters
+     * @param name The parameter name
+     * @param required If true, throws when the parameter is missing
+     * @throws ToolValidationException if the value is neither a valid UUID nor a valid hex prefix
+     */
+    protected fun validateIdOrPrefix(
+        params: JsonElement,
+        name: String,
+        required: Boolean = true
+    ) {
+        val paramsObj =
+            params as? JsonObject
+                ?: throw ToolValidationException("Parameters must be a JSON object")
+
+        val value = paramsObj[name] as? JsonPrimitive
+        if (value == null) {
+            if (required) throw ToolValidationException("Missing required parameter: $name")
+            return
+        }
+        if (!value.isString) throw ToolValidationException("Parameter $name must be a string")
+
+        val content = value.content
+        if (content.isBlank()) {
+            if (required) throw ToolValidationException("Required parameter $name cannot be empty")
+            return
+        }
+
+        validateIdStringOrPrefix(content, name)
+    }
+
+    /**
+     * Resolves a raw ID string that may be a full UUID or a short hex prefix.
+     * Tries full UUID parse first (fast path), then falls back to prefix resolution
+     * via [WorkItemRepository.findByIdPrefix]. Use this for array elements or
+     * pre-extracted strings.
+     *
+     * @param idStr The ID string to resolve
+     * @param context The tool execution context (for repository access)
+     * @return A pair of (UUID?, errorResponse?) — exactly one will be non-null
+     */
+    protected suspend fun resolveIdString(
+        idStr: String,
+        context: ToolExecutionContext
+    ): Pair<UUID?, JsonElement?> {
+        // Fast path: full UUID (36 chars)
+        if (idStr.length == 36) {
+            return try {
+                Pair(UUID.fromString(idStr), null)
+            } catch (_: IllegalArgumentException) {
+                Pair(null, errorResponse("Invalid UUID format: $idStr", ErrorCodes.VALIDATION_ERROR))
+            }
+        }
+
+        // Prefix resolution path
+        if (!idStr.matches(HEX_PATTERN)) {
+            return Pair(
+                null,
+                errorResponse(
+                    "Invalid ID format: must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $idStr",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            )
+        }
+        if (idStr.length < MIN_PREFIX_LENGTH) {
+            return Pair(
+                null,
+                errorResponse(
+                    "ID prefix too short: minimum $MIN_PREFIX_LENGTH hex characters required, got ${idStr.length}",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            )
+        }
+
+        return when (val result = context.workItemRepository().findByIdPrefix(idStr)) {
+            is Result.Success -> {
+                val matches = result.data
+                when {
+                    matches.isEmpty() ->
+                        Pair(
+                            null,
+                            errorResponse("No WorkItem found matching prefix: $idStr", ErrorCodes.RESOURCE_NOT_FOUND)
+                        )
+                    matches.size > 1 ->
+                        Pair(
+                            null,
+                            errorResponse(
+                                "Ambiguous prefix: $idStr matches ${matches.size} items",
+                                ErrorCodes.VALIDATION_ERROR,
+                                additionalData =
+                                    buildJsonObject {
+                                        put("prefix", JsonPrimitive(idStr))
+                                        put(
+                                            "matches",
+                                            JsonArray(
+                                                matches.map { match ->
+                                                    buildJsonObject {
+                                                        put("id", JsonPrimitive(match.id.toString()))
+                                                        put("title", JsonPrimitive(match.title))
+                                                    }
+                                                }
+                                            )
+                                        )
+                                    }
+                            )
+                        )
+                    else -> Pair(matches.first().id, null)
+                }
+            }
+            is Result.Error ->
+                Pair(
+                    null,
+                    errorResponse("Failed to resolve ID prefix: ${result.error.message}", ErrorCodes.INTERNAL_ERROR)
+                )
+        }
+    }
+
+    /**
+     * Resolves an item ID parameter that may be a full UUID or a short hex prefix.
+     * Extracts the value from [params] and delegates to [resolveIdString].
+     *
+     * @param params The input parameters
+     * @param name The parameter name
+     * @param context The tool execution context (for repository access)
+     * @param required If true, returns an error response when the parameter is missing
+     * @return A pair of (UUID?, errorResponse?) — exactly one will be non-null on success/failure,
+     *         or both null if the parameter is absent and not required
+     */
+    protected suspend fun resolveItemId(
+        params: JsonElement,
+        name: String,
+        context: ToolExecutionContext,
+        required: Boolean = true
+    ): Pair<UUID?, JsonElement?> {
+        val paramsObj =
+            params as? JsonObject
+                ?: return Pair(null, errorResponse("Parameters must be a JSON object", ErrorCodes.VALIDATION_ERROR))
+
+        val value = paramsObj[name] as? JsonPrimitive
+        if (value == null || !value.isString || value.content.isBlank()) {
+            if (required) {
+                return Pair(null, errorResponse("Missing required parameter: $name", ErrorCodes.VALIDATION_ERROR))
+            }
+            return Pair(null, null)
+        }
+
+        return resolveIdString(value.content, context)
     }
 
     // ──────────────────────────────────────────────

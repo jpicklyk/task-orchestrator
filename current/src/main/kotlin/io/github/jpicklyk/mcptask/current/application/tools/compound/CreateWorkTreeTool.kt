@@ -85,7 +85,12 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                         "parentId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("UUID of existing parent item. Root depth = parent.depth + 1 if provided."))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "UUID or hex prefix (4+ chars) of existing parent item. Root depth = parent.depth + 1 if provided."
+                                )
+                            )
                         }
                     )
                     put(
@@ -196,7 +201,8 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val paramsObj = params as JsonObject
 
         // ── 1. Parse parentId (optional) ──────────────────────────────────────
-        val parentId = extractUUID(params, "parentId", required = false)
+        val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+        if (parentIdError != null) return parentIdError
 
         // ── 2. Compute root depth from parent ──────────────────────────────────
         val rootDepth =

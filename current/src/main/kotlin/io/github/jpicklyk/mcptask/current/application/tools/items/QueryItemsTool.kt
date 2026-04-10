@@ -18,13 +18,6 @@ import kotlinx.serialization.json.*
  * - **overview**: Hierarchical summary view (scoped to an item, or global root items)
  */
 class QueryItemsTool : BaseToolDefinition() {
-    companion object {
-        /** Minimum hex characters required for prefix resolution (avoids excessive ambiguity). */
-        private const val MIN_PREFIX_LENGTH = 4
-
-        private val HEX_PATTERN = Regex("^[0-9a-fA-F]+$")
-    }
-
     override val name = "query_items"
 
     override val description =
@@ -89,14 +82,14 @@ Operations: get, search, overview
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Item UUID for scoped overview"))
+                            put("description", JsonPrimitive("Item UUID or hex prefix (4+ chars) for scoped overview"))
                         }
                     )
                     put(
                         "parentId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Filter by parent ID"))
+                            put("description", JsonPrimitive("Filter by parent ID (UUID or hex prefix 4+ chars)"))
                         }
                     )
                     put(
@@ -242,7 +235,7 @@ Operations: get, search, overview
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
         when (operation) {
-            "get" -> requireString(params, "id") // Accept any string; UUID vs prefix validation happens in executeGet
+            "get" -> validateIdOrPrefix(params, "id")
             "search", "overview" -> { /* all parameters are optional */ }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be one of: get, search, overview")
         }
@@ -339,83 +332,22 @@ Operations: get, search, overview
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val idStr = requireString(params, "id")
+        val (resolvedId, idError) = resolveItemId(params, "id", context)
+        if (idError != null) return idError
+        val itemId = resolvedId!!
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
-        // Try parsing as a full UUID first (fast path — avoids prefix resolution overhead)
         val item =
-            if (idStr.length == 36) {
-                val id =
-                    try {
-                        java.util.UUID.fromString(idStr)
-                    } catch (_: IllegalArgumentException) {
-                        return errorResponse("Invalid UUID format: $idStr", ErrorCodes.VALIDATION_ERROR)
-                    }
-                when (val result = context.workItemRepository().getById(id)) {
-                    is Result.Success -> result.data
-                    is Result.Error -> return errorResponse(
-                        "WorkItem not found",
-                        ErrorCodes.RESOURCE_NOT_FOUND,
-                        additionalData =
-                            buildJsonObject {
-                                put("requestedId", JsonPrimitive(idStr))
-                            }
-                    )
-                }
-            } else {
-                // Prefix resolution path
-                if (!idStr.matches(HEX_PATTERN)) {
-                    return errorResponse(
-                        "Invalid ID format: must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $idStr",
-                        ErrorCodes.VALIDATION_ERROR
-                    )
-                }
-                if (idStr.length < MIN_PREFIX_LENGTH) {
-                    return errorResponse(
-                        "ID prefix too short: minimum $MIN_PREFIX_LENGTH hex characters required, got ${idStr.length}",
-                        ErrorCodes.VALIDATION_ERROR
-                    )
-                }
-
-                when (val result = context.workItemRepository().findByIdPrefix(idStr)) {
-                    is Result.Success -> {
-                        val matches = result.data
-                        when {
-                            matches.isEmpty() -> return errorResponse(
-                                "No WorkItem found matching prefix: $idStr",
-                                ErrorCodes.RESOURCE_NOT_FOUND,
-                                additionalData =
-                                    buildJsonObject {
-                                        put("prefix", JsonPrimitive(idStr))
-                                    }
-                            )
-                            matches.size > 1 -> return errorResponse(
-                                "Ambiguous prefix: $idStr matches ${matches.size} items",
-                                ErrorCodes.VALIDATION_ERROR,
-                                additionalData =
-                                    buildJsonObject {
-                                        put("prefix", JsonPrimitive(idStr))
-                                        put(
-                                            "matches",
-                                            JsonArray(
-                                                matches.map { match ->
-                                                    buildJsonObject {
-                                                        put("id", JsonPrimitive(match.id.toString()))
-                                                        put("title", JsonPrimitive(match.title))
-                                                    }
-                                                }
-                                            )
-                                        )
-                                    }
-                            )
-                            else -> matches.first()
+            when (val result = context.workItemRepository().getById(itemId)) {
+                is Result.Success -> result.data
+                is Result.Error -> return errorResponse(
+                    "WorkItem not found",
+                    ErrorCodes.RESOURCE_NOT_FOUND,
+                    additionalData =
+                        buildJsonObject {
+                            put("requestedId", JsonPrimitive(itemId.toString()))
                         }
-                    }
-                    is Result.Error -> return errorResponse(
-                        "Failed to resolve prefix: ${result.error.message}",
-                        ErrorCodes.DATABASE_ERROR
-                    )
-                }
+                )
             }
 
         val itemJson = item.toFullJson()
@@ -442,7 +374,8 @@ Operations: get, search, overview
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val parentId = extractUUID(params, "parentId", required = false)
+        val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+        if (parentIdError != null) return parentIdError
         val depth = optionalInt(params, "depth")
         val roleStr = optionalString(params, "role")
         val priorityStr = optionalString(params, "priority")
@@ -591,7 +524,8 @@ Operations: get, search, overview
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val itemId = extractUUID(params, "itemId", required = false)
+        val (itemId, itemIdError) = resolveItemId(params, "itemId", context, required = false)
+        if (itemIdError != null) return itemIdError
 
         return if (itemId != null) {
             executeScopedOverview(itemId, context)
