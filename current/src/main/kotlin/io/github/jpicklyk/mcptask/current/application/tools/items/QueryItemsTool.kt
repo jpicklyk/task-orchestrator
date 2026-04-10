@@ -82,14 +82,14 @@ Operations: get, search, overview
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Item UUID or short hex prefix (min 4 chars) for scoped overview"))
+                            put("description", JsonPrimitive("Item UUID or hex prefix (4+ chars) for scoped overview"))
                         }
                     )
                     put(
                         "parentId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Filter by parent ID (UUID or short hex prefix, min 4 chars)"))
+                            put("description", JsonPrimitive("Filter by parent ID (UUID or hex prefix 4+ chars)"))
                         }
                     )
                     put(
