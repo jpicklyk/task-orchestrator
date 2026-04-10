@@ -55,7 +55,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("WorkItem UUID to query dependencies for (required)"))
+                            put("description", JsonPrimitive("WorkItem UUID or hex prefix (4+ chars)"))
                         }
                     )
                     put(
@@ -99,7 +99,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
         )
 
     override fun validateParams(params: JsonElement) {
-        extractUUID(params, "itemId", required = true)
+        validateIdOrPrefix(params, "itemId", required = true)
 
         val direction = optionalString(params, "direction")
         if (direction != null && direction !in listOf("incoming", "outgoing", "all")) {
@@ -117,7 +117,9 @@ Returns dependencies with counts breakdown and optional graph traversal data.
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val itemId = requireUUID(params, "itemId")
+        val (resolvedItemId, idError) = resolveItemId(params, "itemId", context)
+        if (idError != null) return idError
+        val itemId = resolvedItemId!!
         val direction = optionalString(params, "direction") ?: "all"
         val typeFilter = optionalString(params, "type")?.let { DependencyType.fromString(it) }
         val includeItemInfo = optionalBoolean(params, "includeItemInfo", defaultValue = false)

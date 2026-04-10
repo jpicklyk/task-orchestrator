@@ -1,6 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.mockk.coEvery
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.time.Instant
 import java.util.UUID
@@ -100,6 +106,19 @@ class BaseToolDefinitionTest {
                 msg: String,
                 code: String = ErrorCodes.VALIDATION_ERROR
             ) = errorResponse(msg, code)
+
+            fun testValidateIdOrPrefix(
+                params: JsonElement,
+                name: String,
+                required: Boolean = true
+            ) = validateIdOrPrefix(params, name, required)
+
+            suspend fun testResolveItemId(
+                params: JsonElement,
+                name: String,
+                context: ToolExecutionContext,
+                required: Boolean = true
+            ) = resolveItemId(params, name, context, required)
         }
 
     /** Helper to build a JsonObject from pairs. */
@@ -547,4 +566,385 @@ class BaseToolDefinitionTest {
         val error = response["error"]!!.jsonObject
         assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
     }
+
+    // ────────────────────────────────────────────────────────
+    // validateIdOrPrefix — full UUID
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `validateIdOrPrefix accepts valid full UUID`() {
+        val uuid = UUID.randomUUID()
+        val p = params("id" to JsonPrimitive(uuid.toString()))
+        // Should not throw
+        tool.testValidateIdOrPrefix(p, "id")
+    }
+
+    @Test
+    fun `validateIdOrPrefix rejects malformed 36-char string`() {
+        val p = params("id" to JsonPrimitive("not-a-uuid-but-exactly-36-chars-long"))
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(p, "id")
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // validateIdOrPrefix — hex prefix
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `validateIdOrPrefix accepts 8-char hex prefix`() {
+        val p = params("id" to JsonPrimitive("abcd1234"))
+        tool.testValidateIdOrPrefix(p, "id")
+    }
+
+    @Test
+    fun `validateIdOrPrefix accepts minimum 4-char hex prefix`() {
+        val p = params("id" to JsonPrimitive("abcd"))
+        tool.testValidateIdOrPrefix(p, "id")
+    }
+
+    @Test
+    fun `validateIdOrPrefix accepts uppercase hex prefix`() {
+        val p = params("id" to JsonPrimitive("ABCD1234"))
+        tool.testValidateIdOrPrefix(p, "id")
+    }
+
+    @Test
+    fun `validateIdOrPrefix accepts mixed case hex prefix`() {
+        val p = params("id" to JsonPrimitive("aBcD1234"))
+        tool.testValidateIdOrPrefix(p, "id")
+    }
+
+    @Test
+    fun `validateIdOrPrefix rejects prefix shorter than 4 chars`() {
+        val p = params("id" to JsonPrimitive("abc"))
+        val ex =
+            assertFailsWith<ToolValidationException> {
+                tool.testValidateIdOrPrefix(p, "id")
+            }
+        assertTrue(ex.message!!.contains("minimum"))
+    }
+
+    @Test
+    fun `validateIdOrPrefix rejects single hex char`() {
+        val p = params("id" to JsonPrimitive("a"))
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(p, "id")
+        }
+    }
+
+    @Test
+    fun `validateIdOrPrefix rejects non-hex characters`() {
+        val p = params("id" to JsonPrimitive("ghij1234"))
+        val ex =
+            assertFailsWith<ToolValidationException> {
+                tool.testValidateIdOrPrefix(p, "id")
+            }
+        assertTrue(ex.message!!.contains("hex prefix"))
+    }
+
+    @Test
+    fun `validateIdOrPrefix rejects special characters`() {
+        val p = params("id" to JsonPrimitive("ab-cd-ef"))
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(p, "id")
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // validateIdOrPrefix — missing/blank/type errors
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `validateIdOrPrefix throws when required and missing`() {
+        val p = params()
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(p, "id", required = true)
+        }
+    }
+
+    @Test
+    fun `validateIdOrPrefix returns silently when not required and missing`() {
+        val p = params()
+        // Should not throw
+        tool.testValidateIdOrPrefix(p, "id", required = false)
+    }
+
+    @Test
+    fun `validateIdOrPrefix throws when required and blank`() {
+        val p = params("id" to JsonPrimitive(""))
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(p, "id", required = true)
+        }
+    }
+
+    @Test
+    fun `validateIdOrPrefix returns silently when not required and blank`() {
+        val p = params("id" to JsonPrimitive(""))
+        tool.testValidateIdOrPrefix(p, "id", required = false)
+    }
+
+    @Test
+    fun `validateIdOrPrefix throws on non-string type`() {
+        val p = params("id" to JsonPrimitive(12345))
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(p, "id")
+        }
+    }
+
+    @Test
+    fun `validateIdOrPrefix throws when params is not a JsonObject`() {
+        assertFailsWith<ToolValidationException> {
+            tool.testValidateIdOrPrefix(JsonPrimitive("not an object"), "id")
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // resolveItemId — helper to build mock context
+    // ────────────────────────────────────────────────────────
+
+    private fun makeWorkItem(
+        id: UUID = UUID.randomUUID(),
+        title: String = "Test Item"
+    ): WorkItem = WorkItem(id = id, title = title)
+
+    // ────────────────────────────────────────────────────────
+    // resolveItemId — full UUID path
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `resolveItemId resolves full UUID without hitting repository`(): Unit =
+        runBlocking {
+            val uuid = UUID.randomUUID()
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive(uuid.toString()))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertEquals(uuid, resolved)
+            assertNull(error)
+        }
+
+    @Test
+    fun `resolveItemId returns error for malformed 36-char string`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive("not-a-uuid-but-exactly-36-chars-long"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+            assertFalse(error.jsonObject["success"]!!.jsonPrimitive.boolean)
+        }
+
+    // ────────────────────────────────────────────────────────
+    // resolveItemId — prefix resolution path
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `resolveItemId resolves 8-char prefix to unique item`(): Unit =
+        runBlocking {
+            val item = makeWorkItem(title = "Prefix Match")
+            val mocks = MockRepositoryProvider()
+            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns Result.Success(listOf(item))
+            val prefix = item.id.toString().substring(0, 8)
+            val p = params("id" to JsonPrimitive(prefix))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertEquals(item.id, resolved)
+            assertNull(error)
+        }
+
+    @Test
+    fun `resolveItemId resolves 4-char prefix to unique item`(): Unit =
+        runBlocking {
+            val item = makeWorkItem(title = "Short Prefix Match")
+            val mocks = MockRepositoryProvider()
+            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns Result.Success(listOf(item))
+            val prefix = item.id.toString().substring(0, 4)
+            val p = params("id" to JsonPrimitive(prefix))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertEquals(item.id, resolved)
+            assertNull(error)
+        }
+
+    @Test
+    fun `resolveItemId returns not-found error when prefix matches nothing`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns Result.Success(emptyList())
+            val p = params("id" to JsonPrimitive("dead0000"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+            val errorObj = error.jsonObject["error"]!!.jsonObject
+            assertTrue(errorObj["message"]!!.jsonPrimitive.content.contains("No WorkItem found"))
+            assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorObj["code"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `resolveItemId returns ambiguous error when prefix matches multiple items`(): Unit =
+        runBlocking {
+            val item1 = makeWorkItem(title = "Item One")
+            val item2 = makeWorkItem(title = "Item Two")
+            val mocks = MockRepositoryProvider()
+            coEvery {
+                mocks.workItemRepo.findByIdPrefix(any(), any())
+            } returns Result.Success(listOf(item1, item2))
+            val p = params("id" to JsonPrimitive("abcd1234"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+            val errorObj = error.jsonObject["error"]!!.jsonObject
+            assertTrue(errorObj["message"]!!.jsonPrimitive.content.contains("Ambiguous prefix"))
+            val additionalData = error.jsonObject["data"]!!.jsonObject
+            val matches = additionalData["matches"]!!.jsonArray
+            assertEquals(2, matches.size)
+        }
+
+    @Test
+    fun `resolveItemId returns error when repository fails`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            coEvery {
+                mocks.workItemRepo.findByIdPrefix(any(), any())
+            } returns
+                Result.Error(RepositoryError.DatabaseError("Database connection failed"))
+            val p = params("id" to JsonPrimitive("abcd1234"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+            val errorObj = error.jsonObject["error"]!!.jsonObject
+            assertTrue(errorObj["message"]!!.jsonPrimitive.content.contains("Failed to resolve"))
+            assertEquals(ErrorCodes.INTERNAL_ERROR, errorObj["code"]!!.jsonPrimitive.content)
+        }
+
+    // ────────────────────────────────────────────────────────
+    // resolveItemId — validation errors (bad format)
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `resolveItemId returns error for non-hex characters in prefix`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive("ghij1234"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+            val errorMsg =
+                error.jsonObject["error"]!!
+                    .jsonObject["message"]!!
+                    .jsonPrimitive.content
+            assertTrue(errorMsg.contains("Invalid ID format"))
+        }
+
+    @Test
+    fun `resolveItemId returns error for prefix shorter than 4 chars`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive("abc"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+            val errorMsg =
+                error.jsonObject["error"]!!
+                    .jsonObject["message"]!!
+                    .jsonPrimitive.content
+            assertTrue(errorMsg.contains("prefix too short"))
+        }
+
+    @Test
+    fun `resolveItemId returns error for special characters in prefix`() {
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive("ab-cd-ef"))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // resolveItemId — missing/blank/optional
+    // ────────────────────────────────────────────────────────
+
+    @Test
+    fun `resolveItemId returns error when required and missing`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params()
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context(), required = true)
+
+            assertNull(resolved)
+            assertNotNull(error)
+            val errorMsg =
+                error.jsonObject["error"]!!
+                    .jsonObject["message"]!!
+                    .jsonPrimitive.content
+            assertTrue(errorMsg.contains("Missing required"))
+        }
+
+    @Test
+    fun `resolveItemId returns both null when not required and missing`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params()
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context(), required = false)
+
+            assertNull(resolved)
+            assertNull(error)
+        }
+
+    @Test
+    fun `resolveItemId returns both null when not required and blank`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive(""))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context(), required = false)
+
+            assertNull(resolved)
+            assertNull(error)
+        }
+
+    @Test
+    fun `resolveItemId returns error when required and blank`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+            val p = params("id" to JsonPrimitive(""))
+
+            val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context(), required = true)
+
+            assertNull(resolved)
+            assertNotNull(error)
+        }
+
+    @Test
+    fun `resolveItemId returns error when params is not a JsonObject`(): Unit =
+        runBlocking {
+            val mocks = MockRepositoryProvider()
+
+            val (resolved, error) = tool.testResolveItemId(JsonPrimitive("not an object"), "id", mocks.context())
+
+            assertNull(resolved)
+            assertNotNull(error)
+        }
 }

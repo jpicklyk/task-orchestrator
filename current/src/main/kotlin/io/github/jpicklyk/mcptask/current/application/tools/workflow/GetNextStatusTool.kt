@@ -52,7 +52,7 @@ Read-only status progression recommendation for a WorkItem.
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("UUID of the WorkItem to analyze"))
+                            put("description", JsonPrimitive("UUID or hex prefix (4+ chars) of the WorkItem to analyze"))
                         }
                     )
                 },
@@ -60,14 +60,16 @@ Read-only status progression recommendation for a WorkItem.
         )
 
     override fun validateParams(params: JsonElement) {
-        extractUUID(params, "itemId", required = true)
+        validateIdOrPrefix(params, "itemId", required = true)
     }
 
     override suspend fun execute(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val itemId = requireUUID(params, "itemId")
+        val (resolvedItemId, idError) = resolveItemId(params, "itemId", context)
+        if (idError != null) return idError
+        val itemId = resolvedItemId!!
 
         // Fetch the WorkItem
         val itemResult = context.workItemRepository().getById(itemId)

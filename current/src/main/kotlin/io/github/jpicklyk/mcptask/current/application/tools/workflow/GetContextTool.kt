@@ -70,7 +70,7 @@ Parameters:
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("UUID of a WorkItem for item context mode"))
+                            put("description", JsonPrimitive("UUID or hex prefix (4+ chars) of a WorkItem for item context mode"))
                         }
                     )
                     put(
@@ -105,8 +105,8 @@ Parameters:
         )
 
     override fun validateParams(params: JsonElement) {
-        // Validate itemId if present
-        extractUUID(params, "itemId", required = false)
+        // Validate itemId if present — accepts full UUID or short hex prefix
+        validateIdOrPrefix(params, "itemId", required = false)
         // Validate since if present
         parseInstant(params, "since")
     }
@@ -115,7 +115,8 @@ Parameters:
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val itemId = extractUUID(params, "itemId", required = false)
+        val (itemId, idError) = resolveItemId(params, "itemId", context, required = false)
+        if (idError != null) return idError
         val sinceInstant = parseInstant(params, "since")
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
         val transitionLimit =

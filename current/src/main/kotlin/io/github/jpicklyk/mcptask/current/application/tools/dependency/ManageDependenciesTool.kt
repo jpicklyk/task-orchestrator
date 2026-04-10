@@ -88,35 +88,50 @@ Unified write operations for WorkItem dependencies (create, delete).
                         "itemIds",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Ordered item IDs for linear pattern"))
+                            put(
+                                "description",
+                                JsonPrimitive("Ordered item IDs (UUIDs or hex prefixes 4+ chars) for linear pattern")
+                            )
                         }
                     )
                     put(
                         "source",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Source item UUID for fan-out pattern"))
+                            put(
+                                "description",
+                                JsonPrimitive("Source item UUID or hex prefix (4+ chars) for fan-out pattern")
+                            )
                         }
                     )
                     put(
                         "targets",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Target item UUIDs for fan-out pattern"))
+                            put(
+                                "description",
+                                JsonPrimitive("Target item UUIDs or hex prefixes (4+ chars) for fan-out pattern")
+                            )
                         }
                     )
                     put(
                         "sources",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Source item UUIDs for fan-in pattern"))
+                            put(
+                                "description",
+                                JsonPrimitive("Source item UUIDs or hex prefixes (4+ chars) for fan-in pattern")
+                            )
                         }
                     )
                     put(
                         "target",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Target item UUID for fan-in pattern"))
+                            put(
+                                "description",
+                                JsonPrimitive("Target item UUID or hex prefix (4+ chars) for fan-in pattern")
+                            )
                         }
                     )
                     put(
@@ -152,14 +167,20 @@ Unified write operations for WorkItem dependencies (create, delete).
                         "fromItemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Source item UUID for delete by relationship"))
+                            put(
+                                "description",
+                                JsonPrimitive("Source item UUID or hex prefix (4+ chars) for delete by relationship")
+                            )
                         }
                     )
                     put(
                         "toItemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Target item UUID for delete by relationship"))
+                            put(
+                                "description",
+                                JsonPrimitive("Target item UUID or hex prefix (4+ chars) for delete by relationship")
+                            )
                         }
                     )
                     put(
@@ -304,7 +325,7 @@ Unified write operations for WorkItem dependencies (create, delete).
     // Create operation
     // ──────────────────────────────────────────────
 
-    private fun executeCreate(
+    private suspend fun executeCreate(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
@@ -328,9 +349,9 @@ Unified write operations for WorkItem dependencies (create, delete).
         val dependencies: List<Dependency> =
             try {
                 if (depsArray != null) {
-                    parseDependenciesArray(depsArray, sharedType, sharedUnblockAt)
+                    parseDependenciesArray(depsArray, sharedType, sharedUnblockAt, context)
                 } else {
-                    generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt)
+                    generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt, context)
                 }
             } catch (e: ToolValidationException) {
                 val failedCount = depsArray?.size ?: 1
@@ -372,12 +393,14 @@ Unified write operations for WorkItem dependencies (create, delete).
         }
     }
 
-    private fun parseDependenciesArray(
+    private suspend fun parseDependenciesArray(
         depsArray: JsonArray,
         sharedType: DependencyType,
-        sharedUnblockAt: String?
-    ): List<Dependency> =
-        depsArray.mapIndexed { index, element ->
+        sharedUnblockAt: String?,
+        context: ToolExecutionContext
+    ): List<Dependency> {
+        val result = mutableListOf<Dependency>()
+        for ((index, element) in depsArray.withIndex()) {
             val depObj =
                 element as? JsonObject
                     ?: throw ToolValidationException("Dependency at index $index must be a JSON object")
@@ -389,18 +412,18 @@ Unified write operations for WorkItem dependencies (create, delete).
                 extractItemString(depObj, "toItemId")
                     ?: throw ToolValidationException("Dependency at index $index: 'toItemId' is required")
 
-            val fromItemId =
-                try {
-                    UUID.fromString(fromItemIdStr)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("Dependency at index $index: 'fromItemId' is not a valid UUID: $fromItemIdStr")
-                }
-            val toItemId =
-                try {
-                    UUID.fromString(toItemIdStr)
-                } catch (_: IllegalArgumentException) {
-                    throw ToolValidationException("Dependency at index $index: 'toItemId' is not a valid UUID: $toItemIdStr")
-                }
+            val (fromItemId, fromErr) = resolveIdString(fromItemIdStr, context)
+            if (fromErr != null || fromItemId == null) {
+                throw ToolValidationException(
+                    "Dependency at index $index: 'fromItemId' could not be resolved: $fromItemIdStr"
+                )
+            }
+            val (toItemId, toErr) = resolveIdString(toItemIdStr, context)
+            if (toErr != null || toItemId == null) {
+                throw ToolValidationException(
+                    "Dependency at index $index: 'toItemId' could not be resolved: $toItemIdStr"
+                )
+            }
 
             val typeStr = extractItemString(depObj, "type")
             val type =
@@ -415,83 +438,80 @@ Unified write operations for WorkItem dependencies (create, delete).
 
             val unblockAt = extractItemString(depObj, "unblockAt") ?: sharedUnblockAt
 
-            // Dependency constructor validates (self-reference, RELATES_TO+unblockAt, valid thresholds)
             try {
-                Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type, unblockAt = unblockAt)
+                result.add(Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type, unblockAt = unblockAt))
             } catch (e: ValidationException) {
                 throw ToolValidationException("Dependency at index $index: ${e.message}")
             }
         }
+        return result
+    }
 
-    private fun generateFromPattern(
+    private suspend fun generateFromPattern(
         params: JsonElement,
         pattern: String,
         sharedType: DependencyType,
-        sharedUnblockAt: String?
+        sharedUnblockAt: String?,
+        context: ToolExecutionContext
     ): List<Dependency> =
         when (pattern) {
             "linear" -> {
                 val itemIdsArray = requireJsonArray(params, "itemIds")
-                val itemIds =
-                    itemIdsArray.map { element ->
-                        val str =
-                            (element as? JsonPrimitive)?.content
-                                ?: throw ToolValidationException("Each itemId must be a string UUID")
-                        try {
-                            UUID.fromString(str)
-                        } catch (_: IllegalArgumentException) {
-                            throw ToolValidationException("Invalid UUID in itemIds: $str")
-                        }
+                val itemIds = mutableListOf<UUID>()
+                for (element in itemIdsArray) {
+                    val str =
+                        (element as? JsonPrimitive)?.content
+                            ?: throw ToolValidationException("Each itemId must be a string")
+                    val (resolved, err) = resolveIdString(str, context)
+                    if (err != null || resolved == null) {
+                        throw ToolValidationException("Could not resolve itemId: $str")
                     }
-                // Generate chain: A→B, B→C, C→D
+                    itemIds.add(resolved)
+                }
                 itemIds.zipWithNext().map { (from, to) ->
                     Dependency(fromItemId = from, toItemId = to, type = sharedType, unblockAt = sharedUnblockAt)
                 }
             }
             "fan-out" -> {
                 val sourceStr = requireString(params, "source")
-                val sourceId =
-                    try {
-                        UUID.fromString(sourceStr)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("'source' is not a valid UUID: $sourceStr")
-                    }
+                val (sourceId, sourceErr) = resolveIdString(sourceStr, context)
+                if (sourceErr != null || sourceId == null) {
+                    throw ToolValidationException("Could not resolve 'source': $sourceStr")
+                }
                 val targetsArray = requireJsonArray(params, "targets")
-                val targetIds =
-                    targetsArray.map { element ->
-                        val str =
-                            (element as? JsonPrimitive)?.content
-                                ?: throw ToolValidationException("Each target must be a string UUID")
-                        try {
-                            UUID.fromString(str)
-                        } catch (_: IllegalArgumentException) {
-                            throw ToolValidationException("Invalid UUID in targets: $str")
-                        }
+                val targetIds = mutableListOf<UUID>()
+                for (element in targetsArray) {
+                    val str =
+                        (element as? JsonPrimitive)?.content
+                            ?: throw ToolValidationException("Each target must be a string")
+                    val (resolved, err) = resolveIdString(str, context)
+                    if (err != null || resolved == null) {
+                        throw ToolValidationException("Could not resolve target: $str")
                     }
+                    targetIds.add(resolved)
+                }
                 targetIds.map { targetId ->
                     Dependency(fromItemId = sourceId, toItemId = targetId, type = sharedType, unblockAt = sharedUnblockAt)
                 }
             }
             "fan-in" -> {
                 val targetStr = requireString(params, "target")
-                val targetId =
-                    try {
-                        UUID.fromString(targetStr)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("'target' is not a valid UUID: $targetStr")
-                    }
+                val (targetId, targetErr) = resolveIdString(targetStr, context)
+                if (targetErr != null || targetId == null) {
+                    throw ToolValidationException("Could not resolve 'target': $targetStr")
+                }
                 val sourcesArray = requireJsonArray(params, "sources")
-                val sourceIds =
-                    sourcesArray.map { element ->
-                        val str =
-                            (element as? JsonPrimitive)?.content
-                                ?: throw ToolValidationException("Each source must be a string UUID")
-                        try {
-                            UUID.fromString(str)
-                        } catch (_: IllegalArgumentException) {
-                            throw ToolValidationException("Invalid UUID in sources: $str")
-                        }
+                val sourceIds = mutableListOf<UUID>()
+                for (element in sourcesArray) {
+                    val str =
+                        (element as? JsonPrimitive)?.content
+                            ?: throw ToolValidationException("Each source must be a string")
+                    val (resolved, err) = resolveIdString(str, context)
+                    if (err != null || resolved == null) {
+                        throw ToolValidationException("Could not resolve source: $str")
                     }
+                    sourceIds.add(resolved)
+                }
                 sourceIds.map { sourceId ->
                     Dependency(fromItemId = sourceId, toItemId = targetId, type = sharedType, unblockAt = sharedUnblockAt)
                 }
@@ -503,14 +523,16 @@ Unified write operations for WorkItem dependencies (create, delete).
     // Delete operation
     // ──────────────────────────────────────────────
 
-    private fun executeDelete(
+    private suspend fun executeDelete(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
         val repo = context.dependencyRepository()
         val id = extractUUID(params, "id", required = false)
-        val fromItemId = extractUUID(params, "fromItemId", required = false)
-        val toItemId = extractUUID(params, "toItemId", required = false)
+        val (fromItemId, fromError) = resolveItemId(params, "fromItemId", context, required = false)
+        if (fromError != null) return fromError
+        val (toItemId, toError) = resolveItemId(params, "toItemId", context, required = false)
+        if (toError != null) return toError
         val deleteAll = optionalBoolean(params, "deleteAll", false)
         val typeFilter = optionalString(params, "type")
 
