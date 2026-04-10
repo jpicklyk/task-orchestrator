@@ -572,7 +572,26 @@ Operations: get, search, overview
             buildJsonObject {
                 put("item", item.toFullJson())
                 put("childCounts", roleCountToJson(childCounts))
-                put("children", JsonArray(children.map { it.toMinimalJson() }))
+                put(
+                    "children",
+                    JsonArray(
+                        children.map { child ->
+                            val grandchildCounts =
+                                when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
+                                    is Result.Success -> result.data
+                                    is Result.Error -> emptyMap()
+                                }
+                            val childTraits = PropertiesHelper.extractTraits(child.properties)
+                            buildJsonObject {
+                                child.toMinimalJson().forEach { (k, v) -> put(k, v) }
+                                put("childCounts", roleCountToJson(grandchildCounts))
+                                if (childTraits.isNotEmpty()) {
+                                    put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
+                                }
+                            }
+                        }
+                    )
+                )
             }
 
         return successResponse(data)

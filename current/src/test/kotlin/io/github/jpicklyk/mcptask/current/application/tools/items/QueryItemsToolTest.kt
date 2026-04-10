@@ -1191,6 +1191,107 @@ class QueryItemsToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // Scoped overview — child enrichment (TDD tests for childCounts + traits bug)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `scoped overview children include childCounts`(): Unit =
+        runBlocking {
+            // 3-level hierarchy: root -> child -> 2 grandchildren (1 queue, 1 work)
+            val rootId = createItem("Scoped Root")
+            val childId = createItem("Scoped Child", parentId = rootId, role = "queue")
+            createItem("Grandchild Queue", parentId = childId, role = "queue")
+            val grandchildWorkId = createItem("Grandchild Work", parentId = childId, role = "queue")
+
+            // Advance one grandchild to work role
+            advanceTool.execute(
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(grandchildWorkId))
+                                    put("trigger", JsonPrimitive("start"))
+                                }
+                            )
+                        )
+                    )
+                },
+                context
+            )
+
+            // Scoped overview on the root
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "itemId" to JsonPrimitive(rootId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val children = data["children"]!!.jsonArray
+            assertEquals(1, children.size)
+
+            val child = children[0].jsonObject
+            assertEquals(childId, child["id"]!!.jsonPrimitive.content)
+
+            // childCounts must be present with correct grandchild role distribution
+            val childCounts = child["childCounts"]
+            assertNotNull(childCounts, "Scoped overview child should include childCounts")
+            val childCountsObj = childCounts!!.jsonObject
+            assertEquals(1, childCountsObj["queue"]!!.jsonPrimitive.int, "Should have 1 grandchild in queue")
+            assertEquals(1, childCountsObj["work"]!!.jsonPrimitive.int, "Should have 1 grandchild in work")
+        }
+
+    @Test
+    fun `scoped overview children include traits when set`(): Unit =
+        runBlocking {
+            val rootId = createItem("Traits Root")
+            createItem(
+                "Child With Traits",
+                parentId = rootId,
+                role = "queue",
+                properties = """{"traits":["needs-perf-review"]}"""
+            )
+            createItem("Child Without Traits", parentId = rootId, role = "queue")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "itemId" to JsonPrimitive(rootId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val children = data["children"]!!.jsonArray
+            assertEquals(2, children.size)
+
+            val withTraits =
+                children
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Child With Traits"
+                    }.jsonObject
+            assertTrue(withTraits.containsKey("traits"), "Child with traits should include traits array")
+            val traits = withTraits["traits"]!!.jsonArray
+            assertEquals(1, traits.size)
+            assertEquals("needs-perf-review", traits[0].jsonPrimitive.content)
+
+            val withoutTraits =
+                children
+                    .first {
+                        it.jsonObject["title"]!!.jsonPrimitive.content == "Child Without Traits"
+                    }.jsonObject
+            assertFalse(withoutTraits.containsKey("traits"), "Child without traits should omit traits key")
+        }
+
+    // ──────────────────────────────────────────────
     // Validation
     // ──────────────────────────────────────────────
 
