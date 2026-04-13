@@ -189,20 +189,34 @@ branch if not):
    `/task-orchestrator:create-item` before moving on. Do not discard findings.
 4. Fill all work-phase notes following their `guidancePointer` — focus on context
    that downstream agents need to know
-5. Advance the item to review: when delegating to a subagent, the agent calls
-   `advance_item(trigger="start")` to move work→review before returning (per the
-   agent-owned-phase model). When implementing directly, the orchestrator calls
-   `advance_item(trigger="start")` itself.
+5. After implementation completes:
+   - **Subagent delegation:** The agent returns after filling work-phase notes.
+     The orchestrator then calls `advance_item(trigger="start")` to advance
+     the item to the next phase.
+   - **Direct implementation:** The orchestrator calls `advance_item(trigger="start")`
+     itself after filling work-phase notes.
+   In both cases, inspect `newRole` in the response to determine what comes next
+   (see Step 5).
 
 ---
 
 ## Step 5 — Review Phase
 
+Before dispatching or performing review, check the item's current role. Inspect
+`newRole` from the `advance_item` response in the previous step:
+
+- **If `newRole` is `terminal`:** The item's schema has no review phase (lightweight
+  lifecycle). Review dispatch is not needed — the item completed through its natural
+  lifecycle. Proceed to Step 6.
+- **If `newRole` is `review`:** Continue with review per tier below.
+
 This step is **tier-conditional**:
 
 **Direct tier:** Perform an inline review. Read the diff, verify correctness, confirm
-tests pass. Write a brief review note: "Inline review: pass. [one-line rationale]."
-Advance to terminal: `advance_item(trigger="start")`. No separate review agent —
+tests pass. If the review-phase note has a `skillPointer` (visible in the `advance_item`
+response or via `get_context`), invoke that skill for the evaluation framework before
+filling the review note. Write the review note, then advance to terminal:
+`advance_item(trigger="start")`. No separate review agent —
 the overhead exceeds the risk for 1-2 file changes with known fixes.
 
 **Delegated and Parallel tiers:** Dispatch a **separate** review agent. The agent

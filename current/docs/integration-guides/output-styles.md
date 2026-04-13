@@ -68,11 +68,11 @@ Phase transitions follow a strict ownership model:
 
 | Transition | Owner | Mechanism |
 |-----------|-------|-----------|
-| queue → work | Implementation agent | `advance_item(trigger="start")` at task start |
-| work → review | Implementation agent | `advance_item(trigger="start")` before returning |
+| queue → work | Implementation agent | `advance_item(trigger="start")` — phase entry |
+| work → review/terminal | Orchestrator | `advance_item(trigger="start")` — routes based on schema |
 | review → terminal | Orchestrator | `advance_item(trigger="start")` after review verdict |
 
-Implementation agents own their lifecycle through review. The orchestrator performs the final terminal transition after reviewing the verdict.
+Implementation agents enter their assigned phase and fill its notes. The orchestrator owns all subsequent transitions — it advances the item and inspects `newRole` to determine the next phase. If the schema has review-phase notes, the item moves to review and a reviewer is dispatched. If not, the item moves directly to terminal.
 
 ---
 
@@ -143,9 +143,9 @@ Feature: "Refactor authentication into three components"
 1. **Plan:** Enter plan mode. Pre-plan hook gathers MCP state. Write plan with three tasks. User approves.
 2. **Materialize:** Post-plan creates root item + three children with fan-out dependencies.
 3. **Dispatch:** Three worktree agents in parallel. Each gets a child UUID + target files. Each creates a session task.
-4. **Self-advance:** Each agent calls `advance_item(trigger="start")` twice — queue→work at start, work→review before returning.
-5. **Review:** Orchestrator dispatches review agents into each worktree path.
-6. **Terminal:** Orchestrator advances each item review→terminal after review passes.
+4. **Phase entry:** Each agent calls `advance_item(trigger="start")` once — queue→work at start. Fills work-phase notes and returns.
+5. **Orchestrator advances:** Calls `advance_item(trigger="start")` on each item. Items with review-phase notes move to review; lightweight items move to terminal.
+6. **Review:** For items now in review, orchestrator dispatches review agents into each worktree path. After review passes, advances review→terminal.
 7. **Cascade:** Parent auto-cascades to terminal when all children reach terminal.
 8. **Merge:** Squash-merge each worktree branch into local `main`. Run tests after each merge.
 

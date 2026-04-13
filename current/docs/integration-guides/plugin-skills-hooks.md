@@ -226,7 +226,7 @@ Queue-phase notes (specification / task-scope) are filled before dispatching.
 - Commits changes
 - Returns to the orchestrator
 
-**7. Orchestrator reviews each item** — calls `advance_item(trigger="start")` to move work→review, fills review-checklist, then advances review→terminal.
+**7. Orchestrator advances each item** — calls `advance_item(trigger="start")`. If `newRole` is `review` (schema has review-phase notes): dispatches a reviewer or fills review notes inline, then advances review→terminal. If `newRole` is `terminal` (no review phase): item is complete.
 
 **8. Parent auto-cascades** — when all four children reach terminal, the root item cascades to terminal automatically. The `cascadeEvents` field in the response confirms the cascade.
 
