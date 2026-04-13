@@ -110,8 +110,10 @@ as `parentId`. Dispatch implementation subagents with each child item UUID.
 
 Each subagent must:
 - Call `advance_item(trigger="start")` on their item to enter work phase
-- Call `advance_item(trigger="start")` again to advance to review before returning
-- Do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
+- Fill work-phase notes following the JIT progression loop (the subagent-start hook
+  provides guidance via `guidancePointer` and `skillPointer`)
+- Return to the orchestrator — do NOT call `advance_item` again. The orchestrator
+  handles all further transitions.
 
 ### 2b. Fill `implementation-notes`
 

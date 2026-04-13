@@ -97,10 +97,12 @@ Use `get_next_item(parentId="<uuid>")` to scope recommendations to a specific su
 
 1. Create the feature with `create_work_tree` (root + 3 children, linear dependencies)
 2. Start the first child: `advance_item(trigger="start")` → queue→work
-3. Do the work, then advance again: `advance_item(trigger="start")` → work→review→terminal
-4. The next child auto-unblocks — check with `get_blocked_items(parentId="<root-uuid>")`
-5. Use `get_next_item(parentId="<root-uuid>")` to find what's ready
-6. When all children complete, the parent auto-cascades to terminal
+3. Do the work, fill work-phase notes
+4. Advance: `advance_item(trigger="start")` — moves to review (if schema has review-phase notes) or terminal (if not)
+5. If in review: fill review notes, then `advance_item(trigger="start")` → terminal
+6. The next child auto-unblocks — check with `get_blocked_items(parentId="<root-uuid>")`
+7. Use `get_next_item(parentId="<root-uuid>")` to find what's ready
+8. When all children complete, the parent auto-cascades to terminal
 
 ## Key Tool Patterns
 

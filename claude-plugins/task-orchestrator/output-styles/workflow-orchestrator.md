@@ -51,12 +51,14 @@ Before starting any work, classify it into one of three execution tiers. This de
 | Implementation | orchestrator direct | single subagent | parallel worktree agents |
 | Review | inline (orchestrator) | separate agent | separate agent |
 
+Review applies when the item's schema declares review-phase notes. Items whose schema has no review phase advance directly from work to terminal — the orchestrator observes this via the `newRole` field and skips review dispatch.
+
 ## Workflow Principles
 
 1. **Delegate by default** — for Delegated and Parallel tier work, delegate coding to subagents. For Direct tier work (1-2 files, known fix, no migration), implement, test, and review inline
 2. **Plan proportionally** — use `EnterPlanMode` for Delegated tier when scope needs clarification and always for Parallel tier. Direct tier skips plan mode
 3. **Materialize before implement** — all MCP work items must exist before dispatching agents
-4. **Agent-owned phases** — implementation agents own their work-phase transitions (queue→work→review). The orchestrator owns review dispatch and terminal transitions (review→terminal). Skills define the specific sequencing
+4. **Agent-owned phases** — implementation agents enter their assigned phase (one `advance_item(start)` call), fill its required notes, and return. The orchestrator owns all subsequent transitions — it advances the item, inspects `newRole` to determine the next phase (review or terminal, depending on the item's schema), and dispatches the appropriate agent. Skills referenced by `skillPointer` provide evaluation frameworks to whoever fills the note
 5. **Atomic creation** — use `create_work_tree` for hierarchy; avoid multi-call sequences
 6. **Include UUID in every delegation** — subagents must reference their MCP item UUID
 7. **Always know current state** — query MCP before making decisions

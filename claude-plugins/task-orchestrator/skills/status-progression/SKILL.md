@@ -358,7 +358,7 @@ Result:
       test-results (work, required)
 ```
 
-The `expectedNotes` in the response shows what must be filled during the work phase before the next `start` will succeed. Fill these notes as implementation progresses, then call `advance_item(trigger="start")` again to move to review or terminal.
+The `expectedNotes` in the response shows what must be filled during the work phase before the next `start` will succeed. Fill these notes as implementation progresses, then return control to the orchestrator. The orchestrator calls `advance_item(trigger="start")` to advance the item to the next phase (review if the schema has review-phase notes, or terminal otherwise).
 
 ---
 

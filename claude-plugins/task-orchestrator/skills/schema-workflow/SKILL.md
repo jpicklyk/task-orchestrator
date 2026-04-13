@@ -144,16 +144,18 @@ rather than assuming specific keys exist.
 **Orchestrator** (this skill's primary user):
 - Fills queue-phase notes (requirements, design) during planning
 - Dispatches implementation agents with the item UUID
-- Dispatches review agents after the item reaches review phase (implementation agent advances work→review before returning)
+- After implementation agents return, advances the item via `advance_item(start)` and inspects `newRole`:
+  - If `review`: dispatches review agents or performs inline review
+  - If `terminal`: item completed through a lightweight lifecycle (no review-phase notes in schema)
 - Performs the final terminal transition (review→terminal) after the review verdict
 - Uses this skill for queue-phase note filling and terminal advancement
 
 **Implementation agents** (agent-owned-phase model):
 - Receive the full phase-aware protocol automatically via the `subagent-start` hook
-- Call `advance_item(start)` to enter work phase (queue→work)
-- Fill work-phase notes using the JIT progression loop described in the hook protocol
-- Call `advance_item(start)` again to advance to review (work→review) before returning
-- Do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
+- Call `advance_item(start)` once to enter work phase (queue→work)
+- Fill work-phase notes using the JIT progression loop (guidancePointer + skillPointer)
+- Return to the orchestrator — do NOT call `advance_item` again
+- The orchestrator advances the item to the next phase and handles all further routing
 
 **Review agents** (dispatched into an item already in review):
 - Receive the `subagent-start` hook, which tells them to call `advance_item(start)`
@@ -162,7 +164,7 @@ rather than assuming specific keys exist.
 - Fill review-phase notes (e.g., review-checklist), report verdict, return
 - Do NOT call `advance_item` again — the orchestrator handles the terminal transition
 
-**Key invariant:** Implementation agents own queue→work and work→review transitions. The orchestrator owns review→terminal. Review agents do not advance items — they evaluate and report.
+**Key invariant:** Agents own phase entry (one `advance_item(start)` call to enter their assigned phase). The orchestrator owns all phase-to-phase transitions — advancing the item, inspecting the schema to determine the next phase (review or terminal), and dispatching phase-appropriate agents. Review agents fill review-phase notes and return — they do not advance items.
 
 ---
 
