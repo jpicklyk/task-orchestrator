@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-04-13 (Plugin v3.0.1)
+
+### Added
+- Added short hex prefix resolution (4+ chars) to all WorkItem ID parameters — use `a1b2` instead of full UUIDs across all 13 tools, including `manage_items` update, delete, and per-item `parentId`
+
+### Fixed
+- Fixed `query_items(operation="overview")` scoped view to include `childCounts` and `traits` on child items
+- Fixed contradictory agent-owned-phase documentation across plugin skills, output styles, and integration guides — aligned to single-phase agent model
+- Bumped plugin version to 3.0.1 — content fixes to skills and output style
+
+---
+
 ## [3.0.0] - 2026-04-06 (Plugin v3.0.0)
 
 ### Breaking Changes
