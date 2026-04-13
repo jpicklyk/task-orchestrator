@@ -49,13 +49,13 @@ Unified write operations for WorkItems (create, update, delete).
 - `tags` is always included (null if not set). `expectedNotes` is always included (empty array when no schema matches). `schemaMatch` indicates whether the item's tags matched a configured note schema.
 
 **update** - Partial update from `items` array.
-- Each item: `{ id (required), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`
+- Each item: `{ id (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId? (UUID or hex prefix 4+ chars), metadata?, tags?, type?, properties? }`
 - Note: role changes are not allowed in update operations. Use advance_item with triggers (start, complete, block, hold, resume, cancel, reopen) instead.
 - Only provided fields are changed; omitted fields retain existing values
 - If parentId changes, depth is recomputed from new parent
 - Response: `{ items: [{id, modifiedAt}], updated: N, failed: N, failures: [{id, error}] }`
 
-**delete** - Delete by `ids` array.
+**delete** - Delete by `ids` array (UUIDs or hex prefixes 4+ chars).
 - Response: `{ ids: [...], deleted: N, failed: N, failures: [{id, error}] }`
 - Use `recursive: true` to recursively delete all descendant items before deleting the specified items.
   Without this flag, deleting an item with children will fail with a constraint error.
@@ -94,7 +94,7 @@ Unified write operations for WorkItems (create, update, delete).
                         "ids",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Array of item UUIDs for delete"))
+                            put("description", JsonPrimitive("Array of item UUIDs or hex prefixes (4+ chars) for delete"))
                         }
                     )
                     put(

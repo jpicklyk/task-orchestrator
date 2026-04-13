@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -73,11 +74,7 @@ class CreateItemHandler(
                 val itemParentIdStr = extractItemString(itemObj, "parentId")
                 val parentId =
                     if (itemParentIdStr != null) {
-                        try {
-                            UUID.fromString(itemParentIdStr)
-                        } catch (_: IllegalArgumentException) {
-                            throw ToolValidationException("Item at index $index: 'parentId' is not a valid UUID")
-                        }
+                        resolveWorkItemIdString(itemParentIdStr, context, "Item at index $index: 'parentId'")
                     } else {
                         sharedParentId
                     }
