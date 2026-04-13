@@ -2,9 +2,10 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
-import java.util.UUID
 
 /**
  * Handles the `delete` operation for [ManageItemsTool].
@@ -47,12 +48,12 @@ class DeleteItemHandler {
 
             val id =
                 try {
-                    UUID.fromString(idStr)
-                } catch (_: IllegalArgumentException) {
+                    resolveWorkItemIdString(idStr, context, "'id'")
+                } catch (e: ToolValidationException) {
                     failures.add(
                         buildJsonObject {
                             put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive("Invalid UUID format: $idStr"))
+                            put("error", JsonPrimitive(e.message ?: "Invalid ID: $idStr"))
                         }
                     )
                     continue

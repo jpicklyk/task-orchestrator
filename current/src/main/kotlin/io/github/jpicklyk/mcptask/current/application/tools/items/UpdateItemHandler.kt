@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
@@ -51,12 +52,7 @@ class UpdateItemHandler(
                 itemId = extractItemString(itemObj, "id")
                     ?: throw ToolValidationException("Update item: 'id' is required")
 
-                val id =
-                    try {
-                        UUID.fromString(itemId)
-                    } catch (_: IllegalArgumentException) {
-                        throw ToolValidationException("Update item: 'id' is not a valid UUID: $itemId")
-                    }
+                val id = resolveWorkItemIdString(itemId, context, "Update item: 'id'")
 
                 // Fetch existing item
                 val existing =
@@ -112,12 +108,7 @@ class UpdateItemHandler(
                 val newParentId: UUID?
                 val newDepth: Int
                 if (parentIdStr != null) {
-                    newParentId =
-                        try {
-                            UUID.fromString(parentIdStr)
-                        } catch (_: IllegalArgumentException) {
-                            throw ToolValidationException("Item '$itemId': 'parentId' is not a valid UUID")
-                        }
+                    newParentId = resolveWorkItemIdString(parentIdStr, context, "Item '$itemId': 'parentId'")
 
                     newDepth =
                         hierarchyValidator.validateAndComputeDepth(
