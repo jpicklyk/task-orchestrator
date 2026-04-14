@@ -662,5 +662,65 @@ class RoleTransitionHandlerTest {
                 assertNull(result.item)
                 assertNull(result.transition)
             }
+
+        @Test
+        fun `apply transition with actor claim persists actor on RoleTransition`() =
+            runBlocking {
+                val item = testItem(role = Role.QUEUE)
+                val actorClaim = ActorClaim(id = "orchestrator-1", kind = ActorKind.ORCHESTRATOR, parent = null)
+                val verification = VerificationResult(status = VerificationStatus.UNVERIFIED, verifier = "noop")
+
+                val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo,
+                        actorClaim = actorClaim,
+                        verification = verification
+                    )
+
+                assertTrue(result.success)
+                val captured = transitionSlot.captured
+                assertNotNull(captured.actorClaim)
+                assertEquals("orchestrator-1", captured.actorClaim!!.id)
+                assertEquals(ActorKind.ORCHESTRATOR, captured.actorClaim!!.kind)
+                assertNotNull(captured.verification)
+                assertEquals(VerificationStatus.UNVERIFIED, captured.verification!!.status)
+                assertEquals("noop", captured.verification!!.verifier)
+            }
+
+        @Test
+        fun `apply transition without actor has null actor on RoleTransition`() =
+            runBlocking {
+                val item = testItem(role = Role.QUEUE)
+
+                val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success)
+                val captured = transitionSlot.captured
+                assertNull(captured.actorClaim)
+                assertNull(captured.verification)
+            }
     }
 }

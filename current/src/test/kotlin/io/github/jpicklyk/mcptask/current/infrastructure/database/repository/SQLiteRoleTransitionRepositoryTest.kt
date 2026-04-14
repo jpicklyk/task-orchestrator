@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -16,6 +20,8 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SQLiteRoleTransitionRepositoryTest {
@@ -320,5 +326,116 @@ class SQLiteRoleTransitionRepositoryTest {
             val result = transitionRepository.deleteByItemId(UUID.randomUUID())
             assertIs<Result.Success<Int>>(result)
             assertEquals(0, result.data)
+        }
+
+    // --- Actor attribution ---
+
+    @Test
+    fun `create transition with actor claim`() =
+        runBlocking {
+            val actor =
+                ActorClaim(
+                    id = "agent-42",
+                    kind = ActorKind.SUBAGENT,
+                    parent = "orchestrator-1",
+                    proof = "proof-token"
+                )
+            val verification =
+                VerificationResult(
+                    status = VerificationStatus.UNVERIFIED,
+                    verifier = "noop",
+                    reason = null
+                )
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    actorClaim = actor,
+                    verification = verification
+                )
+            transitionRepository.create(transition)
+
+            val result = transitionRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<RoleTransition>>>(result)
+            assertEquals(1, result.data.size)
+            val found = result.data[0]
+            assertNotNull(found.actorClaim)
+            assertEquals("agent-42", found.actorClaim!!.id)
+            assertEquals(ActorKind.SUBAGENT, found.actorClaim!!.kind)
+            assertEquals("orchestrator-1", found.actorClaim!!.parent)
+            assertEquals("proof-token", found.actorClaim!!.proof)
+            assertNotNull(found.verification)
+            assertEquals(VerificationStatus.UNVERIFIED, found.verification!!.status)
+            assertEquals("noop", found.verification!!.verifier)
+            assertNull(found.verification!!.reason)
+        }
+
+    @Test
+    fun `create transition without actor`() =
+        runBlocking {
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start"
+                )
+            transitionRepository.create(transition)
+
+            val result = transitionRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<RoleTransition>>>(result)
+            assertEquals(1, result.data.size)
+            val found = result.data[0]
+            assertNull(found.actorClaim)
+            assertNull(found.verification)
+        }
+
+    @Test
+    fun `findByItemId returns actor and verification fields`() =
+        runBlocking {
+            val now = Instant.now()
+            val actor = ActorClaim(id = "agent-1", kind = ActorKind.ORCHESTRATOR)
+            val verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "test-verifier")
+
+            val withActor =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    transitionedAt = now.minus(1, ChronoUnit.HOURS),
+                    actorClaim = actor,
+                    verification = verification
+                )
+            val withoutActor =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "work",
+                    toRole = "review",
+                    trigger = "complete",
+                    transitionedAt = now
+                )
+            transitionRepository.create(withActor)
+            transitionRepository.create(withoutActor)
+
+            val result = transitionRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<RoleTransition>>>(result)
+            assertEquals(2, result.data.size)
+
+            // Results are newest-first; withoutActor has later transitionedAt
+            val noActorFound = result.data[0]
+            val actorFound = result.data[1]
+
+            assertNull(noActorFound.actorClaim)
+            assertNull(noActorFound.verification)
+
+            assertNotNull(actorFound.actorClaim)
+            assertEquals("agent-1", actorFound.actorClaim!!.id)
+            assertEquals(ActorKind.ORCHESTRATOR, actorFound.actorClaim!!.kind)
+            assertNotNull(actorFound.verification)
+            assertEquals(VerificationStatus.VERIFIED, actorFound.verification!!.status)
+            assertEquals("test-verifier", actorFound.verification!!.verifier)
         }
 }

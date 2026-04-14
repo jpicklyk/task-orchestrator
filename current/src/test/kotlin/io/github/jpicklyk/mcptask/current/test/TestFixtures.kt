@@ -70,28 +70,62 @@ fun makeNote(
     itemId: UUID,
     key: String = "test-note",
     role: String = "queue",
-    body: String = "Test body"
+    body: String = "Test body",
+    actorClaim: ActorClaim? = null,
+    verification: VerificationResult? = null
 ): Note =
     Note(
         itemId = itemId,
         key = key,
         role = role,
-        body = body
+        body = body,
+        actorClaim = actorClaim,
+        verification = verification
     )
+
+// ── Actor attribution builders ──
+
+fun makeActorClaim(
+    id: String = "agent-1",
+    kind: ActorKind = ActorKind.SUBAGENT,
+    parent: String? = null,
+    proof: String? = null
+): ActorClaim = ActorClaim(id = id, kind = kind, parent = parent, proof = proof)
+
+fun makeVerificationResult(
+    status: VerificationStatus = VerificationStatus.UNVERIFIED,
+    verifier: String? = "noop",
+    reason: String? = null
+): VerificationResult = VerificationResult(status = status, verifier = verifier, reason = reason)
 
 // ── JSON param helpers ──
 
 fun params(vararg pairs: Pair<String, JsonElement>): JsonObject = buildJsonObject { pairs.forEach { (k, v) -> put(k, v) } }
 
+fun buildActorJson(
+    id: String = "agent-1",
+    kind: String = "subagent",
+    parent: String? = null,
+    proof: String? = null
+): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("kind", kind)
+        parent?.let { put("parent", it) }
+        proof?.let { put("proof", it) }
+    }
+
 fun transitionObj(
     itemId: UUID,
     trigger: String,
-    summary: String? = null
+    summary: String? = null,
+    actor: JsonObject? = null
 ): JsonObject =
     buildJsonObject {
         put("itemId", itemId.toString())
         put("trigger", trigger)
         summary?.let { put("summary", it) }
+        actor?.let { put("actor", it) }
     }
 
 fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =

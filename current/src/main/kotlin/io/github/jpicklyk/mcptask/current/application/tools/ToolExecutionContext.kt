@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.McpLoggingService
+import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpMcpLoggingService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -29,7 +31,8 @@ class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
     private val noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
-    private val mcpLoggingService: McpLoggingService = NoOpMcpLoggingService
+    private val mcpLoggingService: McpLoggingService = NoOpMcpLoggingService,
+    private val actorVerifier: ActorVerifier = NoOpActorVerifier
 ) {
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
@@ -51,6 +54,9 @@ class ToolExecutionContext(
 
     /** Access to the MCP protocol-level logging service. */
     fun mcpLoggingService(): McpLoggingService = mcpLoggingService
+
+    /** Access to the actor claim verification service. */
+    fun actorVerifier(): ActorVerifier = actorVerifier
 
     /** Access to the atomic work-tree creation executor. */
     fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()

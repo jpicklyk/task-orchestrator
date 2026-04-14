@@ -13,6 +13,13 @@ object RoleTransitionsTable : UUIDTable("role_transitions") {
     val trigger = varchar("trigger", 50)
     val summary = text("summary").nullable()
     val transitionedAt = timestamp("transitioned_at")
+    val actorId = text("actor_id").nullable()
+    val actorKind = text("actor_kind").nullable()
+    val actorParent = text("actor_parent").nullable()
+    val actorProof = text("actor_proof").nullable()
+    val verificationStatus = text("verification_status").nullable()
+    val verificationVerifier = text("verification_verifier").nullable()
+    val verificationReason = text("verification_reason").nullable()
 
     init {
         foreignKey(itemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)

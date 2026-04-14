@@ -103,13 +103,13 @@ class RoleTransitionTest {
 
     @Test
     fun `VALID_TRIGGERS contains all expected triggers`() {
-        val expected = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
+        val expected = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen", "cascade")
         assertEquals(expected, RoleTransition.VALID_TRIGGERS)
     }
 
     @Test
-    fun `VALID_TRIGGERS has exactly 6 entries`() {
-        assertEquals(7, RoleTransition.VALID_TRIGGERS.size)
+    fun `VALID_TRIGGERS has exactly 8 entries`() {
+        assertEquals(8, RoleTransition.VALID_TRIGGERS.size)
     }
 
     @Test
@@ -140,5 +140,42 @@ class RoleTransitionTest {
     @Test
     fun `VALID_TRIGGERS contains cancel`() {
         assertTrue("cancel" in RoleTransition.VALID_TRIGGERS)
+    }
+
+    @Test
+    fun `VALID_TRIGGERS contains cascade`() {
+        assertTrue("cascade" in RoleTransition.VALID_TRIGGERS)
+    }
+
+    // --- Actor attribution ---
+
+    @Test
+    fun `valid creation with actor claim and verification`() {
+        val actor =
+            ActorClaim(
+                id = "agent-42",
+                kind = ActorKind.SUBAGENT,
+                parent = "orchestrator-1",
+                proof = "tok"
+            )
+        val verification =
+            VerificationResult(
+                status = VerificationStatus.UNVERIFIED,
+                verifier = "noop"
+            )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "queue",
+                toRole = "work",
+                trigger = "start",
+                actorClaim = actor,
+                verification = verification
+            )
+        assertEquals(actor, transition.actorClaim)
+        assertEquals(verification, transition.verification)
+        assertEquals("agent-42", transition.actorClaim!!.id)
+        assertEquals(ActorKind.SUBAGENT, transition.actorClaim!!.kind)
+        assertEquals(VerificationStatus.UNVERIFIED, transition.verification!!.status)
     }
 }

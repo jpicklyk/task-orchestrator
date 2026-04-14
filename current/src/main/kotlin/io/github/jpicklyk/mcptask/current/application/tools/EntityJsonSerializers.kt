@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.*
 
@@ -94,6 +96,8 @@ fun Note.toJson(includeBody: Boolean = true): JsonObject =
         if (includeBody) put("body", JsonPrimitive(body))
         put("createdAt", JsonPrimitive(createdAt.toString()))
         put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
+        actorClaim?.let { put("actor", it.toJson()) }
+        verification?.let { put("verification", it.toJson()) }
     }
 
 // ──────────────────────────────────────────────
@@ -111,4 +115,21 @@ fun Dependency.toJson(): JsonObject =
         put("toItemId", JsonPrimitive(toItemId.toString()))
         put("type", JsonPrimitive(type.name))
         unblockAt?.let { put("unblockAt", JsonPrimitive(it)) }
+    }
+
+// ── Actor attribution serializers ──
+
+fun ActorClaim.toJson(): JsonObject =
+    buildJsonObject {
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive(kind.toJsonString()))
+        parent?.let { put("parent", JsonPrimitive(it)) }
+        proof?.let { put("proof", JsonPrimitive(it)) }
+    }
+
+fun VerificationResult.toJson(): JsonObject =
+    buildJsonObject {
+        put("status", JsonPrimitive(status.toJsonString()))
+        verifier?.let { put("verifier", JsonPrimitive(it)) }
+        reason?.let { put("reason", JsonPrimitive(it)) }
     }

@@ -31,7 +31,9 @@ import java.util.UUID
  * - hasReviewPhase: if the schema has no "review" entries, start from WORK skips REVIEW
  * - expectedNotes: the success result includes schema entries for the new role
  */
-class AdvanceItemTool : BaseToolDefinition() {
+class AdvanceItemTool :
+    BaseToolDefinition(),
+    ActorAware {
     override val name = "advance_item"
 
     override val description =
@@ -99,7 +101,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         "transitions",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Array of transition objects: { itemId, trigger, summary? }"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Array of transition objects: { itemId, trigger, summary?, actor? }. " +
+                                        "actor (optional): { id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent (optional string), proof (optional string) }"
+                                )
+                            )
                         }
                     )
                 },
@@ -165,6 +174,24 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             val summary =
                 (obj["summary"] as? JsonPrimitive)?.let {
                     if (it.isString && it.content.isNotBlank()) it.content else null
+                }
+
+            // Extract optional actor claim
+            val actorResult = parseActorClaim(obj["actor"] as? JsonObject, context)
+            val actorClaim =
+                when (actorResult) {
+                    is ActorParseResult.Success -> actorResult.claim
+                    is ActorParseResult.Absent -> null
+                    is ActorParseResult.Invalid -> {
+                        failCount++
+                        resultsList.add(buildErrorResult(itemId, trigger, actorResult.error))
+                        continue
+                    }
+                }
+            val verification =
+                when (actorResult) {
+                    is ActorParseResult.Success -> actorResult.verification
+                    else -> null
                 }
 
             // Fetch the WorkItem
@@ -303,7 +330,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     summary,
                     effectiveLabel,
                     context.workItemRepository(),
-                    context.roleTransitionRepository()
+                    context.roleTransitionRepository(),
+                    actorClaim = actorClaim,
+                    verification = verification
                 )
             if (!applyResult.success || applyResult.item == null) {
                 failCount++
@@ -377,7 +406,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             "Auto-cascaded from child completion",
                             context.statusLabelService().resolveLabel("cascade"),
                             context.workItemRepository(),
-                            context.roleTransitionRepository()
+                            context.roleTransitionRepository(),
+                            actorClaim = null,
+                            verification = null
                         )
 
                     cascadeJsonList.add(
@@ -502,6 +533,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
+                    actorClaim?.let { put("actor", it.toJson()) }
+                    verification?.let { put("verification", it.toJson()) }
                     put("cascadeEvents", JsonArray(cascadeJsonList))
                     put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
@@ -571,7 +604,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     summary,
                     context.statusLabelService().resolveLabel("cascade"),
                     context.workItemRepository(),
-                    context.roleTransitionRepository()
+                    context.roleTransitionRepository(),
+                    actorClaim = null,
+                    verification = null
                 )
 
             cascadeJsonList.add(

@@ -17,7 +17,9 @@ import java.util.UUID
  *   The (itemId, key) pair is unique — upserting with an existing pair updates the note in place.
  * - **delete**: Delete notes by `ids` array, or by `itemId` (optionally scoped by `key`).
  */
-class ManageNotesTool : BaseToolDefinition() {
+class ManageNotesTool :
+    BaseToolDefinition(),
+    ActorAware {
     override val name = "manage_notes"
 
     override val description =
@@ -64,7 +66,15 @@ Unified write operations for Notes (upsert, delete).
                         "notes",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Array of note objects for upsert"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Array of note objects for upsert. Each note: " +
+                                        "{ itemId (required), key (required), role (required: queue|work|review), body?, " +
+                                        "actor? (optional: { id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent (optional string), proof (optional string) }) }"
+                                )
+                            )
                         }
                     )
                     put(
@@ -185,6 +195,28 @@ Unified write operations for Notes (upsert, delete).
                         ?: throw ToolValidationException("Note at index $index: 'role' is required")
                 val body = extractNoteString(noteObj, "body") ?: ""
 
+                // Extract optional actor claim
+                val actorResult = parseActorClaim(noteObj["actor"] as? JsonObject, context)
+                val actorClaim =
+                    when (actorResult) {
+                        is ActorParseResult.Success -> actorResult.claim
+                        is ActorParseResult.Absent -> null
+                        is ActorParseResult.Invalid -> {
+                            failures.add(
+                                buildJsonObject {
+                                    put("index", JsonPrimitive(index))
+                                    put("error", JsonPrimitive("Note at index $index: ${actorResult.error}"))
+                                }
+                            )
+                            continue
+                        }
+                    }
+                val verification =
+                    when (actorResult) {
+                        is ActorParseResult.Success -> actorResult.verification
+                        else -> null
+                    }
+
                 val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
                 if (itemIdErr != null || resolvedItemId == null) {
                     throw ToolValidationException("Note at index $index: could not resolve 'itemId': $itemIdStr")
@@ -214,7 +246,9 @@ Unified write operations for Notes (upsert, delete).
                         itemId = itemId,
                         key = key,
                         role = role,
-                        body = body
+                        body = body,
+                        actorClaim = actorClaim,
+                        verification = verification
                     )
 
                 when (val result = noteRepo.upsert(note)) {
@@ -225,6 +259,8 @@ Unified write operations for Notes (upsert, delete).
                                 put("itemId", JsonPrimitive(result.data.itemId.toString()))
                                 put("key", JsonPrimitive(result.data.key))
                                 put("role", JsonPrimitive(result.data.role))
+                                actorClaim?.let { put("actor", it.toJson()) }
+                                verification?.let { put("verification", it.toJson()) }
                             }
                         )
                     }

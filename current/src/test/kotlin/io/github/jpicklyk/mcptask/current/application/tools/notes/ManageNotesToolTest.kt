@@ -949,4 +949,251 @@ class ManageNotesToolTest {
             val ctx = (data["itemContext"] as JsonObject)[itemId] as JsonObject
             assertFalse(ctx.containsKey("skillPointer"), "skillPointer should be absent when note has no skill")
         }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution in upsert
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `upsert with actor claim includes actor and verification in response`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("actor-note"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("Implementation notes"))
+                                        put(
+                                            "actor",
+                                            buildJsonObject {
+                                                put("id", JsonPrimitive("agent-001"))
+                                                put("kind", JsonPrimitive("subagent"))
+                                            }
+                                        )
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+
+            val note = data["notes"]!!.jsonArray[0] as JsonObject
+            assertNotNull(note["actor"], "actor field should be present in response")
+            val actor = note["actor"] as JsonObject
+            assertEquals("agent-001", actor["id"]!!.jsonPrimitive.content)
+            assertEquals("subagent", actor["kind"]!!.jsonPrimitive.content)
+
+            assertNotNull(note["verification"], "verification field should be present in response")
+            val verification = note["verification"] as JsonObject
+            assertNotNull(verification["status"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `upsert without actor has no actor in response`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("plain-note"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("Some content"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
+            assertFalse(note.containsKey("actor"), "actor key should be absent when no actor was provided")
+            assertFalse(note.containsKey("verification"), "verification key should be absent when no actor was provided")
+        }
+
+    @Test
+    fun `upsert update replaces previous actor`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+
+            // First upsert with actor-a
+            tool.execute(
+                params(
+                    "operation" to JsonPrimitive("upsert"),
+                    "notes" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId))
+                                    put("key", JsonPrimitive("actor-replace"))
+                                    put("role", JsonPrimitive("work"))
+                                    put("body", JsonPrimitive("First body"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-first"))
+                                            put("kind", JsonPrimitive("orchestrator"))
+                                        }
+                                    )
+                                }
+                            )
+                        )
+                ),
+                context
+            )
+
+            // Second upsert with actor-b — same (itemId, key)
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("actor-replace"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("Second body"))
+                                        put(
+                                            "actor",
+                                            buildJsonObject {
+                                                put("id", JsonPrimitive("agent-second"))
+                                                put("kind", JsonPrimitive("subagent"))
+                                            }
+                                        )
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            assertEquals(1, (result["data"] as JsonObject)["upserted"]!!.jsonPrimitive.int)
+
+            // Verify the persisted note has the second actor via direct repo query
+            val noteRepo = context.noteRepository()
+            val itemUUID = java.util.UUID.fromString(itemId)
+            val found = (noteRepo.findByItemIdAndKey(itemUUID, "actor-replace") as Result.Success).data
+            assertNotNull(found, "note should exist")
+            assertNotNull(found!!.actorClaim, "actorClaim should be persisted")
+            assertEquals("agent-second", found.actorClaim!!.id)
+            assertEquals(io.github.jpicklyk.mcptask.current.domain.model.ActorKind.SUBAGENT, found.actorClaim.kind)
+        }
+
+    @Test
+    fun `invalid actor kind in upsert returns failure for that note`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("bad-actor"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("Some content"))
+                                        put(
+                                            "actor",
+                                            buildJsonObject {
+                                                put("id", JsonPrimitive("agent-x"))
+                                                put("kind", JsonPrimitive("bogus"))
+                                            }
+                                        )
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("bogus"))
+        }
+
+    @Test
+    fun `batch upsert with mixed actor presence both succeed with correct actor presence`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    // Note with actor
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("with-actor"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("Has actor"))
+                                        put(
+                                            "actor",
+                                            buildJsonObject {
+                                                put("id", JsonPrimitive("agent-batch"))
+                                                put("kind", JsonPrimitive("subagent"))
+                                            }
+                                        )
+                                    },
+                                    // Note without actor
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("without-actor"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("No actor"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(2, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+
+            val notes = data["notes"]!!.jsonArray
+            val noteWithActor = notes.map { it as JsonObject }.first { it["key"]!!.jsonPrimitive.content == "with-actor" }
+            val noteWithoutActor = notes.map { it as JsonObject }.first { it["key"]!!.jsonPrimitive.content == "without-actor" }
+
+            assertTrue(noteWithActor.containsKey("actor"), "note with actor should have actor in response")
+            assertEquals("agent-batch", (noteWithActor["actor"] as JsonObject)["id"]!!.jsonPrimitive.content)
+            assertTrue(noteWithActor.containsKey("verification"), "note with actor should have verification in response")
+
+            assertFalse(noteWithoutActor.containsKey("actor"), "note without actor should not have actor key")
+            assertFalse(noteWithoutActor.containsKey("verification"), "note without actor should not have verification key")
+        }
 }

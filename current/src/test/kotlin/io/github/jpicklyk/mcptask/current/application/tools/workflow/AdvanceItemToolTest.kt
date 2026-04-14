@@ -2096,4 +2096,283 @@ class AdvanceItemToolTest {
                 "Resume with no config label should clear statusLabel"
             )
         }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `transition with actor claim includes actor and verification in response`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val actorJson =
+                buildJsonObject {
+                    put("id", "orchestrator-001")
+                    put("kind", "orchestrator")
+                    put("parent", "session-abc")
+                }
+            val params =
+                buildParams(
+                    buildJsonObject {
+                        put("itemId", itemId.toString())
+                        put("trigger", "start")
+                        put("actor", actorJson)
+                    }
+                )
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertEquals(1, results.size)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+
+            // Actor should be present in the response
+            val actor = r["actor"]!!.jsonObject
+            assertEquals("orchestrator-001", actor["id"]!!.jsonPrimitive.content)
+            assertEquals("orchestrator", actor["kind"]!!.jsonPrimitive.content)
+            assertEquals("session-abc", actor["parent"]!!.jsonPrimitive.content)
+            assertFalse(actor.containsKey("proof"), "proof should be absent when not provided")
+
+            // Verification should be present (NoOpActorVerifier returns UNVERIFIED)
+            val verification = r["verification"]!!.jsonObject
+            assertEquals("unverified", verification["status"]!!.jsonPrimitive.content)
+            assertEquals("noop", verification["verifier"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `transition without actor has no actor in response`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+
+            // actor and verification must be absent when no actor is provided
+            assertFalse(r.containsKey("actor"), "actor key must not be present when not provided")
+            assertFalse(r.containsKey("verification"), "verification key must not be present when no actor")
+        }
+
+    @Test
+    fun `batch transitions with mixed actor presence`(): Unit =
+        runBlocking {
+            val id1 = UUID.randomUUID()
+            val id2 = UUID.randomUUID()
+            val item1 = makeItem(id = id1, role = Role.QUEUE)
+            val item2 = makeItem(id = id2, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(id1) } returns Result.Success(item1)
+            coEvery { workItemRepo.getById(id2) } returns Result.Success(item2)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+
+            val actorJson =
+                buildJsonObject {
+                    put("id", "agent-xyz")
+                    put("kind", "subagent")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", id1.toString())
+                                    put("trigger", "start")
+                                    put("actor", actorJson)
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("itemId", id2.toString())
+                                    put("trigger", "start")
+                                    // No actor
+                                }
+                            )
+                        }
+                    )
+                }
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertEquals(2, results.size)
+
+            val r1 = results.map { it.jsonObject }.first { it["itemId"]!!.jsonPrimitive.content == id1.toString() }
+            val r2 = results.map { it.jsonObject }.first { it["itemId"]!!.jsonPrimitive.content == id2.toString() }
+
+            assertTrue(r1["applied"]!!.jsonPrimitive.boolean)
+            assertTrue(r1.containsKey("actor"), "First transition should have actor")
+            assertEquals("agent-xyz", r1["actor"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+            assertEquals("subagent", r1["actor"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+            assertTrue(r1.containsKey("verification"))
+
+            assertTrue(r2["applied"]!!.jsonPrimitive.boolean)
+            assertFalse(r2.containsKey("actor"), "Second transition should not have actor")
+            assertFalse(r2.containsKey("verification"), "Second transition should not have verification")
+        }
+
+    @Test
+    fun `cascade transition has no actor claim`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+            val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Parent")
+            val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns
+                Result.Success(mapOf(Role.TERMINAL to 1))
+
+            val actorJson =
+                buildJsonObject {
+                    put("id", "agent-cascade-test")
+                    put("kind", "subagent")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", childId.toString())
+                                    put("trigger", "complete")
+                                    put("actor", actorJson)
+                                }
+                            )
+                        }
+                    )
+                }
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
+
+            // Main transition should have actor
+            assertTrue(r.containsKey("actor"), "Main transition should include actor")
+
+            // Cascade event should be present but has no actor field (it's a JsonObject, not AdvanceItem result)
+            val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascadeEvents.size)
+            val cascade = cascadeEvents[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+            assertEquals(parentId.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            // Cascade events are simplified objects — they don't carry actor attribution
+            assertFalse(cascade.containsKey("actor"), "Cascade events must not include actor attribution")
+        }
+
+    @Test
+    fun `invalid actor kind returns validation error`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val actorJson =
+                buildJsonObject {
+                    put("id", "agent-bad-kind")
+                    put("kind", "bogus")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", itemId.toString())
+                                    put("trigger", "start")
+                                    put("actor", actorJson)
+                                }
+                            )
+                        }
+                    )
+                }
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Expected applied=false for invalid actor.kind")
+            assertTrue(
+                r["error"]!!.jsonPrimitive.content.contains("Invalid actor.kind"),
+                "Expected error to mention 'Invalid actor.kind' but got: ${r["error"]!!.jsonPrimitive.content}"
+            )
+
+            val summary = extractSummary(result)
+            assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+            assertEquals(0, summary["succeeded"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `actor with missing id returns validation error`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            // actor object with kind but no id
+            val actorJson =
+                buildJsonObject {
+                    put("kind", "user")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", itemId.toString())
+                                    put("trigger", "start")
+                                    put("actor", actorJson)
+                                }
+                            )
+                        }
+                    )
+                }
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Expected applied=false when actor.id missing")
+            assertTrue(
+                r["error"]!!.jsonPrimitive.content.contains("actor.id is required"),
+                "Expected error to mention 'actor.id is required' but got: ${r["error"]!!.jsonPrimitive.content}"
+            )
+
+            val summary = extractSummary(result)
+            assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
+            assertEquals(0, summary["succeeded"]!!.jsonPrimitive.int)
+        }
 }
