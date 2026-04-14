@@ -15,6 +15,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - At least one of `work_item_schemas` or `note_schemas` must exist at the top level
 - Each must be a mapping (not a list or scalar)
 - `traits` is an optional top-level key — if present, must be a mapping
+- `auditing` is an optional top-level key — if present, must be a mapping containing `enabled` (boolean)
 - No other top-level keys expected (warn if found)
 
 ### 3. Schema Entry Structure
@@ -66,6 +67,7 @@ For each note in each schema (and trait):
   work_item_schemas: 3 schemas
   note_schemas: 1 schema (legacy)
   traits: 2 traits
+  auditing: enabled
 
   Errors (must fix):
     ✗ bug-fix.fix-summary: missing "required" field
@@ -84,5 +86,5 @@ If no issues are found:
 ```
 ◆ Config Validation — .taskorchestrator/config.yaml
 
-  ✓ Valid — 3 schemas, 2 traits, 14 notes, no issues found
+  ✓ Valid — 3 schemas, 2 traits, 14 notes, auditing enabled, no issues found
 ```

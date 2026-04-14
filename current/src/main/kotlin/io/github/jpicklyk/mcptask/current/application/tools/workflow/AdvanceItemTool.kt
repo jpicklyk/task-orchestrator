@@ -41,8 +41,9 @@ class AdvanceItemTool :
 Trigger-based role transitions for WorkItems with validation, cascade detection, and unblock reporting.
 
 **Parameters:**
-- `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string) }`
+- `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string), actor? (optional object) }`
 - Valid triggers: start, complete, block, hold, resume, cancel, reopen
+- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor.
 
 **Trigger effects:**
 - start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
@@ -66,6 +67,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       "newRole": "work",
       "trigger": "start",
       "applied": true,
+      "actor": { "id": "agent-1", "kind": "subagent", "parent": "orch-1" },
+      "verification": { "status": "unverified", "verifier": "noop" },
       "cascadeEvents": [
         { "itemId": "uuid", "title": "Parent Item Title", "previousRole": "work", "targetRole": "terminal", "applied": true }
       ],

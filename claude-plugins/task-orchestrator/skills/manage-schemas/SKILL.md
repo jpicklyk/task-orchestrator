@@ -77,6 +77,14 @@ If the config has a `traits:` section, show a separate traits summary table:
 | needs-migration-review | migration-assessment (queue, req) | migration-review |
 ```
 
+If the config has an `auditing:` section, display the auditing status:
+
+```
+◆ Auditing: enabled
+```
+
+Or `◆ Auditing: disabled` (or omit if the section is absent).
+
 ### EDIT — Modify an Existing Schema
 
 Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance/skill, change lifecycle mode, add/remove default_traits, rename key), apply changes, write back.

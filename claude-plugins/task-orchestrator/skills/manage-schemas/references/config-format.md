@@ -186,6 +186,46 @@ Items with `type: feature-task` use the `work_item_schemas` entry. Items with ta
 
 ---
 
+## Auditing
+
+The `auditing` section is a top-level key alongside `work_item_schemas` and `traits`. It controls whether actor attribution is enforced on write operations.
+
+```yaml
+auditing:
+  enabled: true
+
+work_item_schemas:
+  # ...
+```
+
+Default: `false` when absent — auditing is opt-in.
+
+### Fields
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `enabled` | yes | boolean | `true` = block write calls missing actor claims. `false` = no enforcement |
+
+### Behavior
+
+When `auditing.enabled` is `true`, the plugin's PreToolUse hook blocks `advance_item` and `manage_notes(upsert)` calls that are missing an `actor` object on any element. The agent must retry with actor attribution included.
+
+When `false` or absent, actor claims are optional — calls pass through with no enforcement. Actor claims can still be provided voluntarily.
+
+### Stage 2 Expansion
+
+A future release will add `verifier` configuration under `auditing` for server-side claim validation (e.g., JWT). The `enabled` field will continue to control client-side enforcement independently:
+
+```yaml
+auditing:
+  enabled: true
+  verifier:
+    type: jwt
+    jwks_uri: "https://..."
+```
+
+---
+
 ## Key Stability Warning
 
 Changing a `key` after notes have been written orphans existing notes under the old key. There is no automatic migration — orphaned notes become ad-hoc notes on their items.

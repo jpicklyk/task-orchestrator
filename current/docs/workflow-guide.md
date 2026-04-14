@@ -668,6 +668,36 @@ When completing a blocking item, the response includes `unblockedItems`:
 
 Items in `unblockedItems` are now eligible to be started.
 
+### Actor Attribution
+
+`advance_item` transitions and `manage_notes` upserts accept an optional `actor` claim that records *who* performed the action. This enables post-mortem analysis of multi-agent workflows.
+
+```json
+advance_item(transitions=[{
+  "itemId": "abc-123",
+  "trigger": "start",
+  "actor": { "id": "impl-agent", "kind": "subagent", "parent": "orchestrator-1" }
+}])
+```
+
+The response echoes the actor claim and includes a verification record:
+
+```json
+{
+  "actor": { "id": "impl-agent", "kind": "subagent", "parent": "orchestrator-1" },
+  "verification": { "status": "unverified", "verifier": "noop" }
+}
+```
+
+Key behaviors:
+- **Optional by default** — omitting `actor` produces no error and no attribution data
+- **Cascade transitions** always have null actor (system-generated, not attributable)
+- **Note re-upsert** replaces the actor (last-writer-wins semantics)
+- **`get_context` session resume** includes actor/verification on recent transitions
+- **`query_notes`** includes actor/verification on notes that have them
+
+Actor claims are self-reported — the server trusts them as-is in Stage 1. To require actor claims on all write operations, enable auditing in `.taskorchestrator/config.yaml` (set `auditing.enabled: true`). See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+
 ---
 
 ## 8. Efficient Queries
