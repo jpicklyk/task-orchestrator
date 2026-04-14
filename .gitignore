@@ -47,6 +47,7 @@ bin/
 
 ### Logs folder ###
 /logs/
+current/logs/
 
 ### Data folder ###
 /data/
