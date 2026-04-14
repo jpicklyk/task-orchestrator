@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
 
@@ -115,23 +116,48 @@ class SQLiteRoleTransitionRepository(
         }
 
     private fun mapRowToRoleTransition(row: ResultRow): RoleTransition {
-        val actorClaim = row[RoleTransitionsTable.actorId]?.let { actorId ->
-            ActorClaim(
-                id = actorId,
-                kind = ActorKind.fromString(row[RoleTransitionsTable.actorKind]!!),
-                parent = row[RoleTransitionsTable.actorParent],
-                proof = row[RoleTransitionsTable.actorProof]
-            )
-        }
-        val verification = row[RoleTransitionsTable.verificationStatus]?.let { status ->
-            VerificationResult(
-                status = VerificationStatus.fromString(status),
-                verifier = row[RoleTransitionsTable.verificationVerifier],
-                reason = row[RoleTransitionsTable.verificationReason]
-            )
-        }
+        val transitionId = row[RoleTransitionsTable.id].value
+        val actorClaim =
+            row[RoleTransitionsTable.actorId]?.let { actorId ->
+                val kindStr = row[RoleTransitionsTable.actorKind]
+                if (kindStr == null) {
+                    logger.warn(
+                        "RoleTransition {}: actorId present but actorKind is null; skipping actor",
+                        transitionId
+                    )
+                    return@let null
+                }
+                try {
+                    ActorClaim(
+                        id = actorId,
+                        kind = ActorKind.fromString(kindStr),
+                        parent = row[RoleTransitionsTable.actorParent],
+                        proof = row[RoleTransitionsTable.actorProof]
+                    )
+                } catch (e: IllegalArgumentException) {
+                    logger.warn("RoleTransition {}: invalid actorKind '{}'; skipping actor", transitionId, kindStr)
+                    null
+                }
+            }
+        val verification =
+            row[RoleTransitionsTable.verificationStatus]?.let { status ->
+                try {
+                    VerificationResult(
+                        status = VerificationStatus.fromString(status),
+                        verifier = row[RoleTransitionsTable.verificationVerifier],
+                        reason = row[RoleTransitionsTable.verificationReason]
+                    )
+                } catch (e: IllegalArgumentException) {
+                    logger.warn(
+                        "RoleTransition {}: invalid verificationStatus '{}'; skipping verification",
+                        transitionId,
+                        status
+                    )
+                    null
+                }
+            }
         return RoleTransition(
-            id = row[RoleTransitionsTable.id].value,
+            id = transitionId,
             itemId = row[RoleTransitionsTable.itemId],
             fromRole = row[RoleTransitionsTable.fromRole],
             toRole = row[RoleTransitionsTable.toRole],
@@ -143,5 +169,9 @@ class SQLiteRoleTransitionRepository(
             actorClaim = actorClaim,
             verification = verification
         )
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(SQLiteRoleTransitionRepository::class.java)
     }
 }

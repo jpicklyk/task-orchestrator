@@ -264,18 +264,20 @@ class SQLiteNoteRepositoryTest {
     fun `upsert creates note with actor claim`() =
         runBlocking {
             val actor = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT, parent = "orch-1")
-            val verification = VerificationResult(
-                status = VerificationStatus.UNVERIFIED,
-                verifier = "noop"
-            )
-            val note = Note(
-                itemId = testItemId,
-                key = "actor-note",
-                role = "work",
-                body = "body text",
-                actorClaim = actor,
-                verification = verification
-            )
+            val verification =
+                VerificationResult(
+                    status = VerificationStatus.UNVERIFIED,
+                    verifier = "noop"
+                )
+            val note =
+                Note(
+                    itemId = testItemId,
+                    key = "actor-note",
+                    role = "work",
+                    body = "body text",
+                    actorClaim = actor,
+                    verification = verification
+                )
             noteRepository.upsert(note)
 
             val result = noteRepository.findByItemId(testItemId)
@@ -298,23 +300,25 @@ class SQLiteNoteRepositoryTest {
             val actor1 = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT)
             val actor2 = ActorClaim(id = "agent-2", kind = ActorKind.ORCHESTRATOR)
 
-            val note1 = Note(
-                itemId = testItemId,
-                key = "replace-actor-note",
-                role = "work",
-                body = "first version",
-                actorClaim = actor1
-            )
+            val note1 =
+                Note(
+                    itemId = testItemId,
+                    key = "replace-actor-note",
+                    role = "work",
+                    body = "first version",
+                    actorClaim = actor1
+                )
             noteRepository.upsert(note1)
 
-            val note2 = Note(
-                itemId = testItemId,
-                key = "replace-actor-note",
-                role = "work",
-                body = "second version",
-                actorClaim = actor2,
-                verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "v2")
-            )
+            val note2 =
+                Note(
+                    itemId = testItemId,
+                    key = "replace-actor-note",
+                    role = "work",
+                    body = "second version",
+                    actorClaim = actor2,
+                    verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "v2")
+                )
             noteRepository.upsert(note2)
 
             val result = noteRepository.findByItemIdAndKey(testItemId, "replace-actor-note")
@@ -332,12 +336,13 @@ class SQLiteNoteRepositoryTest {
     @Test
     fun `upsert without actor preserves null actor`() =
         runBlocking {
-            val note = Note(
-                itemId = testItemId,
-                key = "no-actor-note",
-                role = "queue",
-                body = "no actor here"
-            )
+            val note =
+                Note(
+                    itemId = testItemId,
+                    key = "no-actor-note",
+                    role = "queue",
+                    body = "no actor here"
+                )
             noteRepository.upsert(note)
 
             val result = noteRepository.findByItemIdAndKey(testItemId, "no-actor-note")

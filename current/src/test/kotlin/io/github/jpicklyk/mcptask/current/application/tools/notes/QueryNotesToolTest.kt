@@ -327,15 +327,16 @@ class QueryNotesToolTest {
     fun `get note with actor includes actor and verification in response`(): Unit =
         runBlocking {
             val itemId = createTestItem()
-            val noteId = createNoteWithActor(
-                itemId = itemId,
-                key = "approach",
-                role = "work",
-                body = "Implementation approach with actor",
-                actorId = "agent-1",
-                actorKind = "subagent",
-                actorParent = "orch-1"
-            )
+            val noteId =
+                createNoteWithActor(
+                    itemId = itemId,
+                    key = "approach",
+                    role = "work",
+                    body = "Implementation approach with actor",
+                    actorId = "agent-1",
+                    actorKind = "subagent",
+                    actorParent = "orch-1"
+                )
 
             val result =
                 tool.execute(

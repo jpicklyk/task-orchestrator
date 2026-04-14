@@ -333,25 +333,28 @@ class SQLiteRoleTransitionRepositoryTest {
     @Test
     fun `create transition with actor claim`() =
         runBlocking {
-            val actor = ActorClaim(
-                id = "agent-42",
-                kind = ActorKind.SUBAGENT,
-                parent = "orchestrator-1",
-                proof = "proof-token"
-            )
-            val verification = VerificationResult(
-                status = VerificationStatus.UNVERIFIED,
-                verifier = "noop",
-                reason = null
-            )
-            val transition = RoleTransition(
-                itemId = testItemId,
-                fromRole = "queue",
-                toRole = "work",
-                trigger = "start",
-                actorClaim = actor,
-                verification = verification
-            )
+            val actor =
+                ActorClaim(
+                    id = "agent-42",
+                    kind = ActorKind.SUBAGENT,
+                    parent = "orchestrator-1",
+                    proof = "proof-token"
+                )
+            val verification =
+                VerificationResult(
+                    status = VerificationStatus.UNVERIFIED,
+                    verifier = "noop",
+                    reason = null
+                )
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    actorClaim = actor,
+                    verification = verification
+                )
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
@@ -372,12 +375,13 @@ class SQLiteRoleTransitionRepositoryTest {
     @Test
     fun `create transition without actor`() =
         runBlocking {
-            val transition = RoleTransition(
-                itemId = testItemId,
-                fromRole = "queue",
-                toRole = "work",
-                trigger = "start"
-            )
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start"
+                )
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
@@ -395,22 +399,24 @@ class SQLiteRoleTransitionRepositoryTest {
             val actor = ActorClaim(id = "agent-1", kind = ActorKind.ORCHESTRATOR)
             val verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "test-verifier")
 
-            val withActor = RoleTransition(
-                itemId = testItemId,
-                fromRole = "queue",
-                toRole = "work",
-                trigger = "start",
-                transitionedAt = now.minus(1, ChronoUnit.HOURS),
-                actorClaim = actor,
-                verification = verification
-            )
-            val withoutActor = RoleTransition(
-                itemId = testItemId,
-                fromRole = "work",
-                toRole = "review",
-                trigger = "complete",
-                transitionedAt = now
-            )
+            val withActor =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    transitionedAt = now.minus(1, ChronoUnit.HOURS),
+                    actorClaim = actor,
+                    verification = verification
+                )
+            val withoutActor =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "work",
+                    toRole = "review",
+                    trigger = "complete",
+                    transitionedAt = now
+                )
             transitionRepository.create(withActor)
             transitionRepository.create(withoutActor)
 

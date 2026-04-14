@@ -2,10 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -20,7 +17,9 @@ import java.util.UUID
  *   The (itemId, key) pair is unique — upserting with an existing pair updates the note in place.
  * - **delete**: Delete notes by `ids` array, or by `itemId` (optionally scoped by `key`).
  */
-class ManageNotesTool : BaseToolDefinition() {
+class ManageNotesTool :
+    BaseToolDefinition(),
+    ActorAware {
     override val name = "manage_notes"
 
     override val description =
@@ -197,40 +196,26 @@ Unified write operations for Notes (upsert, delete).
                 val body = extractNoteString(noteObj, "body") ?: ""
 
                 // Extract optional actor claim
-                val actorObj = noteObj["actor"] as? JsonObject
-                var actorClaim: ActorClaim? = null
-                var verification: VerificationResult? = null
-                if (actorObj != null) {
-                    val actorId = actorObj["id"]?.jsonPrimitive?.contentOrNull
-                    val actorKindStr = actorObj["kind"]?.jsonPrimitive?.contentOrNull
-                    if (actorId == null || actorKindStr == null) {
-                        failures.add(
-                            buildJsonObject {
-                                put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive("Note at index $index: actor requires id and kind fields"))
-                            }
-                        )
-                        continue
+                val actorResult = parseActorClaim(noteObj["actor"] as? JsonObject, context)
+                val actorClaim =
+                    when (actorResult) {
+                        is ActorParseResult.Success -> actorResult.claim
+                        is ActorParseResult.Absent -> null
+                        is ActorParseResult.Invalid -> {
+                            failures.add(
+                                buildJsonObject {
+                                    put("index", JsonPrimitive(index))
+                                    put("error", JsonPrimitive("Note at index $index: ${actorResult.error}"))
+                                }
+                            )
+                            continue
+                        }
                     }
-                    val actorKind = try {
-                        ActorKind.fromString(actorKindStr)
-                    } catch (e: IllegalArgumentException) {
-                        failures.add(
-                            buildJsonObject {
-                                put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive("Note at index $index: Invalid actor.kind: $actorKindStr"))
-                            }
-                        )
-                        continue
+                val verification =
+                    when (actorResult) {
+                        is ActorParseResult.Success -> actorResult.verification
+                        else -> null
                     }
-                    actorClaim = ActorClaim(
-                        id = actorId,
-                        kind = actorKind,
-                        parent = actorObj["parent"]?.jsonPrimitive?.contentOrNull,
-                        proof = actorObj["proof"]?.jsonPrimitive?.contentOrNull
-                    )
-                    verification = context.actorVerifier().verify(actorClaim)
-                }
 
                 val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
                 if (itemIdErr != null || resolvedItemId == null) {

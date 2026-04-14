@@ -6,10 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHand
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -34,7 +31,9 @@ import java.util.UUID
  * - hasReviewPhase: if the schema has no "review" entries, start from WORK skips REVIEW
  * - expectedNotes: the success result includes schema entries for the new role
  */
-class AdvanceItemTool : BaseToolDefinition() {
+class AdvanceItemTool :
+    BaseToolDefinition(),
+    ActorAware {
     override val name = "advance_item"
 
     override val description =
@@ -178,37 +177,22 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 }
 
             // Extract optional actor claim
-            val actorObj = obj["actor"] as? JsonObject
-            val actorClaim: ActorClaim?
-            val verification: VerificationResult?
-            if (actorObj != null) {
-                val actorId = actorObj["id"]?.jsonPrimitive?.contentOrNull
-                if (actorId == null) {
-                    failCount++
-                    resultsList.add(buildErrorResult(itemId, trigger, "actor.id is required"))
-                    continue
+            val actorResult = parseActorClaim(obj["actor"] as? JsonObject, context)
+            val actorClaim =
+                when (actorResult) {
+                    is ActorParseResult.Success -> actorResult.claim
+                    is ActorParseResult.Absent -> null
+                    is ActorParseResult.Invalid -> {
+                        failCount++
+                        resultsList.add(buildErrorResult(itemId, trigger, actorResult.error))
+                        continue
+                    }
                 }
-                val actorKindStr = actorObj["kind"]?.jsonPrimitive?.contentOrNull
-                if (actorKindStr == null) {
-                    failCount++
-                    resultsList.add(buildErrorResult(itemId, trigger, "actor.kind is required"))
-                    continue
+            val verification =
+                when (actorResult) {
+                    is ActorParseResult.Success -> actorResult.verification
+                    else -> null
                 }
-                val actorKind = try {
-                    ActorKind.fromString(actorKindStr)
-                } catch (e: IllegalArgumentException) {
-                    failCount++
-                    resultsList.add(buildErrorResult(itemId, trigger, "Invalid actor.kind: $actorKindStr"))
-                    continue
-                }
-                val actorParent = actorObj["parent"]?.jsonPrimitive?.contentOrNull
-                val actorProof = actorObj["proof"]?.jsonPrimitive?.contentOrNull
-                actorClaim = ActorClaim(id = actorId, kind = actorKind, parent = actorParent, proof = actorProof)
-                verification = context.actorVerifier().verify(actorClaim)
-            } else {
-                actorClaim = null
-                verification = null
-            }
 
             // Fetch the WorkItem
             val itemResult = context.workItemRepository().getById(itemId)

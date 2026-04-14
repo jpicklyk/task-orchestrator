@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
+import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
 
@@ -155,23 +156,41 @@ class SQLiteNoteRepository(
         }
 
     private fun mapRowToNote(row: ResultRow): Note {
-        val actorClaim = row[NotesTable.actorId]?.let { actorId ->
-            ActorClaim(
-                id = actorId,
-                kind = ActorKind.fromString(row[NotesTable.actorKind]!!),
-                parent = row[NotesTable.actorParent],
-                proof = row[NotesTable.actorProof]
-            )
-        }
-        val verification = row[NotesTable.verificationStatus]?.let { status ->
-            VerificationResult(
-                status = VerificationStatus.fromString(status),
-                verifier = row[NotesTable.verificationVerifier],
-                reason = row[NotesTable.verificationReason]
-            )
-        }
+        val noteId = row[NotesTable.id].value
+        val actorClaim =
+            row[NotesTable.actorId]?.let { actorId ->
+                val kindStr = row[NotesTable.actorKind]
+                if (kindStr == null) {
+                    logger.warn("Note {}: actorId present but actorKind is null; skipping actor", noteId)
+                    return@let null
+                }
+                try {
+                    ActorClaim(
+                        id = actorId,
+                        kind = ActorKind.fromString(kindStr),
+                        parent = row[NotesTable.actorParent],
+                        proof = row[NotesTable.actorProof]
+                    )
+                } catch (e: IllegalArgumentException) {
+                    logger.warn("Note {}: invalid actorKind '{}'; skipping actor", noteId, kindStr)
+                    null
+                }
+            }
+        val verification =
+            row[NotesTable.verificationStatus]?.let { status ->
+                try {
+                    VerificationResult(
+                        status = VerificationStatus.fromString(status),
+                        verifier = row[NotesTable.verificationVerifier],
+                        reason = row[NotesTable.verificationReason]
+                    )
+                } catch (e: IllegalArgumentException) {
+                    logger.warn("Note {}: invalid verificationStatus '{}'; skipping verification", noteId, status)
+                    null
+                }
+            }
         return Note(
-            id = row[NotesTable.id].value,
+            id = noteId,
             itemId = row[NotesTable.itemId],
             key = row[NotesTable.key],
             role = row[NotesTable.role],
@@ -181,5 +200,9 @@ class SQLiteNoteRepository(
             actorClaim = actorClaim,
             verification = verification
         )
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(SQLiteNoteRepository::class.java)
     }
 }

@@ -7,7 +7,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class ActorClaimTest {
-
     // --- ActorKind ---
 
     @Test
@@ -54,12 +53,13 @@ class ActorClaimTest {
 
     @Test
     fun `ActorClaim valid creation with all fields`() {
-        val claim = ActorClaim(
-            id = "agent-1",
-            kind = ActorKind.SUBAGENT,
-            parent = "orchestrator-1",
-            proof = "some-proof-token"
-        )
+        val claim =
+            ActorClaim(
+                id = "agent-1",
+                kind = ActorKind.SUBAGENT,
+                parent = "orchestrator-1",
+                proof = "some-proof-token"
+            )
         assertEquals("agent-1", claim.id)
         assertEquals(ActorKind.SUBAGENT, claim.kind)
         assertEquals("orchestrator-1", claim.parent)
@@ -154,11 +154,12 @@ class ActorClaimTest {
 
     @Test
     fun `VerificationResult valid creation with all fields`() {
-        val result = VerificationResult(
-            status = VerificationStatus.VERIFIED,
-            verifier = "my-verifier",
-            reason = "signature matched"
-        )
+        val result =
+            VerificationResult(
+                status = VerificationStatus.VERIFIED,
+                verifier = "my-verifier",
+                reason = "signature matched"
+            )
         assertEquals(VerificationStatus.VERIFIED, result.status)
         assertEquals("my-verifier", result.verifier)
         assertEquals("signature matched", result.reason)

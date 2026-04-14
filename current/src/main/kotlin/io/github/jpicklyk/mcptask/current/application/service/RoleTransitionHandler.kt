@@ -63,7 +63,8 @@ data class TransitionApplyResult(
  */
 class RoleTransitionHandler {
     companion object {
-        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
+        /** Triggers accepted from external callers. "cascade" is system-internal. */
+        val USER_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
     }
 
     // -----------------------------------------------------------------------
@@ -97,7 +98,7 @@ class RoleTransitionHandler {
             else ->
                 TransitionResolution(
                     success = false,
-                    error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
+                    error = "Unknown trigger: '$trigger'. Valid triggers: ${USER_TRIGGERS.joinToString()}"
                 )
         }
 
@@ -124,7 +125,7 @@ class RoleTransitionHandler {
             else ->
                 TransitionResolution(
                     success = false,
-                    error = "Unknown trigger: '$trigger'. Valid triggers: ${VALID_TRIGGERS.joinToString()}"
+                    error = "Unknown trigger: '$trigger'. Valid triggers: ${USER_TRIGGERS.joinToString()}"
                 )
         }
 

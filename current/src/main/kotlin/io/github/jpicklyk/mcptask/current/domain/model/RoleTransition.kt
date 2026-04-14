@@ -21,6 +21,6 @@ data class RoleTransition(
     val verification: VerificationResult? = null
 ) {
     companion object {
-        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
+        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen", "cascade")
     }
 }

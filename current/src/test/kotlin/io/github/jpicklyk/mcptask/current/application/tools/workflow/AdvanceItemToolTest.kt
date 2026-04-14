@@ -2113,18 +2113,20 @@ class AdvanceItemToolTest {
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
-            val actorJson = buildJsonObject {
-                put("id", "orchestrator-001")
-                put("kind", "orchestrator")
-                put("parent", "session-abc")
-            }
-            val params = buildParams(
+            val actorJson =
                 buildJsonObject {
-                    put("itemId", itemId.toString())
-                    put("trigger", "start")
-                    put("actor", actorJson)
+                    put("id", "orchestrator-001")
+                    put("kind", "orchestrator")
+                    put("parent", "session-abc")
                 }
-            )
+            val params =
+                buildParams(
+                    buildJsonObject {
+                        put("itemId", itemId.toString())
+                        put("trigger", "start")
+                        put("actor", actorJson)
+                    }
+                )
             val result = tool.execute(params, context)
 
             val results = extractResults(result)
@@ -2185,31 +2187,33 @@ class AdvanceItemToolTest {
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
-            val actorJson = buildJsonObject {
-                put("id", "agent-xyz")
-                put("kind", "subagent")
-            }
-            val params = buildJsonObject {
-                put(
-                    "transitions",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("itemId", id1.toString())
-                                put("trigger", "start")
-                                put("actor", actorJson)
-                            }
-                        )
-                        add(
-                            buildJsonObject {
-                                put("itemId", id2.toString())
-                                put("trigger", "start")
-                                // No actor
-                            }
-                        )
-                    }
-                )
-            }
+            val actorJson =
+                buildJsonObject {
+                    put("id", "agent-xyz")
+                    put("kind", "subagent")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", id1.toString())
+                                    put("trigger", "start")
+                                    put("actor", actorJson)
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("itemId", id2.toString())
+                                    put("trigger", "start")
+                                    // No actor
+                                }
+                            )
+                        }
+                    )
+                }
             val result = tool.execute(params, context)
 
             val results = extractResults(result)
@@ -2246,24 +2250,26 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
                 Result.Success(mapOf(Role.TERMINAL to 1))
 
-            val actorJson = buildJsonObject {
-                put("id", "agent-cascade-test")
-                put("kind", "subagent")
-            }
-            val params = buildJsonObject {
-                put(
-                    "transitions",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("itemId", childId.toString())
-                                put("trigger", "complete")
-                                put("actor", actorJson)
-                            }
-                        )
-                    }
-                )
-            }
+            val actorJson =
+                buildJsonObject {
+                    put("id", "agent-cascade-test")
+                    put("kind", "subagent")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", childId.toString())
+                                    put("trigger", "complete")
+                                    put("actor", actorJson)
+                                }
+                            )
+                        }
+                    )
+                }
             val result = tool.execute(params, context)
 
             val results = extractResults(result)
@@ -2292,24 +2298,26 @@ class AdvanceItemToolTest {
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
 
-            val actorJson = buildJsonObject {
-                put("id", "agent-bad-kind")
-                put("kind", "bogus")
-            }
-            val params = buildJsonObject {
-                put(
-                    "transitions",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("itemId", itemId.toString())
-                                put("trigger", "start")
-                                put("actor", actorJson)
-                            }
-                        )
-                    }
-                )
-            }
+            val actorJson =
+                buildJsonObject {
+                    put("id", "agent-bad-kind")
+                    put("kind", "bogus")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", itemId.toString())
+                                    put("trigger", "start")
+                                    put("actor", actorJson)
+                                }
+                            )
+                        }
+                    )
+                }
             val result = tool.execute(params, context)
 
             val results = extractResults(result)
@@ -2334,23 +2342,25 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
 
             // actor object with kind but no id
-            val actorJson = buildJsonObject {
-                put("kind", "user")
-            }
-            val params = buildJsonObject {
-                put(
-                    "transitions",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("itemId", itemId.toString())
-                                put("trigger", "start")
-                                put("actor", actorJson)
-                            }
-                        )
-                    }
-                )
-            }
+            val actorJson =
+                buildJsonObject {
+                    put("kind", "user")
+                }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", itemId.toString())
+                                    put("trigger", "start")
+                                    put("actor", actorJson)
+                                }
+                            )
+                        }
+                    )
+                }
             val result = tool.execute(params, context)
 
             val results = extractResults(result)

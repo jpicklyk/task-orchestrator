@@ -124,22 +124,25 @@ class NoteTest {
 
     @Test
     fun `valid creation with actor claim and verification`() {
-        val actor = ActorClaim(
-            id = "agent-1",
-            kind = ActorKind.SUBAGENT,
-            parent = "orchestrator-1"
-        )
-        val verification = VerificationResult(
-            status = VerificationStatus.UNVERIFIED,
-            verifier = "noop"
-        )
-        val note = Note(
-            itemId = testItemId,
-            key = "implementation",
-            role = "work",
-            actorClaim = actor,
-            verification = verification
-        )
+        val actor =
+            ActorClaim(
+                id = "agent-1",
+                kind = ActorKind.SUBAGENT,
+                parent = "orchestrator-1"
+            )
+        val verification =
+            VerificationResult(
+                status = VerificationStatus.UNVERIFIED,
+                verifier = "noop"
+            )
+        val note =
+            Note(
+                itemId = testItemId,
+                key = "implementation",
+                role = "work",
+                actorClaim = actor,
+                verification = verification
+            )
         assertEquals(actor, note.actorClaim)
         assertEquals(verification, note.verification)
         assertEquals("agent-1", note.actorClaim!!.id)

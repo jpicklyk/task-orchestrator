@@ -1819,14 +1819,15 @@ class GetContextToolTest {
 
             val actor = ActorClaim(id = "orch-1", kind = ActorKind.ORCHESTRATOR, parent = null)
             val verification = VerificationResult(status = VerificationStatus.UNVERIFIED, verifier = "noop")
-            val transition = RoleTransition(
-                itemId = itemId,
-                fromRole = "queue",
-                toRole = "work",
-                trigger = "start",
-                actorClaim = actor,
-                verification = verification
-            )
+            val transition =
+                RoleTransition(
+                    itemId = itemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    actorClaim = actor,
+                    verification = verification
+                )
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
@@ -1870,14 +1871,15 @@ class GetContextToolTest {
             val since = Instant.now().minusSeconds(3600)
             val itemId = UUID.randomUUID()
 
-            val transition = RoleTransition(
-                itemId = itemId,
-                fromRole = "work",
-                toRole = "terminal",
-                trigger = "complete",
-                actorClaim = null,
-                verification = null
-            )
+            val transition =
+                RoleTransition(
+                    itemId = itemId,
+                    fromRole = "work",
+                    toRole = "terminal",
+                    trigger = "complete",
+                    actorClaim = null,
+                    verification = null
+                )
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
