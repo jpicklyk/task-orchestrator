@@ -2,7 +2,10 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -64,7 +67,15 @@ Unified write operations for Notes (upsert, delete).
                         "notes",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Array of note objects for upsert"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Array of note objects for upsert. Each note: " +
+                                        "{ itemId (required), key (required), role (required: queue|work|review), body?, " +
+                                        "actor? (optional: { id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent (optional string), proof (optional string) }) }"
+                                )
+                            )
                         }
                     )
                     put(
@@ -185,6 +196,42 @@ Unified write operations for Notes (upsert, delete).
                         ?: throw ToolValidationException("Note at index $index: 'role' is required")
                 val body = extractNoteString(noteObj, "body") ?: ""
 
+                // Extract optional actor claim
+                val actorObj = noteObj["actor"] as? JsonObject
+                var actorClaim: ActorClaim? = null
+                var verification: VerificationResult? = null
+                if (actorObj != null) {
+                    val actorId = actorObj["id"]?.jsonPrimitive?.contentOrNull
+                    val actorKindStr = actorObj["kind"]?.jsonPrimitive?.contentOrNull
+                    if (actorId == null || actorKindStr == null) {
+                        failures.add(
+                            buildJsonObject {
+                                put("index", JsonPrimitive(index))
+                                put("error", JsonPrimitive("Note at index $index: actor requires id and kind fields"))
+                            }
+                        )
+                        continue
+                    }
+                    val actorKind = try {
+                        ActorKind.fromString(actorKindStr)
+                    } catch (e: IllegalArgumentException) {
+                        failures.add(
+                            buildJsonObject {
+                                put("index", JsonPrimitive(index))
+                                put("error", JsonPrimitive("Note at index $index: Invalid actor.kind: $actorKindStr"))
+                            }
+                        )
+                        continue
+                    }
+                    actorClaim = ActorClaim(
+                        id = actorId,
+                        kind = actorKind,
+                        parent = actorObj["parent"]?.jsonPrimitive?.contentOrNull,
+                        proof = actorObj["proof"]?.jsonPrimitive?.contentOrNull
+                    )
+                    verification = context.actorVerifier().verify(actorClaim)
+                }
+
                 val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
                 if (itemIdErr != null || resolvedItemId == null) {
                     throw ToolValidationException("Note at index $index: could not resolve 'itemId': $itemIdStr")
@@ -214,7 +261,9 @@ Unified write operations for Notes (upsert, delete).
                         itemId = itemId,
                         key = key,
                         role = role,
-                        body = body
+                        body = body,
+                        actorClaim = actorClaim,
+                        verification = verification
                     )
 
                 when (val result = noteRepo.upsert(note)) {
@@ -225,6 +274,8 @@ Unified write operations for Notes (upsert, delete).
                                 put("itemId", JsonPrimitive(result.data.itemId.toString()))
                                 put("key", JsonPrimitive(result.data.key))
                                 put("role", JsonPrimitive(result.data.role))
+                                actorClaim?.let { put("actor", it.toJson()) }
+                                verification?.let { put("verification", it.toJson()) }
                             }
                         )
                     }
