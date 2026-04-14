@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -35,6 +39,13 @@ class SQLiteRoleTransitionRepository(
                 it[trigger] = transition.trigger
                 it[summary] = transition.summary
                 it[transitionedAt] = transition.transitionedAt
+                it[RoleTransitionsTable.actorId] = transition.actorClaim?.id
+                it[RoleTransitionsTable.actorKind] = transition.actorClaim?.kind?.toJsonString()
+                it[RoleTransitionsTable.actorParent] = transition.actorClaim?.parent
+                it[RoleTransitionsTable.actorProof] = transition.actorClaim?.proof
+                it[RoleTransitionsTable.verificationStatus] = transition.verification?.status?.toJsonString()
+                it[RoleTransitionsTable.verificationVerifier] = transition.verification?.verifier
+                it[RoleTransitionsTable.verificationReason] = transition.verification?.reason
             }
             Result.Success(transition)
         }
@@ -103,8 +114,23 @@ class SQLiteRoleTransitionRepository(
             Result.Success(deletedCount)
         }
 
-    private fun mapRowToRoleTransition(row: ResultRow): RoleTransition =
-        RoleTransition(
+    private fun mapRowToRoleTransition(row: ResultRow): RoleTransition {
+        val actorClaim = row[RoleTransitionsTable.actorId]?.let { actorId ->
+            ActorClaim(
+                id = actorId,
+                kind = ActorKind.fromString(row[RoleTransitionsTable.actorKind]!!),
+                parent = row[RoleTransitionsTable.actorParent],
+                proof = row[RoleTransitionsTable.actorProof]
+            )
+        }
+        val verification = row[RoleTransitionsTable.verificationStatus]?.let { status ->
+            VerificationResult(
+                status = VerificationStatus.fromString(status),
+                verifier = row[RoleTransitionsTable.verificationVerifier],
+                reason = row[RoleTransitionsTable.verificationReason]
+            )
+        }
+        return RoleTransition(
             id = row[RoleTransitionsTable.id].value,
             itemId = row[RoleTransitionsTable.itemId],
             fromRole = row[RoleTransitionsTable.fromRole],
@@ -113,6 +139,9 @@ class SQLiteRoleTransitionRepository(
             toStatusLabel = row[RoleTransitionsTable.toStatusLabel],
             trigger = row[RoleTransitionsTable.trigger],
             summary = row[RoleTransitionsTable.summary],
-            transitionedAt = row[RoleTransitionsTable.transitionedAt]
+            transitionedAt = row[RoleTransitionsTable.transitionedAt],
+            actorClaim = actorClaim,
+            verification = verification
         )
+    }
 }

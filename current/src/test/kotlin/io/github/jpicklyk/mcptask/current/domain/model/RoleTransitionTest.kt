@@ -141,4 +141,33 @@ class RoleTransitionTest {
     fun `VALID_TRIGGERS contains cancel`() {
         assertTrue("cancel" in RoleTransition.VALID_TRIGGERS)
     }
+
+    // --- Actor attribution ---
+
+    @Test
+    fun `valid creation with actor claim and verification`() {
+        val actor = ActorClaim(
+            id = "agent-42",
+            kind = ActorKind.SUBAGENT,
+            parent = "orchestrator-1",
+            proof = "tok"
+        )
+        val verification = VerificationResult(
+            status = VerificationStatus.UNVERIFIED,
+            verifier = "noop"
+        )
+        val transition = RoleTransition(
+            itemId = testItemId,
+            fromRole = "queue",
+            toRole = "work",
+            trigger = "start",
+            actorClaim = actor,
+            verification = verification
+        )
+        assertEquals(actor, transition.actorClaim)
+        assertEquals(verification, transition.verification)
+        assertEquals("agent-42", transition.actorClaim!!.id)
+        assertEquals(ActorKind.SUBAGENT, transition.actorClaim!!.kind)
+        assertEquals(VerificationStatus.UNVERIFIED, transition.verification!!.status)
+    }
 }

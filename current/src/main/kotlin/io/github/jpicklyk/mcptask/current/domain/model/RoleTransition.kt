@@ -16,7 +16,9 @@ data class RoleTransition(
     val toStatusLabel: String? = null,
     val trigger: String,
     val summary: String? = null,
-    val transitionedAt: Instant = Instant.now()
+    val transitionedAt: Instant = Instant.now(),
+    val actorClaim: ActorClaim? = null,
+    val verification: VerificationResult? = null
 ) {
     companion object {
         val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")

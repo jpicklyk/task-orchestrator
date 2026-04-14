@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -51,13 +55,20 @@ class SQLiteNoteRepository(
                 .singleOrNull()
 
         return if (existing != null) {
-            // Update existing note
+            // Update existing note (last-writer-wins for actor attribution)
             val existingId = existing[NotesTable.id].value
             val now = Instant.now()
             NotesTable.update({ NotesTable.id eq existingId }) {
                 it[body] = note.body
                 it[role] = note.role
                 it[modifiedAt] = now
+                it[NotesTable.actorId] = note.actorClaim?.id
+                it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
+                it[NotesTable.actorParent] = note.actorClaim?.parent
+                it[NotesTable.actorProof] = note.actorClaim?.proof
+                it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
+                it[NotesTable.verificationVerifier] = note.verification?.verifier
+                it[NotesTable.verificationReason] = note.verification?.reason
             }
             // Return the updated note with the existing ID and updated timestamp
             Result.Success(note.copy(id = existingId, modifiedAt = now))
@@ -71,6 +82,13 @@ class SQLiteNoteRepository(
                 it[body] = note.body
                 it[createdAt] = note.createdAt
                 it[modifiedAt] = note.modifiedAt
+                it[NotesTable.actorId] = note.actorClaim?.id
+                it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
+                it[NotesTable.actorParent] = note.actorClaim?.parent
+                it[NotesTable.actorProof] = note.actorClaim?.proof
+                it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
+                it[NotesTable.verificationVerifier] = note.verification?.verifier
+                it[NotesTable.verificationReason] = note.verification?.reason
             }
             Result.Success(note)
         }
@@ -136,14 +154,32 @@ class SQLiteNoteRepository(
             Result.Success(row?.let { mapRowToNote(it) })
         }
 
-    private fun mapRowToNote(row: ResultRow): Note =
-        Note(
+    private fun mapRowToNote(row: ResultRow): Note {
+        val actorClaim = row[NotesTable.actorId]?.let { actorId ->
+            ActorClaim(
+                id = actorId,
+                kind = ActorKind.fromString(row[NotesTable.actorKind]!!),
+                parent = row[NotesTable.actorParent],
+                proof = row[NotesTable.actorProof]
+            )
+        }
+        val verification = row[NotesTable.verificationStatus]?.let { status ->
+            VerificationResult(
+                status = VerificationStatus.fromString(status),
+                verifier = row[NotesTable.verificationVerifier],
+                reason = row[NotesTable.verificationReason]
+            )
+        }
+        return Note(
             id = row[NotesTable.id].value,
             itemId = row[NotesTable.itemId],
             key = row[NotesTable.key],
             role = row[NotesTable.role],
             body = row[NotesTable.body],
             createdAt = row[NotesTable.createdAt],
-            modifiedAt = row[NotesTable.modifiedAt]
+            modifiedAt = row[NotesTable.modifiedAt],
+            actorClaim = actorClaim,
+            verification = verification
         )
+    }
 }

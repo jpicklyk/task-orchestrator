@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -253,6 +257,95 @@ class SQLiteNoteRepositoryTest {
         }
 
     // --- M5: ID-preservation and createdAt immutability on upsert ---
+
+    // --- Actor attribution ---
+
+    @Test
+    fun `upsert creates note with actor claim`() =
+        runBlocking {
+            val actor = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT, parent = "orch-1")
+            val verification = VerificationResult(
+                status = VerificationStatus.UNVERIFIED,
+                verifier = "noop"
+            )
+            val note = Note(
+                itemId = testItemId,
+                key = "actor-note",
+                role = "work",
+                body = "body text",
+                actorClaim = actor,
+                verification = verification
+            )
+            noteRepository.upsert(note)
+
+            val result = noteRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<Note>>>(result)
+            assertEquals(1, result.data.size)
+            val found = result.data[0]
+            assertNotNull(found.actorClaim)
+            assertEquals("agent-1", found.actorClaim!!.id)
+            assertEquals(ActorKind.SUBAGENT, found.actorClaim!!.kind)
+            assertEquals("orch-1", found.actorClaim!!.parent)
+            assertNull(found.actorClaim!!.proof)
+            assertNotNull(found.verification)
+            assertEquals(VerificationStatus.UNVERIFIED, found.verification!!.status)
+            assertEquals("noop", found.verification!!.verifier)
+        }
+
+    @Test
+    fun `upsert updates note replaces actor claim`() =
+        runBlocking {
+            val actor1 = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT)
+            val actor2 = ActorClaim(id = "agent-2", kind = ActorKind.ORCHESTRATOR)
+
+            val note1 = Note(
+                itemId = testItemId,
+                key = "replace-actor-note",
+                role = "work",
+                body = "first version",
+                actorClaim = actor1
+            )
+            noteRepository.upsert(note1)
+
+            val note2 = Note(
+                itemId = testItemId,
+                key = "replace-actor-note",
+                role = "work",
+                body = "second version",
+                actorClaim = actor2,
+                verification = VerificationResult(status = VerificationStatus.VERIFIED, verifier = "v2")
+            )
+            noteRepository.upsert(note2)
+
+            val result = noteRepository.findByItemIdAndKey(testItemId, "replace-actor-note")
+            assertIs<Result.Success<Note?>>(result)
+            assertNotNull(result.data)
+            val found = result.data!!
+            assertEquals("second version", found.body)
+            assertNotNull(found.actorClaim)
+            assertEquals("agent-2", found.actorClaim!!.id)
+            assertEquals(ActorKind.ORCHESTRATOR, found.actorClaim!!.kind)
+            assertNotNull(found.verification)
+            assertEquals(VerificationStatus.VERIFIED, found.verification!!.status)
+        }
+
+    @Test
+    fun `upsert without actor preserves null actor`() =
+        runBlocking {
+            val note = Note(
+                itemId = testItemId,
+                key = "no-actor-note",
+                role = "queue",
+                body = "no actor here"
+            )
+            noteRepository.upsert(note)
+
+            val result = noteRepository.findByItemIdAndKey(testItemId, "no-actor-note")
+            assertIs<Result.Success<Note?>>(result)
+            assertNotNull(result.data)
+            assertNull(result.data!!.actorClaim)
+            assertNull(result.data!!.verification)
+        }
 
     @Test
     fun `upsert preserves original note id and createdAt on update`(): Unit =

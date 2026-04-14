@@ -95,6 +95,9 @@ dependencies {
     testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.engine)
 
+    // Coroutines test support
+    testImplementation(libs.kotlinx.coroutines.test)
+
     // H2 in-memory database for testing
     testImplementation("com.h2database:h2:2.2.224")
 }

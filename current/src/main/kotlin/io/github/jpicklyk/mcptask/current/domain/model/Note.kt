@@ -17,7 +17,9 @@ data class Note(
     val role: String,
     val body: String = "",
     val createdAt: Instant = Instant.now(),
-    val modifiedAt: Instant = Instant.now()
+    val modifiedAt: Instant = Instant.now(),
+    val actorClaim: ActorClaim? = null,
+    val verification: VerificationResult? = null
 ) {
     init {
         validate()
