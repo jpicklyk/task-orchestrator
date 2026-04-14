@@ -96,6 +96,8 @@ fun Note.toJson(includeBody: Boolean = true): JsonObject =
         if (includeBody) put("body", JsonPrimitive(body))
         put("createdAt", JsonPrimitive(createdAt.toString()))
         put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
+        actorClaim?.let { put("actor", it.toJson()) }
+        verification?.let { put("verification", it.toJson()) }
     }
 
 // ──────────────────────────────────────────────

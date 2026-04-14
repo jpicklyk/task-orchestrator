@@ -314,6 +314,8 @@ Parameters:
                                 put("toRole", JsonPrimitive(t.toRole))
                                 put("trigger", JsonPrimitive(t.trigger))
                                 put("at", JsonPrimitive(t.transitionedAt.toString()))
+                                t.actorClaim?.let { put("actor", it.toJson()) }
+                                t.verification?.let { put("verification", it.toJson()) }
                             }
                         }
                     )

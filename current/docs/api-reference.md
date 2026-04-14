@@ -406,6 +406,15 @@ When both `ids` and `itemId` are provided, the delete is **additive**: notes mat
 | `key` | string | Yes | Logical name for this note (e.g., `requirements`, `done-criteria`) |
 | `role` | string | Yes | Workflow phase: `queue`, `work`, or `review` |
 | `body` | string | No | Note content (default: `""`) |
+| `actor` | object | No | Optional actor claim — see Actor Attribution section |
+
+Each upsert note element may include an optional `actor` object:
+- `id` (required string): Identifier for the actor writing this note
+- `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
+- `parent` (optional string): ID of the dispatching agent (forms delegation chain)
+- `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
+
+When provided, the upsert response includes `actor` and `verification` objects on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses.
 
 The `(itemId, key)` pair is unique — upserting with an existing pair updates the note in place
 (preserving its UUID).
@@ -678,6 +687,15 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 | `itemId` | string (UUID) | Yes | Item to transition |
 | `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen` |
 | `summary` | string | No | Optional annotation stored on the transition record |
+| `actor` | object | No | Optional actor claim — see Actor Attribution section |
+
+Each transition element may include an optional `actor` object:
+- `id` (required string): Identifier for the actor making this transition
+- `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
+- `parent` (optional string): ID of the dispatching agent (forms delegation chain)
+- `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
+
+When provided, the response includes `actor` and `verification` objects on each successful transition.
 
 **Trigger effects:**
 
@@ -1014,3 +1032,106 @@ dependency edges). Terminal items are never included.
 `satisfied` is true when the blocker has reached its `effectiveUnblockRole`.
 
 `blockerCount` reflects only the number of **unsatisfied** blockers (not total blockers). For `"explicit"` items with no dependency blockers, `blockerCount` is 0.
+
+---
+
+## Actor Attribution
+
+### Overview
+
+Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `manage_notes` upsert can include an optional `actor` claim. Stage 1 ships with a no-op verifier — all claims are persisted as `unverified`.
+
+### Actor Claim Shape
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| id | string | yes | Identifier for the actor |
+| kind | string | yes | `orchestrator`, `subagent`, `user`, or `external` |
+| parent | string | no | ID of the dispatching agent — forms a delegation chain |
+| proof | string | no | Opaque credential (persisted verbatim, unused by Stage 1) |
+
+### Verification Record
+
+Every persisted actor claim includes a verification record:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| status | string | `unverified` (Stage 1), `verified`, or `failed` |
+| verifier | string | Which verifier produced the result (e.g., `noop`) |
+| reason | string | Failure detail or notes (null for unverified/verified) |
+
+### Chain Propagation Convention
+
+Delegation chains are built by convention:
+1. The orchestrator includes `actor: { id: "orch-1", kind: "orchestrator" }` on its calls
+2. When dispatching a subagent, it passes its own `id` as context
+3. The subagent includes `actor: { id: "sub-1", kind: "subagent", parent: "orch-1" }` on its MCP calls
+4. Query responses preserve the chain for post-mortem analysis
+
+This is a documentation convention, not enforced by the server. Stage 1 trusts self-reported claims.
+
+### Enforcing Actor Attribution
+
+Actor claims are **optional by default** — users who don't need auditing pay no extra token cost. To require actor claims on all write operations, configure a Claude Code `PreToolUse` hook.
+
+#### Hook Configuration
+
+Add to your `.claude/settings.json` or `.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "node .claude/hooks/enforce-actor-attribution.js",
+        "matcher": "mcp__mcp-task-orchestrator__advance_item|mcp__mcp-task-orchestrator__manage_notes"
+      }
+    ]
+  }
+}
+```
+
+#### Reference Hook Script
+
+Create `.claude/hooks/enforce-actor-attribution.js`:
+
+```javascript
+#!/usr/bin/env node
+
+// Enforce actor attribution on MCP Task Orchestrator write operations.
+// Soft enforcement: injects additionalContext reminding Claude to include actor.
+// For hard enforcement: change to output { "decision": "block", "reason": "..." }
+
+const fs = require('fs');
+const input = JSON.parse(fs.readFileSync('/dev/stdin', 'utf8'));
+const toolName = input.tool_name || '';
+const toolInput = input.tool_input || {};
+
+let missing = false;
+
+if (toolName.includes('advance_item')) {
+  const transitions = toolInput.transitions || [];
+  missing = transitions.some(t => !t.actor);
+} else if (toolName.includes('manage_notes') && toolInput.operation === 'upsert') {
+  const notes = toolInput.notes || [];
+  missing = notes.some(n => !n.actor);
+}
+
+if (missing) {
+  const output = {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      additionalContext: 'Actor attribution is required. Include an "actor" object with "id" and "kind" fields on each transition/note element. Example: { "id": "my-agent", "kind": "subagent", "parent": "orchestrator-id" }'
+    }
+  };
+  console.log(JSON.stringify(output));
+} else {
+  process.exit(0);
+}
+```
+
+#### Soft vs Hard Enforcement
+
+- **Soft** (default above): Injects `additionalContext` — Claude sees the reminder and retries with actor claims included. The tool call is NOT blocked.
+- **Hard**: Replace `hookSpecificOutput` with `{ "decision": "block", "reason": "Actor attribution required" }` — the tool call is rejected outright and Claude must reformulate.

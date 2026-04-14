@@ -274,4 +274,156 @@ class QueryNotesToolTest {
             )
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution surfacing in query responses
+    // ──────────────────────────────────────────────
+
+    /**
+     * Helper to create a note with an actor claim via ManageNotesTool.
+     */
+    private suspend fun createNoteWithActor(
+        itemId: String,
+        key: String,
+        role: String,
+        body: String,
+        actorId: String,
+        actorKind: String,
+        actorParent: String? = null
+    ): String {
+        val result =
+            manageTool.execute(
+                params(
+                    "operation" to JsonPrimitive("upsert"),
+                    "notes" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId))
+                                    put("key", JsonPrimitive(key))
+                                    put("role", JsonPrimitive(role))
+                                    put("body", JsonPrimitive(body))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive(actorId))
+                                            put("kind", JsonPrimitive(actorKind))
+                                            actorParent?.let { put("parent", JsonPrimitive(it)) }
+                                        }
+                                    )
+                                }
+                            )
+                        )
+                ),
+                context
+            ) as JsonObject
+        return (result["data"] as JsonObject)["notes"]!!
+            .jsonArray[0]
+            .jsonObject["id"]!!
+            .jsonPrimitive.content
+    }
+
+    @Test
+    fun `get note with actor includes actor and verification in response`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            val noteId = createNoteWithActor(
+                itemId = itemId,
+                key = "approach",
+                role = "work",
+                body = "Implementation approach with actor",
+                actorId = "agent-1",
+                actorKind = "subagent",
+                actorParent = "orch-1"
+            )
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "id" to JsonPrimitive(noteId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+
+            // Actor should be present
+            assertTrue(data.containsKey("actor"), "actor field should be present when note was created with actor claim")
+            val actor = data["actor"]!!.jsonObject
+            assertEquals("agent-1", actor["id"]!!.jsonPrimitive.content)
+            assertEquals("subagent", actor["kind"]!!.jsonPrimitive.content)
+            assertEquals("orch-1", actor["parent"]!!.jsonPrimitive.content)
+            assertFalse(actor.containsKey("proof"), "proof should be absent when not provided")
+
+            // Verification should be present (NoOpActorVerifier marks as unverified)
+            assertTrue(data.containsKey("verification"), "verification field should be present")
+            val verification = data["verification"]!!.jsonObject
+            assertEquals("unverified", verification["status"]!!.jsonPrimitive.content)
+            assertEquals("noop", verification["verifier"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `list notes includes actor and verification on notes that have actor claim`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            // Create two notes — one with actor, one without
+            createNoteWithActor(
+                itemId = itemId,
+                key = "plan",
+                role = "queue",
+                body = "Planned with actor",
+                actorId = "orch-1",
+                actorKind = "orchestrator"
+            )
+            createNote(itemId, "approach", "work", "Approach without actor")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val notes = data["notes"]!!.jsonArray
+            assertEquals(2, notes.size)
+
+            // Find the note with actor claim
+            val planNote = notes.first { it.jsonObject["key"]!!.jsonPrimitive.content == "plan" }.jsonObject
+            assertTrue(planNote.containsKey("actor"), "plan note should have actor field")
+            assertEquals("orch-1", planNote["actor"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+            assertEquals("orchestrator", planNote["actor"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+            assertTrue(planNote.containsKey("verification"), "plan note should have verification field")
+
+            // The note without actor should NOT have actor field
+            val approachNote = notes.first { it.jsonObject["key"]!!.jsonPrimitive.content == "approach" }.jsonObject
+            assertFalse(approachNote.containsKey("actor"), "approach note should not have actor field")
+            assertFalse(approachNote.containsKey("verification"), "approach note should not have verification field")
+        }
+
+    @Test
+    fun `note without actor has no actor field in get response`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            val noteId = createNote(itemId, "approach", "work", "No actor on this note")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "id" to JsonPrimitive(noteId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertFalse(data.containsKey("actor"), "actor field should be absent when note has no actor claim")
+            assertFalse(data.containsKey("verification"), "verification field should be absent when note has no actor claim")
+        }
 }

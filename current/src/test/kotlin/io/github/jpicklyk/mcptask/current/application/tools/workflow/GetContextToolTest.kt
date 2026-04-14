@@ -1806,4 +1806,96 @@ class GetContextToolTest {
             // guidancePointer should also be populated from the same note
             assertEquals("Write your implementation notes here", data["guidancePointer"]!!.jsonPrimitive.content)
         }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution on recent transitions
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `session resume includes actor on recent transitions when actorClaim is set`(): Unit =
+        runBlocking {
+            val since = Instant.now().minusSeconds(3600)
+            val itemId = UUID.randomUUID()
+
+            val actor = ActorClaim(id = "orch-1", kind = ActorKind.ORCHESTRATOR, parent = null)
+            val verification = VerificationResult(status = VerificationStatus.UNVERIFIED, verifier = "noop")
+            val transition = RoleTransition(
+                itemId = itemId,
+                fromRole = "queue",
+                toRole = "work",
+                trigger = "start",
+                actorClaim = actor,
+                verification = verification
+            )
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+
+            val result =
+                tool.execute(
+                    params("since" to JsonPrimitive(since.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("session-resume", data["mode"]!!.jsonPrimitive.content)
+
+            val recentTransitions = data["recentTransitions"]!!.jsonArray
+            assertEquals(1, recentTransitions.size)
+
+            val t = recentTransitions[0].jsonObject
+            assertEquals(itemId.toString(), t["itemId"]!!.jsonPrimitive.content)
+            assertEquals("queue", t["fromRole"]!!.jsonPrimitive.content)
+            assertEquals("work", t["toRole"]!!.jsonPrimitive.content)
+
+            // Actor should be present
+            assertTrue(t.containsKey("actor"), "actor field should be present when actorClaim is set")
+            val actorObj = t["actor"]!!.jsonObject
+            assertEquals("orch-1", actorObj["id"]!!.jsonPrimitive.content)
+            assertEquals("orchestrator", actorObj["kind"]!!.jsonPrimitive.content)
+            assertFalse(actorObj.containsKey("parent"), "parent should be absent when null")
+            assertFalse(actorObj.containsKey("proof"), "proof should be absent when null")
+
+            // Verification should be present
+            assertTrue(t.containsKey("verification"), "verification field should be present")
+            val verObj = t["verification"]!!.jsonObject
+            assertEquals("unverified", verObj["status"]!!.jsonPrimitive.content)
+            assertEquals("noop", verObj["verifier"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `session resume transition without actor has no actor field`(): Unit =
+        runBlocking {
+            val since = Instant.now().minusSeconds(3600)
+            val itemId = UUID.randomUUID()
+
+            val transition = RoleTransition(
+                itemId = itemId,
+                fromRole = "work",
+                toRole = "terminal",
+                trigger = "complete",
+                actorClaim = null,
+                verification = null
+            )
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+
+            val result =
+                tool.execute(
+                    params("since" to JsonPrimitive(since.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            val recentTransitions = data["recentTransitions"]!!.jsonArray
+            assertEquals(1, recentTransitions.size)
+
+            val t = recentTransitions[0].jsonObject
+            assertEquals(itemId.toString(), t["itemId"]!!.jsonPrimitive.content)
+            assertFalse(t.containsKey("actor"), "actor field should be absent when actorClaim is null")
+            assertFalse(t.containsKey("verification"), "verification field should be absent when verification is null")
+        }
 }
