@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
@@ -40,9 +42,10 @@ class MockRepositoryProvider {
         coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
     }
 
-    /** Build a ToolExecutionContext with optional schema and status label services. */
+    /** Build a ToolExecutionContext with optional schema, status label, and actor verifier services. */
     fun context(
         noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
-        statusLabelService: StatusLabelService = NoOpStatusLabelService
-    ): ToolExecutionContext = ToolExecutionContext(provider, noteSchemaService, statusLabelService)
+        statusLabelService: StatusLabelService = NoOpStatusLabelService,
+        actorVerifier: ActorVerifier = NoOpActorVerifier
+    ): ToolExecutionContext = ToolExecutionContext(provider, noteSchemaService, statusLabelService, actorVerifier = actorVerifier)
 }

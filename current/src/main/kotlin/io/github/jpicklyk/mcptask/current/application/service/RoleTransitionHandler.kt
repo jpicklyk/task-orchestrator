@@ -391,7 +391,9 @@ class RoleTransitionHandler {
         summary: String?,
         statusLabel: String?,
         workItemRepository: WorkItemRepository,
-        roleTransitionRepository: RoleTransitionRepository
+        roleTransitionRepository: RoleTransitionRepository,
+        actorClaim: ActorClaim? = null,
+        verification: VerificationResult? = null
     ): TransitionApplyResult {
         val previousRole = item.role
 
@@ -434,7 +436,9 @@ class RoleTransitionHandler {
                         fromStatusLabel = item.statusLabel,
                         toStatusLabel = statusLabel,
                         trigger = trigger,
-                        summary = summary
+                        summary = summary,
+                        actorClaim = actorClaim,
+                        verification = verification
                     )
                 roleTransitionRepository.create(transition)
 
