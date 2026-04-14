@@ -6,7 +6,10 @@ import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHand
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -99,7 +102,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         "transitions",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
-                            put("description", JsonPrimitive("Array of transition objects: { itemId, trigger, summary? }"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Array of transition objects: { itemId, trigger, summary?, actor? }. " +
+                                        "actor (optional): { id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent (optional string), proof (optional string) }"
+                                )
+                            )
                         }
                     )
                 },
@@ -166,6 +176,39 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 (obj["summary"] as? JsonPrimitive)?.let {
                     if (it.isString && it.content.isNotBlank()) it.content else null
                 }
+
+            // Extract optional actor claim
+            val actorObj = obj["actor"] as? JsonObject
+            val actorClaim: ActorClaim?
+            val verification: VerificationResult?
+            if (actorObj != null) {
+                val actorId = actorObj["id"]?.jsonPrimitive?.contentOrNull
+                if (actorId == null) {
+                    failCount++
+                    resultsList.add(buildErrorResult(itemId, trigger, "actor.id is required"))
+                    continue
+                }
+                val actorKindStr = actorObj["kind"]?.jsonPrimitive?.contentOrNull
+                if (actorKindStr == null) {
+                    failCount++
+                    resultsList.add(buildErrorResult(itemId, trigger, "actor.kind is required"))
+                    continue
+                }
+                val actorKind = try {
+                    ActorKind.fromString(actorKindStr)
+                } catch (e: IllegalArgumentException) {
+                    failCount++
+                    resultsList.add(buildErrorResult(itemId, trigger, "Invalid actor.kind: $actorKindStr"))
+                    continue
+                }
+                val actorParent = actorObj["parent"]?.jsonPrimitive?.contentOrNull
+                val actorProof = actorObj["proof"]?.jsonPrimitive?.contentOrNull
+                actorClaim = ActorClaim(id = actorId, kind = actorKind, parent = actorParent, proof = actorProof)
+                verification = context.actorVerifier().verify(actorClaim)
+            } else {
+                actorClaim = null
+                verification = null
+            }
 
             // Fetch the WorkItem
             val itemResult = context.workItemRepository().getById(itemId)
@@ -303,7 +346,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     summary,
                     effectiveLabel,
                     context.workItemRepository(),
-                    context.roleTransitionRepository()
+                    context.roleTransitionRepository(),
+                    actorClaim = actorClaim,
+                    verification = verification
                 )
             if (!applyResult.success || applyResult.item == null) {
                 failCount++
@@ -377,7 +422,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             "Auto-cascaded from child completion",
                             context.statusLabelService().resolveLabel("cascade"),
                             context.workItemRepository(),
-                            context.roleTransitionRepository()
+                            context.roleTransitionRepository(),
+                            actorClaim = null,
+                            verification = null
                         )
 
                     cascadeJsonList.add(
@@ -502,6 +549,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
+                    actorClaim?.let { put("actor", it.toJson()) }
+                    verification?.let { put("verification", it.toJson()) }
                     put("cascadeEvents", JsonArray(cascadeJsonList))
                     put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
@@ -571,7 +620,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     summary,
                     context.statusLabelService().resolveLabel("cascade"),
                     context.workItemRepository(),
-                    context.roleTransitionRepository()
+                    context.roleTransitionRepository(),
+                    actorClaim = null,
+                    verification = null
                 )
 
             cascadeJsonList.add(

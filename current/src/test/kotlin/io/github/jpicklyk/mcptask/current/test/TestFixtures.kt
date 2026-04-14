@@ -102,15 +102,30 @@ fun makeVerificationResult(
 
 fun params(vararg pairs: Pair<String, JsonElement>): JsonObject = buildJsonObject { pairs.forEach { (k, v) -> put(k, v) } }
 
+fun buildActorJson(
+    id: String = "agent-1",
+    kind: String = "subagent",
+    parent: String? = null,
+    proof: String? = null
+): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("kind", kind)
+        parent?.let { put("parent", it) }
+        proof?.let { put("proof", it) }
+    }
+
 fun transitionObj(
     itemId: UUID,
     trigger: String,
-    summary: String? = null
+    summary: String? = null,
+    actor: JsonObject? = null
 ): JsonObject =
     buildJsonObject {
         put("itemId", itemId.toString())
         put("trigger", trigger)
         summary?.let { put("summary", it) }
+        actor?.let { put("actor", it) }
     }
 
 fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
