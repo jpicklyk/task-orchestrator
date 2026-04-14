@@ -29,10 +29,11 @@ Unified write operations for Notes (upsert, delete).
 **Operations:**
 
 **upsert** - Upsert notes from `notes` array.
-- Each note: `{ itemId (required), key (required), role (required: "queue"|"work"|"review"), body? }`
+- Each note: `{ itemId (required), key (required), role (required: "queue"|"work"|"review"), body?, actor? }`
+- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who wrote the note. Re-upsert replaces the actor (last-writer-wins).
 - (itemId, key) is unique — existing notes with same pair are updated
 - Validates that itemId references an existing WorkItem
-- Response: `{ notes: [{id, itemId, key, role}], upserted: N, failed: N, failures: [{index, error}], itemContext: { "<itemId>": { guidancePointer: "...|null", noteProgress: { filled: N, remaining: N, total: N }|null } } }`
+- Response: `{ notes: [{id, itemId, key, role, actor?, verification?}], upserted: N, failed: N, failures: [{index, error}], itemContext: { "<itemId>": { guidancePointer: "...|null", noteProgress: { filled: N, remaining: N, total: N }|null } } }`
 
 **delete** - Delete notes.
 - By `ids` array: delete each note by UUID

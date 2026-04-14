@@ -39,8 +39,8 @@ gate status (canAdvance + missing required notes for current phase), and `notePr
 (`{filled, remaining, total}` counts of required notes for the current role; null for terminal or schema-free items).
 
 **Session resume** — `since` (ISO 8601 timestamp):
-Returns active items (role=work or review), recent role transitions since the timestamp,
-and stalled items (active items with missing required notes).
+Returns active items (role=work or review), recent role transitions since the timestamp
+(including actor/verification when present), and stalled items (active items with missing required notes).
 
 **Health check** — no parameters:
 Returns all active items (work/review), blocked items, and stalled items.

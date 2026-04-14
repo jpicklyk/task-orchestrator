@@ -24,13 +24,13 @@ Read-only query operations for Notes (get, list).
 
 **get** - Get a single Note by ID.
 - Required: `id` (UUID)
-- Response: full Note JSON
+- Response: full Note JSON (includes `actor` and `verification` when present)
 
 **list** - List notes for a WorkItem.
 - Required: `itemId` (UUID)
 - Optional: `role` — filter by role: "queue", "work", "review"
 - Optional: `includeBody` (boolean, default true) — set false to omit body for token efficiency
-- Response: `{ notes: [...], total: N }`
+- Response: `{ notes: [...], total: N }` — each note includes `actor` and `verification` fields when attribution was provided at write time
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT

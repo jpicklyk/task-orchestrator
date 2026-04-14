@@ -122,6 +122,8 @@ Hooks run automatically — no invocation required:
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
+**Optional:** Enable auditing to require agents to identify themselves on every write operation — add an `auditing` section with `enabled: true` to `.taskorchestrator/config.yaml`. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+
 ### Output style
 
 The plugin includes a **Workflow Analyst** output style. When active, Claude Code acts as a project management orchestrator — it plans, delegates implementation to subagents, and tracks progress in the WorkItem graph without writing code directly. Useful for complex multi-step features. Select it from the output style menu (`/output-style`) after installing the plugin.

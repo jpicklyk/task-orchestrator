@@ -1072,66 +1072,30 @@ This is a documentation convention, not enforced by the server. Stage 1 trusts s
 
 ### Enforcing Actor Attribution
 
-Actor claims are **optional by default** — users who don't need auditing pay no extra token cost. To require actor claims on all write operations, configure a Claude Code `PreToolUse` hook.
+Actor claims are **optional by default** — users who don't need auditing pay no extra token cost. To require actor claims on all write operations, enable auditing in `.taskorchestrator/config.yaml`:
 
-#### Hook Configuration
-
-Add to your `.claude/settings.json` or `.claude/settings.local.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "type": "command",
-        "command": "node .claude/hooks/enforce-actor-attribution.js",
-        "matcher": "mcp__mcp-task-orchestrator__advance_item|mcp__mcp-task-orchestrator__manage_notes"
-      }
-    ]
-  }
-}
+```yaml
+auditing:
+  enabled: true
 ```
 
-#### Reference Hook Script
+When enabled, the plugin's `PreToolUse` hook blocks any `advance_item` or `manage_notes(upsert)` call where one or more elements are missing an `actor` object. The call never reaches the server — the agent must retry with actor claims included.
 
-Create `.claude/hooks/enforce-actor-attribution.js`:
+When `enabled` is `false` or the `auditing` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
-```javascript
-#!/usr/bin/env node
+> **Note:** Config changes require an MCP reconnect (`/mcp`) or session restart to take effect.
 
-// Enforce actor attribution on MCP Task Orchestrator write operations.
-// Soft enforcement: injects additionalContext reminding Claude to include actor.
-// For hard enforcement: change to output { "decision": "block", "reason": "..." }
+#### Subagent Behavior
 
-const fs = require('fs');
-const input = JSON.parse(fs.readFileSync('/dev/stdin', 'utf8'));
-const toolName = input.tool_name || '';
-const toolInput = input.tool_input || {};
+Actor claims are self-reported by convention — the server does not inject them automatically. This means:
 
-let missing = false;
+- **Uninstructed subagents** make calls with no actor data, producing anonymous transitions and notes
+- **Instructed subagents** include actor claims only when the delegation prompt tells them to
+- The enforcement hook applies to all callers in the session, including subagents, providing a safety net regardless of prompt quality
 
-if (toolName.includes('advance_item')) {
-  const transitions = toolInput.transitions || [];
-  missing = transitions.some(t => !t.actor);
-} else if (toolName.includes('manage_notes') && toolInput.operation === 'upsert') {
-  const notes = toolInput.notes || [];
-  missing = notes.some(n => !n.actor);
-}
+For reliable attribution, combine auditing enforcement with explicit delegation instructions:
 
-if (missing) {
-  const output = {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      additionalContext: 'Actor attribution is required. Include an "actor" object with "id" and "kind" fields on each transition/note element. Example: { "id": "my-agent", "kind": "subagent", "parent": "orchestrator-id" }'
-    }
-  };
-  console.log(JSON.stringify(output));
-} else {
-  process.exit(0);
-}
 ```
-
-#### Soft vs Hard Enforcement
-
-- **Soft** (default above): Injects `additionalContext` — Claude sees the reminder and retries with actor claims included. The tool call is NOT blocked.
-- **Hard**: Replace `hookSpecificOutput` with `{ "decision": "block", "reason": "Actor attribution required" }` — the tool call is rejected outright and Claude must reformulate.
+Include an "actor" object on every advance_item and manage_notes call:
+{ "id": "your-agent-name", "kind": "subagent", "parent": "orchestrator-id" }
+```
