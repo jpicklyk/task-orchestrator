@@ -80,8 +80,23 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | `role` | yes | string | `queue`, `work`, or `review` only |
 | `required` | yes | boolean | `true` = blocks gate, `false` = shown but not enforced |
 | `description` | yes | string | Keep under 80 chars — quick label agents scan |
-| `guidance` | no | string | Free text shown as `guidancePointer` in `get_context` |
-| `skill` | no | string | Skill to invoke when filling this note (surfaced as `skillPointer` in `get_context`) |
+| `guidance` | no | string | Project-specific authoring instructions — shown as `guidancePointer` in `get_context` |
+| `skill` | no | string | Reusable evaluation framework — shown as `skillPointer` in `get_context` |
+
+### `guidance` vs `skill` — when to use which
+
+These fields serve different purposes and work together:
+
+- **`guidance`** provides project-specific instructions for *what* the note should cover. It's free text you write in config — "Cover: problem statement, acceptance criteria, alternatives considered, blast radius, test strategy." The agent sees this as `guidancePointer` when it's about to fill the note.
+
+- **`skill`** references a reusable evaluation framework that defines *how* to produce the note. The agent invokes the skill (e.g., `/spec-quality`) before writing, getting a structured methodology — rubrics, checklists, evaluation dimensions. The agent sees this as `skillPointer`.
+
+| Combination | When to use |
+|-------------|------------|
+| `guidance` only | Most notes. You know what content you want — just tell the agent. |
+| `skill` only | The skill is self-contained and doesn't need project-specific tailoring. |
+| Both | The skill provides the structured process; guidance adds project-specific requirements the skill doesn't cover. The agent invokes the skill first, then uses guidance to fill in domain-specific details. |
+| Neither | The note key and description are self-explanatory — no additional direction needed. |
 
 ---
 
