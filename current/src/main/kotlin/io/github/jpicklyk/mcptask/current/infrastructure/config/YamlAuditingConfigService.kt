@@ -68,23 +68,26 @@ class YamlAuditingConfigService(
         return try {
             val yaml = Yaml()
             FileReader(configPath.toFile()).use { reader ->
-                val root = yaml.load<Map<String, Any>>(reader)
-                    ?: return@use LoadResult(AuditingConfig(), warnings)
+                val root =
+                    yaml.load<Map<String, Any>>(reader)
+                        ?: return@use LoadResult(AuditingConfig(), warnings)
 
-                val auditingSection = root["auditing"] as? Map<String, Any>
-                    ?: run {
-                        logger.debug("No 'auditing' section in config; using defaults")
-                        return@use LoadResult(AuditingConfig(), warnings)
-                    }
+                val auditingSection =
+                    root["auditing"] as? Map<String, Any>
+                        ?: run {
+                            logger.debug("No 'auditing' section in config; using defaults")
+                            return@use LoadResult(AuditingConfig(), warnings)
+                        }
 
                 val enabled = (auditingSection["enabled"] as? Boolean) ?: true
 
                 val verifierSection = auditingSection["verifier"] as? Map<String, Any>
-                val verifier = if (verifierSection != null) {
-                    parseVerifier(verifierSection, warnings)
-                } else {
-                    VerifierConfig.Noop
-                }
+                val verifier =
+                    if (verifierSection != null) {
+                        parseVerifier(verifierSection, warnings)
+                    } else {
+                        VerifierConfig.Noop
+                    }
 
                 LoadResult(AuditingConfig(enabled = enabled, verifier = verifier), warnings)
             }
@@ -112,8 +115,9 @@ class YamlAuditingConfigService(
                 val jwksPath = verifierMap["jwks_path"] as? String
 
                 if (oidcDiscovery == null && jwksUri == null && jwksPath == null) {
-                    val msg = "auditing.verifier type 'jwks' requires one of: " +
-                        "oidc_discovery, jwks_uri, or jwks_path; falling back to Noop"
+                    val msg =
+                        "auditing.verifier type 'jwks' requires one of: " +
+                            "oidc_discovery, jwks_uri, or jwks_path; falling back to Noop"
                     warnings.add(msg)
                     logger.warn(msg)
                     return VerifierConfig.Noop
@@ -123,17 +127,19 @@ class YamlAuditingConfigService(
                 val audience = verifierMap["audience"] as? String
 
                 val rawAlgorithms = verifierMap["algorithms"]
-                val algorithms: List<String> = when (rawAlgorithms) {
-                    is List<*> -> rawAlgorithms.filterIsInstance<String>()
-                    else -> emptyList()
-                }
+                val algorithms: List<String> =
+                    when (rawAlgorithms) {
+                        is List<*> -> rawAlgorithms.filterIsInstance<String>()
+                        else -> emptyList()
+                    }
 
-                val cacheTtlSeconds = when (val raw = verifierMap["cache_ttl_seconds"]) {
-                    is Int -> raw.toLong()
-                    is Long -> raw
-                    is Number -> raw.toLong()
-                    else -> 300L
-                }
+                val cacheTtlSeconds =
+                    when (val raw = verifierMap["cache_ttl_seconds"]) {
+                        is Int -> raw.toLong()
+                        is Long -> raw
+                        is Number -> raw.toLong()
+                        else -> 300L
+                    }
 
                 val requireSubMatch = (verifierMap["require_sub_match"] as? Boolean) ?: true
 

@@ -73,8 +73,9 @@ class DefaultJwksKeySetProvider(
     @Volatile
     private var resolvedIssuer: String? = null
 
-    /** Lazy HTTP client — created only when a remote fetch is needed. */
-    private var httpClient: HttpClient? = null
+    /** Thread-safe lazy HTTP client — created only when a remote fetch is needed. */
+    private val httpClientDelegate = lazy { HttpClient(CIO) }
+    private val httpClient: HttpClient by httpClientDelegate
 
     override suspend fun getKeySet(): JWKSet {
         // Fast path: return cached value if still valid.
@@ -101,8 +102,9 @@ class DefaultJwksKeySetProvider(
     override fun getResolvedIssuer(): String? = resolvedIssuer
 
     override fun close() {
-        httpClient?.close()
-        httpClient = null
+        if (httpClientDelegate.isInitialized()) {
+            httpClient.close()
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -175,8 +177,5 @@ class DefaultJwksKeySetProvider(
         }
     }
 
-    private suspend fun httpGet(url: String): String {
-        val client = httpClient ?: HttpClient(CIO).also { httpClient = it }
-        return client.get(url).bodyAsText()
-    }
+    private suspend fun httpGet(url: String): String = httpClient.get(url).bodyAsText()
 }

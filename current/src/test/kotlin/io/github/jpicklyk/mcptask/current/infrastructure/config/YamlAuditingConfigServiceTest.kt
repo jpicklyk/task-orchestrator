@@ -9,7 +9,6 @@ import java.io.File
 import java.nio.file.Path
 
 class YamlAuditingConfigServiceTest {
-
     @TempDir
     lateinit var tempDir: Path
 
@@ -31,12 +30,13 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `config with auditing enabled but no verifier section returns Noop`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              enabled: true
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val config = service.getConfig()
@@ -47,15 +47,16 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `config with no auditing section returns defaults`() {
-        val configFile = createConfigFile(
-            """
-            note_schemas:
-              default:
-                - key: test
-                  role: queue
-                  required: false
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                note_schemas:
+                  default:
+                    - key: test
+                      role: queue
+                      required: false
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val config = service.getConfig()
@@ -69,14 +70,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `verifier type noop returns Noop`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              enabled: true
-              verifier:
-                type: noop
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
@@ -89,24 +91,25 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `verifier type jwks with all fields returns fully populated Jwks`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              enabled: true
-              verifier:
-                type: jwks
-                oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                jwks_path: "/etc/keys/jwks.json"
-                issuer: "https://accounts.example.com"
-                audience: "mcp-task-orchestrator"
-                algorithms:
-                  - RS256
-                  - ES256
-                cache_ttl_seconds: 600
-                require_sub_match: false
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    jwks_path: "/etc/keys/jwks.json"
+                    issuer: "https://accounts.example.com"
+                    audience: "mcp-task-orchestrator"
+                    algorithms:
+                      - RS256
+                      - ES256
+                    cache_ttl_seconds: 600
+                    require_sub_match: false
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier
@@ -129,14 +132,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `verifier type jwks with only jwks_path is valid`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                jwks_path: "/etc/keys/jwks.json"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier
@@ -150,14 +154,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `verifier type jwks with only oidc_discovery is valid`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier
@@ -171,14 +176,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `verifier type jwks with only jwks_uri is valid`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier
@@ -196,14 +202,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `verifier type jwks with no source URI, path, or discovery produces warning and falls back to Noop`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                issuer: "https://accounts.example.com"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    issuer: "https://accounts.example.com"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
@@ -213,13 +220,14 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `unknown verifier type produces warning and falls back to Noop`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: magic-unicorn
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: magic-unicorn
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
@@ -233,18 +241,19 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `algorithms parsed as list of strings`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                algorithms:
-                  - RS256
-                  - ES384
-                  - PS256
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                      - ES384
+                      - PS256
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
@@ -253,14 +262,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `require_sub_match defaults to true when absent`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
@@ -269,14 +279,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `cache_ttl_seconds defaults to 300 when absent`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
@@ -285,14 +296,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `algorithms defaults to empty list when absent`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              verifier:
-                type: jwks
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
@@ -301,14 +313,15 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `auditing enabled flag false is respected`() {
-        val configFile = createConfigFile(
-            """
-            auditing:
-              enabled: false
-              verifier:
-                type: noop
-            """.trimIndent()
-        )
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: false
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
         val service = YamlAuditingConfigService(configFile)
 
         assertFalse(service.getConfig().enabled)
@@ -320,7 +333,8 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `malformed YAML falls back to defaults gracefully`() {
-        val configFile = createConfigFile("{{{{invalid yaml!!!")
+        val configFile =
+            createConfigFile("{{{{invalid yaml!!!")
         val service = YamlAuditingConfigService(configFile)
 
         val config = service.getConfig()

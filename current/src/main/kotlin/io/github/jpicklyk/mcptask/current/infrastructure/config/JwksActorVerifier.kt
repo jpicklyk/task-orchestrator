@@ -137,12 +137,21 @@ class JwksActorVerifier(
         // Step 7 — validate standard claims.
         val claims = signedJWT.jwtClaimsSet
 
-        // exp — allow 60 s of clock skew.
+        // exp — allow 60 s of clock skew. A missing exp claim is accepted (no expiry check).
         val expiry = claims.expirationTime
         if (expiry != null) {
             val skewAdjusted = Date.from(clock.instant().minusSeconds(CLOCK_SKEW_SECONDS))
             if (expiry.before(skewAdjusted)) {
                 return VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = "token expired")
+            }
+        }
+
+        // nbf — reject tokens not yet valid (allow 60 s of clock skew).
+        val notBefore = claims.notBeforeTime
+        if (notBefore != null) {
+            val skewAdjusted = Date.from(clock.instant().plusSeconds(CLOCK_SKEW_SECONDS))
+            if (notBefore.after(skewAdjusted)) {
+                return VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = "token not yet valid")
             }
         }
 

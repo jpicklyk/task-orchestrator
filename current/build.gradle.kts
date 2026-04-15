@@ -110,8 +110,6 @@ dependencies {
 
     // Bouncy Castle — provides OctetKeyPair raw key generation in tests
     testImplementation(libs.bouncycastle.provider)
-
-    // Bounced to implementation — Tink is already a production dep for EdDSA verification
 }
 
 tasks.test {

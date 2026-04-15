@@ -2,11 +2,13 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
+import com.nimbusds.jose.crypto.ECDSASigner
 import com.nimbusds.jose.crypto.Ed25519Signer
 import com.nimbusds.jose.crypto.RSASSASigner
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.OctetKeyPair
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.JWTClaimsSet
@@ -48,6 +50,9 @@ class JwksActorVerifierTest {
         // RSA key — uses standard JCA (no Tink needed).
         val rsaKey = RSAKeyGenerator(2048).keyID("rsa-test-key").generate()
 
+        // EC P-256 key — uses standard JCA.
+        val ecKey = ECKeyGenerator(Curve.P_256).keyID("ec-test-key").generate()
+
         // Ed25519 key — constructed via Bouncy Castle raw API to avoid Tink dependency.
         val edKey: OctetKeyPair =
             run {
@@ -72,15 +77,21 @@ class JwksActorVerifierTest {
         subject: String = "agent-1",
         issuer: String = "https://test-issuer.example",
         audience: String = "task-orchestrator",
-        expiry: Instant = Instant.now().plusSeconds(300)
-    ): JWTClaimsSet =
-        JWTClaimsSet
-            .Builder()
-            .subject(subject)
-            .issuer(issuer)
-            .audience(audience)
-            .expirationTime(Date.from(expiry))
-            .build()
+        expiry: Instant = Instant.now().plusSeconds(300),
+        notBefore: Instant? = null
+    ): JWTClaimsSet {
+        val builder =
+            JWTClaimsSet
+                .Builder()
+                .subject(subject)
+                .issuer(issuer)
+                .audience(audience)
+                .expirationTime(Date.from(expiry))
+        if (notBefore != null) {
+            builder.notBeforeTime(Date.from(notBefore))
+        }
+        return builder.build()
+    }
 
     private fun signRsa(claims: JWTClaimsSet = buildClaims()): String {
         val jwt =
@@ -99,6 +110,16 @@ class JwksActorVerifierTest {
                 claims
             )
         jwt.sign(Ed25519Signer(edKey))
+        return jwt.serialize()
+    }
+
+    private fun signEc(claims: JWTClaimsSet = buildClaims()): String {
+        val jwt =
+            SignedJWT(
+                JWSHeader.Builder(JWSAlgorithm.ES256).keyID("ec-test-key").build(),
+                claims
+            )
+        jwt.sign(ECDSASigner(ecKey))
         return jwt.serialize()
     }
 
@@ -121,6 +142,15 @@ class JwksActorVerifierTest {
     private fun edMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JWKSet(listOf(edKey.toPublicJWK()))
+        every { provider.getResolvedIssuer() } returns resolvedIssuer
+        every { provider.close() } just Runs
+        return provider
+    }
+
+    /** Mock provider that returns the EC public key. */
+    private fun ecMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
+        val provider = mockk<JwksKeySetProvider>()
+        coEvery { provider.getKeySet() } returns JWKSet(listOf(ecKey.toPublicJWK()))
         every { provider.getResolvedIssuer() } returns resolvedIssuer
         every { provider.close() } just Runs
         return provider
@@ -316,5 +346,79 @@ class JwksActorVerifierTest {
             val result = verifier(provider = edMockProvider()).verify(actor(proof = signRsa()))
             assertEquals(VerificationStatus.FAILED, result.status)
             assertTrue(result.reason?.contains("no matching key") == true, "reason: ${result.reason}")
+        }
+
+    // =========================================================================
+    // EC key type verification
+    // =========================================================================
+
+    // 17. valid EC (P-256 / ES256) JWT → VERIFIED
+    @Test
+    fun `valid EC P-256 JWT returns VERIFIED`() =
+        runTest {
+            val result = verifier(provider = ecMockProvider()).verify(actor(proof = signEc()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+            assertEquals("jwks", result.verifier)
+        }
+
+    // 18. EC JWT with algorithm allowlist including ES256 → VERIFIED
+    @Test
+    fun `EC JWT passes algorithm allowlist containing ES256`() =
+        runTest {
+            val config = baseConfig(algorithms = listOf("ES256", "RS256"))
+            val result = verifier(config = config, provider = ecMockProvider()).verify(actor(proof = signEc()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+        }
+
+    // 19. EC JWT rejected when algorithm allowlist excludes ES256
+    @Test
+    fun `EC JWT rejected when algorithm allowlist excludes ES256`() =
+        runTest {
+            val config = baseConfig(algorithms = listOf("RS256"))
+            val result = verifier(config = config, provider = ecMockProvider()).verify(actor(proof = signEc()))
+            assertEquals(VerificationStatus.FAILED, result.status)
+            assertTrue(result.reason?.contains("algorithm not allowed") == true, "reason: ${result.reason}")
+        }
+
+    // 20. EC JWT with wrong issuer → FAILED (claim validation works with EC keys)
+    @Test
+    fun `EC JWT with wrong issuer returns FAILED`() =
+        runTest {
+            val claims = buildClaims(issuer = "https://wrong-issuer.example")
+            val result = verifier(provider = ecMockProvider()).verify(actor(proof = signEc(claims)))
+            assertEquals(VerificationStatus.FAILED, result.status)
+            assertTrue(result.reason?.contains("issuer") == true, "reason: ${result.reason}")
+        }
+
+    // =========================================================================
+    // nbf (not-before) claim validation
+    // =========================================================================
+
+    // 21. JWT with nbf far in the future → FAILED
+    @Test
+    fun `JWT with future nbf returns FAILED`() =
+        runTest {
+            val claims = buildClaims(notBefore = Instant.now().plusSeconds(600))
+            val result = verifier().verify(actor(proof = signRsa(claims)))
+            assertEquals(VerificationStatus.FAILED, result.status)
+            assertTrue(result.reason?.contains("not yet valid") == true, "reason: ${result.reason}")
+        }
+
+    // 22. JWT with nbf in the past → VERIFIED
+    @Test
+    fun `JWT with past nbf returns VERIFIED`() =
+        runTest {
+            val claims = buildClaims(notBefore = Instant.now().minusSeconds(60))
+            val result = verifier().verify(actor(proof = signRsa(claims)))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+        }
+
+    // 23. JWT without nbf → VERIFIED (nbf is optional)
+    @Test
+    fun `JWT without nbf returns VERIFIED`() =
+        runTest {
+            // Default buildClaims() has no notBefore
+            val result = verifier().verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
         }
 }
