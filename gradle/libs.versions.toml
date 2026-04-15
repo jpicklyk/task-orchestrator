@@ -1,31 +1,31 @@
 [versions]
 # Kotlin and Coroutines
 kotlin = "2.2.0"
-kotlinCoroutines = "1.8.0"
-kotlinSerialization = "1.8.0"
+kotlinCoroutines = "1.10.2"
+kotlinSerialization = "1.9.0"
 
 # MCP SDK
-mcpSdk = "0.9.0"
+mcpSdk = "0.11.1"
 
 # Ktor (version-aligned with MCP SDK's transitive dependency)
-ktor = "3.2.3"
+ktor = "3.4.2"
 
 # Database
-sqlite = "3.45.1.0"
-exposed = "1.0.0-beta-2"
-flyway = "10.22.0"
+sqlite = "3.49.1.0"
+exposed = "1.0.0-beta-4"
+flyway = "11.8.2"
 
 # Logging
 slf4j = "2.0.17"
 
-logback = "1.5.28"
+logback = "1.5.32"
 
 # Testing
-mockk = "1.14.2"
-junit = "5.10.2"
+mockk = "1.14.3"
+junit = "5.12.2"
 
 # YAML
-snakeyaml = "2.5"
+snakeyaml = "2.6"
 
 # Linting
 ktlint = "12.1.2"
