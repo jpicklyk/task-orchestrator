@@ -16,6 +16,12 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - Each must be a mapping (not a list or scalar)
 - `traits` is an optional top-level key — if present, must be a mapping
 - `auditing` is an optional top-level key — if present, must be a mapping containing `enabled` (boolean)
+- `auditing.verifier` (if present) must be a mapping
+- `verifier.type` must be one of: `noop`, `jwks` (warn on unknown type)
+- When `type: jwks`: at least one of `oidc_discovery`, `jwks_uri`, `jwks_path` must be set (error if none)
+- `algorithms` (if present) must be a list of strings
+- `cache_ttl_seconds` (if present) must be a positive number
+- `require_sub_match` (if present) must be a boolean
 - No other top-level keys expected (warn if found)
 
 ### 3. Schema Entry Structure
@@ -67,7 +73,7 @@ For each note in each schema (and trait):
   work_item_schemas: 3 schemas
   note_schemas: 1 schema (legacy)
   traits: 2 traits
-  auditing: enabled
+  auditing: enabled, verifier: jwks
 
   Errors (must fix):
     ✗ bug-fix.fix-summary: missing "required" field

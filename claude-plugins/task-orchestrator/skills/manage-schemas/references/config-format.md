@@ -227,17 +227,64 @@ When `auditing.enabled` is `true`, the plugin's PreToolUse hook blocks `advance_
 
 When `false` or absent, actor claims are optional — calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
-### Stage 2 Expansion
+### Verifier
 
-A future release will add `verifier` configuration under `auditing` for server-side claim validation (e.g., JWT). The `enabled` field will continue to control client-side enforcement independently:
+The optional `verifier` sub-key enables server-side JWT validation of actor claims. It operates independently of `enabled` — a call can pass client-side enforcement (actor present) but still fail server-side verification (bad or expired JWT).
+
+**Fields:**
+
+| Field | Required | Type | Default | Notes |
+|-------|----------|------|---------|-------|
+| `type` | yes | string | `"noop"` | `"noop"` or `"jwks"` |
+| `oidc_discovery` | no | string | — | OIDC discovery URL; auto-populates `jwks_uri` and `issuer` |
+| `jwks_uri` | no | string | — | Direct JWKS endpoint URL (overrides OIDC-discovered value) |
+| `jwks_path` | no | string | — | Local JWKS file path (relative to `AGENT_CONFIG_DIR`) |
+| `issuer` | no | string | — | Expected `iss` claim (overrides OIDC-discovered value) |
+| `audience` | no | string | — | Expected `aud` claim |
+| `algorithms` | no | list | `[]` | Allowed signing algorithms; empty = accept any |
+| `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
+| `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
+
+When `type: jwks`, at least one of `oidc_discovery`, `jwks_uri`, or `jwks_path` is required. Explicit `jwks_uri` and `issuer` values override OIDC-discovered values when both are present.
+
+**Example — OIDC discovery (simplest):**
 
 ```yaml
 auditing:
   enabled: true
   verifier:
-    type: jwt
-    jwks_uri: "https://..."
+    type: jwks
+    oidc_discovery: "https://agentlair.dev/.well-known/openid-configuration"
 ```
+
+**Example — File-based (air-gapped):**
+
+```yaml
+auditing:
+  enabled: true
+  verifier:
+    type: jwks
+    jwks_path: ".agentlair/jwks.json"
+```
+
+**Example — Full config (all options):**
+
+```yaml
+auditing:
+  enabled: true
+  verifier:
+    type: jwks
+    oidc_discovery: "https://agentlair.dev/.well-known/openid-configuration"
+    jwks_uri: "https://provider.example/.well-known/jwks.json"
+    jwks_path: ".agentlair/jwks.json"
+    issuer: "https://provider.example"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
+    cache_ttl_seconds: 300
+    require_sub_match: true
+```
+
+> **Note:** `enabled` (client-side enforcement) and `verifier` (server-side validation) are independent concerns. A call can pass enforcement (actor present) but have verification fail (bad JWT).
 
 ---
 

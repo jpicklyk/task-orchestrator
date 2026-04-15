@@ -320,6 +320,12 @@ After adding or editing this file, reconnect the MCP server:
 > }
 > ```
 > Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
+>
+> **Using JWKS path verification?** Also mount `.agentlair/` so the container can read your local JWKS file:
+> ```json
+> "-v", "${workspaceFolder}/.agentlair:/project/.agentlair:ro",
+> ```
+> Add this line alongside the `.taskorchestrator` mount. The `.agentlair/` mount is only needed when `verifier.jwks_path` is configured. See [Auditing & Actor Verification](./api-reference.md#auditing--actor-verification) in the API reference for details including Docker network access options.
 
 ---
 
