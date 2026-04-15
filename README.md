@@ -161,6 +161,10 @@ query_notes(itemId="<uuid>", role="work", includeBody=false)
 
 Metadata-only queries (`includeBody=false`) let agents check what exists without paying the token cost of reading every note body.
 
+### Design Philosophy
+
+Task Orchestrator enforces workflow structure without imposing methodology. The server owns the guardrails — role transitions, dependency ordering, gate enforcement, and accountability. Agents own everything else. There are no mandatory planning ceremonies, no prescribed development processes, no opinion on how agents approach implementation. Schemas, traits, and auditing are opt-in layers that integrate with your team's development policies through `.taskorchestrator/config.yaml`. As models gain new capabilities, the harness stays out of the way rather than constraining what agents can do.
+
 ---
 
 ## Quick Start
