@@ -14,6 +14,12 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedI
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
+import io.github.jpicklyk.mcptask.current.domain.model.AuditingConfig
+import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlAuditingConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
@@ -81,7 +87,8 @@ class CurrentMcpServer(
             val noteSchemaService = YamlNoteSchemaService()
             val statusLabelService = YamlStatusLabelService()
             val mcpLoggingService = DefaultMcpLoggingService()
-            val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService, statusLabelService, mcpLoggingService)
+            val actorVerifier = createActorVerifier()
+            val toolContext = ToolExecutionContext(repositoryProvider, noteSchemaService, statusLabelService, mcpLoggingService, actorVerifier)
             logger.info("Repository provider and tool context initialized")
 
             // Build tool list
@@ -143,6 +150,31 @@ class CurrentMcpServer(
      */
     suspend fun close() {
         mcpSdkServer?.close()
+    }
+
+    /**
+     * Creates the appropriate [ActorVerifier] based on the auditing configuration.
+     */
+    private fun createActorVerifier(): ActorVerifier {
+        val configService = YamlAuditingConfigService()
+        configService.getWarnings().forEach { logger.warn("Auditing config: {}", it) }
+        val config = configService.getConfig()
+        val verifier = when (val vc = config.verifier) {
+            is VerifierConfig.Noop -> {
+                logger.info("Actor verifier: noop (all claims unverified)")
+                NoOpActorVerifier
+            }
+            is VerifierConfig.Jwks -> {
+                logger.info("Actor verifier: jwks (uri={}, path={}, discovery={})",
+                    vc.jwksUri ?: "none", vc.jwksPath ?: "none", vc.oidcDiscovery ?: "none")
+                JwksActorVerifier(vc).also { jwksVerifier ->
+                    shutdownCoordinator?.addCleanupAction("Close JWKS ActorVerifier") {
+                        jwksVerifier.close()
+                    }
+                }
+            }
+        }
+        return verifier
     }
 
     private fun registerCommonCleanup(server: Server) {

@@ -91,6 +91,8 @@ dependencies {
 
     // JWT / JWKS — used by JwksActorVerifier for JWT validation against JWKS key sets
     implementation(libs.nimbus.jose.jwt)
+    // Google Tink — required at runtime by nimbus Ed25519Verifier for EdDSA/Ed25519 JWT verification
+    implementation(libs.google.tink)
 
     // Testing
     testImplementation(libs.kotlin.test)
@@ -109,8 +111,7 @@ dependencies {
     // Bouncy Castle — provides OctetKeyPair raw key generation in tests
     testImplementation(libs.bouncycastle.provider)
 
-    // Google Tink — required by nimbus-jose-jwt Ed25519Signer/Verifier in tests
-    testImplementation(libs.google.tink)
+    // Bounced to implementation — Tink is already a production dep for EdDSA verification
 }
 
 tasks.test {

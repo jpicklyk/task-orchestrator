@@ -146,16 +146,14 @@ class JwksActorVerifier(
             }
         }
 
-        // iss
-        if (config.issuer != null) {
-            val effectiveIssuer = config.issuer
-            if (claims.issuer != effectiveIssuer) {
-                return VerificationResult(
-                    status = FAILED,
-                    verifier = VERIFIER_NAME,
-                    reason = "issuer mismatch: expected=$effectiveIssuer, got=${claims.issuer}"
-                )
-            }
+        // iss — explicit config overrides OIDC-discovered issuer
+        val effectiveIssuer = config.issuer ?: keySetProvider.getResolvedIssuer()
+        if (effectiveIssuer != null && claims.issuer != effectiveIssuer) {
+            return VerificationResult(
+                status = FAILED,
+                verifier = VERIFIER_NAME,
+                reason = "issuer mismatch: expected=$effectiveIssuer, got=${claims.issuer}"
+            )
         }
 
         // aud

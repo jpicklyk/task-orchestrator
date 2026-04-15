@@ -109,17 +109,19 @@ class JwksActorVerifierTest {
     ) = ActorClaim(id = id, kind = ActorKind.SUBAGENT, proof = proof)
 
     /** Mock provider that returns the RSA public key. */
-    private fun rsaMockProvider(): JwksKeySetProvider {
+    private fun rsaMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JWKSet(listOf(rsaKey.toPublicJWK()))
+        every { provider.getResolvedIssuer() } returns resolvedIssuer
         every { provider.close() } just Runs
         return provider
     }
 
     /** Mock provider that returns the EdDSA public key. */
-    private fun edMockProvider(): JwksKeySetProvider {
+    private fun edMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JWKSet(listOf(edKey.toPublicJWK()))
+        every { provider.getResolvedIssuer() } returns resolvedIssuer
         every { provider.close() } just Runs
         return provider
     }
@@ -263,6 +265,7 @@ class JwksActorVerifierTest {
         runTest {
             val brokenProvider = mockk<JwksKeySetProvider>()
             coEvery { brokenProvider.getKeySet() } throws RuntimeException("network unreachable")
+            every { brokenProvider.getResolvedIssuer() } returns null
             every { brokenProvider.close() } just Runs
 
             val result = verifier(provider = brokenProvider).verify(actor(proof = signRsa()))
@@ -270,7 +273,42 @@ class JwksActorVerifierTest {
             assertNotNull(result.reason)
         }
 
-    // 13. no matching kid → FAILED
+    // 13. OIDC-discovered issuer used when config.issuer is null
+    @Test
+    fun `OIDC-discovered issuer is used when config issuer is null`() =
+        runTest {
+            // Config has no explicit issuer, but provider discovered one via OIDC
+            val config = baseConfig(issuer = null)
+            val provider = rsaMockProvider(resolvedIssuer = "https://test-issuer.example")
+            // JWT issuer matches discovered issuer → VERIFIED
+            val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+        }
+
+    // 14. OIDC-discovered issuer rejects mismatched JWT
+    @Test
+    fun `OIDC-discovered issuer rejects mismatched JWT issuer`() =
+        runTest {
+            val config = baseConfig(issuer = null)
+            val provider = rsaMockProvider(resolvedIssuer = "https://expected-issuer.example")
+            // JWT issuer is "https://test-issuer.example" but discovered issuer is different
+            val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.FAILED, result.status)
+            assertTrue(result.reason?.contains("issuer mismatch") == true, "reason: ${result.reason}")
+        }
+
+    // 15. explicit config.issuer overrides OIDC-discovered issuer
+    @Test
+    fun `explicit config issuer overrides OIDC-discovered issuer`() =
+        runTest {
+            // Config has explicit issuer matching JWT; discovered issuer is different
+            val config = baseConfig(issuer = "https://test-issuer.example")
+            val provider = rsaMockProvider(resolvedIssuer = "https://other-issuer.example")
+            val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+        }
+
+    // 16. no matching kid → FAILED
     @Test
     fun `no matching kid returns FAILED`() =
         runTest {

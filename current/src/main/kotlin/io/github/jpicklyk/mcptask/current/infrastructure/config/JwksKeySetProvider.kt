@@ -30,6 +30,13 @@ interface JwksKeySetProvider {
     suspend fun getKeySet(): JWKSet
 
     /**
+     * Returns the issuer resolved via OIDC discovery, or null if discovery was not configured
+     * or has not yet run. Explicit [VerifierConfig.Jwks.issuer] overrides this value at the
+     * verifier level — this method only returns what was discovered.
+     */
+    fun getResolvedIssuer(): String?
+
+    /**
      * Releases any underlying resources (e.g., HTTP client connections).
      */
     fun close()
@@ -90,6 +97,8 @@ class DefaultJwksKeySetProvider(
             fresh
         }
     }
+
+    override fun getResolvedIssuer(): String? = resolvedIssuer
 
     override fun close() {
         httpClient?.close()
