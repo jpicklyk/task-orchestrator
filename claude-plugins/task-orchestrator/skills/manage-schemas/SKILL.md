@@ -77,13 +77,19 @@ If the config has a `traits:` section, show a separate traits summary table:
 | needs-migration-review | migration-assessment (queue, req) | migration-review |
 ```
 
-If the config has an `auditing:` section, display the auditing status:
+If the config has an `auditing:` section, display the auditing status including verifier type when present:
 
 ```
-◆ Auditing: enabled
+◆ Auditing: enabled, verifier: noop
 ```
 
-Or `◆ Auditing: disabled` (or omit if the section is absent).
+Or with a JWKS verifier and its source:
+
+```
+◆ Auditing: enabled, verifier: jwks (uri: https://provider.example/.well-known/jwks.json)
+```
+
+Or `◆ Auditing: disabled` (or omit if the section is absent). When `verifier` is absent, default to `verifier: noop`.
 
 ### EDIT — Modify an Existing Schema
 
