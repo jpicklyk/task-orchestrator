@@ -5,6 +5,7 @@
 Prompt-based frameworks hope the LLM follows instructions. This one blocks the call if it doesn't.
 
 [![Version](https://img.shields.io/github/v/tag/jpicklyk/task-orchestrator?sort=semver)](https://github.com/jpicklyk/task-orchestrator/releases)
+[![CI](https://github.com/jpicklyk/task-orchestrator/actions/workflows/test.yml/badge.svg)](https://github.com/jpicklyk/task-orchestrator/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-purple)](https://modelcontextprotocol.io)
 
@@ -303,10 +304,10 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 
 | Resource | What's there |
 |----------|-------------|
-| **[Quick Start Guide](current/docs/quick-start.md)** | Full setup walkthrough with first work item |
-| **[API Reference](current/docs/api-reference.md)** | All 13 tools — parameters, response shapes, actor attribution |
-| **[Workflow Guide](current/docs/workflow-guide.md)** | Schemas, phase gates, dependencies, lifecycle modes |
-| **[Integration Guides](current/docs/integration-guides/index.md)** | 6 tiers from bare MCP to self-improving orchestration |
+| **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
+| **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | All 13 tools — parameters, response shapes, actor attribution |
+| **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
+| **[Integration Guides](https://github.com/jpicklyk/task-orchestrator/wiki/integration-guides)** | 6 tiers from bare MCP to self-improving orchestration |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |
 | **[Changelog](CHANGELOG.md)** | Release history |
 | **[Contributing](CONTRIBUTING.md)** | Developer setup and contribution process |
