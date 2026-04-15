@@ -27,6 +27,15 @@ junit = "5.12.2"
 # YAML
 snakeyaml = "2.6"
 
+# JWT / JWKS
+nimbusJoseJwt = "10.3"
+
+# Bouncy Castle (test-only — provides Ed25519/OKP crypto backend for nimbus-jose-jwt tests)
+bouncyCastle = "1.80"
+
+# Google Tink (test-only — required by nimbus-jose-jwt Ed25519Signer/Verifier)
+googleTink = "1.18.0"
+
 # Linting
 ktlint = "12.1.2"
 
@@ -44,6 +53,7 @@ mcp-sdk-testing = { module = "io.modelcontextprotocol:kotlin-sdk-testing", versi
 # Ktor
 ktor-bom        = { module = "io.ktor:ktor-bom",        version.ref = "ktor" }
 ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 
 # Database
 sqlite = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
@@ -60,6 +70,15 @@ logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
 # YAML
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+
+# JWT / JWKS
+nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbusJoseJwt" }
+
+# Bouncy Castle (test-only)
+bouncycastle-provider = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncyCastle" }
+
+# Google Tink (test-only — required by nimbus-jose-jwt Ed25519Signer/Verifier)
+google-tink = { module = "com.google.crypto.tink:tink", version.ref = "googleTink" }
 
 # Testing
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }

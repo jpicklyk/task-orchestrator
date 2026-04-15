@@ -86,6 +86,11 @@ dependencies {
     implementation(platform(libs.ktor.bom))
     // CIO engine — not provided transitively by the MCP SDK, must be declared explicitly
     implementation(libs.ktor.server.cio)
+    // Ktor HTTP client — used by JwksKeySetProvider for JWKS URI and OIDC discovery fetching
+    implementation(libs.ktor.client.cio)
+
+    // JWT / JWKS — used by JwksActorVerifier for JWT validation against JWKS key sets
+    implementation(libs.nimbus.jose.jwt)
 
     // Testing
     testImplementation(libs.kotlin.test)
@@ -100,6 +105,12 @@ dependencies {
 
     // H2 in-memory database for testing
     testImplementation("com.h2database:h2:2.2.224")
+
+    // Bouncy Castle — provides OctetKeyPair raw key generation in tests
+    testImplementation(libs.bouncycastle.provider)
+
+    // Google Tink — required by nimbus-jose-jwt Ed25519Signer/Verifier in tests
+    testImplementation(libs.google.tink)
 }
 
 tasks.test {
