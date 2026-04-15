@@ -1,0 +1,18 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      dataVolume:
+        type: string
+        description: "Docker volume name for SQLite data storage"
+        default: "mcp-task-data"
+  commandFunction: |-
+    (config) => ({
+      command: "docker",
+      args: [
+        "run", "--rm", "-i",
+        "-v", `${config.dataVolume || "mcp-task-data"}:/app/data`,
+        "ghcr.io/jpicklyk/task-orchestrator:latest"
+      ]
+    })

@@ -34,7 +34,8 @@ LABEL org.opencontainers.image.title="MCP Task Orchestrator" \
       org.opencontainers.image.url="https://github.com/jpicklyk/task-orchestrator" \
       org.opencontainers.image.source="https://github.com/jpicklyk/task-orchestrator" \
       org.opencontainers.image.vendor="jpicklyk" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="MIT" \
+      io.modelcontextprotocol.server.name="io.github.jpicklyk/task-orchestrator"
 
 WORKDIR /app
 

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jpicklyk/task-orchestrator",
+  "title": "MCP Task Orchestrator",
+  "description": "Server-enforced workflow discipline for AI agents. Persistent hierarchical work items with dependency graphs, note-gated phase transitions, composable schema traits, and actor attribution. 13 MCP tools that give any MCP-compatible client a structured work breakdown with quality gates enforced at the server level — not in prompts.",
+  "repository": {
+    "url": "https://github.com/jpicklyk/task-orchestrator.git",
+    "source": "github"
+  },
+  "version": "3.1.0",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/jpicklyk/task-orchestrator:latest",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DATABASE_PATH",
+          "description": "SQLite database file path (default: data/current-tasks.db)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "USE_FLYWAY",
+          "description": "Enable Flyway database migrations (default: true)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "AGENT_CONFIG_DIR",
+          "description": "Directory containing .taskorchestrator/config.yaml for workflow schemas (default: working dir)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "Transport mode: stdio (default) or http",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "HTTP port when using http transport (default: 3001)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
