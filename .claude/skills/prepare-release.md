@@ -74,7 +74,7 @@ Examine the changed files from Step 3 and classify:
 | Includes `claude-plugins/` or `.claude-plugin/` paths | **both** |
 
 Files that are neutral (`.github/`, `README.md`, `CHANGELOG.md`, `version.properties`,
-`.claude/`, `.gitignore`, `docs/`) do not influence the classification — they follow
+`server.json`, `smithery.yaml`, `.claude/`, `.gitignore`, `docs/`) do not influence the classification — they follow
 whichever type the substantive changes belong to. If only neutral files changed, ask the
 user which release type to use.
 
@@ -216,11 +216,15 @@ VERSION_MINOR=Y
 VERSION_PATCH=Z
 ```
 
+**All releases** — also edit `server.json` and `.claude-plugin/marketplace.json`:
+- Update `version` in `server.json` to match the new server version
+- Update `metadata.version` in `.claude-plugin/marketplace.json` to match the new server version
+
 **Both releases** — also edit `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
 and `.claude-plugin/marketplace.json`:
 - Update the `version` field in `plugin.json`
 - Update the `plugins[name="task-orchestrator"].version` field in `marketplace.json`
-- Both must carry the same version string
+- Both must carry the same plugin version string
 
 **Also update** the version table in `claude-plugins/CLAUDE.md` to reflect the new plugin version.
 
@@ -249,12 +253,13 @@ Stage only the files that changed:
 
 **Server release:**
 ```bash
-git add version.properties CHANGELOG.md
+git add version.properties server.json .claude-plugin/marketplace.json CHANGELOG.md
 ```
 
 **Both:**
 ```bash
 git add version.properties \
+        server.json \
         claude-plugins/task-orchestrator/.claude-plugin/plugin.json \
         .claude-plugin/marketplace.json \
         claude-plugins/CLAUDE.md \
