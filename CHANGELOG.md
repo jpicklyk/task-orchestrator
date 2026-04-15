@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-04-15 (Plugin v3.1.0)
+
+### Added
+- Added actor attribution to `advance_item` and `manage_notes` -- optional `actor` object tracks who made each transition and note update, persisted via new database columns (V4 migration)
+- Added config-driven auditing enforcement -- when `auditing.enabled: true` in config.yaml, the PreToolUse hook blocks `advance_item` calls that lack actor claims
+- Added JWKS-based actor verification as a public beta (`auditing.verifier.type: jwks`) -- validates JWT bearer tokens against JWKS key sets with support for OIDC discovery, direct URI, local file sources, algorithm allowlists, and configurable claim validation
+- Added MCP registry metadata and Smithery configuration for marketplace discovery
+- Bumped plugin version to 3.1.0 -- new `enforce-actor-attribution` hook and updated auditing docs
+
+### Fixed
+- Patched dependency CVEs and updated all dependencies to current stable versions
+
+---
+
 ## [3.1.0] - 2026-04-13 (Plugin v3.0.1)
 
 ### Added
