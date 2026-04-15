@@ -14,10 +14,7 @@ Thank you for your interest in contributing to MCP Task Orchestrator! This guide
 
 ## Code of Conduct
 
-This project follows a simple code of conduct:
-- Be respectful and considerate of others
-- Focus on constructive feedback
-- Help create a welcoming environment for all contributors
+This project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold it.
 
 ## Getting Started
 
