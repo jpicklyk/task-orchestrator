@@ -1099,3 +1099,74 @@ For reliable attribution, combine auditing enforcement with explicit delegation 
 Include an "actor" object on every advance_item and manage_notes call:
 { "id": "your-agent-name", "kind": "subagent", "parent": "orchestrator-id" }
 ```
+
+---
+
+## Auditing & Actor Verification
+
+### Verifier Configuration
+
+The `auditing` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag and the `verifier` block are independent — enforcement checks actor presence, while the verifier checks proof validity.
+
+```yaml
+auditing:
+  enabled: true          # Enforce actor claims on write operations
+  verifier:
+    type: jwks           # "noop" (default) | "jwks"
+    oidc_discovery: "https://provider.example/.well-known/openid-configuration"
+    jwks_uri: "https://provider.example/.well-known/jwks.json"
+    jwks_path: ".agentlair/jwks.json"
+    issuer: "https://provider.example"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
+    cache_ttl_seconds: 300
+    require_sub_match: true
+```
+
+### Verification Behavior
+
+| Verifier type | Behavior |
+|---|---|
+| `noop` (or absent) | All actor claims are accepted as `unverified`. No cryptographic check is performed. |
+| `jwks` | JWT tokens in `actor.proof` are validated against the configured JWKS key set. Valid token → `status: verified`. Invalid, expired, or wrong-claims token → `status: failed` with a descriptive `reason`. Missing proof → `status: unverified` (not failed). |
+
+### JWKS Key Sources
+
+`oidc_discovery`, `jwks_uri`, and `jwks_path` can be used alone or combined. URI-sourced keys and file-sourced keys are merged into a single key set. When both `oidc_discovery` and explicit `jwks_uri`/`issuer` are set, the explicit values override the OIDC-discovered values.
+
+| Field | Description |
+|---|---|
+| `oidc_discovery` | URL to an OpenID Connect discovery document. The server fetches `jwks_uri` and `issuer` from the document. |
+| `jwks_uri` | Direct URL to a JWKS endpoint. Overrides the URI discovered via `oidc_discovery`. |
+| `jwks_path` | Path to a local JWKS JSON file, relative to `AGENT_CONFIG_DIR`. Useful for local dev and air-gapped environments. |
+| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. |
+| `audience` | Expected `aud` claim in the JWT. |
+| `algorithms` | List of accepted signing algorithms (e.g., `["EdDSA", "RS256"]`). |
+| `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
+| `require_sub_match` | When true, the JWT `sub` claim must match `actor.id`. |
+
+### Docker — JWKS Path Mount
+
+When using `jwks_path`, the `.agentlair/` directory must be mounted into the container alongside `.taskorchestrator/`:
+
+```bash
+docker run --rm -i \
+  -v mcp-task-data:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -v "$(pwd)"/.agentlair:/project/.agentlair:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  task-orchestrator:dev
+```
+
+The `.agentlair/` mount is only needed when using `jwks_path`. When using `jwks_uri` or `oidc_discovery`, the container must be able to reach the endpoint over the network.
+
+**Network access from Docker containers:**
+
+| Scenario | Works? | Notes |
+|----------|--------|-------|
+| Public HTTPS endpoint | Yes | Standard outbound from container |
+| `localhost` on host | No | Container localhost is itself, not the host |
+| `host.docker.internal` | Docker Desktop only | On Linux: add `--add-host=host.docker.internal:host-gateway` |
+| Docker network service | Yes | Use the container name as hostname |
+
+`jwks_path` (local file) avoids all networking concerns — recommended for local dev and air-gapped environments.
