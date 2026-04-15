@@ -48,7 +48,7 @@ The rules live in the server, not the conversation.
 
 ### Workflow Enforcement
 
-Define what documentation agents must produce at each phase. The server blocks progression until it's done.
+Schemas define what agents must produce at each phase — and the server blocks progression until it's done. But schemas do more than gate transitions. They set a **planning floor**: when an agent enters plan mode, the schema tells it what documentation must exist before implementation can start, shaping the plan structure itself.
 
 ```yaml
 # .taskorchestrator/config.yaml
@@ -59,6 +59,8 @@ work_item_schemas:
         role: queue
         required: true
         description: "Acceptance criteria before starting"
+        guidance: "Cover: problem statement, acceptance criteria, alternatives considered, test strategy."
+        skill: "spec-quality"
       - key: implementation-notes
         role: work
         required: true
@@ -66,6 +68,32 @@ work_item_schemas:
 ```
 
 `advance_item(trigger="start")` from queue requires `requirements` to be filled. No exceptions, no prompt-dependent compliance — the server returns an error with exactly which notes are missing.
+
+The `guidance` field provides authoring instructions surfaced at the right moment — when the agent is about to fill that note, `get_context` returns the guidance as a `guidancePointer`. The `skill` field takes this further: it references a specific skill that the agent must invoke before filling the note, providing a deterministic evaluation framework rather than freeform prose. Together, they create structured agent behavior that's configured in YAML, not hardcoded in prompts.
+
+### Composable Traits
+
+Traits add cross-cutting note requirements to any schema without duplicating definitions. Define a trait once, apply it to any item type:
+
+```yaml
+traits:
+  needs-security-review:
+    notes:
+      - key: security-assessment
+        role: review
+        required: true
+        description: "Security review of auth, data handling, and access control"
+        skill: "security-review"
+
+work_item_schemas:
+  feature-task:
+    default_traits:
+      - needs-security-review
+    notes:
+      # ... base notes
+```
+
+Every `feature-task` item automatically inherits the `security-assessment` note requirement. Traits can also be applied per-item via the `traits` parameter on `manage_items` — a task touching authentication gets `needs-security-review` while a CSS cleanup doesn't.
 
 ### Persistent Work Item Graph
 
