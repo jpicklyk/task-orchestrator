@@ -76,25 +76,32 @@ All 13 MCP tools are available to any connected client without identification. T
 
 **This is intentional.** Within a cooperating fleet, access control between agents adds friction without meaningful security benefit — the agents are working toward the same goals. Tenant isolation is achieved at the infrastructure level (separate databases), not the application level.
 
-### Actor Verification (Accountability Layer)
+### Actor Attribution and Verification
 
-The actor verification system provides **accountability** (who did what) but **not access control** (who can do what). These are distinct concerns:
+Actor attribution has two layers — **presence enforcement** (is an actor claim provided?) and **authenticity verification** (is the claim cryptographically valid?). These are implemented in different places:
 
-| Concern | Mechanism | Enforcement |
-|---------|-----------|-------------|
-| **Accountability** | Actor claims + JWKS verification | Advisory — recorded in audit trail |
-| **Access control** | None at application layer | Delegated to transport/infrastructure |
+| Concern | Mechanism | Where | Enforcement |
+|---------|-----------|-------|-------------|
+| **Presence** | `auditing.enabled: true` in config | Claude Code plugin hook (client-side) | Blocks tool calls missing `actor` objects |
+| **Authenticity** | `auditing.verifier.type: jwks` in config | MCP server (server-side) | Advisory — recorded in audit trail, does not block operations |
 
-**How it works:**
+#### Layer 1: Presence enforcement (plugin hook)
+
+When `auditing.enabled: true` is set in `.taskorchestrator/config.yaml`, the Claude Code plugin hook (`enforce-actor-attribution.mjs`) intercepts `advance_item` and `manage_notes(upsert)` calls **before they reach the server**. If any transition or note element is missing an `actor` object, the call is blocked with an error message.
+
+**Important:** This enforcement only applies to Claude Code clients with the task-orchestrator plugin installed. Raw MCP clients connecting directly to the HTTP endpoint bypass the hook entirely. The server itself does not enforce actor presence — tools accept calls without `actor` claims and proceed with `actorClaim = null`.
+
+#### Layer 2: Authenticity verification (server-side JWKS)
+
+When `auditing.verifier.type: jwks` is configured, the server validates the `actor.proof` JWT against the configured JWKS endpoint:
 
 1. Two tools (`advance_item` and `manage_notes`) accept an optional `actor` claim:
    ```json
    { "id": "agent-7", "kind": "subagent", "parent": "orchestrator-1", "proof": "eyJhbG..." }
    ```
-2. If JWKS verification is configured (`.taskorchestrator/config.yaml` → `auditing.verifier.type: jwks`), the `proof` field is validated as a JWT against the configured JWKS endpoint.
+2. The `proof` field is validated as a JWT — signature, expiry, issuer, audience, and subject match are checked.
 3. The verification result (`VERIFIED`, `UNVERIFIED`, or `FAILED`) is stored in the `RoleTransition` or `Note` audit record.
-4. **A failed verification does not block the operation.** The write proceeds regardless of verification status.
-5. **Actor claims are optional.** Tools can be called without an actor, and the operation proceeds normally.
+4. **A failed verification does not block the operation.** The write proceeds regardless of verification status. This is an accountability mechanism, not an access control gate.
 
 **When to use JWKS verification:**
 
@@ -104,7 +111,7 @@ Configure JWKS when you need a cryptographically verifiable audit trail — e.g.
 
 ```yaml
 auditing:
-  enabled: true        # Actor claims are recorded (but not required)
+  enabled: true        # Plugin hook enforces actor presence on write operations
   verifier:
     type: noop         # Default: no JWT verification. Claims accepted at face value.
 ```
@@ -121,6 +128,16 @@ auditing:
     audience: "mcp-task-orchestrator"
     require_sub_match: true   # JWT 'sub' must match actor.id
 ```
+
+#### Enforcement summary
+
+| Client type | `auditing.enabled: true` | `verifier.type: jwks` |
+|-------------|------------------------|-----------------------|
+| Claude Code with plugin | Actor presence enforced (hook blocks calls) | JWT verified, result in audit trail |
+| Claude Code without plugin | No enforcement | JWT verified, result in audit trail |
+| Raw MCP client (HTTP/STDIO) | **No enforcement** — hook does not apply | JWT verified, result in audit trail |
+
+This means that in deployments where non-Claude-Code clients connect to the server, actor presence cannot be relied upon as a security control. The plugin hook is a best-effort guardrail for Claude Code agents, not a server-side security boundary.
 
 ### Transport Security
 
