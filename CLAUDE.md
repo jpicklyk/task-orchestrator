@@ -60,6 +60,31 @@ interfaces/mcp/
 
 **Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
 
+## Trait System (Orchestration Signals)
+
+Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries three dimensions:
+
+1. **Note requirements** -- notes with `key`, `role`, `required` that merge into an item's resolved schema and enforce gates
+2. **Guidance** -- `guidance` text on each note telling agents HOW to fill it (context, constraints, structure)
+3. **Skill routing** -- optional `skill` pointer (e.g., `skill: "migration-review"`) that routes evaluation to a specialized skill
+
+**Resolution flow:** `ToolExecutionContext.resolveSchema(item)` merges trait notes from two sources:
+- `defaultTraits` on the schema type definition (always applied to items of that type)
+- Per-item `traits` from the item's `properties` JSON bag (applied via `PropertiesHelper.extractTraits()`)
+
+Base schema note keys win on duplicates; first-trait-in-order wins for duplicate trait keys.
+
+**Example:** An item typed `feature-task` with trait `needs-migration-review` gets the base `feature-task` notes PLUS the `migration-assessment` note (queue phase, required, with `migration-review` skill pointer and guidance about SQLite table recreation patterns). The orchestrator sees this merged schema via `get_context(itemId=...)` and routes accordingly -- dispatching a migration-specialized agent or invoking the migration-review skill.
+
+**Key files:**
+
+| What | Path |
+|------|------|
+| Trait definitions | `.taskorchestrator/config.yaml` -> `traits:` section |
+| Schema resolution + trait merging | `current/.../application/tools/ToolExecutionContext.kt` -> `resolveSchema()`, `mergeTraits()` |
+| Properties helper | `current/.../application/tools/PropertiesHelper.kt` -> `extractTraits()`, `mergeTraits()` |
+| Domain models | `WorkItemSchema.kt` (`defaultTraits`), `NoteSchemaEntry.kt` (`skill`, `guidance`) |
+
 ## Tight Coupling Areas
 
 ### ToolExecutionContext
