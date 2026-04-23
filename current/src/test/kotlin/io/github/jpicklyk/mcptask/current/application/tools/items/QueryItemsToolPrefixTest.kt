@@ -242,39 +242,35 @@ class QueryItemsToolPrefixTest {
     @Test
     fun `get with ambiguous prefix returns error with match list`(): Unit =
         runBlocking {
-            // Create multiple items — their UUIDs are random, but we can use a prefix
-            // that matches multiple items by querying first. Since UUIDs are random,
-            // we create many items and find a common prefix.
+            // Create enough items that a 4-char prefix collision is essentially certain
+            // (birthday paradox over a 65,536-slot space).
             val ids = mutableListOf<String>()
-            repeat(50) {
+            repeat(1000) {
                 ids.add(createItem("Ambiguous Item $it"))
             }
 
-            // Find two IDs that share a 4-char prefix
             val grouped = ids.groupBy { it.substring(0, 4) }
             val sharedPrefix = grouped.entries.firstOrNull { it.value.size >= 2 }
+            assertNotNull(sharedPrefix, "1000 random UUIDs should produce at least one 4-char prefix collision")
 
-            if (sharedPrefix != null) {
-                val result =
-                    tool.execute(
-                        params(
-                            "operation" to JsonPrimitive("get"),
-                            "id" to JsonPrimitive(sharedPrefix.key)
-                        ),
-                        context
-                    ) as JsonObject
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "id" to JsonPrimitive(sharedPrefix.key)
+                    ),
+                    context
+                ) as JsonObject
 
-                assertFalse(result["success"]!!.jsonPrimitive.boolean)
-                val error = result["error"] as JsonObject
-                assertTrue(error["message"]!!.jsonPrimitive.content.contains("Ambiguous prefix"))
-                // Verify match list is included
-                val additionalData = error["data"] as? JsonObject
-                assertNotNull(additionalData)
-                val matches = additionalData["matches"] as? JsonArray
-                assertNotNull(matches)
-                assertTrue(matches.size >= 2)
-            }
-            // If no collision found with 50 items (very unlikely with 4-char prefix), test is inconclusive but passes
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+            val error = result["error"] as JsonObject
+            assertTrue(error["message"]!!.jsonPrimitive.content.contains("Ambiguous prefix"))
+            // The error envelope puts `data` as a sibling of `error`, not a child.
+            val additionalData = result["data"] as? JsonObject
+            assertNotNull(additionalData)
+            val matches = additionalData["matches"] as? JsonArray
+            assertNotNull(matches)
+            assertTrue(matches.size >= 2)
         }
 
     @Test

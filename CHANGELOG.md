@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-04-23
+
+### Added
+- Added `metadata` field to `VerificationResult` — structured JSON bag carrying `failureKind` (`crypto | claims | policy | network | internal`) on rejected verifications, plus `verifiedFromCache` and `cacheAgeSeconds` when the JWKS was served from stale cache (#120)
+- Added `stale_on_error` config key on the JWKS verifier (default `true`) — serves the cached key set when the JWKS endpoint is temporarily unreachable, distinguishing transient infrastructure failures from cryptographic rejections (#120)
+- Added `ABSENT`, `UNCHECKED`, and `UNAVAILABLE` verification statuses — `ABSENT` when the actor supplied no proof, `UNCHECKED` when the deployment uses the no-op verifier, `UNAVAILABLE` for transient infrastructure failures that are safe to retry (#121)
+
+### Changed
+- **Breaking (verification public beta):** Split the `VerificationStatus` enum for clearer semantics — `UNVERIFIED` is now `ABSENT` (no proof) or `UNCHECKED` (no-op verifier); `FAILED` is now `REJECTED` (cryptographic / policy / claim violation — do not retry) or `UNAVAILABLE` (transient network — retry-safe). Stored records remain readable: legacy `"unverified"` maps to `ABSENT` and legacy `"failed"` maps to `REJECTED` on read (#121)
+- Changed `JwksActorVerifier` failure mapping — network errors return `UNAVAILABLE` with `failureKind=network`; cryptographic errors return `REJECTED` with `failureKind=crypto`; expired or mismatched claims return `REJECTED` with `failureKind=claims`; algorithm policy violations return `REJECTED` with `failureKind=policy` (#120)
+
+### Fixed
+- Fixed `server.json` metadata so the MCP registry publication succeeds (#116)
+
+### Documentation
+- Documented the database-per-tenant security model in `SECURITY.md` (#118)
+- Documented the 5-value `VerificationStatus` enum, the `metadata` bag, and the `stale_on_error` config key in `current/docs/api-reference.md` (#122)
+
+---
+
 ## [3.2.0] - 2026-04-15 (Plugin v3.1.0)
 
 ### Added
