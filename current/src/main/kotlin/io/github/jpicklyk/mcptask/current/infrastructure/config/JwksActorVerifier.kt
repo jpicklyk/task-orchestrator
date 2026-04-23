@@ -12,8 +12,9 @@ import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.FAILED
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.UNVERIFIED
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.ABSENT
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.REJECTED
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.UNAVAILABLE
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.VERIFIED
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
@@ -30,8 +31,12 @@ import java.util.Date
  * 4. Verify the JWT signature.
  * 5. Validate standard claims: `exp`, `iss`, `aud`, and optionally `sub` vs. [ActorClaim.id].
  *
- * A missing or blank [ActorClaim.proof] returns [UNVERIFIED] (not [FAILED]) — the caller may
- * choose to treat unverified actors differently from actors whose proof failed validation.
+ * A missing or blank [ActorClaim.proof] returns [ABSENT] — the caller may choose to treat
+ * absent-proof actors differently from actors whose proof failed validation.
+ *
+ * Failure metadata is populated in [VerificationResult.metadata]:
+ * - `failureKind`: one of `crypto`, `claims`, `policy`, `network`, `internal`
+ * - On [VERIFIED] with stale JWKS cache: `verifiedFromCache="true"`, `cacheAgeSeconds="N"`
  */
 class JwksActorVerifier(
     private val config: VerifierConfig.Jwks,
@@ -45,7 +50,7 @@ class JwksActorVerifier(
             verifyInternal(actor)
         } catch (e: Exception) {
             logger.warn("Unexpected exception during actor verification for '{}': {}", actor.id, e.message)
-            VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = e.message)
+            rejected(e.message ?: "unexpected error", "internal")
         }
 
     /**
@@ -60,10 +65,10 @@ class JwksActorVerifier(
     // -------------------------------------------------------------------------
 
     private suspend fun verifyInternal(actor: ActorClaim): VerificationResult {
-        // Step 1 — missing proof is not a failure; the caller decides how to handle unverified actors.
+        // Step 1 — missing proof is not a failure; the caller decides how to handle absent actors.
         val proof = actor.proof
         if (proof.isNullOrBlank()) {
-            return VerificationResult(status = UNVERIFIED, verifier = VERIFIER_NAME, reason = "no proof provided")
+            return VerificationResult(status = ABSENT, verifier = VERIFIER_NAME, reason = "no proof provided")
         }
 
         // Step 2 — parse JWT.
@@ -71,17 +76,13 @@ class JwksActorVerifier(
             try {
                 SignedJWT.parse(proof)
             } catch (e: Exception) {
-                return VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = "failed to parse JWT: ${e.message}")
+                return rejected("failed to parse JWT: ${e.message}", "crypto")
             }
 
         // Step 3 — algorithm allowlist check.
         val alg = signedJWT.header.algorithm
         if (config.algorithms.isNotEmpty() && alg.name !in config.algorithms) {
-            return VerificationResult(
-                status = FAILED,
-                verifier = VERIFIER_NAME,
-                reason = "algorithm not allowed: ${alg.name}"
-            )
+            return rejected("algorithm not allowed: ${alg.name}", "policy")
         }
 
         // Step 4 — fetch JWKS.
@@ -89,11 +90,7 @@ class JwksActorVerifier(
             try {
                 keySetProvider.getKeySet()
             } catch (e: Exception) {
-                return VerificationResult(
-                    status = FAILED,
-                    verifier = VERIFIER_NAME,
-                    reason = "failed to fetch JWKS: ${e.message}"
-                )
+                return unavailable("failed to fetch JWKS: ${e.message}")
             }
 
         // Step 5 — select the key matching the JWT's kid.
@@ -101,11 +98,7 @@ class JwksActorVerifier(
         val matcher = JWKMatcher.Builder().keyID(kid).build()
         val matchingKeys = JWKSelector(matcher).select(jwkSet)
         if (matchingKeys.isEmpty()) {
-            return VerificationResult(
-                status = FAILED,
-                verifier = VERIFIER_NAME,
-                reason = "no matching key for kid: $kid"
-            )
+            return rejected("no matching key for kid: $kid", "crypto")
         }
 
         // Step 6 — build a JWS verifier from the first matching key and verify the signature.
@@ -116,22 +109,14 @@ class JwksActorVerifier(
                     is RSAKey -> RSASSAVerifier(jwk.toRSAPublicKey())
                     is ECKey -> ECDSAVerifier(jwk.toECPublicKey())
                     is OctetKeyPair -> Ed25519Verifier(jwk)
-                    else -> return VerificationResult(
-                        status = FAILED,
-                        verifier = VERIFIER_NAME,
-                        reason = "unsupported key type: ${jwk.keyType}"
-                    )
+                    else -> return rejected("unsupported key type: ${jwk.keyType}", "crypto")
                 }
             } catch (e: Exception) {
-                return VerificationResult(
-                    status = FAILED,
-                    verifier = VERIFIER_NAME,
-                    reason = "failed to build JWS verifier: ${e.message}"
-                )
+                return rejected("failed to build JWS verifier: ${e.message}", "crypto")
             }
 
         if (!signedJWT.verify(jwsVerifier)) {
-            return VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = "signature verification failed")
+            return rejected("signature verification failed", "crypto")
         }
 
         // Step 7 — validate standard claims.
@@ -142,7 +127,7 @@ class JwksActorVerifier(
         if (expiry != null) {
             val skewAdjusted = Date.from(clock.instant().minusSeconds(CLOCK_SKEW_SECONDS))
             if (expiry.before(skewAdjusted)) {
-                return VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = "token expired")
+                return rejected("token expired", "claims")
             }
         }
 
@@ -151,29 +136,21 @@ class JwksActorVerifier(
         if (notBefore != null) {
             val skewAdjusted = Date.from(clock.instant().plusSeconds(CLOCK_SKEW_SECONDS))
             if (notBefore.after(skewAdjusted)) {
-                return VerificationResult(status = FAILED, verifier = VERIFIER_NAME, reason = "token not yet valid")
+                return rejected("token not yet valid", "claims")
             }
         }
 
         // iss — explicit config overrides OIDC-discovered issuer
         val effectiveIssuer = config.issuer ?: keySetProvider.getResolvedIssuer()
         if (effectiveIssuer != null && claims.issuer != effectiveIssuer) {
-            return VerificationResult(
-                status = FAILED,
-                verifier = VERIFIER_NAME,
-                reason = "issuer mismatch: expected=$effectiveIssuer, got=${claims.issuer}"
-            )
+            return rejected("issuer mismatch: expected=$effectiveIssuer, got=${claims.issuer}", "claims")
         }
 
         // aud
         if (config.audience != null) {
             val aud = claims.audience
             if (aud == null || !aud.contains(config.audience)) {
-                return VerificationResult(
-                    status = FAILED,
-                    verifier = VERIFIER_NAME,
-                    reason = "audience mismatch: expected=${config.audience}, got=$aud"
-                )
+                return rejected("audience mismatch: expected=${config.audience}, got=$aud", "claims")
             }
         }
 
@@ -181,16 +158,42 @@ class JwksActorVerifier(
         if (config.requireSubMatch) {
             val sub = claims.subject
             if (sub != actor.id) {
-                return VerificationResult(
-                    status = FAILED,
-                    verifier = VERIFIER_NAME,
-                    reason = "sub mismatch: expected=${actor.id}, got=$sub"
-                )
+                return rejected("sub mismatch: expected=${actor.id}, got=$sub", "claims")
             }
         }
 
-        return VerificationResult(status = VERIFIED, verifier = VERIFIER_NAME)
+        // Success — inspect cache state for stale-cache metadata.
+        val cacheState = keySetProvider.getCacheState()
+        val successMetadata: Map<String, String> =
+            if (cacheState.fromStaleCache) {
+                buildMap {
+                    put("verifiedFromCache", "true")
+                    cacheState.ageSeconds?.let { put("cacheAgeSeconds", it.toString()) }
+                }
+            } else {
+                emptyMap()
+            }
+
+        return VerificationResult(
+            status = VERIFIED,
+            verifier = VERIFIER_NAME,
+            metadata = successMetadata
+        )
     }
+
+    private fun rejected(reason: String, failureKind: String) = VerificationResult(
+        status = REJECTED,
+        verifier = VERIFIER_NAME,
+        reason = reason,
+        metadata = mapOf("failureKind" to failureKind)
+    )
+
+    private fun unavailable(reason: String) = VerificationResult(
+        status = UNAVAILABLE,
+        verifier = VERIFIER_NAME,
+        reason = reason,
+        metadata = mapOf("failureKind" to "network")
+    )
 
     companion object {
         private const val VERIFIER_NAME = "jwks"

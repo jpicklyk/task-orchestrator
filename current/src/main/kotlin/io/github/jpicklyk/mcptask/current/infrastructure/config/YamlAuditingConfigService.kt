@@ -143,6 +143,8 @@ class YamlAuditingConfigService(
 
                 val requireSubMatch = (verifierMap["require_sub_match"] as? Boolean) ?: true
 
+                val staleOnError = (verifierMap["stale_on_error"] as? Boolean) ?: true
+
                 VerifierConfig.Jwks(
                     oidcDiscovery = oidcDiscovery,
                     jwksUri = jwksUri,
@@ -151,7 +153,8 @@ class YamlAuditingConfigService(
                     audience = audience,
                     algorithms = algorithms,
                     cacheTtlSeconds = cacheTtlSeconds,
-                    requireSubMatch = requireSubMatch
+                    requireSubMatch = requireSubMatch,
+                    staleOnError = staleOnError
                 )
             }
 

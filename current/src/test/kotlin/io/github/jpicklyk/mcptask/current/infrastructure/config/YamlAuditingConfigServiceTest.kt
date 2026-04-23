@@ -312,6 +312,59 @@ class YamlAuditingConfigServiceTest {
     }
 
     @Test
+    fun `stale_on_error defaults to true when absent`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertTrue(verifier.staleOnError)
+    }
+
+    @Test
+    fun `stale_on_error false is respected`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    stale_on_error: false
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertFalse(verifier.staleOnError)
+    }
+
+    @Test
+    fun `stale_on_error true is respected`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    stale_on_error: true
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertTrue(verifier.staleOnError)
+    }
+
+    @Test
     fun `auditing enabled flag false is respected`() {
         val configFile =
             createConfigFile(

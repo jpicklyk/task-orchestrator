@@ -10,11 +10,11 @@ import kotlin.test.assertNull
 
 class ActorVerifierTest {
     @Test
-    fun `NoOpActorVerifier returns UNVERIFIED`() =
+    fun `NoOpActorVerifier returns UNCHECKED`() =
         runTest {
             val claim = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT)
             val result = NoOpActorVerifier.verify(claim)
-            assertEquals(VerificationStatus.UNVERIFIED, result.status)
+            assertEquals(VerificationStatus.UNCHECKED, result.status)
             assertEquals("noop", result.verifier)
             assertNull(result.reason)
         }

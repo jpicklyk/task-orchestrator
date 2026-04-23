@@ -266,7 +266,7 @@ class SQLiteNoteRepositoryTest {
             val actor = ActorClaim(id = "agent-1", kind = ActorKind.SUBAGENT, parent = "orch-1")
             val verification =
                 VerificationResult(
-                    status = VerificationStatus.UNVERIFIED,
+                    status = VerificationStatus.UNCHECKED,
                     verifier = "noop"
                 )
             val note =
@@ -290,7 +290,7 @@ class SQLiteNoteRepositoryTest {
             assertEquals("orch-1", found.actorClaim!!.parent)
             assertNull(found.actorClaim!!.proof)
             assertNotNull(found.verification)
-            assertEquals(VerificationStatus.UNVERIFIED, found.verification!!.status)
+            assertEquals(VerificationStatus.UNCHECKED, found.verification!!.status)
             assertEquals("noop", found.verification!!.verifier)
         }
 

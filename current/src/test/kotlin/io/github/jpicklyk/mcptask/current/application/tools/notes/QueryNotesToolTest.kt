@@ -358,10 +358,10 @@ class QueryNotesToolTest {
             assertEquals("orch-1", actor["parent"]!!.jsonPrimitive.content)
             assertFalse(actor.containsKey("proof"), "proof should be absent when not provided")
 
-            // Verification should be present (NoOpActorVerifier marks as unverified)
+            // Verification should be present (NoOpActorVerifier marks as unchecked)
             assertTrue(data.containsKey("verification"), "verification field should be present")
             val verification = data["verification"]!!.jsonObject
-            assertEquals("unverified", verification["status"]!!.jsonPrimitive.content)
+            assertEquals("unchecked", verification["status"]!!.jsonPrimitive.content)
             assertEquals("noop", verification["verifier"]!!.jsonPrimitive.content)
         }
 

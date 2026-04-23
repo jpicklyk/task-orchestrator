@@ -132,7 +132,7 @@ class NoteTest {
             )
         val verification =
             VerificationResult(
-                status = VerificationStatus.UNVERIFIED,
+                status = VerificationStatus.UNCHECKED,
                 verifier = "noop"
             )
         val note =
@@ -147,6 +147,6 @@ class NoteTest {
         assertEquals(verification, note.verification)
         assertEquals("agent-1", note.actorClaim!!.id)
         assertEquals(ActorKind.SUBAGENT, note.actorClaim!!.kind)
-        assertEquals(VerificationStatus.UNVERIFIED, note.verification!!.status)
+        assertEquals(VerificationStatus.UNCHECKED, note.verification!!.status)
     }
 }

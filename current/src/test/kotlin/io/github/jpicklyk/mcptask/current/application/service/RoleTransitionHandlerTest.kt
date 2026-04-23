@@ -668,7 +668,7 @@ class RoleTransitionHandlerTest {
             runBlocking {
                 val item = testItem(role = Role.QUEUE)
                 val actorClaim = ActorClaim(id = "orchestrator-1", kind = ActorKind.ORCHESTRATOR, parent = null)
-                val verification = VerificationResult(status = VerificationStatus.UNVERIFIED, verifier = "noop")
+                val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
                 val transitionSlot = slot<RoleTransition>()
                 coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
@@ -693,7 +693,7 @@ class RoleTransitionHandlerTest {
                 assertEquals("orchestrator-1", captured.actorClaim!!.id)
                 assertEquals(ActorKind.ORCHESTRATOR, captured.actorClaim!!.kind)
                 assertNotNull(captured.verification)
-                assertEquals(VerificationStatus.UNVERIFIED, captured.verification!!.status)
+                assertEquals(VerificationStatus.UNCHECKED, captured.verification!!.status)
                 assertEquals("noop", captured.verification!!.verifier)
             }
 

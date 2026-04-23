@@ -160,7 +160,7 @@ class RoleTransitionTest {
             )
         val verification =
             VerificationResult(
-                status = VerificationStatus.UNVERIFIED,
+                status = VerificationStatus.UNCHECKED,
                 verifier = "noop"
             )
         val transition =
@@ -176,6 +176,6 @@ class RoleTransitionTest {
         assertEquals(verification, transition.verification)
         assertEquals("agent-42", transition.actorClaim!!.id)
         assertEquals(ActorKind.SUBAGENT, transition.actorClaim!!.kind)
-        assertEquals(VerificationStatus.UNVERIFIED, transition.verification!!.status)
+        assertEquals(VerificationStatus.UNCHECKED, transition.verification!!.status)
     }
 }

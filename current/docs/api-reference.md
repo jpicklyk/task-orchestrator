@@ -1039,7 +1039,7 @@ dependency edges). Terminal items are never included.
 
 ### Overview
 
-Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `manage_notes` upsert can include an optional `actor` claim. Stage 1 ships with a no-op verifier — all claims are persisted as `unverified`.
+Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `manage_notes` upsert can include an optional `actor` claim. Stage 1 ships with a no-op verifier — all claims are persisted as `unchecked`.
 
 ### Actor Claim Shape
 
