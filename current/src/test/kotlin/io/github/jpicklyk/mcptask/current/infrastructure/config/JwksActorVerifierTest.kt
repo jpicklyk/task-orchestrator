@@ -129,29 +129,44 @@ class JwksActorVerifierTest {
         proof: String? = null
     ) = ActorClaim(id = id, kind = ActorKind.SUBAGENT, proof = proof)
 
+    /** Fresh (non-stale) cache state. */
+    private val freshCacheState = CacheState(fromStaleCache = false, ageSeconds = null)
+
     /** Mock provider that returns the RSA public key. */
-    private fun rsaMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
+    private fun rsaMockProvider(
+        resolvedIssuer: String? = null,
+        cacheState: CacheState = freshCacheState
+    ): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JWKSet(listOf(rsaKey.toPublicJWK()))
         every { provider.getResolvedIssuer() } returns resolvedIssuer
+        every { provider.getCacheState() } returns cacheState
         every { provider.close() } just Runs
         return provider
     }
 
     /** Mock provider that returns the EdDSA public key. */
-    private fun edMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
+    private fun edMockProvider(
+        resolvedIssuer: String? = null,
+        cacheState: CacheState = freshCacheState
+    ): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JWKSet(listOf(edKey.toPublicJWK()))
         every { provider.getResolvedIssuer() } returns resolvedIssuer
+        every { provider.getCacheState() } returns cacheState
         every { provider.close() } just Runs
         return provider
     }
 
     /** Mock provider that returns the EC public key. */
-    private fun ecMockProvider(resolvedIssuer: String? = null): JwksKeySetProvider {
+    private fun ecMockProvider(
+        resolvedIssuer: String? = null,
+        cacheState: CacheState = freshCacheState
+    ): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JWKSet(listOf(ecKey.toPublicJWK()))
         every { provider.getResolvedIssuer() } returns resolvedIssuer
+        every { provider.getCacheState() } returns cacheState
         every { provider.close() } just Runs
         return provider
     }
@@ -179,31 +194,32 @@ class JwksActorVerifierTest {
     // Tests
     // =========================================================================
 
-    // 1. null proof → UNVERIFIED
+    // 1. null proof → ABSENT
     @Test
-    fun `null proof returns UNVERIFIED`() =
+    fun `null proof returns ABSENT`() =
         runTest {
             val result = verifier().verify(actor(proof = null))
-            assertEquals(VerificationStatus.UNVERIFIED, result.status)
+            assertEquals(VerificationStatus.ABSENT, result.status)
             assertEquals("jwks", result.verifier)
         }
 
-    // 2. blank proof → UNVERIFIED
+    // 2. blank proof → ABSENT
     @Test
-    fun `blank proof returns UNVERIFIED`() =
+    fun `blank proof returns ABSENT`() =
         runTest {
             val result = verifier().verify(actor(proof = ""))
-            assertEquals(VerificationStatus.UNVERIFIED, result.status)
+            assertEquals(VerificationStatus.ABSENT, result.status)
             assertEquals("jwks", result.verifier)
         }
 
-    // 3. invalid JWT string → FAILED
+    // 3. invalid JWT string → REJECTED with failureKind=crypto
     @Test
-    fun `invalid JWT string returns FAILED`() =
+    fun `invalid JWT string returns REJECTED`() =
         runTest {
             val result = verifier().verify(actor(proof = "not-a-jwt"))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertNotNull(result.reason)
+            assertEquals("crypto", result.metadata["failureKind"])
         }
 
     // 4. valid RSA JWT → VERIFIED
@@ -225,49 +241,53 @@ class JwksActorVerifierTest {
             assertEquals("jwks", result.verifier)
         }
 
-    // 6. expired JWT → FAILED
+    // 6. expired JWT → REJECTED with failureKind=claims
     @Test
-    fun `expired JWT returns FAILED`() =
+    fun `expired JWT returns REJECTED`() =
         runTest {
             val expiredClaims = buildClaims(expiry = Instant.now().minusSeconds(600))
             val result = verifier().verify(actor(proof = signRsa(expiredClaims)))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("expired") == true, "reason should mention 'expired': ${result.reason}")
+            assertEquals("claims", result.metadata["failureKind"])
         }
 
-    // 7. wrong issuer → FAILED
+    // 7. wrong issuer → REJECTED with failureKind=claims
     @Test
-    fun `wrong issuer returns FAILED`() =
+    fun `wrong issuer returns REJECTED`() =
         runTest {
             val claims = buildClaims(issuer = "https://other-issuer.example")
             val result = verifier().verify(actor(proof = signRsa(claims)))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("issuer") == true, "reason should mention 'issuer': ${result.reason}")
+            assertEquals("claims", result.metadata["failureKind"])
         }
 
-    // 8. wrong audience → FAILED
+    // 8. wrong audience → REJECTED with failureKind=claims
     @Test
-    fun `wrong audience returns FAILED`() =
+    fun `wrong audience returns REJECTED`() =
         runTest {
             val claims = buildClaims(audience = "wrong-audience")
             val result = verifier().verify(actor(proof = signRsa(claims)))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("audience") == true, "reason should mention 'audience': ${result.reason}")
+            assertEquals("claims", result.metadata["failureKind"])
         }
 
-    // 9. algorithm not in allowlist → FAILED
+    // 9. algorithm not in allowlist → REJECTED with failureKind=policy
     @Test
-    fun `algorithm not in allowlist returns FAILED`() =
+    fun `algorithm not in allowlist returns REJECTED`() =
         runTest {
             val config = baseConfig(algorithms = listOf("EdDSA"))
             val result = verifier(config = config, provider = rsaMockProvider()).verify(actor(proof = signRsa()))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("algorithm not allowed") == true, "reason: ${result.reason}")
+            assertEquals("policy", result.metadata["failureKind"])
         }
 
-    // 10. sub mismatch + requireSubMatch=true → FAILED
+    // 10. sub mismatch + requireSubMatch=true → REJECTED with failureKind=claims
     @Test
-    fun `sub mismatch with strict match returns FAILED`() =
+    fun `sub mismatch with strict match returns REJECTED`() =
         runTest {
             val claims = buildClaims(subject = "other-agent")
             // actor.id = "agent-1" but JWT sub = "other-agent"
@@ -275,8 +295,9 @@ class JwksActorVerifierTest {
                 verifier(config = baseConfig(requireSubMatch = true)).verify(
                     actor(id = "agent-1", proof = signRsa(claims))
                 )
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("sub mismatch") == true, "reason: ${result.reason}")
+            assertEquals("claims", result.metadata["failureKind"])
         }
 
     // 11. sub mismatch + requireSubMatch=false → VERIFIED
@@ -289,18 +310,20 @@ class JwksActorVerifierTest {
             assertEquals(VerificationStatus.VERIFIED, result.status)
         }
 
-    // 12. provider throws → FAILED (graceful)
+    // 12. provider throws → UNAVAILABLE with failureKind=network
     @Test
-    fun `provider exception returns FAILED`() =
+    fun `provider exception returns UNAVAILABLE`() =
         runTest {
             val brokenProvider = mockk<JwksKeySetProvider>()
             coEvery { brokenProvider.getKeySet() } throws RuntimeException("network unreachable")
             every { brokenProvider.getResolvedIssuer() } returns null
+            every { brokenProvider.getCacheState() } returns freshCacheState
             every { brokenProvider.close() } just Runs
 
             val result = verifier(provider = brokenProvider).verify(actor(proof = signRsa()))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.UNAVAILABLE, result.status)
             assertNotNull(result.reason)
+            assertEquals("network", result.metadata["failureKind"])
         }
 
     // 13. OIDC-discovered issuer used when config.issuer is null
@@ -323,7 +346,7 @@ class JwksActorVerifierTest {
             val provider = rsaMockProvider(resolvedIssuer = "https://expected-issuer.example")
             // JWT issuer is "https://test-issuer.example" but discovered issuer is different
             val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("issuer mismatch") == true, "reason: ${result.reason}")
         }
 
@@ -338,14 +361,15 @@ class JwksActorVerifierTest {
             assertEquals(VerificationStatus.VERIFIED, result.status)
         }
 
-    // 16. no matching kid → FAILED
+    // 16. no matching kid → REJECTED with failureKind=crypto
     @Test
-    fun `no matching kid returns FAILED`() =
+    fun `no matching kid returns REJECTED`() =
         runTest {
             // Provider only has the EdDSA key; JWT is signed with RSA (kid="rsa-test-key")
             val result = verifier(provider = edMockProvider()).verify(actor(proof = signRsa()))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("no matching key") == true, "reason: ${result.reason}")
+            assertEquals("crypto", result.metadata["failureKind"])
         }
 
     // =========================================================================
@@ -376,32 +400,35 @@ class JwksActorVerifierTest {
         runTest {
             val config = baseConfig(algorithms = listOf("RS256"))
             val result = verifier(config = config, provider = ecMockProvider()).verify(actor(proof = signEc()))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("algorithm not allowed") == true, "reason: ${result.reason}")
+            assertEquals("policy", result.metadata["failureKind"])
         }
 
-    // 20. EC JWT with wrong issuer → FAILED (claim validation works with EC keys)
+    // 20. EC JWT with wrong issuer → REJECTED (claim validation works with EC keys)
     @Test
-    fun `EC JWT with wrong issuer returns FAILED`() =
+    fun `EC JWT with wrong issuer returns REJECTED`() =
         runTest {
             val claims = buildClaims(issuer = "https://wrong-issuer.example")
             val result = verifier(provider = ecMockProvider()).verify(actor(proof = signEc(claims)))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("issuer") == true, "reason: ${result.reason}")
+            assertEquals("claims", result.metadata["failureKind"])
         }
 
     // =========================================================================
     // nbf (not-before) claim validation
     // =========================================================================
 
-    // 21. JWT with nbf far in the future → FAILED
+    // 21. JWT with nbf far in the future → REJECTED with failureKind=claims
     @Test
-    fun `JWT with future nbf returns FAILED`() =
+    fun `JWT with future nbf returns REJECTED`() =
         runTest {
             val claims = buildClaims(notBefore = Instant.now().plusSeconds(600))
             val result = verifier().verify(actor(proof = signRsa(claims)))
-            assertEquals(VerificationStatus.FAILED, result.status)
+            assertEquals(VerificationStatus.REJECTED, result.status)
             assertTrue(result.reason?.contains("not yet valid") == true, "reason: ${result.reason}")
+            assertEquals("claims", result.metadata["failureKind"])
         }
 
     // 22. JWT with nbf in the past → VERIFIED
@@ -420,5 +447,50 @@ class JwksActorVerifierTest {
             // Default buildClaims() has no notBefore
             val result = verifier().verify(actor(proof = signRsa()))
             assertEquals(VerificationStatus.VERIFIED, result.status)
+        }
+
+    // =========================================================================
+    // Stale cache metadata
+    // =========================================================================
+
+    // 24. Successful verification using stale cache → VERIFIED with verifiedFromCache metadata
+    @Test
+    fun `verified with stale cache includes verifiedFromCache metadata`() =
+        runTest {
+            val staleState = CacheState(fromStaleCache = true, ageSeconds = 450L)
+            val provider = rsaMockProvider(cacheState = staleState)
+            val result = verifier(provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+            assertEquals("true", result.metadata["verifiedFromCache"])
+            assertEquals("450", result.metadata["cacheAgeSeconds"])
+        }
+
+    // 25. Successful verification with fresh cache → no cache metadata
+    @Test
+    fun `verified with fresh cache has no stale metadata`() =
+        runTest {
+            val provider = rsaMockProvider(cacheState = freshCacheState)
+            val result = verifier(provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+            assertTrue(result.metadata.isEmpty(), "Expected empty metadata for fresh cache: ${result.metadata}")
+        }
+
+    // 26. Unexpected exception in success path → REJECTED with failureKind=internal
+    @Test
+    fun `verify returns REJECTED with failureKind=internal on unexpected exception`() =
+        runTest {
+            // getCacheState() is called after all inner try/catch blocks in the success path.
+            // Throwing here bypasses every inner catch and reaches the outer catch in verify(),
+            // which maps any unexpected exception to REJECTED + failureKind="internal".
+            val throwingProvider = mockk<JwksKeySetProvider>()
+            coEvery { throwingProvider.getKeySet() } returns JWKSet(listOf(rsaKey.toPublicJWK()))
+            every { throwingProvider.getResolvedIssuer() } returns null
+            every { throwingProvider.getCacheState() } throws RuntimeException("simulated internal failure")
+            every { throwingProvider.close() } just Runs
+
+            val result = verifier(provider = throwingProvider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.REJECTED, result.status)
+            assertEquals("internal", result.metadata["failureKind"])
+            assertNotNull(result.reason)
         }
 }

@@ -1056,9 +1056,28 @@ Every persisted actor claim includes a verification record:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| status | string | `unverified` (Stage 1), `verified`, or `failed` |
-| verifier | string | Which verifier produced the result (e.g., `noop`) |
-| reason | string | Failure detail or notes (null for unverified/verified) |
+| status | string | One of the five values below |
+| verifier | string | Which verifier produced the result (e.g., `noop`, `jwks`) |
+| reason | string | Failure detail or exception message; null when absent or verified |
+| metadata | object | Optional key/value bag — omitted when empty (see below) |
+
+**VerificationStatus values:**
+
+| Value | Meaning |
+|-------|---------|
+| `absent` | No proof was provided; the caller decides how to treat proof-less actors |
+| `unchecked` | Proof was present but no verifier is configured to evaluate it |
+| `verified` | Proof was cryptographically validated and all claims passed |
+| `rejected` | Proof was present but validation failed (bad signature, expired, wrong claims, policy violation) |
+| `unavailable` | Verification could not complete due to a transient error (network failure, unreachable JWKS endpoint) |
+
+**Metadata fields:**
+
+| Key | Present when | Description |
+|-----|-------------|-------------|
+| `failureKind` | `rejected` or `unavailable` | Category of failure: `crypto` (signature/key), `claims` (exp/iss/aud/sub), `policy` (algorithm allowlist), `network` (JWKS fetch error), `internal` (unexpected exception) |
+| `verifiedFromCache` | `verified` + stale JWKS cache | `"true"` when the verification used a key set served from stale cache |
+| `cacheAgeSeconds` | `verified` + stale JWKS cache | Age of the cached key set in seconds at verification time |
 
 ### Chain Propagation Convention
 
@@ -1127,8 +1146,8 @@ auditing:
 
 | Verifier type | Behavior |
 |---|---|
-| `noop` (or absent) | All actor claims are accepted as `unverified`. No cryptographic check is performed. |
-| `jwks` | JWT tokens in `actor.proof` are validated against the configured JWKS key set. Valid token → `status: verified`. Invalid, expired, or wrong-claims token → `status: failed` with a descriptive `reason`. Missing proof → `status: unverified` (not failed). |
+| `noop` (or absent) | All actor claims are accepted as `unchecked`. No cryptographic check is performed. |
+| `jwks` | JWT tokens in `actor.proof` are validated against the configured JWKS key set. Valid token → `status: verified`. Invalid, expired, or wrong-claims token → `status: rejected` with a descriptive `reason` and `metadata.failureKind`. Missing proof → `status: absent`. Network/fetch errors → `status: unavailable`. |
 
 ### JWKS Key Sources
 
@@ -1143,6 +1162,7 @@ auditing:
 | `audience` | Expected `aud` claim in the JWT. |
 | `algorithms` | List of accepted signing algorithms (e.g., `["EdDSA", "RS256"]`). |
 | `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
+| `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |
 | `require_sub_match` | When true, the JWT `sub` claim must match `actor.id`. |
 
 ### Docker — JWKS Path Mount
