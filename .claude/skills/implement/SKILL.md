@@ -127,6 +127,19 @@ the missing notes and retry.
 
 ## Step 4 — Work Phase: Implementation
 
+**Verification commands.** Throughout this step, "run tests" means running BOTH
+the test suite AND the project linter:
+
+```bash
+./gradlew :current:test
+./gradlew :current:ktlintCheck
+```
+
+CI enforces both — a green test run with failing lint will still block the PR.
+If `ktlintCheck` fails, run `./gradlew :current:ktlintFormat` to auto-fix
+formatting violations, then verify with `ktlintCheck` again and re-run tests.
+Include both commands in every implementation-agent and review-agent prompt.
+
 This step is **tier-conditional**:
 
 **Direct tier:** Implement directly. Edit the files, run the test suite. No subagent
@@ -251,7 +264,7 @@ The review agent:
 1. Reads the review-quality skill
 2. Uses `get_context(itemId=...)` to load the item's notes and review-phase requirements
 3. Reads the changed files (from the worktree path if isolated, or the working branch)
-4. Runs the test suite (from the worktree if isolated)
+4. Runs the test suite AND the linter (both commands from Step 4's "Verification commands") — from the worktree if isolated. A PR with failing lint will not merge.
 5. Evaluates plan alignment, test quality, and simplification
 6. Fills the review-phase notes per `guidancePointer` with a verdict
 
@@ -469,7 +482,7 @@ When dispatching parallel worktree agents, check if any task modifies shared
 code (domain models, enums, database schema, test infrastructure). If so:
 
 1. Dispatch the shared-code task **first** (not in parallel)
-2. After it returns, run `./gradlew :current:test` on main to establish a clean baseline
+2. After it returns, run `./gradlew :current:test` AND `./gradlew :current:ktlintCheck` on main to establish a clean baseline
 3. **Then** dispatch the remaining independent tasks in parallel
 
 **Symptom of contamination:** Multiple agents report "N pre-existing test
