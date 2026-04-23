@@ -10,6 +10,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
@@ -271,6 +272,162 @@ class JwksKeySetProviderTest {
                 try {
                     provider.getKeySet() // trigger fetch
                     assertNull(provider.getResolvedIssuer())
+                } finally {
+                    provider.close()
+                }
+            } finally {
+                System.setProperty("user.dir", prevUserDir)
+            }
+        }
+
+    // -------------------------------------------------------------------------
+    // Stale cache fallback
+    // -------------------------------------------------------------------------
+
+    // 9. staleOnError=true: when refresh fails and cache exists, returns stale set
+    @Test
+    fun `stale fallback returns cached set when refresh fails and staleOnError is true`() =
+        runTest {
+            writeJwksFile()
+            val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+
+            var currentInstant = baseInstant
+            val advancingClock =
+                object : Clock() {
+                    override fun getZone() = java.time.ZoneOffset.UTC
+
+                    override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                    override fun instant(): Instant = currentInstant
+                }
+
+            val prevUserDir = System.getProperty("user.dir")
+            System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+            try {
+                // TTL = 60s. staleOnError = true (default)
+                val config =
+                    VerifierConfig.Jwks(
+                        jwksPath = "test-jwks.json",
+                        cacheTtlSeconds = 60,
+                        staleOnError = true
+                    )
+                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                try {
+                    // First successful fetch
+                    val first = provider.getKeySet()
+                    assertNotNull(first)
+
+                    // Advance past TTL and delete the file to simulate endpoint unavailability
+                    currentInstant = baseInstant.plusSeconds(120)
+                    tempDir.resolve("test-jwks.json").toFile().delete()
+
+                    // Should return the stale set rather than throwing
+                    val stale = provider.getKeySet()
+                    assertNotNull(stale)
+                    assertEquals(first.keys.size, stale.keys.size)
+
+                    // getCacheState should report stale
+                    val state = provider.getCacheState()
+                    assertTrue(state.fromStaleCache, "Expected fromStaleCache=true")
+                    assertNotNull(state.ageSeconds)
+                    assertTrue(state.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${state.ageSeconds}")
+                } finally {
+                    provider.close()
+                }
+            } finally {
+                System.setProperty("user.dir", prevUserDir)
+            }
+        }
+
+    // 10. staleOnError=true: no prior cache → exception propagates
+    @Test
+    fun `stale fallback throws when no prior cache and staleOnError is true`() =
+        runTest {
+            val prevUserDir = System.getProperty("user.dir")
+            System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+            try {
+                // File doesn't exist; no prior cache entry
+                val config =
+                    VerifierConfig.Jwks(
+                        jwksPath = "does-not-exist.json",
+                        staleOnError = true
+                    )
+                val provider = DefaultJwksKeySetProvider(config)
+                try {
+                    assertThrows<Exception> {
+                        provider.getKeySet()
+                    }
+                } finally {
+                    provider.close()
+                }
+            } finally {
+                System.setProperty("user.dir", prevUserDir)
+            }
+        }
+
+    // 11. staleOnError=false: refresh failure propagates even when cache exists
+    @Test
+    fun `staleOnError false propagates exception despite existing cache`() =
+        runTest {
+            writeJwksFile()
+            val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+
+            var currentInstant = baseInstant
+            val advancingClock =
+                object : Clock() {
+                    override fun getZone() = java.time.ZoneOffset.UTC
+
+                    override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                    override fun instant(): Instant = currentInstant
+                }
+
+            val prevUserDir = System.getProperty("user.dir")
+            System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+            try {
+                val config =
+                    VerifierConfig.Jwks(
+                        jwksPath = "test-jwks.json",
+                        cacheTtlSeconds = 60,
+                        staleOnError = false
+                    )
+                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                try {
+                    // First successful fetch
+                    provider.getKeySet()
+
+                    // Advance past TTL and delete the file
+                    currentInstant = baseInstant.plusSeconds(120)
+                    tempDir.resolve("test-jwks.json").toFile().delete()
+
+                    // Should throw because staleOnError=false
+                    assertThrows<Exception> {
+                        provider.getKeySet()
+                    }
+                } finally {
+                    provider.close()
+                }
+            } finally {
+                System.setProperty("user.dir", prevUserDir)
+            }
+        }
+
+    // 12. getCacheState returns non-stale after fresh fetch
+    @Test
+    fun `getCacheState returns non-stale after successful fetch`() =
+        runTest {
+            writeJwksFile()
+
+            val prevUserDir = System.getProperty("user.dir")
+            System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+            try {
+                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
+                val provider = DefaultJwksKeySetProvider(config)
+                try {
+                    provider.getKeySet()
+                    val state = provider.getCacheState()
+                    assertTrue(!state.fromStaleCache, "Expected fromStaleCache=false after fresh fetch")
+                    assertNull(state.ageSeconds)
                 } finally {
                     provider.close()
                 }

@@ -342,7 +342,7 @@ class SQLiteRoleTransitionRepositoryTest {
                 )
             val verification =
                 VerificationResult(
-                    status = VerificationStatus.UNVERIFIED,
+                    status = VerificationStatus.UNCHECKED,
                     verifier = "noop",
                     reason = null
                 )
@@ -367,7 +367,7 @@ class SQLiteRoleTransitionRepositoryTest {
             assertEquals("orchestrator-1", found.actorClaim!!.parent)
             assertEquals("proof-token", found.actorClaim!!.proof)
             assertNotNull(found.verification)
-            assertEquals(VerificationStatus.UNVERIFIED, found.verification!!.status)
+            assertEquals(VerificationStatus.UNCHECKED, found.verification!!.status)
             assertEquals("noop", found.verification!!.verifier)
             assertNull(found.verification!!.reason)
         }

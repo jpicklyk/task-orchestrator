@@ -17,6 +17,19 @@ import java.time.Clock
 import java.time.Instant
 
 /**
+ * Snapshot of the cache state at the time the last key set was served.
+ *
+ * @param fromStaleCache True if the last [JwksKeySetProvider.getKeySet] call returned a
+ *   key set from an expired cache entry (i.e., the refresh failed and stale fallback was used).
+ * @param ageSeconds Age in seconds of the cached entry at the time it was served, or null if
+ *   the key set was freshly fetched or no fetch has occurred yet.
+ */
+data class CacheState(
+    val fromStaleCache: Boolean,
+    val ageSeconds: Long?
+)
+
+/**
  * Provides a [JWKSet] for JWT signature verification.
  *
  * Implementations are responsible for loading keys from a configured source (remote URI,
@@ -35,6 +48,12 @@ interface JwksKeySetProvider {
      * verifier level — this method only returns what was discovered.
      */
     fun getResolvedIssuer(): String?
+
+    /**
+     * Returns the [CacheState] reflecting whether the most recent [getKeySet] call was served
+     * from a stale cache entry and, if so, how old that entry was.
+     */
+    fun getCacheState(): CacheState
 
     /**
      * Releases any underlying resources (e.g., HTTP client connections).
@@ -73,33 +92,65 @@ class DefaultJwksKeySetProvider(
     @Volatile
     private var resolvedIssuer: String? = null
 
+    /** Cache state reflecting the most recent [getKeySet] outcome. */
+    @Volatile
+    private var lastCacheState: CacheState = FRESH_CACHE
+
     /** Thread-safe lazy HTTP client — created only when a remote fetch is needed. */
     private val httpClientDelegate = lazy { HttpClient(CIO) }
     private val httpClient: HttpClient by httpClientDelegate
 
     override suspend fun getKeySet(): JWKSet {
+        val now = clock.instant()
+
         // Fast path: return cached value if still valid.
         cached?.let { (set, fetchedAt) ->
-            if (clock.instant().isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+            if (now.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                lastCacheState = FRESH_CACHE
                 return set
             }
         }
 
         return refreshLock.withLock {
+            val nowInLock = clock.instant()
+
             // Double-check after acquiring the lock.
             cached?.let { (set, fetchedAt) ->
-                if (clock.instant().isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                if (nowInLock.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                    lastCacheState = FRESH_CACHE
                     return@withLock set
                 }
             }
 
-            val fresh = fetchKeySet()
-            cached = Pair(fresh, clock.instant())
-            fresh
+            // Capture the previous cache entry before attempting refresh.
+            val previousCached = cached
+
+            try {
+                val fresh = fetchKeySet()
+                cached = Pair(fresh, nowInLock)
+                lastCacheState = FRESH_CACHE
+                fresh
+            } catch (e: Exception) {
+                if (config.staleOnError && previousCached != null) {
+                    val (staleSet, fetchedAt) = previousCached
+                    val ageSeconds = nowInLock.epochSecond - fetchedAt.epochSecond
+                    logger.warn(
+                        "JWKS refresh failed ({}); serving stale cache entry (age={}s). staleOnError=true",
+                        e.message,
+                        ageSeconds
+                    )
+                    lastCacheState = CacheState(fromStaleCache = true, ageSeconds = ageSeconds)
+                    staleSet
+                } else {
+                    throw e
+                }
+            }
         }
     }
 
     override fun getResolvedIssuer(): String? = resolvedIssuer
+
+    override fun getCacheState(): CacheState = lastCacheState
 
     override fun close() {
         if (httpClientDelegate.isInitialized()) {
@@ -178,4 +229,8 @@ class DefaultJwksKeySetProvider(
     }
 
     private suspend fun httpGet(url: String): String = httpClient.get(url).bodyAsText()
+
+    companion object {
+        private val FRESH_CACHE = CacheState(fromStaleCache = false, ageSeconds = null)
+    }
 }

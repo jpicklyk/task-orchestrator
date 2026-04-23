@@ -93,7 +93,7 @@ fun makeActorClaim(
 ): ActorClaim = ActorClaim(id = id, kind = kind, parent = parent, proof = proof)
 
 fun makeVerificationResult(
-    status: VerificationStatus = VerificationStatus.UNVERIFIED,
+    status: VerificationStatus = VerificationStatus.UNCHECKED,
     verifier: String? = "noop",
     reason: String? = null
 ): VerificationResult = VerificationResult(status = status, verifier = verifier, reason = reason)

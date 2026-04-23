@@ -2142,9 +2142,9 @@ class AdvanceItemToolTest {
             assertEquals("session-abc", actor["parent"]!!.jsonPrimitive.content)
             assertFalse(actor.containsKey("proof"), "proof should be absent when not provided")
 
-            // Verification should be present (NoOpActorVerifier returns UNVERIFIED)
+            // Verification should be present (NoOpActorVerifier returns UNCHECKED)
             val verification = r["verification"]!!.jsonObject
-            assertEquals("unverified", verification["status"]!!.jsonPrimitive.content)
+            assertEquals("unchecked", verification["status"]!!.jsonPrimitive.content)
             assertEquals("noop", verification["verifier"]!!.jsonPrimitive.content)
         }
 

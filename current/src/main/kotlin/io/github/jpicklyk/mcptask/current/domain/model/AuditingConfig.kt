@@ -39,6 +39,8 @@ sealed class VerifierConfig {
      * @param cacheTtlSeconds How long (in seconds) to cache the fetched JWKS (default 300).
      * @param requireSubMatch When true, the JWT `sub` claim must match the actor id supplied by
      *   the caller (default true).
+     * @param staleOnError When true (default), a stale cached key set is served if the JWKS
+     *   endpoint is unreachable during a refresh. When false, the fetch exception propagates.
      */
     data class Jwks(
         val oidcDiscovery: String? = null,
@@ -48,6 +50,7 @@ sealed class VerifierConfig {
         val audience: String? = null,
         val algorithms: List<String> = emptyList(),
         val cacheTtlSeconds: Long = 300,
-        val requireSubMatch: Boolean = true
+        val requireSubMatch: Boolean = true,
+        val staleOnError: Boolean = true
     ) : VerifierConfig()
 }

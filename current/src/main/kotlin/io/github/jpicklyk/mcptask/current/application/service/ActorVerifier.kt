@@ -12,10 +12,10 @@ interface ActorVerifier {
 }
 
 /**
- * No-op verifier that marks all claims as unverified without performing any checks.
+ * No-op verifier that marks all claims as unchecked without performing any inspection.
  * Used as the default implementation until real verification is configured.
  */
 object NoOpActorVerifier : ActorVerifier {
     override suspend fun verify(actor: ActorClaim): VerificationResult =
-        VerificationResult(status = VerificationStatus.UNVERIFIED, verifier = "noop")
+        VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 }

@@ -1818,7 +1818,7 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
 
             val actor = ActorClaim(id = "orch-1", kind = ActorKind.ORCHESTRATOR, parent = null)
-            val verification = VerificationResult(status = VerificationStatus.UNVERIFIED, verifier = "noop")
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
             val transition =
                 RoleTransition(
                     itemId = itemId,
@@ -1861,7 +1861,7 @@ class GetContextToolTest {
             // Verification should be present
             assertTrue(t.containsKey("verification"), "verification field should be present")
             val verObj = t["verification"]!!.jsonObject
-            assertEquals("unverified", verObj["status"]!!.jsonPrimitive.content)
+            assertEquals("unchecked", verObj["status"]!!.jsonPrimitive.content)
             assertEquals("noop", verObj["verifier"]!!.jsonPrimitive.content)
         }
 

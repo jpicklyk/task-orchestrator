@@ -123,17 +123,30 @@ class ActorClaimTest {
     // --- VerificationStatus ---
 
     @Test
-    fun `VerificationStatus fromString round-trip all values`() {
-        assertEquals(VerificationStatus.UNVERIFIED, VerificationStatus.fromString("UNVERIFIED"))
+    fun `VerificationStatus fromString round-trip all new values`() {
+        assertEquals(VerificationStatus.ABSENT, VerificationStatus.fromString("ABSENT"))
+        assertEquals(VerificationStatus.UNCHECKED, VerificationStatus.fromString("UNCHECKED"))
         assertEquals(VerificationStatus.VERIFIED, VerificationStatus.fromString("VERIFIED"))
-        assertEquals(VerificationStatus.FAILED, VerificationStatus.fromString("FAILED"))
+        assertEquals(VerificationStatus.REJECTED, VerificationStatus.fromString("REJECTED"))
+        assertEquals(VerificationStatus.UNAVAILABLE, VerificationStatus.fromString("UNAVAILABLE"))
     }
 
     @Test
-    fun `VerificationStatus fromString case insensitive`() {
-        assertEquals(VerificationStatus.UNVERIFIED, VerificationStatus.fromString("unverified"))
+    fun `VerificationStatus fromString legacy back-compat mapping`() {
+        // Legacy stored values must map to conservative new values.
+        assertEquals(VerificationStatus.ABSENT, VerificationStatus.fromString("unverified"))
+        assertEquals(VerificationStatus.ABSENT, VerificationStatus.fromString("UNVERIFIED"))
+        assertEquals(VerificationStatus.REJECTED, VerificationStatus.fromString("failed"))
+        assertEquals(VerificationStatus.REJECTED, VerificationStatus.fromString("FAILED"))
+    }
+
+    @Test
+    fun `VerificationStatus fromString case insensitive for new values`() {
+        assertEquals(VerificationStatus.ABSENT, VerificationStatus.fromString("absent"))
+        assertEquals(VerificationStatus.UNCHECKED, VerificationStatus.fromString("unchecked"))
         assertEquals(VerificationStatus.VERIFIED, VerificationStatus.fromString("verified"))
-        assertEquals(VerificationStatus.FAILED, VerificationStatus.fromString("failed"))
+        assertEquals(VerificationStatus.REJECTED, VerificationStatus.fromString("rejected"))
+        assertEquals(VerificationStatus.UNAVAILABLE, VerificationStatus.fromString("unavailable"))
     }
 
     @Test
@@ -145,9 +158,11 @@ class ActorClaimTest {
 
     @Test
     fun `VerificationStatus toJsonString returns lowercase name`() {
-        assertEquals("unverified", VerificationStatus.UNVERIFIED.toJsonString())
+        assertEquals("absent", VerificationStatus.ABSENT.toJsonString())
+        assertEquals("unchecked", VerificationStatus.UNCHECKED.toJsonString())
         assertEquals("verified", VerificationStatus.VERIFIED.toJsonString())
-        assertEquals("failed", VerificationStatus.FAILED.toJsonString())
+        assertEquals("rejected", VerificationStatus.REJECTED.toJsonString())
+        assertEquals("unavailable", VerificationStatus.UNAVAILABLE.toJsonString())
     }
 
     // --- VerificationResult ---
@@ -167,9 +182,25 @@ class ActorClaimTest {
 
     @Test
     fun `VerificationResult valid creation with minimal fields`() {
-        val result = VerificationResult(status = VerificationStatus.UNVERIFIED)
-        assertEquals(VerificationStatus.UNVERIFIED, result.status)
+        val result = VerificationResult(status = VerificationStatus.ABSENT)
+        assertEquals(VerificationStatus.ABSENT, result.status)
         assertNull(result.verifier)
         assertNull(result.reason)
+    }
+
+    @Test
+    fun `VerificationResult metadata defaults to empty map`() {
+        val result = VerificationResult(status = VerificationStatus.VERIFIED)
+        assertEquals(emptyMap<String, String>(), result.metadata)
+    }
+
+    @Test
+    fun `VerificationResult metadata populated`() {
+        val result =
+            VerificationResult(
+                status = VerificationStatus.REJECTED,
+                metadata = mapOf("failureKind" to "crypto")
+            )
+        assertEquals("crypto", result.metadata["failureKind"])
     }
 }
