@@ -196,10 +196,11 @@ class ActorClaimTest {
 
     @Test
     fun `VerificationResult metadata populated`() {
-        val result = VerificationResult(
-            status = VerificationStatus.REJECTED,
-            metadata = mapOf("failureKind" to "crypto")
-        )
+        val result =
+            VerificationResult(
+                status = VerificationStatus.REJECTED,
+                metadata = mapOf("failureKind" to "crypto")
+            )
         assertEquals("crypto", result.metadata["failureKind"])
     }
 }

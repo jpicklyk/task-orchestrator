@@ -181,19 +181,23 @@ class JwksActorVerifier(
         )
     }
 
-    private fun rejected(reason: String, failureKind: String) = VerificationResult(
+    private fun rejected(
+        reason: String,
+        failureKind: String
+    ) = VerificationResult(
         status = REJECTED,
         verifier = VERIFIER_NAME,
         reason = reason,
         metadata = mapOf("failureKind" to failureKind)
     )
 
-    private fun unavailable(reason: String) = VerificationResult(
-        status = UNAVAILABLE,
-        verifier = VERIFIER_NAME,
-        reason = reason,
-        metadata = mapOf("failureKind" to "network")
-    )
+    private fun unavailable(reason: String) =
+        VerificationResult(
+            status = UNAVAILABLE,
+            verifier = VERIFIER_NAME,
+            reason = reason,
+            metadata = mapOf("failureKind" to "network")
+        )
 
     companion object {
         private const val VERIFIER_NAME = "jwks"

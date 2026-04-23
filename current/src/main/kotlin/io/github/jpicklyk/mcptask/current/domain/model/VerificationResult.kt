@@ -30,8 +30,9 @@ enum class VerificationStatus {
             return when (value.lowercase()) {
                 "unverified" -> ABSENT
                 "failed" -> REJECTED
-                else -> entries.find { it.name.equals(value, ignoreCase = true) }
-                    ?: throw IllegalArgumentException("Unknown VerificationStatus: $value")
+                else ->
+                    entries.find { it.name.equals(value, ignoreCase = true) }
+                        ?: throw IllegalArgumentException("Unknown VerificationStatus: $value")
             }
         }
     }

@@ -295,7 +295,9 @@ class JwksKeySetProviderTest {
             val advancingClock =
                 object : Clock() {
                     override fun getZone() = java.time.ZoneOffset.UTC
+
                     override fun withZone(zone: java.time.ZoneId): Clock = this
+
                     override fun instant(): Instant = currentInstant
                 }
 
@@ -303,11 +305,12 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 // TTL = 60s. staleOnError = true (default)
-                val config = VerifierConfig.Jwks(
-                    jwksPath = "test-jwks.json",
-                    cacheTtlSeconds = 60,
-                    staleOnError = true
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        jwksPath = "test-jwks.json",
+                        cacheTtlSeconds = 60,
+                        staleOnError = true
+                    )
                 val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
                 try {
                     // First successful fetch
@@ -344,10 +347,11 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 // File doesn't exist; no prior cache entry
-                val config = VerifierConfig.Jwks(
-                    jwksPath = "does-not-exist.json",
-                    staleOnError = true
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        jwksPath = "does-not-exist.json",
+                        staleOnError = true
+                    )
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
                     assertThrows<Exception> {
@@ -372,18 +376,21 @@ class JwksKeySetProviderTest {
             val advancingClock =
                 object : Clock() {
                     override fun getZone() = java.time.ZoneOffset.UTC
+
                     override fun withZone(zone: java.time.ZoneId): Clock = this
+
                     override fun instant(): Instant = currentInstant
                 }
 
             val prevUserDir = System.getProperty("user.dir")
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
-                val config = VerifierConfig.Jwks(
-                    jwksPath = "test-jwks.json",
-                    cacheTtlSeconds = 60,
-                    staleOnError = false
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        jwksPath = "test-jwks.json",
+                        cacheTtlSeconds = 60,
+                        staleOnError = false
+                    )
                 val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
                 try {
                     // First successful fetch

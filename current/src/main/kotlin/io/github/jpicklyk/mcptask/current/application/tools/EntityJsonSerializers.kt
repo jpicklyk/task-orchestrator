@@ -133,8 +133,11 @@ fun VerificationResult.toJson(): JsonObject =
         verifier?.let { put("verifier", JsonPrimitive(it)) }
         reason?.let { put("reason", JsonPrimitive(it)) }
         if (metadata.isNotEmpty()) {
-            put("metadata", buildJsonObject {
-                metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
-            })
+            put(
+                "metadata",
+                buildJsonObject {
+                    metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+                }
+            )
         }
     }

@@ -7,11 +7,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class VerificationResultTest {
-
     // -------------------------------------------------------------------------
     // fromString — new values round-trip
     // -------------------------------------------------------------------------
@@ -94,10 +92,11 @@ class VerificationResultTest {
 
     @Test
     fun `metadata can be populated`() {
-        val result = VerificationResult(
-            status = VerificationStatus.REJECTED,
-            metadata = mapOf("failureKind" to "crypto")
-        )
+        val result =
+            VerificationResult(
+                status = VerificationStatus.REJECTED,
+                metadata = mapOf("failureKind" to "crypto")
+            )
         assertEquals("crypto", result.metadata["failureKind"])
     }
 
@@ -107,10 +106,11 @@ class VerificationResultTest {
 
     @Test
     fun `toJson omits metadata field when empty`() {
-        val result = VerificationResult(
-            status = VerificationStatus.VERIFIED,
-            verifier = "jwks"
-        )
+        val result =
+            VerificationResult(
+                status = VerificationStatus.VERIFIED,
+                verifier = "jwks"
+            )
         val json = result.toJson()
         assertFalse(json.containsKey("metadata"), "metadata key should be absent when map is empty")
         assertEquals("verified", json["status"]?.jsonPrimitive?.content)
@@ -119,12 +119,13 @@ class VerificationResultTest {
 
     @Test
     fun `toJson includes metadata field when non-empty`() {
-        val result = VerificationResult(
-            status = VerificationStatus.REJECTED,
-            verifier = "jwks",
-            reason = "token expired",
-            metadata = mapOf("failureKind" to "claims")
-        )
+        val result =
+            VerificationResult(
+                status = VerificationStatus.REJECTED,
+                verifier = "jwks",
+                reason = "token expired",
+                metadata = mapOf("failureKind" to "claims")
+            )
         val json = result.toJson()
         assertTrue(json.containsKey("metadata"), "metadata key should be present")
         val meta = json["metadata"]?.jsonObject
@@ -133,14 +134,16 @@ class VerificationResultTest {
 
     @Test
     fun `toJson includes multiple metadata entries`() {
-        val result = VerificationResult(
-            status = VerificationStatus.VERIFIED,
-            verifier = "jwks",
-            metadata = mapOf(
-                "verifiedFromCache" to "true",
-                "cacheAgeSeconds" to "450"
+        val result =
+            VerificationResult(
+                status = VerificationStatus.VERIFIED,
+                verifier = "jwks",
+                metadata =
+                    mapOf(
+                        "verifiedFromCache" to "true",
+                        "cacheAgeSeconds" to "450"
+                    )
             )
-        )
         val json = result.toJson()
         val meta = json["metadata"]?.jsonObject
         assertEquals("true", meta?.get("verifiedFromCache")?.jsonPrimitive?.content)
@@ -149,10 +152,11 @@ class VerificationResultTest {
 
     @Test
     fun `toJson reason field only emitted when non-null`() {
-        val withReason = VerificationResult(
-            status = VerificationStatus.REJECTED,
-            reason = "some reason"
-        )
+        val withReason =
+            VerificationResult(
+                status = VerificationStatus.REJECTED,
+                reason = "some reason"
+            )
         val withoutReason = VerificationResult(status = VerificationStatus.VERIFIED)
         assertTrue(withReason.toJson().containsKey("reason"))
         assertFalse(withoutReason.toJson().containsKey("reason"))
@@ -163,8 +167,11 @@ class VerificationResultTest {
         VerificationStatus.entries.forEach { status ->
             val result = VerificationResult(status = status)
             val json = result.toJson()
-            assertEquals(status.toJsonString(), json["status"]?.jsonPrimitive?.content,
-                "status JSON value should match toJsonString() for $status")
+            assertEquals(
+                status.toJsonString(),
+                json["status"]?.jsonPrimitive?.content,
+                "status JSON value should match toJsonString() for $status"
+            )
         }
     }
 }
