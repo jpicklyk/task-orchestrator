@@ -1,6 +1,6 @@
 ---
 name: create-item
-description: Create an MCP work item from conversation context. Scans existing containers to anchor the item in the right place (Bugs, Features, Tech Debt, Observations, etc.), infers type and priority, creates single items or work trees, and pre-fills required notes. Use this whenever the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking persistently. Also use when user says "track this", "log this bug", "create a task for", or "add this to the backlog".
+description: "Creates an MCP work item from conversation context. Scans existing containers to anchor the item in the right place (Bugs, Features, Tech Debt, Observations, etc.), infers type and priority, creates single items or work trees, and pre-fills required notes. Use when the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking persistently. Also use when user says: track this, log this bug, create a task for, or add this to the backlog."
 argument-hint: "[optional: brief description of what to create]"
 ---
 

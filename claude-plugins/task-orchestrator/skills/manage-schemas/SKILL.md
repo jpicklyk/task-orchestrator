@@ -1,6 +1,6 @@
 ---
 name: manage-schemas
-description: "Create, view, edit, delete, and validate note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Use when user says \"create schema\", \"show schemas\", \"edit schema\", \"delete schema\", \"validate config\", \"what schemas exist\", \"add a note to schema\", \"remove note from schema\", or \"configure gates\"."
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
 argument-hint: "[optional: action + schema name, e.g. 'view bug-fix', 'create research-spike', 'validate']"
 ---
 

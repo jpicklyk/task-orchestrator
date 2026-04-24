@@ -1,10 +1,6 @@
 ---
 name: schema-workflow
-description: >
-  Guide an MCP work item through its schema-defined lifecycle — filling required notes using
-  guidancePointer and advancing through gate-enforced phases. Internal skill triggered by hooks
-  and output styles during orchestration workflows. Use when an item has schema tags and needs
-  to progress through queue, work, review, or terminal phases with note gates.
+description: "Guides an MCP work item through its schema-defined lifecycle — filling required notes using guidancePointer and advancing through gate-enforced phases. Internal skill triggered by hooks and output styles during orchestration workflows. Use when an item has schema tags and needs to progress through queue, work, review, or terminal phases with note gates."
 user-invocable: false
 ---
 

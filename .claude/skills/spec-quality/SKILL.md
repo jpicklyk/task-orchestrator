@@ -1,6 +1,6 @@
 ---
 name: spec-quality
-description: Specification quality framework for planning. Defines the minimum bar for what a plan must address — alternatives, non-goals, blast radius, risk flags, and test strategy. Referenced by schema guidance fields during queue-phase note filling. Read this skill whenever filling requirements or design notes for any MCP work item.
+description: Specification quality framework for planning. Defines the minimum bar for what a plan must address — alternatives, non-goals, blast radius, risk flags, and test strategy. Referenced by schema guidance fields during queue-phase note filling. Use when filling requirements or design notes for any MCP work item.
 user-invocable: false
 ---
 
