@@ -1,6 +1,6 @@
 ---
 name: pre-plan-workflow
-description: Internal workflow for plan mode — checks MCP for existing work, note schemas, and gate requirements to set the definition floor before planning begins. Triggered automatically when entering plan mode for any non-trivial implementation task.
+description: "Gathers existing MCP work items, note schemas, and gate requirements to establish a definition floor before planning begins. Queries get_context() for active, blocked, and stalled items, reads .taskorchestrator/config.yaml for schema-defined note requirements per phase, and structures the plan so each task maps to one MCP work item with correct dependency ordering. Use when entering plan mode, starting implementation planning, creating a task breakdown, or beginning project setup for any non-trivial implementation task. Triggered automatically by the plan-mode hook."
 user-invocable: false
 ---
 
@@ -44,10 +44,21 @@ Read `.taskorchestrator/config.yaml` in the project root (this is a file read, n
 
 If no config file exists, the project has no note schemas — items will be schema-free with no gate enforcement. Proceed with planning normally.
 
-**Use schemas to inform the plan:** When a schema applies, each planned task should:
-- Note which schema type will be applied at materialization (e.g., `type: "feature-implementation"`)
-- Account for required notes — plan sections should naturally produce content that maps to required note keys
-- Respect dependency ordering — which tasks block others (these become `BLOCKS` edges)
+**Minimal config example:**
+
+```yaml
+work_item_schemas:
+  feature-task:
+    notes:
+      - key: requirements
+        role: queue
+        required: true
+      - key: implementation-notes
+        role: work
+        required: true
+```
+
+**Use schemas to inform the plan:** When a schema applies, each planned task should note which schema type will be applied at materialization (e.g., `type: "feature-task"`) and produce content that maps to required note keys.
 
 ## Step 3: Plan with MCP Awareness
 

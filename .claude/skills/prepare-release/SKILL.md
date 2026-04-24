@@ -1,8 +1,8 @@
 ---
-description: End-to-end release automation — reads commits since last tag, infers semver bump, drafts changelog, creates release PR, merges it, waits for CI green, tags, and monitors the Docker build to completion.
+name: prepare-release
+description: "End-to-end release automation — reads commits since last tag, infers semver bump, drafts changelog, creates release PR, merges it, waits for CI green, tags, and monitors the Docker build to completion. Use when the user says: prepare release, cut a release, bump version, create release PR, ship a new version, tag a release, deploy new version, or when all feature PRs are merged and it is time to release."
 disable-model-invocation: true
 ---
-
 # Prepare Release
 
 End-to-end release workflow. Reads commits since the last release tag, infers the semver bump,
