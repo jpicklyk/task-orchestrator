@@ -1,5 +1,6 @@
 ---
-description: Guide the full lifecycle of a feature-implementation tagged MCP item (the feature container) — from queue through review
+name: feature-implementation
+description: "Guide the full lifecycle of a feature-implementation tagged MCP item (the feature container) — from queue through review. Creates or resumes the feature container, fills gate-enforced notes at each phase (requirements, design, implementation-notes, test-results), dispatches implementation subagents, and advances through queue, work, and review to terminal. Use when the user says: implement a feature, start a new feature, feature workflow, resume feature work, guide feature lifecycle, or references a feature-implementation item UUID."
 ---
 
 # Feature Implementation Workflow

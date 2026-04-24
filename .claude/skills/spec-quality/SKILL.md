@@ -88,6 +88,19 @@ them, or confirm they still pass with the new behavior.
 
 ---
 
+## Completion Checklist
+
+Validate spec completeness before advancing past queue phase:
+
+- [ ] At least 2 real alternatives evaluated (not strawmen)
+- [ ] At least 1 non-goal named (scope boundary explicit)
+- [ ] Downstream consumers of changed interfaces traced
+- [ ] 1-2 concrete risk flags identified
+- [ ] Test scenarios named for happy paths, failure paths, and edge cases
+- [ ] Shared interface breakage assessed (if applicable)
+
+---
+
 ## Using This Framework
 
 This framework sets a floor. The disciplines above are the minimum required analysis.
