@@ -1,6 +1,6 @@
 ---
 name: batch-complete
-description: Complete or cancel multiple items at once — close out features, clean up old work, archive completed workstreams. Use when a user says "close out this feature", "complete everything under X", "cancel this workstream", "clean up old items", "bulk complete", "finish this feature", or "archive completed work".
+description: "Completes or cancels multiple items at once — closes out features, cleans up old work, and archives completed workstreams. Use when a user says: close out this feature, complete everything under X, cancel this workstream, clean up old items, bulk complete, finish this feature, or archive completed work."
 argument-hint: "[optional: root item UUID or title to complete]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: dependency-manager
-description: Visualize, create, and diagnose dependencies between MCP work items. Use when a user says "what blocks this", "add a dependency", "show dependency graph", "why can't this start", "link these items", "unblock this", "remove dependency", or "show blockers".
+description: "Visualizes, creates, and diagnoses dependencies between MCP work items. Use when a user says: what blocks this, add a dependency, show dependency graph, why can't this start, link these items, unblock this, remove dependency, or show blockers."
 argument-hint: "[optional: item UUID, title, or action like 'show blockers for X']"
 ---
 

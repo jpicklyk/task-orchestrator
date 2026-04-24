@@ -1,6 +1,6 @@
 ---
 name: status-progression
-description: Navigate role transitions for MCP work items using advance_item. Shows current role, gate status, required notes, and the correct trigger to use. Use when a user says "advance this item", "move to work", "start this task", "complete this item", "what's the next status", "why can't I advance", "unblock this", "cancel this item", or "check gate status".
+description: "Navigates role transitions for MCP work items using advance_item. Shows current role, gate status, required notes, and the correct trigger to use. Use when a user says: advance this item, move to work, start this task, complete this item, what's the next status, why can't I advance, unblock this, cancel this item, or check gate status."
 argument-hint: "[optional: item UUID or title to look up]"
 ---
 

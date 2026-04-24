@@ -1,6 +1,6 @@
 ---
 name: review-quality
-description: Review quality framework for the work-to-review transition gate. Guides verification of plan alignment, test quality, and code simplification before marking implementation complete. Referenced by schema guidance fields during review-phase note filling. Read this skill when filling review-checklist notes or when asked to review completed implementation work.
+description: Review quality framework for the work-to-review transition gate. Guides verification of plan alignment, test quality, and code simplification before marking implementation complete. Referenced by schema guidance fields during review-phase note filling. Use when filling review-checklist notes or when asked to review completed implementation work.
 user-invocable: false
 ---
 

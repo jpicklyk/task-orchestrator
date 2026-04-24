@@ -1,6 +1,6 @@
 ---
 name: spec-quality
-description: Specification quality framework for planning. Defines the minimum bar for what a plan must address — alternatives, non-goals, blast radius, risk flags, and test strategy. Referenced by schema guidance fields during queue-phase note filling. Read this skill whenever filling requirements or design notes for any MCP work item.
+description: Specification quality framework for planning. Defines the minimum bar for what a plan must address — alternatives, non-goals, blast radius, risk flags, and test strategy. Referenced by schema guidance fields during queue-phase note filling. Use when filling requirements or design notes for any MCP work item.
 user-invocable: false
 ---
 
@@ -85,6 +85,19 @@ error" is.
 If the change modifies shared interfaces (domain models, repository contracts, tool
 parameters), note which existing tests may break and how you'll handle that — update
 them, or confirm they still pass with the new behavior.
+
+---
+
+## Completion Checklist
+
+Validate spec completeness before advancing past queue phase:
+
+- [ ] At least 2 real alternatives evaluated (not strawmen)
+- [ ] At least 1 non-goal named (scope boundary explicit)
+- [ ] Downstream consumers of changed interfaces traced
+- [ ] 1-2 concrete risk flags identified
+- [ ] Test scenarios named for happy paths, failure paths, and edge cases
+- [ ] Shared interface breakage assessed (if applicable)
 
 ---
 
