@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-04-24 (Plugin v3.1.1)
+
+### Changed
+- Improved skill descriptions across 8 plugin skills to use third-person verb form and consistent "Use when:" trigger patterns, improving skill routing accuracy
+- Added trigger phrase expansions to `pre-plan-workflow`, `work-summary`, `create-item`, `batch-complete`, `dependency-manager`, `manage-schemas`, `schema-workflow`, and `status-progression`
+- Updated `pre-plan-workflow` with a minimal config YAML example for schema illustration
+- Bumped plugin version to 3.1.1 (skill description content fixes and routing improvements)
+
+---
+
 ## [3.3.0] - 2026-04-23
 
 ### Added
