@@ -215,4 +215,25 @@ interface WorkItemRepository {
      * Items with no parent (depth=0 root items) map to an empty list.
      */
     suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>>
+
+    /**
+     * Find work items for the "get next" recommendation query, supporting optional claim filtering.
+     *
+     * Returns items in the specified [role] that are not in TERMINAL. When [excludeActiveClaims]
+     * is true, items with a live (non-expired) claim are omitted from the result — i.e., only items
+     * where `claimed_by IS NULL OR claim_expires_at <= datetime('now')` are returned.
+     *
+     * The claim filter is applied at the DB level to avoid loading and discarding claimed rows.
+     *
+     * @param role            The role to query (e.g. QUEUE, WORK, REVIEW, BLOCKED).
+     * @param parentId        Optional parent UUID to scope results to direct children only.
+     * @param excludeActiveClaims When true, omit items with a live (non-expired) claim.
+     * @param limit           Maximum number of rows to return.
+     */
+    suspend fun findForNextItem(
+        role: Role,
+        parentId: UUID? = null,
+        excludeActiveClaims: Boolean = true,
+        limit: Int = 200
+    ): Result<List<WorkItem>>
 }
