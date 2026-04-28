@@ -10,6 +10,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.*
+import java.time.Instant
 
 /**
  * Read-only MCP tool that provides rich context in three modes:
@@ -37,13 +38,17 @@ Read-only context snapshot. Three modes:
 Returns the item's current role, note schema for its tags, existing notes with filled/exists status,
 gate status (canAdvance + missing required notes for current phase), and `noteProgress`
 (`{filled, remaining, total}` counts of required notes for the current role; null for terminal or schema-free items).
+Full claim detail when item is claimed: `claimedBy`, `claimedAt`, `claimExpiresAt` (UTC), `isExpired` (boolean).
+Use this mode to diagnose stalled/expired claims — this is the only mode that exposes claimedBy identity.
 
 **Session resume** — `since` (ISO 8601 timestamp):
 Returns active items (role=work or review), recent role transitions since the timestamp
 (including actor/verification when present), and stalled items (active items with missing required notes).
+No claim summary in this mode — use item mode or health-check mode for claim visibility.
 
 **Health check** — no parameters:
-Returns all active items (work/review), blocked items, and stalled items.
+Returns all active items (work/review), blocked items, stalled items, and
+`claimSummary: { active: N, expired: N }` — lightweight fleet health signal (counts only, no identity).
 
 Parameters:
 - itemId (optional UUID): triggers item context mode
@@ -230,6 +235,21 @@ Parameters:
                         }
                     )
                 }
+                // Full claim detail — diagnostic tool, single-item, operators need identity to debug stalled work.
+                // claimedBy is intentionally included here; it must NOT appear in query_items results.
+                if (item.claimedBy != null) {
+                    put(
+                        "claimDetail",
+                        buildJsonObject {
+                            put("claimedBy", JsonPrimitive(item.claimedBy))
+                            item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
+                            item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                            item.originalClaimedAt?.let { put("originalClaimedAt", JsonPrimitive(it.toString())) }
+                            val isExpired = item.claimExpiresAt != null && !item.claimExpiresAt.isAfter(Instant.now())
+                            put("isExpired", JsonPrimitive(isExpired))
+                        }
+                    )
+                }
             }
 
         return successResponse(data)
@@ -356,19 +376,22 @@ Parameters:
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
 
-        // Fetch work, review, and blocked items in parallel
-        val (workItems, reviewItems, blockedItems) =
-            coroutineScope {
-                val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
-                val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
-                val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200) }
+        // Fetch work, review, and blocked items in parallel; also compute claim summary
+        val workItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
+        val reviewItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
+        val blockedItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
+        val claimCounts: io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts?
+        coroutineScope {
+            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
+            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
+            val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200) }
+            val claimDeferred = async { workItemRepo.countByClaimStatus(parentId = null) }
 
-                Triple(
-                    workDeferred.await().getOrElse(emptyList()),
-                    reviewDeferred.await().getOrElse(emptyList()),
-                    blockedDeferred.await().getOrElse(emptyList())
-                )
-            }
+            workItems = workDeferred.await().getOrElse(emptyList())
+            reviewItems = reviewDeferred.await().getOrElse(emptyList())
+            blockedItems = blockedDeferred.await().getOrElse(emptyList())
+            claimCounts = (claimDeferred.await() as? Result.Success)?.data
+        }
 
         val activeItems = workItems + reviewItems
         val stalledItems = findStalledItems(activeItems, context)
@@ -440,6 +463,17 @@ Parameters:
                         }
                     )
                 )
+                // Claim summary: lightweight fleet health signal (counts only — no identity exposed).
+                // active = live claims; expired = claims past TTL; omit unclaimed (too noisy for health-check).
+                if (claimCounts != null) {
+                    put(
+                        "claimSummary",
+                        buildJsonObject {
+                            put("active", JsonPrimitive(claimCounts.active))
+                            put("expired", JsonPrimitive(claimCounts.expired))
+                        }
+                    )
+                }
             }
 
         return successResponse(data)

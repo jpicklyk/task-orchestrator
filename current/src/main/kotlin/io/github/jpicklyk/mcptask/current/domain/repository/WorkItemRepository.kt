@@ -93,6 +93,11 @@ interface WorkItemRepository {
     /**
      * Find work items matching multiple filter criteria.
      * All non-null filters are combined with AND logic. Tags use OR logic within the list.
+     *
+     * @param claimStatus Optional claim-status filter: "claimed", "unclaimed", or "expired".
+     *   - "claimed"   — items where `claimed_by IS NOT NULL AND claim_expires_at > now`
+     *   - "unclaimed" — items where `claimed_by IS NULL`
+     *   - "expired"   — items where `claimed_by IS NOT NULL AND claim_expires_at <= now`
      */
     suspend fun findByFilters(
         parentId: UUID? = null,
@@ -111,12 +116,15 @@ interface WorkItemRepository {
         sortOrder: String? = null,
         limit: Int = 50,
         offset: Int = 0,
-        type: String? = null
+        type: String? = null,
+        claimStatus: String? = null
     ): Result<List<WorkItem>>
 
     /**
      * Count work items matching multiple filter criteria (same filters as findByFilters, no pagination).
      * Returns the total number of matching rows regardless of any limit/offset.
+     *
+     * @param claimStatus Optional claim-status filter: "claimed", "unclaimed", or "expired".
      */
     suspend fun countByFilters(
         parentId: UUID? = null,
@@ -131,7 +139,8 @@ interface WorkItemRepository {
         modifiedBefore: Instant? = null,
         roleChangedAfter: Instant? = null,
         roleChangedBefore: Instant? = null,
-        type: String? = null
+        type: String? = null,
+        claimStatus: String? = null
     ): Result<Int>
 
     /**
@@ -236,4 +245,34 @@ interface WorkItemRepository {
         excludeActiveClaims: Boolean = true,
         limit: Int = 200
     ): Result<List<WorkItem>>
+
+    /**
+     * Count work items by claim status within an optional parent scope.
+     *
+     * Returns three counts:
+     * - [ClaimStatusCounts.active]   — items where `claimed_by IS NOT NULL AND claim_expires_at > now`
+     * - [ClaimStatusCounts.expired]  — items where `claimed_by IS NOT NULL AND claim_expires_at <= now`
+     * - [ClaimStatusCounts.unclaimed] — items where `claimed_by IS NULL`
+     *
+     * When [parentId] is provided, counts are scoped to direct children of that item. When null,
+     * counts are global across the entire work-item tree.
+     *
+     * Counts are computed at the DB level (SQL aggregation) — not load-all-rows-then-count.
+     *
+     * @param parentId Optional parent UUID to scope the aggregation.
+     */
+    suspend fun countByClaimStatus(parentId: UUID? = null): Result<ClaimStatusCounts>
 }
+
+/**
+ * Three-way claim-status count returned by [WorkItemRepository.countByClaimStatus].
+ *
+ * @property active    Items with a live (non-expired) claim.
+ * @property expired   Items that were claimed but the TTL has passed.
+ * @property unclaimed Items that have never been claimed (or whose claim was cleared).
+ */
+data class ClaimStatusCounts(
+    val active: Int,
+    val expired: Int,
+    val unclaimed: Int
+)

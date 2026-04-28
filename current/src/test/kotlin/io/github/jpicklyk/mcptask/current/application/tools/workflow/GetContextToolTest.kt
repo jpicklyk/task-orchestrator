@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -62,6 +63,10 @@ class GetContextToolTest {
 
         context = ToolExecutionContext(repoProvider, NoOpNoteSchemaService)
         schemaContext = ToolExecutionContext(repoProvider, noteSchemaService)
+
+        // Default stub for countByClaimStatus (called in health-check mode, additive field)
+        coEvery { workItemRepo.countByClaimStatus(any()) } returns
+            Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
