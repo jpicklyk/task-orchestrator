@@ -8,6 +8,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
+import java.time.Instant
+
+/** Valid values for the `claimStatus` search parameter. */
+private val VALID_CLAIM_STATUSES = setOf("claimed", "unclaimed", "expired")
 
 /**
  * Read-only MCP tool for querying WorkItems.
@@ -16,6 +20,11 @@ import kotlinx.serialization.json.*
  * - **get**: Fetch a single WorkItem by ID (full JSON)
  * - **search**: Filter WorkItems with multiple criteria (minimal JSON for token efficiency)
  * - **overview**: Hierarchical summary view (scoped to an item, or global root items)
+ *
+ * Tiered claim disclosure:
+ * - **search**: `claimStatus` filter supported; `isClaimed: Boolean` added to each result when filter is used.
+ *   `claimedBy` identity is NEVER included — use `get_context(itemId)` for full claim details.
+ * - **overview**: `claimSummary: { active, expired, unclaimed }` added per root item (counts only).
  */
 class QueryItemsTool : BaseToolDefinition() {
     override val name = "query_items"
@@ -34,8 +43,10 @@ Operations: get, search, overview
 - includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
 
 **search** - Filter items with multiple criteria
-- Optional: parentId, depth, role, priority, tags, query, createdAfter/Before, modifiedAfter/Before, sortBy, sortOrder, limit, offset
-- Returns minimal fields: id, parentId, title, role, priority, depth, tags
+- Optional: parentId, depth, role, priority, tags, query, createdAfter/Before, modifiedAfter/Before, sortBy, sortOrder, limit, offset, claimStatus
+- claimStatus (optional string): Filter by claim state — "claimed" (active live claim), "unclaimed" (never claimed), or "expired" (claim placed but TTL elapsed). When provided, a boolean `isClaimed` field is added to each result item.
+- Returns minimal fields: id, parentId, title, role, priority, depth, tags (plus isClaimed when claimStatus filter is used)
+- Note: claimedBy identity is NEVER included in search results (use get_context(itemId) for full claim details)
 - Wrapped in { items: [...], total: N, returned: N, limit: N, offset: N }
 - total is the full count of all matching rows (regardless of limit/offset)
 - returned is the count of items in this response page
@@ -44,7 +55,8 @@ Operations: get, search, overview
 
 **overview** - Hierarchical summary view
 - With itemId: Item metadata + child counts by role + direct children list
-- Without itemId: Global overview of all root items with per-root child counts
+- Without itemId: Global overview of all root items with per-root child counts and claimSummary { active, expired, unclaimed }
+- claimSummary counts are per root-item's subtree (or global when no itemId)
 - Default limit: 20 root items
 - includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
         """.trimIndent()
@@ -228,6 +240,19 @@ Operations: get, search, overview
                             put("description", JsonPrimitive("Filter by type identifier (exact match)"))
                         }
                     )
+                    put(
+                        "claimStatus",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Filter by claim state (search operation only): \"claimed\" (active live claim), \"unclaimed\" (claimed_by IS NULL), or \"expired\" (claim placed but TTL elapsed). When used, each result includes a boolean isClaimed field. claimedBy identity is NEVER exposed in search results."
+                                )
+                            )
+                            put("enum", JsonArray(listOf("claimed", "unclaimed", "expired").map { JsonPrimitive(it) }))
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -236,7 +261,15 @@ Operations: get, search, overview
         val operation = requireString(params, "operation")
         when (operation) {
             "get" -> validateIdOrPrefix(params, "id")
-            "search", "overview" -> { /* all parameters are optional */ }
+            "search" -> {
+                val claimStatus = optionalString(params, "claimStatus")
+                if (claimStatus != null && claimStatus !in VALID_CLAIM_STATUSES) {
+                    throw ToolValidationException(
+                        "Invalid claimStatus: \"$claimStatus\". Valid values: ${VALID_CLAIM_STATUSES.joinToString(", ") { "\"$it\"" }}"
+                    )
+                }
+            }
+            "overview" -> { /* all parameters are optional */ }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be one of: get, search, overview")
         }
     }
@@ -393,6 +426,8 @@ Operations: get, search, overview
         val limit = optionalInt(params, "limit") ?: 50
         val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
+        // claimStatus filter — validated in validateParams; safe to use directly here
+        val claimStatusFilter = optionalString(params, "claimStatus")
 
         // Validate time ranges — reject inverted ranges early
         if (createdAfter != null && createdBefore != null && createdAfter > createdBefore) {
@@ -442,7 +477,8 @@ Operations: get, search, overview
                         modifiedBefore = modifiedBefore,
                         roleChangedAfter = roleChangedAfter,
                         roleChangedBefore = roleChangedBefore,
-                        type = typeFilter
+                        type = typeFilter,
+                        claimStatus = claimStatusFilter
                     )
             ) {
                 is Result.Success -> countResult.data
@@ -468,7 +504,8 @@ Operations: get, search, overview
                     sortOrder = sortOrder,
                     limit = limit,
                     offset = offset,
-                    type = typeFilter
+                    type = typeFilter,
+                    claimStatus = claimStatusFilter
                 )
         ) {
             is Result.Success -> {
@@ -488,16 +525,7 @@ Operations: get, search, overview
                             "items",
                             JsonArray(
                                 items.map { item ->
-                                    if (includeAncestors) {
-                                        val ancestors = chains[item.id] ?: emptyList()
-                                        val minimalJson = item.toMinimalJson()
-                                        buildJsonObject {
-                                            minimalJson.forEach { (k, v) -> put(k, v) }
-                                            put("ancestors", buildAncestorsArray(ancestors))
-                                        }
-                                    } else {
-                                        item.toMinimalJson()
-                                    }
+                                    buildSearchResultItem(item, claimStatusFilter, includeAncestors, chains)
                                 }
                             )
                         )
@@ -513,6 +541,38 @@ Operations: get, search, overview
                     result.error.message,
                     ErrorCodes.DATABASE_ERROR
                 )
+        }
+    }
+
+    /**
+     * Build a single search-result item JSON object.
+     *
+     * **Tiered claim disclosure:** `claimedBy` is NEVER included in search results (even if the item
+     * has a claim). When a `claimStatus` filter was applied, a boolean `isClaimed` field is added to
+     * indicate whether the item currently has an active (non-expired) claim. This mirrors the pattern
+     * used by [GetNextItemTool.includeClaimed].
+     */
+    private fun buildSearchResultItem(
+        item: WorkItem,
+        claimStatusFilter: String?,
+        includeAncestors: Boolean,
+        chains: Map<java.util.UUID, List<WorkItem>>
+    ): JsonObject {
+        val minimalJson = item.toMinimalJson()
+        return buildJsonObject {
+            minimalJson.forEach { (k, v) -> put(k, v) }
+            // Tiered disclosure: add isClaimed boolean when claimStatus filter was used.
+            // NEVER expose claimedBy identity here — that belongs only in get_context(itemId).
+            if (claimStatusFilter != null) {
+                val activelyClaimedNow =
+                    item.claimedBy != null &&
+                        item.claimExpiresAt?.isAfter(Instant.now()) == true
+                put("isClaimed", JsonPrimitive(activelyClaimedNow))
+            }
+            if (includeAncestors) {
+                val ancestors = chains[item.id] ?: emptyList()
+                put("ancestors", buildAncestorsArray(ancestors))
+            }
         }
     }
 
@@ -595,13 +655,21 @@ Operations: get, search, overview
                 )
             }
 
-        // For each root item, get child counts by role and optionally children
+        // For each root item, get child counts by role, claim summary, and optionally children
         val itemsWithCounts =
             rootItems.map { item ->
                 val childCounts =
                     when (val result = context.workItemRepository().countChildrenByRole(item.id)) {
                         is Result.Success -> result.data
                         is Result.Error -> emptyMap()
+                    }
+
+                // Claim summary: scoped to this root item's direct children.
+                // (For a true subtree count, countByClaimStatus with parentId gives direct children only.)
+                val claimCounts =
+                    when (val result = context.workItemRepository().countByClaimStatus(parentId = item.id)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> null
                     }
 
                 buildJsonObject {
@@ -611,6 +679,17 @@ Operations: get, search, overview
                         put("traits", JsonArray(rootTraits.map { JsonPrimitive(it) }))
                     }
                     put("childCounts", roleCountToJson(childCounts))
+                    // claimSummary: counts for children of this root item (omit if query failed)
+                    if (claimCounts != null) {
+                        put(
+                            "claimSummary",
+                            buildJsonObject {
+                                put("active", JsonPrimitive(claimCounts.active))
+                                put("expired", JsonPrimitive(claimCounts.expired))
+                                put("unclaimed", JsonPrimitive(claimCounts.unclaimed))
+                            }
+                        )
+                    }
                     if (includeChildren) {
                         val children =
                             when (val result = context.workItemRepository().findChildren(item.id)) {

@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -16,8 +17,10 @@ import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greater
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNotNull
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
@@ -247,7 +250,8 @@ class SQLiteWorkItemRepository(
         sortOrder: String?,
         limit: Int,
         offset: Int,
-        type: String?
+        type: String?,
+        claimStatus: String?
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
             val baseQuery =
@@ -264,7 +268,8 @@ class SQLiteWorkItemRepository(
                     modifiedBefore,
                     roleChangedAfter,
                     roleChangedBefore,
-                    type
+                    type,
+                    claimStatus
                 )
 
             // Determine sort column and order
@@ -305,7 +310,8 @@ class SQLiteWorkItemRepository(
         modifiedBefore: Instant?,
         roleChangedAfter: Instant?,
         roleChangedBefore: Instant?,
-        type: String?
+        type: String?,
+        claimStatus: String?
     ): Result<Int> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
             val count =
@@ -322,7 +328,8 @@ class SQLiteWorkItemRepository(
                     modifiedBefore,
                     roleChangedAfter,
                     roleChangedBefore,
-                    type
+                    type,
+                    claimStatus
                 ).count()
 
             Result.Success(count.toInt())
@@ -577,6 +584,58 @@ class SQLiteWorkItemRepository(
             Result.Success(items)
         }
 
+    override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> =
+        databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
+            val now = Instant.now()
+
+            // Helper to build a base condition list optionally scoped to a parent
+            fun baseConditions(): MutableList<Op<Boolean>> {
+                val conds = mutableListOf<Op<Boolean>>()
+                parentId?.let { conds.add(WorkItemsTable.parentId eq it) }
+                return conds
+            }
+
+            // Active: claimed_by IS NOT NULL AND claim_expires_at > now
+            val activeConds =
+                baseConditions().also {
+                    it.add(WorkItemsTable.claimedBy.isNotNull())
+                    it.add(WorkItemsTable.claimExpiresAt greater now)
+                }
+            val activeCount =
+                WorkItemsTable
+                    .selectAll()
+                    .where { activeConds.reduce { acc, op -> acc and op } }
+                    .count()
+                    .toInt()
+
+            // Expired: claimed_by IS NOT NULL AND claim_expires_at <= now
+            val expiredConds =
+                baseConditions().also {
+                    it.add(WorkItemsTable.claimedBy.isNotNull())
+                    it.add(WorkItemsTable.claimExpiresAt lessEq now)
+                }
+            val expiredCount =
+                WorkItemsTable
+                    .selectAll()
+                    .where { expiredConds.reduce { acc, op -> acc and op } }
+                    .count()
+                    .toInt()
+
+            // Unclaimed: claimed_by IS NULL
+            val unclaimedConds =
+                baseConditions().also {
+                    it.add(WorkItemsTable.claimedBy.isNull())
+                }
+            val unclaimedCount =
+                WorkItemsTable
+                    .selectAll()
+                    .where { unclaimedConds.reduce { acc, op -> acc and op } }
+                    .count()
+                    .toInt()
+
+            Result.Success(ClaimStatusCounts(active = activeCount, expired = expiredCount, unclaimed = unclaimedCount))
+        }
+
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
         return databaseManager.suspendedTransaction("Failed to find ancestor chains") {
@@ -632,6 +691,11 @@ class SQLiteWorkItemRepository(
      * Build a tag filter that matches tags at word boundaries within a comma-separated string.
      * Builds a filtered SELECT query from optional filter parameters.
      * Shared by [findByFilters] and [countByFilters] to avoid duplicating condition construction.
+     *
+     * @param claimStatus Optional claim-status filter: "claimed", "unclaimed", or "expired".
+     *   - "claimed"   — `claimed_by IS NOT NULL AND claim_expires_at > now`
+     *   - "unclaimed" — `claimed_by IS NULL`
+     *   - "expired"   — `claimed_by IS NOT NULL AND claim_expires_at <= now`
      */
     private fun buildFilteredQuery(
         parentId: UUID?,
@@ -646,7 +710,8 @@ class SQLiteWorkItemRepository(
         modifiedBefore: Instant?,
         roleChangedAfter: Instant?,
         roleChangedBefore: Instant?,
-        type: String? = null
+        type: String? = null,
+        claimStatus: String? = null
     ): Query {
         val conditions = mutableListOf<Op<Boolean>>()
 
@@ -668,6 +733,28 @@ class SQLiteWorkItemRepository(
         roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
         roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
         type?.let { conditions.add(WorkItemsTable.type eq it) }
+
+        // Claim-status filter — applied at DB level to avoid loading unclaimed/claimed rows unnecessarily.
+        val now = Instant.now()
+        claimStatus?.let {
+            when (it.lowercase()) {
+                "claimed" -> {
+                    // Active claim: claimed_by IS NOT NULL AND claim_expires_at > now
+                    conditions.add(WorkItemsTable.claimedBy.isNotNull())
+                    conditions.add(WorkItemsTable.claimExpiresAt greater now)
+                }
+                "unclaimed" -> {
+                    // Never-claimed (or explicitly released): claimed_by IS NULL
+                    conditions.add(WorkItemsTable.claimedBy.isNull())
+                }
+                "expired" -> {
+                    // Claim placed but TTL has passed: claimed_by IS NOT NULL AND claim_expires_at <= now
+                    conditions.add(WorkItemsTable.claimedBy.isNotNull())
+                    conditions.add(WorkItemsTable.claimExpiresAt lessEq now)
+                }
+                // Unknown values are silently ignored here; validation happens at the tool layer.
+            }
+        }
 
         return if (conditions.isEmpty()) {
             WorkItemsTable.selectAll()
