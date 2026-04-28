@@ -1,15 +1,79 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
+ * Determines how the system behaves when actor-claim verification cannot produce a
+ * [VerificationStatus.VERIFIED] result.
+ *
+ * Three-value enum aligned with the `auth.degradedModePolicy` config key described in the
+ * v1 implementation plan (issue #117, distributed-correctness contract item 4).
+ *
+ * Values:
+ * - [ACCEPT_CACHED] *(default)* — preserves the v3.3.0 stale-cache fallback.
+ *   When verification status is [VerificationStatus.UNAVAILABLE] **and** a stale cached key was
+ *   used (i.e., `metadata["verifiedFromCache"] == "true"`), the verified `actor.id` from the JWT
+ *   is trusted. For all other non-VERIFIED outcomes, the system falls back to the self-reported
+ *   `actor.id` supplied by the caller (same as prior implicit behavior).
+ * - [ACCEPT_SELF_REPORTED] — always trusts the caller-supplied `actor.id` regardless of
+ *   verification outcome. This is the v3.2 implicit behavior; explicitly labeled here so operators
+ *   understand they are opting out of JWKS identity guarantees.
+ * - [REJECT] — any operation that requires verified identity is rejected when the verification
+ *   status is not [VerificationStatus.VERIFIED]. Recommended for cross-org `did:web` deployments.
+ *
+ * **Downstream integration points (items 4 and 5):**
+ * - `claim_item` (item 4): when placing a claim, the trusted actor id is determined by
+ *   `DegradedModePolicy.resolveTrustedActorId(actorClaim, verificationResult)`.
+ * - `AdvanceItemTool` ownership checks (item 5): claim ownership is validated against the
+ *   same trusted actor id resolver to ensure consistent identity resolution.
+ */
+enum class DegradedModePolicy {
+    /** Trust verified `actor.id` from stale-cache fallback; otherwise fall back to self-reported. */
+    ACCEPT_CACHED,
+
+    /**
+     * Always trust the self-reported `actor.id` from the caller, regardless of verification.
+     * Documents the pre-v3.3 implicit behavior explicitly.
+     */
+    ACCEPT_SELF_REPORTED,
+
+    /** Reject any operation requiring identity when the actor is not fully verified. */
+    REJECT;
+
+    fun toConfigString(): String =
+        when (this) {
+            ACCEPT_CACHED -> "accept-cached"
+            ACCEPT_SELF_REPORTED -> "accept-self-reported"
+            REJECT -> "reject"
+        }
+
+    companion object {
+        /**
+         * Parse a config-file string to a [DegradedModePolicy].
+         * Accepts both hyphenated config-file form (`accept-cached`) and enum name form (`ACCEPT_CACHED`).
+         * Defaults to [ACCEPT_CACHED] if the value is unrecognized (with caller responsible for warning).
+         */
+        fun fromConfigString(value: String): DegradedModePolicy? =
+            when (value.lowercase().replace("_", "-")) {
+                "accept-cached" -> ACCEPT_CACHED
+                "accept-self-reported" -> ACCEPT_SELF_REPORTED
+                "reject" -> REJECT
+                else -> null
+            }
+    }
+}
+
+/**
  * Top-level auditing configuration parsed from `.taskorchestrator/config.yaml`
  * under the `auditing:` key.
  *
  * @param enabled Whether auditing is active (default true).
  * @param verifier The actor-claim verifier strategy to use.
+ * @param degradedModePolicy Controls what happens when actor verification is not fully successful.
+ *   See [DegradedModePolicy] for the three values and their security trade-offs.
  */
 data class AuditingConfig(
     val enabled: Boolean = true,
-    val verifier: VerifierConfig = VerifierConfig.Noop
+    val verifier: VerifierConfig = VerifierConfig.Noop,
+    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
 )
 
 /**

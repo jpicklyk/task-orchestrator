@@ -2,10 +2,31 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
+
+/**
+ * Outcome of applying the [DegradedModePolicy] to a (claim, verification) pair.
+ *
+ * - [Trusted] — a trusted actor id was resolved; downstream logic may proceed.
+ * - [Rejected] — the policy rejects the operation; the tool should return an error.
+ */
+sealed class PolicyResolution {
+    /** The trusted actor id to use in place of (or equal to) the self-reported id. */
+    data class Trusted(
+        val trustedId: String
+    ) : PolicyResolution()
+
+    /** The policy requires rejection; [reason] is a human-readable explanation. */
+    data class Rejected(
+        val reason: String
+    ) : PolicyResolution()
+}
 
 /**
  * Result of parsing an optional actor claim from a JSON object.
@@ -74,5 +95,93 @@ interface ActorAware {
             )
         val verification = context.actorVerifier().verify(claim)
         return ActorParseResult.Success(claim, verification)
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(ActorAware::class.java)
+
+        /**
+         * Applies the [DegradedModePolicy] to determine the trusted actor identity.
+         *
+         * This is the central resolution point that `claim_item` (item 4) and
+         * `AdvanceItemTool` ownership checks (item 5) must call when verifying that
+         * the actor performing an operation matches the claim holder.
+         *
+         * **Policy behaviour:**
+         * - [DegradedModePolicy.ACCEPT_CACHED]: When the verification status is
+         *   [VerificationStatus.VERIFIED] (including stale-cache verification where
+         *   `metadata["verifiedFromCache"] == "true"`), the verified `actor.id` from the
+         *   JWT (`claim.id` — already validated against `sub` by [JwksActorVerifier]) is
+         *   returned. For all other non-VERIFIED statuses (UNAVAILABLE without cache,
+         *   ABSENT, UNCHECKED, REJECTED), the self-reported `claim.id` is returned as-is,
+         *   preserving the pre-v3.3 implicit fallback.
+         * - [DegradedModePolicy.ACCEPT_SELF_REPORTED]: Always returns the self-reported
+         *   `claim.id`. Logs a deprecation-style warning when a JWKS verifier is active so
+         *   operators notice they've opted out of the identity guarantee.
+         * - [DegradedModePolicy.REJECT]: Returns [PolicyResolution.Rejected] for any status
+         *   other than [VerificationStatus.VERIFIED]. The caller must surface this as an
+         *   operation error.
+         *
+         * @param claim The parsed actor claim from the request.
+         * @param verification The result from [ActorVerifier.verify].
+         * @param policy The configured [DegradedModePolicy].
+         * @return [PolicyResolution.Trusted] with the identity to use, or
+         *         [PolicyResolution.Rejected] if the operation must be blocked.
+         */
+        fun resolveTrustedActorId(
+            claim: ActorClaim,
+            verification: VerificationResult,
+            policy: DegradedModePolicy
+        ): PolicyResolution {
+            val isVerified = verification.status == VerificationStatus.VERIFIED
+
+            return when (policy) {
+                DegradedModePolicy.ACCEPT_CACHED -> {
+                    // VERIFIED (live or stale-cache) → trust the JWT-validated actor.id
+                    if (isVerified) {
+                        PolicyResolution.Trusted(claim.id)
+                    } else {
+                        // Non-VERIFIED: fall back to self-reported id (preserves pre-v3.3 behavior)
+                        PolicyResolution.Trusted(claim.id)
+                    }
+                }
+
+                DegradedModePolicy.ACCEPT_SELF_REPORTED -> {
+                    // Always trust self-reported id — operator has explicitly opted out of JWKS guarantees.
+                    // Log a warning when verification was actually attempted but not VERIFIED.
+                    if (!isVerified && verification.verifier != null && verification.verifier != "noop") {
+                        logger.warn(
+                            "degradedModePolicy=accept-self-reported: using self-reported actor.id='{}' " +
+                                "despite verification status '{}' from verifier '{}'. " +
+                                "This negates JWKS identity guarantees.",
+                            claim.id,
+                            verification.status,
+                            verification.verifier
+                        )
+                    }
+                    PolicyResolution.Trusted(claim.id)
+                }
+
+                DegradedModePolicy.REJECT -> {
+                    if (isVerified) {
+                        PolicyResolution.Trusted(claim.id)
+                    } else {
+                        val reason =
+                            "degradedModePolicy=reject: actor verification status is " +
+                                "'${verification.status.toJsonString()}'" +
+                                (verification.reason?.let { " ($it)" } ?: "") +
+                                "; operation rejected. Configure JWKS verification or change " +
+                                "degraded_mode_policy to accept-cached or accept-self-reported."
+                        logger.info(
+                            "degradedModePolicy=reject blocking actor.id='{}': status={}, reason={}",
+                            claim.id,
+                            verification.status,
+                            verification.reason
+                        )
+                        PolicyResolution.Rejected(reason)
+                    }
+                }
+            }
+        }
     }
 }

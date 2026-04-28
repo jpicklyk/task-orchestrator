@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -32,7 +33,8 @@ class ToolExecutionContext(
     private val noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
     private val mcpLoggingService: McpLoggingService = NoOpMcpLoggingService,
-    private val actorVerifier: ActorVerifier = NoOpActorVerifier
+    private val actorVerifier: ActorVerifier = NoOpActorVerifier,
+    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
 ) {
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

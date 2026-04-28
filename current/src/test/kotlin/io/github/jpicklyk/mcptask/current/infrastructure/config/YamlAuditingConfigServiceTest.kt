@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.AuditingConfig
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -378,6 +379,111 @@ class YamlAuditingConfigServiceTest {
         val service = YamlAuditingConfigService(configFile)
 
         assertFalse(service.getConfig().enabled)
+    }
+
+    // -------------------------------------------------------------------------
+    // degraded_mode_policy parsing
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `degraded_mode_policy defaults to ACCEPT_CACHED when absent`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `degraded_mode_policy accept-cached is parsed correctly`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: accept-cached
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `degraded_mode_policy accept-self-reported is parsed correctly`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: accept-self-reported
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+        assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, service.getConfig().degradedModePolicy)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `degraded_mode_policy reject is parsed correctly`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: reject
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `degraded_mode_policy unknown value produces warning and defaults to ACCEPT_CACHED`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: banana
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+        assertTrue(service.getWarnings().isNotEmpty())
+        assertTrue(service.getWarnings().any { it.contains("banana") })
+    }
+
+    @Test
+    fun `AuditingConfig default has degraded_mode_policy ACCEPT_CACHED`() {
+        val configFile =
+            createConfigFile(
+                """
+                note_schemas:
+                  default:
+                    - key: test
+                      role: queue
+                      required: false
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
     }
 
     // -------------------------------------------------------------------------

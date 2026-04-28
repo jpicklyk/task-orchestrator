@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.AuditingConfig
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
@@ -17,6 +18,7 @@ import java.nio.file.Path
  * ```yaml
  * auditing:
  *   enabled: true
+ *   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
  *   verifier:
  *     type: jwks          # "jwks" or "noop" (default: noop)
  *     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
@@ -89,7 +91,16 @@ class YamlAuditingConfigService(
                         VerifierConfig.Noop
                     }
 
-                LoadResult(AuditingConfig(enabled = enabled, verifier = verifier), warnings)
+                val degradedModePolicy = parseDegradedModePolicy(auditingSection, warnings)
+
+                LoadResult(
+                    AuditingConfig(
+                        enabled = enabled,
+                        verifier = verifier,
+                        degradedModePolicy = degradedModePolicy
+                    ),
+                    warnings
+                )
             }
         } catch (e: Exception) {
             val msg = "Failed to load auditing config from '$configPath': ${e.message}"
@@ -97,6 +108,23 @@ class YamlAuditingConfigService(
             logger.warn(msg)
             LoadResult(AuditingConfig(), warnings)
         }
+    }
+
+    private fun parseDegradedModePolicy(
+        auditingSection: Map<String, Any>,
+        warnings: MutableList<String>
+    ): DegradedModePolicy {
+        val raw = auditingSection["degraded_mode_policy"] as? String ?: return DegradedModePolicy.ACCEPT_CACHED
+        val parsed = DegradedModePolicy.fromConfigString(raw)
+        if (parsed == null) {
+            val msg =
+                "Unknown auditing.degraded_mode_policy '$raw'; " +
+                    "valid values: accept-cached, accept-self-reported, reject. Defaulting to accept-cached."
+            warnings.add(msg)
+            logger.warn(msg)
+            return DegradedModePolicy.ACCEPT_CACHED
+        }
+        return parsed
     }
 
     @Suppress("UNCHECKED_CAST")
