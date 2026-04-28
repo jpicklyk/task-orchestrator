@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
+import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -28,6 +30,7 @@ import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -412,6 +415,129 @@ class SQLiteWorkItemRepository(
             Result.Success(items)
         }
     }
+
+    override suspend fun claim(
+        itemId: UUID,
+        agentId: String,
+        ttlSeconds: Int
+    ): ClaimResult =
+        try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // Sanitize agentId for safe SQL embedding — strip single-quotes to prevent injection.
+                // The UUID is validated by type, so no risk there.
+                val safeAgentId = agentId.replace("'", "''")
+                // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
+                val safeItemHex = itemId.toString().replace("-", "").uppercase()
+
+                // Step 1: Auto-release all prior claims by this agent EXCEPT the target item.
+                exec(
+                    """
+                    UPDATE work_items
+                      SET claimed_by = NULL,
+                          claimed_at = NULL,
+                          claim_expires_at = NULL,
+                          original_claimed_at = NULL,
+                          version = version + 1
+                      WHERE claimed_by = '$safeAgentId'
+                        AND HEX(id) != '$safeItemHex'
+                    """.trimIndent()
+                )
+
+                // Step 2: Claim or refresh the target item using only DB-side timestamps.
+                // Matches rows that are: (a) unclaimed, (b) expired, or (c) already held by this agent.
+                // TERMINAL items are always excluded.
+                exec(
+                    """
+                    UPDATE work_items
+                      SET claimed_by = '$safeAgentId',
+                          claimed_at = datetime('now'),
+                          claim_expires_at = datetime('now', '+$ttlSeconds seconds'),
+                          original_claimed_at = COALESCE(
+                            CASE WHEN claimed_by = '$safeAgentId' THEN original_claimed_at ELSE NULL END,
+                            datetime('now')
+                          ),
+                          version = version + 1
+                      WHERE HEX(id) = '$safeItemHex'
+                        AND role != 'terminal'
+                        AND (claimed_by IS NULL
+                             OR claim_expires_at < datetime('now')
+                             OR claimed_by = '$safeAgentId')
+                    """.trimIndent()
+                )
+
+                // Read back the current state: if claimedBy == agentId, the claim succeeded.
+                val row = WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
+
+                when {
+                    row == null -> ClaimResult.NotFound(itemId)
+                    else -> {
+                        val item = toWorkItem(row)
+                        when {
+                            item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
+                            item.claimedBy == agentId -> ClaimResult.Success(item)
+                            else -> {
+                                // Claimed by someone else — compute retryAfterMs from their expiry.
+                                val retryAfterMs =
+                                    item.claimExpiresAt?.let { exp ->
+                                        val remaining = exp.toEpochMilli() - System.currentTimeMillis()
+                                        if (remaining > 0) remaining else null
+                                    }
+                                ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to claim WorkItem $itemId for agent $agentId: ${e.message}", e)
+            ClaimResult.NotFound(itemId) // surface as not-found on unexpected DB error
+        }
+
+    override suspend fun release(
+        itemId: UUID,
+        agentId: String
+    ): ReleaseResult =
+        try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                val safeAgentId = agentId.replace("'", "''")
+                // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
+                val safeItemHex = itemId.toString().replace("-", "").uppercase()
+
+                // Check existence and current claimant before attempting update.
+                val row =
+                    WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
+                        ?: return@newSuspendedTransaction ReleaseResult.NotFound(itemId)
+
+                val item = toWorkItem(row)
+                if (item.claimedBy != agentId) {
+                    return@newSuspendedTransaction ReleaseResult.NotClaimedByYou(itemId)
+                }
+
+                // Release: clear all four claim fields atomically.
+                exec(
+                    """
+                    UPDATE work_items
+                      SET claimed_by = NULL,
+                          claimed_at = NULL,
+                          claim_expires_at = NULL,
+                          original_claimed_at = NULL,
+                          version = version + 1
+                      WHERE HEX(id) = '$safeItemHex'
+                        AND claimed_by = '$safeAgentId'
+                    """.trimIndent()
+                )
+
+                // Read back updated state.
+                val updatedRow =
+                    WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
+                        ?: return@newSuspendedTransaction ReleaseResult.NotFound(itemId)
+
+                ReleaseResult.Success(toWorkItem(updatedRow))
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to release WorkItem $itemId for agent $agentId: ${e.message}", e)
+            ReleaseResult.NotFound(itemId)
+        }
 
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
