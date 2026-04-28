@@ -2375,4 +2375,79 @@ class AdvanceItemToolTest {
             assertEquals(1, summary["failed"]!!.jsonPrimitive.int)
             assertEquals(0, summary["succeeded"]!!.jsonPrimitive.int)
         }
+
+    // ──────────────────────────────────────────────
+    // UserTrigger enum boundary enforcement
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cascade trigger is rejected at validateParams boundary`() {
+        val params =
+            buildJsonObject {
+                put(
+                    "transitions",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", UUID.randomUUID().toString())
+                                put("trigger", "cascade")
+                            }
+                        )
+                    }
+                )
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(params) }
+        assertTrue(
+            ex.message!!.contains("cascade", ignoreCase = true) ||
+                ex.message!!.contains("not a valid trigger", ignoreCase = true),
+            "Expected validation error to mention cascade or valid trigger list but got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `unknown trigger string is rejected at validateParams boundary`() {
+        val params =
+            buildJsonObject {
+                put(
+                    "transitions",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", UUID.randomUUID().toString())
+                                put("trigger", "teleport")
+                            }
+                        )
+                    }
+                )
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(params) }
+        assertTrue(
+            ex.message!!.contains("teleport", ignoreCase = true) ||
+                ex.message!!.contains("not a valid trigger", ignoreCase = true),
+            "Expected validation error mentioning unknown trigger: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `all valid UserTrigger strings pass validateParams`() {
+        val validTriggers = listOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
+        for (triggerStr in validTriggers) {
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", UUID.randomUUID().toString())
+                                    put("trigger", triggerStr)
+                                }
+                            )
+                        }
+                    )
+                }
+            // Should not throw
+            tool.validateParams(params)
+        }
+    }
 }

@@ -17,6 +17,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+// Note: UserTrigger is in the domain.model package imported via the wildcard above.
+
 class RoleTransitionHandlerTest {
     private val handler = RoleTransitionHandler()
 
@@ -721,6 +723,155 @@ class RoleTransitionHandlerTest {
                 val captured = transitionSlot.captured
                 assertNull(captured.actorClaim)
                 assertNull(captured.verification)
+            }
+    }
+
+    // -----------------------------------------------------------------------
+    // High-level entry points: userTransition and cascadeTransition
+    // -----------------------------------------------------------------------
+
+    @Nested
+    inner class EntryPoints {
+        private val depRepo: DependencyRepository = mockk()
+        private val workItemRepo: WorkItemRepository = mockk()
+        private val roleTransitionRepo: RoleTransitionRepository = mockk()
+
+        @Test
+        fun `userTransition START moves QUEUE to WORK`() =
+            runBlocking {
+                val item = testItem(role = Role.QUEUE)
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.userTransition(
+                        item = item,
+                        trigger = UserTrigger.START,
+                        summary = null,
+                        statusLabel = null,
+                        hasReviewPhase = true,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo,
+                        dependencyRepository = depRepo
+                    )
+
+                assertTrue(result.success)
+                assertEquals(Role.QUEUE, result.previousRole)
+                assertEquals(Role.WORK, result.newRole)
+                assertEquals("start", result.trigger)
+            }
+
+        @Test
+        fun `userTransition CANCEL sets terminal with cancelled statusLabel`() =
+            runBlocking {
+                val item = testItem(role = Role.WORK)
+                every { depRepo.findByToItemId(item.id) } returns emptyList()
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.userTransition(
+                        item = item,
+                        trigger = UserTrigger.CANCEL,
+                        summary = null,
+                        statusLabel = null,
+                        hasReviewPhase = true,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo,
+                        dependencyRepository = depRepo
+                    )
+
+                assertTrue(result.success)
+                assertEquals(Role.TERMINAL, result.newRole)
+                assertEquals("cancel", result.trigger)
+            }
+
+        @Test
+        fun `userTransition returns failure when dependency constraint not satisfied`() =
+            runBlocking {
+                val blockerId = UUID.randomUUID()
+                val item = testItem(role = Role.QUEUE)
+                val blockerItem = testItem(id = blockerId, role = Role.QUEUE)
+                val dep =
+                    Dependency(
+                        fromItemId = blockerId,
+                        toItemId = item.id,
+                        type = DependencyType.BLOCKS
+                    )
+                every { depRepo.findByToItemId(item.id) } returns listOf(dep)
+                every { depRepo.findByFromItemId(item.id) } returns emptyList()
+                coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+
+                val result =
+                    handler.userTransition(
+                        item = item,
+                        trigger = UserTrigger.START,
+                        summary = null,
+                        statusLabel = null,
+                        hasReviewPhase = true,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo,
+                        dependencyRepository = depRepo
+                    )
+
+                assertFalse(result.success)
+                assertNotNull(result.error)
+            }
+
+        @Test
+        fun `cascadeTransition applies directly to targetRole without ownership check`() =
+            runBlocking {
+                val item = testItem(role = Role.WORK)
+                val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.cascadeTransition(
+                        item = item,
+                        targetRole = Role.TERMINAL,
+                        reason = "Auto-cascaded from child completion",
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success)
+                assertEquals(Role.WORK, result.previousRole)
+                assertEquals(Role.TERMINAL, result.newRole)
+                assertEquals("cascade", result.trigger)
+
+                // Verify the audit trail records trigger = "cascade" and null actor
+                val captured = transitionSlot.captured
+                assertEquals("cascade", captured.trigger)
+                assertNull(captured.actorClaim)
+            }
+
+        @Test
+        fun `cascadeTransition does not run dependency validation`() =
+            runBlocking {
+                // Even if there were blocking dependencies, cascadeTransition bypasses them
+                // (the system is triggering the cascade, not a user agent)
+                val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+                // depRepo is NOT set up — any call to it would throw an exception
+                // The test passes only if cascadeTransition never calls depRepo
+
+                val result =
+                    handler.cascadeTransition(
+                        item = item,
+                        targetRole = Role.TERMINAL,
+                        reason = "cascade reason",
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success, "cascadeTransition should not run dependency validation")
+                verify(exactly = 0) { depRepo.findByToItemId(any()) }
+                verify(exactly = 0) { depRepo.findByFromItemId(any()) }
             }
     }
 }
