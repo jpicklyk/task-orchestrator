@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
@@ -12,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
@@ -88,6 +90,7 @@ class CurrentMcpServer(
             val statusLabelService = YamlStatusLabelService()
             val mcpLoggingService = DefaultMcpLoggingService()
             val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
+            val idempotencyCache = IdempotencyCache()
             val toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
@@ -95,7 +98,8 @@ class CurrentMcpServer(
                     statusLabelService,
                     mcpLoggingService,
                     actorVerifier,
-                    degradedModePolicy
+                    degradedModePolicy,
+                    idempotencyCache
                 )
             logger.info("Repository provider and tool context initialized")
 

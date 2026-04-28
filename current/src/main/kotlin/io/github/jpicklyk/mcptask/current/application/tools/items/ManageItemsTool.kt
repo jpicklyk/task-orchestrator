@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
+import java.util.UUID
 
 /**
  * MCP tool for creating, updating, and deleting WorkItems.
@@ -22,7 +23,9 @@ import kotlinx.serialization.json.*
  * - [UpdateItemHandler] for update operations
  * - [DeleteItemHandler] for delete operations
  */
-class ManageItemsTool : BaseToolDefinition() {
+class ManageItemsTool :
+    BaseToolDefinition(),
+    ActorAware {
     companion object {
         /** Maximum allowed nesting depth for WorkItems. Delegates to [ItemHierarchyValidator]. */
         const val MAX_DEPTH = ItemHierarchyValidator.MAX_DEPTH
@@ -37,6 +40,8 @@ class ManageItemsTool : BaseToolDefinition() {
     override val description =
         """
 Unified write operations for WorkItems (create, update, delete).
+
+**Idempotency:** Pass `requestId` (client-generated UUID) to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 **Operations:**
 
@@ -164,6 +169,19 @@ Unified write operations for WorkItems (create, update, delete).
                             )
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -198,30 +216,62 @@ Unified write operations for WorkItems (create, update, delete).
         context: ToolExecutionContext
     ): JsonElement {
         val operation = requireString(params, "operation")
-        return when (operation) {
-            "create" -> {
-                val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
-                if (parentIdError != null) return parentIdError
-                createHandler.execute(
-                    requireJsonArray(params, "items"),
-                    parentId,
-                    optionalString(params, "traits"),
-                    context
-                )
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
             }
-            "update" ->
-                updateHandler.execute(
-                    requireJsonArray(params, "items"),
-                    context
-                )
-            "delete" ->
-                deleteHandler.execute(
-                    requireJsonArray(params, "ids"),
-                    optionalBoolean(params, "recursive", false),
-                    context
-                )
-            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+
+        // Resolve actor identity for idempotency key (use actor.id if provided)
+        val actorId =
+            (params as? JsonObject)
+                ?.get("actor")
+                ?.let { it as? JsonObject }
+                ?.get("id")
+                ?.let { (it as? JsonPrimitive)?.content }
+
+        // Check idempotency cache before executing
+        if (requestId != null && actorId != null) {
+            val cached = context.idempotencyCache.get(actorId, requestId)
+            if (cached != null) return cached as JsonElement
         }
+
+        val result =
+            when (operation) {
+                "create" -> {
+                    val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+                    if (parentIdError != null) return parentIdError
+                    createHandler.execute(
+                        requireJsonArray(params, "items"),
+                        parentId,
+                        optionalString(params, "traits"),
+                        context
+                    )
+                }
+                "update" ->
+                    updateHandler.execute(
+                        requireJsonArray(params, "items"),
+                        context
+                    )
+                "delete" ->
+                    deleteHandler.execute(
+                        requireJsonArray(params, "ids"),
+                        optionalBoolean(params, "recursive", false),
+                        context
+                    )
+                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            }
+
+        // Store result in idempotency cache
+        if (requestId != null && actorId != null) {
+            context.idempotencyCache.put(actorId, requestId, result)
+        }
+
+        return result
     }
 
     override fun userSummary(

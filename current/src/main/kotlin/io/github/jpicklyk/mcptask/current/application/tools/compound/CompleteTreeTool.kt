@@ -25,12 +25,16 @@ import java.util.UUID
  *
  * One of rootId or itemIds must be provided.
  */
-class CompleteTreeTool : BaseToolDefinition() {
+class CompleteTreeTool :
+    BaseToolDefinition(),
+    ActorAware {
     override val name = "complete_tree"
 
     override val description =
         """
 Complete or cancel all descendants of a root item (or an explicit list of items) in topological dependency order.
+
+**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 **Parameters:**
 - `rootId` (optional UUID string): complete all descendants of this item (exclusive with itemIds)
@@ -130,6 +134,34 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                             )
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing. " +
+                                        "Requires a top-level actor parameter to function."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("object"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Top-level actor for idempotency key resolution: " +
+                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent? (optional string), proof? (optional string) }"
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf()
         )
@@ -197,6 +229,29 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         val paramsObj = params as JsonObject
         val trigger = (paramsObj["trigger"] as? JsonPrimitive)?.content?.lowercase() ?: "complete"
         val includeRoot = (paramsObj["includeRoot"] as? JsonPrimitive)?.booleanOrNull ?: true
+
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+
+        // Resolve top-level actor identity for idempotency key
+        val actorId =
+            paramsObj["actor"]
+                ?.let { it as? JsonObject }
+                ?.get("id")
+                ?.let { (it as? JsonPrimitive)?.content }
+
+        // Check idempotency cache before executing
+        if (requestId != null && actorId != null) {
+            val cached = context.idempotencyCache.get(actorId, requestId)
+            if (cached != null) return cached as JsonElement
+        }
 
         // Step 1: Collect target items (descendants only) and optionally the root item separately
         val (targetItems, rootItem) = collectTargetItemsWithRoot(paramsObj, context, includeRoot)
@@ -413,7 +468,14 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 )
             }
 
-        return successResponse(data)
+        val response = successResponse(data)
+
+        // Store result in idempotency cache
+        if (requestId != null && actorId != null) {
+            context.idempotencyCache.put(actorId, requestId, response)
+        }
+
+        return response
     }
 
     /**

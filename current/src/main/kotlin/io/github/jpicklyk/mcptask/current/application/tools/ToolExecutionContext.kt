@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.McpLoggingService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpMcpLoggingService
@@ -34,7 +35,8 @@ class ToolExecutionContext(
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
     private val mcpLoggingService: McpLoggingService = NoOpMcpLoggingService,
     private val actorVerifier: ActorVerifier = NoOpActorVerifier,
-    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
+    val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+    val idempotencyCache: IdempotencyCache = IdempotencyCache()
 ) {
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

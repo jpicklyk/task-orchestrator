@@ -20,7 +20,9 @@ import java.util.UUID
  *
  * Depth enforcement: root item depth must be < [MAX_DEPTH]; children are depth+1.
  */
-class CreateWorkTreeTool : BaseToolDefinition() {
+class CreateWorkTreeTool :
+    BaseToolDefinition(),
+    ActorAware {
     companion object {
         /** Maximum allowed nesting depth (shared with ManageItemsTool). */
         const val MAX_DEPTH = 3
@@ -34,6 +36,8 @@ class CreateWorkTreeTool : BaseToolDefinition() {
     override val description =
         """
 Atomically create a hierarchical work tree: root item, child items, dependencies, and optional notes.
+
+**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 **Parameters:**
 - `root` (required): Root item spec `{ title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }`
@@ -127,6 +131,34 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             )
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing. " +
+                                        "Requires a top-level actor parameter to function."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("object"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Top-level actor for idempotency key resolution: " +
+                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent? (optional string), proof? (optional string) }"
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("root")
         )
@@ -199,6 +231,29 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         context: ToolExecutionContext
     ): JsonElement {
         val paramsObj = params as JsonObject
+
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+
+        // Resolve top-level actor identity for idempotency key
+        val actorId =
+            paramsObj["actor"]
+                ?.let { it as? JsonObject }
+                ?.get("id")
+                ?.let { (it as? JsonPrimitive)?.content }
+
+        // Check idempotency cache before executing
+        if (requestId != null && actorId != null) {
+            val cached = context.idempotencyCache.get(actorId, requestId)
+            if (cached != null) return cached as JsonElement
+        }
 
         // ── 1. Parse parentId (optional) ──────────────────────────────────────
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
@@ -422,7 +477,14 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 put("notes", notesJson)
             }
 
-        return successResponse(data)
+        val response = successResponse(data)
+
+        // Store result in idempotency cache
+        if (requestId != null && actorId != null) {
+            context.idempotencyCache.put(actorId, requestId, response)
+        }
+
+        return response
     }
 
     override fun userSummary(
