@@ -856,6 +856,82 @@ docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.
 
 ---
 
+## 10. Claim Mechanism for Multi-Agent Fleets
+
+The claim mechanism prevents race conditions between independent agents competing for the same work items. It is optional: single-orchestrator deployments that serialize work dispatch do not need claims.
+
+### When to Use Claims
+
+**Skip claims if:**
+- A single orchestrator dispatches work sequentially — it controls which agent gets which item.
+- Your fleet has a natural partition (e.g., each agent handles a different feature tree).
+
+**Use claims when:**
+- 10 or more independent agents poll `get_next_item` and `advance_item` concurrently.
+- You observe agents starting the same item twice (the `get_next_item → advance_item` race).
+- Crash recovery requirements demand TTL-based automatic release.
+
+### Claim Lifecycle
+
+```
+get_next_item()                     → find an unclaimed item
+claim_item(claims=[{itemId, ttl}])  → claim it (auto-releases any prior claim by this agent)
+  outcome=success → proceed with advance_item + work
+  outcome=already_claimed → pick a different item (retryAfterMs available)
+advance_item(trigger="start")       → ownership enforced: actor must match claimedBy
+  ... do work ...
+claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (if work > TTL/2 = 450s)
+advance_item(trigger="complete")    → ownership enforced at completion too
+```
+
+### Heartbeat Pattern
+
+For long-running work (longer than the TTL — default 900s), re-call `claim_item` before the TTL expires to refresh it. Recommended cadence: **TTL/2 = 450s** for the 900s default.
+
+Re-claiming an already-held item:
+- Refreshes `claimExpiresAt` (new TTL from now)
+- Preserves `originalClaimedAt` (first claim timestamp is not overwritten)
+
+Operators can inspect `originalClaimedAt` via `get_context(itemId)` to distinguish freshly-claimed items from long-running renewed work.
+
+**Heartbeat write overhead.** Every re-claim is a row `UPDATE` on `work_items`. At 30 agents with TTL=900s, heartbeats produce approximately 4 writes/minute versus 30–60 writes/minute from real work transitions (~7% overhead). This is acceptable for v1. If writer contention from heartbeat traffic becomes a measured bottleneck, the mitigation is splitting heartbeats into a separate `claim_heartbeats` table (a non-breaking repository-layer change deferred to v1.5+).
+
+### Crash Recovery via Passive Expiry
+
+There is no background reaper process. When an agent crashes or is killed, its claim expires naturally within the configured TTL (default 900s). Expired claims are filtered at read time:
+- `get_next_item()` (default `includeClaimed=false`) excludes items with live claims but includes items with expired claims.
+- `query_items(claimStatus="expired")` surfaces items with elapsed TTLs for operator inspection.
+
+No manual cleanup is needed for correctness. Use `get_context(itemId)` to confirm whether a specific item's claim has expired (`isExpired: true`).
+
+### Discovery Patterns
+
+Multi-role fleets use `get_next_item(role=...)` to target different pipeline stages:
+
+| Agent group | Call |
+|---|---|
+| Work-group (implementation) | `get_next_item()` (default `role=queue`) |
+| Review-group | `get_next_item(role="review")` |
+| Triage-group | `get_next_item(role="blocked")` |
+| Fleet health operator | `get_next_item(includeClaimed=true)` — includes claimed items, shows `isClaimed` boolean |
+
+### `includeClaimed` for Fleet Visibility
+
+`get_next_item(includeClaimed=true)` and `query_items(claimStatus="expired")` are the primary operator tools for debugging stale claims:
+
+```json
+// Find all expired claims across the fleet
+query_items(operation="search", claimStatus="expired")
+
+// Diagnose a specific stalled item (full claim detail including identity)
+get_context(itemId="uuid")
+// Response includes claimDetail.claimedBy, claimDetail.isExpired, claimDetail.originalClaimedAt
+```
+
+`get_context(itemId)` is the only mode that exposes `claimedBy` identity — all other surfaces expose at most a `isClaimed: boolean`.
+
+---
+
 ## Quick Reference
 
 ### Common Call Patterns
@@ -874,3 +950,8 @@ docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.
 | Cancel an item                    | `advance_item(transitions=[{itemId, trigger:"cancel"}])`        |
 | Reopen a terminal item           | `advance_item(transitions=[{itemId, trigger:"reopen"}])`        |
 | Filter by phase                   | `query_items(operation="search", role="work")`                  |
+| Claim an item (fleet)             | `claim_item(claims=[{itemId, ttlSeconds:900}], actor={id, kind})` |
+| Release a claim                   | `claim_item(releases=[{itemId}], actor={id, kind})` |
+| Heartbeat (refresh TTL)           | `claim_item(claims=[{itemId}], actor={id, kind})` — same as claim, TTL refreshed |
+| Find expired claims               | `query_items(operation="search", claimStatus="expired")` |
+| Diagnose stalled claim            | `get_context(itemId="uuid")` — returns `claimDetail` with `claimedBy` |
