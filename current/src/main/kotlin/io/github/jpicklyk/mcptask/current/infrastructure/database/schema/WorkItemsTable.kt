@@ -23,6 +23,10 @@ object WorkItemsTable : UUIDTable("work_items") {
     val modifiedAt = timestamp("modified_at")
     val roleChangedAt = timestamp("role_changed_at")
     val version = long("version").default(1)
+    val claimedBy = text("claimed_by").nullable()
+    val claimedAt = timestamp("claimed_at").nullable()
+    val claimExpiresAt = timestamp("claim_expires_at").nullable()
+    val originalClaimedAt = timestamp("original_claimed_at").nullable()
 
     init {
         foreignKey(parentId to WorkItemsTable.id)
@@ -31,5 +35,6 @@ object WorkItemsTable : UUIDTable("work_items") {
         index(isUnique = false, depth)
         index(isUnique = false, priority)
         index(isUnique = false, columns = arrayOf(role, roleChangedAt))
+        index(isUnique = false, claimedBy)
     }
 }
