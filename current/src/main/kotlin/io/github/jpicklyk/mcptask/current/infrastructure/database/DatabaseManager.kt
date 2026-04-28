@@ -58,6 +58,9 @@ class DatabaseManager(
                     }
                 }
 
+            // Resolve busy_timeout with validation and warnings
+            val busyTimeoutMs = resolveBusyTimeout()
+
             // Create a database connection
             database =
                 Database.connect(
@@ -76,7 +79,8 @@ class DatabaseManager(
                             // Returns the active journal mode as a result row — must close statement.
                             stmt.execute("PRAGMA journal_mode=WAL")
                             // Avoid indefinite blocking when another process holds a write lock.
-                            stmt.execute("PRAGMA busy_timeout = 5000")
+                            // Configurable via DATABASE_BUSY_TIMEOUT_MS env var (default 5000 ms).
+                            stmt.execute("PRAGMA busy_timeout = $busyTimeoutMs")
                         }
                     }
                 )
@@ -171,6 +175,39 @@ class DatabaseManager(
         } catch (e: Exception) {
             logger.warn("Could not run parent-cycle integrity check: ${e.message}")
         }
+    }
+
+    /**
+     * Resolves the busy_timeout value from [DatabaseConfig.busyTimeoutMs] with logging.
+     *
+     * Validation rules (enforced in [DatabaseConfig]):
+     *   - Unset → default 5000 ms
+     *   - Unparseable → default 5000 ms (warns here)
+     *   - Below 100 ms → floor 100 ms (warns here)
+     */
+    private fun resolveBusyTimeout(): Long {
+        val rawEnv = System.getenv("DATABASE_BUSY_TIMEOUT_MS")
+        val resolved = DatabaseConfig.busyTimeoutMs
+        if (rawEnv != null) {
+            val parsed = rawEnv.toLongOrNull()
+            when {
+                parsed == null ->
+                    logger.warn(
+                        "DATABASE_BUSY_TIMEOUT_MS='$rawEnv' is not a valid Long; " +
+                            "using default 5000 ms"
+                    )
+                parsed < 100L ->
+                    logger.warn(
+                        "DATABASE_BUSY_TIMEOUT_MS=$parsed ms is below the 100 ms sanity floor; " +
+                            "using 100 ms"
+                    )
+                else ->
+                    logger.info("DATABASE_BUSY_TIMEOUT_MS set to $resolved ms")
+            }
+        } else {
+            logger.info("DATABASE_BUSY_TIMEOUT_MS not set; using default $resolved ms")
+        }
+        return resolved
     }
 
     /**
