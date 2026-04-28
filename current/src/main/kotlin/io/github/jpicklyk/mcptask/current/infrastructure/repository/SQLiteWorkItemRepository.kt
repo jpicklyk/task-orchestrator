@@ -80,6 +80,10 @@ class SQLiteWorkItemRepository(
             it[modifiedAt] = item.modifiedAt
             it[roleChangedAt] = item.roleChangedAt
             it[version] = item.version
+            it[claimedBy] = item.claimedBy
+            it[claimedAt] = item.claimedAt
+            it[claimExpiresAt] = item.claimExpiresAt
+            it[originalClaimedAt] = item.originalClaimedAt
         }
         return Result.Success(item)
     }
@@ -114,6 +118,10 @@ class SQLiteWorkItemRepository(
                     it[modifiedAt] = item.modifiedAt
                     it[roleChangedAt] = item.roleChangedAt
                     it[version] = item.version + 1
+                    it[claimedBy] = item.claimedBy
+                    it[claimedAt] = item.claimedAt
+                    it[claimExpiresAt] = item.claimExpiresAt
+                    it[originalClaimedAt] = item.originalClaimedAt
                 }
             if (updatedCount > 0) {
                 Result.Success(item.copy(version = item.version + 1))
@@ -539,7 +547,11 @@ class SQLiteWorkItemRepository(
             createdAt = row[WorkItemsTable.createdAt],
             modifiedAt = row[WorkItemsTable.modifiedAt],
             roleChangedAt = row[WorkItemsTable.roleChangedAt],
-            version = row[WorkItemsTable.version]
+            version = row[WorkItemsTable.version],
+            claimedBy = row[WorkItemsTable.claimedBy],
+            claimedAt = row[WorkItemsTable.claimedAt],
+            claimExpiresAt = row[WorkItemsTable.claimExpiresAt],
+            originalClaimedAt = row[WorkItemsTable.originalClaimedAt],
         )
 
     /**

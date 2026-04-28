@@ -24,7 +24,21 @@ data class WorkItem(
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
     val roleChangedAt: Instant = Instant.now(),
-    val version: Long = 1
+    val version: Long = 1,
+    /** Opaque agent identifier that currently holds this item. Null when unclaimed. */
+    val claimedBy: String? = null,
+    /** When the current claim was placed (refreshes on re-claim). Stored as UTC in SQLite. */
+    val claimedAt: Instant? = null,
+    /**
+     * TTL-based expiry for this claim. Computed DB-side via `datetime('now', '+N seconds')` to
+     * keep time semantics consistent. Agents inspecting rows directly should treat this as UTC.
+     */
+    val claimExpiresAt: Instant? = null,
+    /**
+     * Timestamp of the first claim by the current agent — preserved across re-claims by the same
+     * agent; reset when a different agent takes over the item.
+     */
+    val originalClaimedAt: Instant? = null,
 ) {
     init {
         validate()
