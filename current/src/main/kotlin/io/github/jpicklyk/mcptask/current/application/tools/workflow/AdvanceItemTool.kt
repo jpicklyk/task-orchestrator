@@ -45,6 +45,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 - `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string), actor? (optional object) }`
 - Valid triggers: start, complete, block, hold, resume, cancel, reopen
 - `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor.
+- `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing. Uses the first transition's actor.id as the idempotency key actor.
 
 **Trigger effects:**
 - start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
@@ -115,6 +116,20 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             )
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing. " +
+                                        "Uses the first transition's actor.id as the idempotency key actor."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("transitions")
         )
@@ -157,6 +172,31 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         context: ToolExecutionContext
     ): JsonElement {
         val transitions = requireJsonArray(params, "transitions")
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+
+        // Derive actor identity from the first transition's actor for idempotency key
+        val actorId =
+            transitions
+                .firstOrNull()
+                ?.let { it as? JsonObject }
+                ?.get("actor")
+                ?.let { it as? JsonObject }
+                ?.get("id")
+                ?.let { (it as? JsonPrimitive)?.content }
+
+        // Check idempotency cache before executing
+        if (requestId != null && actorId != null) {
+            val cached = context.idempotencyCache.get(actorId, requestId)
+            if (cached != null) return cached as JsonElement
+        }
 
         val handler = RoleTransitionHandler()
         val cascadeDetector = CascadeDetector()
@@ -597,7 +637,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 put("allUnblockedItems", JsonArray(allUnblockedItems))
             }
 
-        return successResponse(data)
+        val response = successResponse(data)
+
+        // Store result in idempotency cache
+        if (requestId != null && actorId != null) {
+            context.idempotencyCache.put(actorId, requestId, response)
+        }
+
+        return response
     }
 
     override fun userSummary(

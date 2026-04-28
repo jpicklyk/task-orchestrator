@@ -19,12 +19,16 @@ import java.util.UUID
  * Create via dependencies array is atomic — all succeed or all fail (cycle detection is batch-aware).
  * Pattern shortcuts (`linear`, `fan-out`, `fan-in`) generate dependency arrays then delegate to createBatch.
  */
-class ManageDependenciesTool : BaseToolDefinition() {
+class ManageDependenciesTool :
+    BaseToolDefinition(),
+    ActorAware {
     override val name = "manage_dependencies"
 
     override val description =
         """
 Unified write operations for WorkItem dependencies (create, delete).
+
+**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 **Create via dependencies array:**
 - `dependencies` array: each object has `fromItemId` (required), `toItemId` (required), `type` (optional), `unblockAt` (optional)
@@ -190,6 +194,34 @@ Unified write operations for WorkItem dependencies (create, delete).
                             put("description", JsonPrimitive("Delete ALL dependencies for the given fromItemId or toItemId"))
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing. " +
+                                        "Requires a top-level actor parameter to function."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("object"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Top-level actor for idempotency key resolution: " +
+                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent? (optional string), proof? (optional string) }"
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -283,11 +315,43 @@ Unified write operations for WorkItem dependencies (create, delete).
         context: ToolExecutionContext
     ): JsonElement {
         val operation = requireString(params, "operation")
-        return when (operation) {
-            "create" -> executeCreate(params, context)
-            "delete" -> executeDelete(params, context)
-            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+
+        // Resolve top-level actor identity for idempotency key
+        val actorId =
+            (params as? JsonObject)
+                ?.get("actor")
+                ?.let { it as? JsonObject }
+                ?.get("id")
+                ?.let { (it as? JsonPrimitive)?.content }
+
+        // Check idempotency cache before executing
+        if (requestId != null && actorId != null) {
+            val cached = context.idempotencyCache.get(actorId, requestId)
+            if (cached != null) return cached as JsonElement
         }
+
+        val result =
+            when (operation) {
+                "create" -> executeCreate(params, context)
+                "delete" -> executeDelete(params, context)
+                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            }
+
+        // Store result in idempotency cache
+        if (requestId != null && actorId != null) {
+            context.idempotencyCache.put(actorId, requestId, result)
+        }
+
+        return result
     }
 
     override fun userSummary(

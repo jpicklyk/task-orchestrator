@@ -39,6 +39,8 @@ Unified write operations for Notes (upsert, delete).
 - By `ids` array: delete each note by UUID
 - By `itemId` + optional `key`: delete all notes for item, or specific note by key
 - Response: `{ deleted: N, failed: N, failures: [{id, error}] }`
+
+**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
@@ -102,6 +104,34 @@ Unified write operations for Notes (upsert, delete).
                             put("description", JsonPrimitive("Note key — with itemId, delete specific note"))
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing. " +
+                                        "Requires a top-level actor parameter to function."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("object"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Top-level actor for idempotency key resolution: " +
+                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent? (optional string), proof? (optional string) }"
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -131,11 +161,43 @@ Unified write operations for Notes (upsert, delete).
         context: ToolExecutionContext
     ): JsonElement {
         val operation = requireString(params, "operation")
-        return when (operation) {
-            "upsert" -> executeUpsert(params, context)
-            "delete" -> executeDelete(params, context)
-            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+
+        // Resolve top-level actor identity for idempotency key
+        val actorId =
+            (params as? JsonObject)
+                ?.get("actor")
+                ?.let { it as? JsonObject }
+                ?.get("id")
+                ?.let { (it as? JsonPrimitive)?.content }
+
+        // Check idempotency cache before executing
+        if (requestId != null && actorId != null) {
+            val cached = context.idempotencyCache.get(actorId, requestId)
+            if (cached != null) return cached as JsonElement
         }
+
+        val result =
+            when (operation) {
+                "upsert" -> executeUpsert(params, context)
+                "delete" -> executeDelete(params, context)
+                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            }
+
+        // Store result in idempotency cache
+        if (requestId != null && actorId != null) {
+            context.idempotencyCache.put(actorId, requestId, result)
+        }
+
+        return result
     }
 
     override fun userSummary(
