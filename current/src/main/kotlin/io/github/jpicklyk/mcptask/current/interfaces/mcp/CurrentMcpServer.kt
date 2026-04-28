@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedI
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlAuditingConfigService
@@ -86,14 +87,15 @@ class CurrentMcpServer(
             val noteSchemaService = YamlNoteSchemaService()
             val statusLabelService = YamlStatusLabelService()
             val mcpLoggingService = DefaultMcpLoggingService()
-            val actorVerifier = createActorVerifier()
+            val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
             val toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
                     noteSchemaService,
                     statusLabelService,
                     mcpLoggingService,
-                    actorVerifier
+                    actorVerifier,
+                    degradedModePolicy
                 )
             logger.info("Repository provider and tool context initialized")
 
@@ -159,12 +161,14 @@ class CurrentMcpServer(
     }
 
     /**
-     * Creates the appropriate [ActorVerifier] based on the auditing configuration.
+     * Creates the appropriate [ActorVerifier] and reads [DegradedModePolicy] from configuration.
+     * Returns a [Pair] of (verifier, policy) so both can be wired into [ToolExecutionContext].
      */
-    private fun createActorVerifier(): ActorVerifier {
+    private fun createActorVerifierAndPolicy(): Pair<ActorVerifier, DegradedModePolicy> {
         val configService = YamlAuditingConfigService()
         configService.getWarnings().forEach { logger.warn("Auditing config: {}", it) }
         val config = configService.getConfig()
+        logger.info("Degraded mode policy: {}", config.degradedModePolicy.toConfigString())
         val verifier =
             when (val vc = config.verifier) {
                 is VerifierConfig.Noop -> {
@@ -185,7 +189,7 @@ class CurrentMcpServer(
                     }
                 }
             }
-        return verifier
+        return Pair(verifier, config.degradedModePolicy)
     }
 
     private fun registerCommonCleanup(server: Server) {
