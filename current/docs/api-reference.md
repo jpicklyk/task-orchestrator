@@ -2,7 +2,7 @@
 
 ## Overview
 
-The v3 server exposes 13 MCP tools organized around a single **WorkItem** graph model. Every
+The v3 server exposes 14 MCP tools organized around a single **WorkItem** graph model. Every
 entity — whether a project, feature, or task — is a WorkItem with a `role` (queue, work, review,
 blocked, terminal), optional `parentId`, a `type` field that selects a work-item schema (lifecycle
 mode + required notes), optional `tags` for categorization, and optional `traits` that compose
