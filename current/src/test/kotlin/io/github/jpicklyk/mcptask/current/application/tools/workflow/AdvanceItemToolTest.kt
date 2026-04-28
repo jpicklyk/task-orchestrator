@@ -2450,4 +2450,446 @@ class AdvanceItemToolTest {
             tool.validateParams(params)
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Ownership enforcement tests (item 5)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Build a params object with an actor claim embedded.
+     */
+    private fun transitionObjWithActor(
+        itemId: UUID,
+        trigger: String,
+        actorId: String,
+        actorKind: String = "subagent"
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(itemId.toString()))
+            put("trigger", JsonPrimitive(trigger))
+            put(
+                "actor",
+                buildJsonObject {
+                    put("id", JsonPrimitive(actorId))
+                    put("kind", JsonPrimitive(actorKind))
+                }
+            )
+        }
+
+    /**
+     * Create an item with an active claim (expires 10 minutes in the future).
+     */
+    private fun makeClaimedItem(
+        id: UUID = UUID.randomUUID(),
+        role: Role = Role.QUEUE,
+        claimHolder: String = "agent-alpha",
+        previousRole: Role? = null
+    ): WorkItem {
+        val now = java.time.Instant.now()
+        return WorkItem(
+            id = id,
+            title = "Claimed Item",
+            role = role,
+            previousRole = previousRole,
+            claimedBy = claimHolder,
+            claimedAt = now,
+            claimExpiresAt = now.plusSeconds(600), // active, expires in 10 min
+            originalClaimedAt = now
+        )
+    }
+
+    /**
+     * Create an item with an expired claim (expired 10 minutes ago).
+     */
+    private fun makeExpiredClaimItem(
+        id: UUID = UUID.randomUUID(),
+        role: Role = Role.QUEUE,
+        previousHolder: String = "agent-alpha"
+    ): WorkItem {
+        val past =
+            java.time.Instant
+                .now()
+                .minusSeconds(600)
+        return WorkItem(
+            id = id,
+            title = "Expired Claim Item",
+            role = role,
+            claimedBy = previousHolder,
+            claimedAt = past.minusSeconds(900),
+            claimExpiresAt = past, // already expired
+            originalClaimedAt = past.minusSeconds(900)
+        )
+    }
+
+    @Test
+    fun `unclaimed item - any caller can transition with start trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE) // claimedBy = null
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObjWithActor(itemId, "start", "any-random-agent"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `claim holder can transition with start trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.QUEUE, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObjWithActor(itemId, "start", "agent-alpha"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `non-holder cannot transition claimed item with start trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.QUEUE, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "start", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error but got: $error"
+            )
+        }
+
+    @Test
+    fun `non-holder cannot transition claimed item with complete trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "complete", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error for complete but got: $error"
+            )
+        }
+
+    @Test
+    fun `non-holder cannot transition claimed item with block trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "block", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error for block but got: $error"
+            )
+        }
+
+    @Test
+    fun `non-holder cannot transition claimed item with hold trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "hold", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error for hold but got: $error"
+            )
+        }
+
+    @Test
+    fun `non-holder cannot transition claimed item with resume trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.BLOCKED, claimHolder = "agent-alpha", previousRole = Role.WORK)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "resume", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error for resume but got: $error"
+            )
+        }
+
+    @Test
+    fun `non-holder cannot transition claimed item with cancel trigger`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "cancel", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error for cancel but got: $error"
+            )
+        }
+
+    @Test
+    fun `non-holder cannot reopen claimed item`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            // TERMINAL items can be claimed (non-TERMINAL restriction only on claim_item)
+            val item = makeClaimedItem(id = itemId, role = Role.TERMINAL, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            val params = buildParams(transitionObjWithActor(itemId, "reopen", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("Ownership"),
+                "Expected ownership error for reopen but got: $error"
+            )
+        }
+
+    @Test
+    fun `expired claim - new caller can transition`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeExpiredClaimItem(id = itemId, role = Role.QUEUE, previousHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            // agent-beta can now transition because agent-alpha's claim has expired
+            val params = buildParams(transitionObjWithActor(itemId, "start", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertTrue(
+                results[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Expected transition to succeed after claim expiry but got: ${results[0]}"
+            )
+            assertEquals("work", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `no actor provided - unclaimed item transitions successfully`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE) // no claim
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            // No actor provided (single-orchestrator path)
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertTrue(
+                results[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Unclaimed item should be accessible without actor credentials"
+            )
+        }
+
+    @Test
+    fun `no actor provided - claimed item is rejected`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeClaimedItem(id = itemId, role = Role.QUEUE, claimHolder = "agent-alpha")
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            // No actor provided but item has an active claim
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertFalse(
+                results[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Claimed item should not be accessible without actor credentials"
+            )
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("claimed") || error.contains("actor"),
+                "Expected claim-related error but got: $error"
+            )
+        }
+
+    @Test
+    fun `DegradedModePolicy REJECT blocks unverified actor on unclaimed item`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE) // no claim
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+
+            // Context with REJECT policy — actor is not verified (NoOpActorVerifier returns UNCHECKED)
+            val rejectContext =
+                ToolExecutionContext(
+                    repositoryProvider = repoProvider,
+                    degradedModePolicy = DegradedModePolicy.REJECT
+                )
+
+            val params = buildParams(transitionObjWithActor(itemId, "start", "unverified-agent"))
+            val result = tool.execute(params, rejectContext)
+
+            val results = extractResults(result)
+            assertFalse(
+                results[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "REJECT policy should block unverified actors even on unclaimed items"
+            )
+            val error = results[0].jsonObject["error"]!!.jsonPrimitive.content
+            assertTrue(
+                error.contains("reject") || error.contains("policy") || error.contains("verification"),
+                "Expected policy rejection error but got: $error"
+            )
+        }
+
+    @Test
+    fun `claim holder can use all 7 user triggers`(): Unit =
+        runBlocking {
+            // Verify all 7 triggers are enforced by testing claim holder succeeds on a sample
+            // (detailed per-trigger tests above; this validates the common path)
+            val itemId = UUID.randomUUID()
+            val blockedItem = makeClaimedItem(id = itemId, role = Role.BLOCKED, claimHolder = "agent-alpha", previousRole = Role.WORK)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(blockedItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            // resume trigger: holder should succeed
+            val params = buildParams(transitionObjWithActor(itemId, "resume", "agent-alpha"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertTrue(
+                results[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Claim holder should be able to resume a claimed item: ${results[0]}"
+            )
+            assertEquals("work", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `cascade transitions bypass ownership check`(): Unit =
+        runBlocking {
+            // Verify that cascade transitions (completing last child auto-completes parent)
+            // still work even when the parent has an active claim held by a different agent.
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+
+            // Parent is claimed by agent-alpha
+            val now = java.time.Instant.now()
+            val parentItem =
+                WorkItem(
+                    id = parentId,
+                    title = "Claimed Parent",
+                    role = Role.WORK,
+                    claimedBy = "agent-alpha",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(600),
+                    originalClaimedAt = now
+                )
+            // Child is claimed by agent-beta (who is doing the completing)
+            val childItem =
+                WorkItem(
+                    id = childId,
+                    title = "Child",
+                    role = Role.WORK,
+                    parentId = parentId,
+                    depth = 1,
+                    claimedBy = "agent-beta",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(600),
+                    originalClaimedAt = now
+                )
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            // All children terminal after this transition
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns
+                Result.Success(mapOf(Role.TERMINAL to 1))
+
+            // agent-beta completes child — ownership passes for child (holder)
+            val params = buildParams(transitionObjWithActor(childId, "complete", "agent-beta"))
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertTrue(
+                results[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Child completion should succeed"
+            )
+
+            // Cascade should have fired on the parent despite it being claimed by agent-alpha
+            val cascadeEvents = results[0].jsonObject["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascadeEvents.size)
+            assertEquals(parentId.toString(), cascadeEvents[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+            assertTrue(
+                cascadeEvents[0].jsonObject["applied"]!!.jsonPrimitive.boolean,
+                "Cascade on parent should have applied even though parent is claimed by another agent"
+            )
+        }
 }

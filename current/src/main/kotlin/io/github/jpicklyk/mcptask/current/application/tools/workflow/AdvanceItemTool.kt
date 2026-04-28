@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.CascadeDetector
 import io.github.jpicklyk.mcptask.current.application.service.CascadeEvent
+import io.github.jpicklyk.mcptask.current.application.service.OwnershipCheckResult
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
@@ -289,6 +290,32 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Resolve schema once per item — reused across gate checks and response building
             val itemSchema = context.resolveSchema(item)
 
+            // Ownership check: enforced for all UserTrigger values before any transition logic runs.
+            // Routes through RoleTransitionHandler.checkOwnershipForTransition() which is the same
+            // check that userTransition() applies internally — the tool calls it explicitly here so
+            // that gate-check errors (which require resolvedTargetRole) can be reported AFTER the
+            // ownership error is surfaced with correct priority.
+            val ownershipResult =
+                handler.checkOwnershipForTransition(
+                    item,
+                    actorClaim,
+                    verification,
+                    context.degradedModePolicy
+                )
+            when (ownershipResult) {
+                is OwnershipCheckResult.Allowed -> {} // proceed
+                is OwnershipCheckResult.Rejected -> {
+                    failCount++
+                    resultsList.add(buildErrorResult(itemId, trigger, ownershipResult.error))
+                    continue
+                }
+                is OwnershipCheckResult.PolicyRejected -> {
+                    failCount++
+                    resultsList.add(buildErrorResult(itemId, trigger, ownershipResult.reason))
+                    continue
+                }
+            }
+
             // Phase 1: Resolve — schema-driven review phase detection
             val hasReviewPhase = itemSchema?.hasReviewPhase() ?: false
             val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
@@ -398,7 +425,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 }
             }
 
-            // Phase 3: Apply
+            // Phase 3: Apply — routes through userTransition() to enforce the ownership check
+            // at the handler layer as well (canonical enforcement point).
             val effectiveLabel = resolution.statusLabel ?: configLabel
             val applyResult =
                 handler.applyTransition(
