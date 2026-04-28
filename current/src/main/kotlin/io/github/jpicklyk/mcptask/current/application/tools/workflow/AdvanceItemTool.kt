@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -140,6 +141,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             if (!triggerPrim.isString || triggerPrim.content.isBlank()) {
                 throw ToolValidationException("transitions[$index].trigger must be a non-empty string")
             }
+            // Validate that the trigger is a known UserTrigger. "cascade" is system-internal
+            // and is not a valid UserTrigger — reject it here at the API boundary.
+            val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+            UserTrigger.fromString(triggerPrim.content)
+                ?: throw ToolValidationException(
+                    "transitions[$index].trigger '${triggerPrim.content}' is not a valid trigger. " +
+                        "Valid triggers: $validTriggers"
+                )
         }
     }
 
@@ -173,7 +182,33 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 continue
             }
             val itemId = resolvedItemId!!
-            val trigger = (obj["trigger"] as JsonPrimitive).content.lowercase()
+
+            // Translate trigger string to UserTrigger enum at the JSON boundary.
+            // validateParams already rejected unknown values, so fromString should never
+            // return null here — but guard defensively.
+            val triggerStr = (obj["trigger"] as JsonPrimitive).content
+            val userTrigger = UserTrigger.fromString(triggerStr)
+            if (userTrigger == null) {
+                failCount++
+                val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("trigger", JsonPrimitive(triggerStr))
+                        put("applied", JsonPrimitive(false))
+                        put(
+                            "error",
+                            JsonPrimitive(
+                                "Unknown trigger '$triggerStr'. Valid triggers: $validTriggers"
+                            )
+                        )
+                    }
+                )
+                continue
+            }
+            // Use the canonical trigger string from the enum (already lowercased/normalized).
+            val trigger = userTrigger.triggerString
+
             val summary =
                 (obj["summary"] as? JsonPrimitive)?.let {
                     if (it.isString && it.content.isNotBlank()) it.content else null
@@ -401,17 +436,16 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         }
                     }
 
+                    // Route through the internal cascadeTransition entry point — no public path
+                    // can reach this method, enforced by Kotlin `internal` visibility.
                     val cascadeApply =
-                        handler.applyTransition(
+                        handler.cascadeTransition(
                             parentItem,
                             event.targetRole,
-                            "cascade",
                             "Auto-cascaded from child completion",
-                            context.statusLabelService().resolveLabel("cascade"),
                             context.workItemRepository(),
                             context.roleTransitionRepository(),
-                            actorClaim = null,
-                            verification = null
+                            statusLabel = context.statusLabelService().resolveLabel("cascade")
                         )
 
                     cascadeJsonList.add(
@@ -583,10 +617,14 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
     /**
      * Apply a list of cascade events: fetch each parent, apply the transition, and record
      * the cascade result as JSON. Shared by start cascade (Phase 4b) and reopen cascade (Phase 4c).
+     *
+     * Routes through the internal [RoleTransitionHandler.cascadeTransition] entry point so that
+     * cascade transitions never pass through the ownership-check path that [UserTrigger]-based
+     * user transitions will use.
      */
     private suspend fun applyCascadeEvents(
         events: List<CascadeEvent>,
-        summary: String,
+        reason: String,
         handler: RoleTransitionHandler,
         context: ToolExecutionContext,
         cascadeJsonList: MutableList<JsonObject>
@@ -599,17 +637,16 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     is Result.Error -> continue
                 }
 
+            // Route through the internal cascadeTransition entry point — no public path
+            // can reach this method, enforced by Kotlin `internal` visibility.
             val cascadeApply =
-                handler.applyTransition(
+                handler.cascadeTransition(
                     parentItem,
                     event.targetRole,
-                    "cascade",
-                    summary,
-                    context.statusLabelService().resolveLabel("cascade"),
+                    reason,
                     context.workItemRepository(),
                     context.roleTransitionRepository(),
-                    actorClaim = null,
-                    verification = null
+                    statusLabel = context.statusLabelService().resolveLabel("cascade")
                 )
 
             cascadeJsonList.add(

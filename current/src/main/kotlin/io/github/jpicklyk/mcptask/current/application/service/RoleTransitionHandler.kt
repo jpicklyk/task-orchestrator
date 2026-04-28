@@ -9,6 +9,19 @@ import java.time.Instant
 import java.util.UUID
 
 /**
+ * Result of a high-level entry-point transition (userTransition / cascadeTransition).
+ * Wraps the lower-level [TransitionApplyResult] and adds resolution-phase context.
+ */
+data class EntryPointTransitionResult(
+    val success: Boolean,
+    val item: WorkItem? = null,
+    val previousRole: Role? = null,
+    val newRole: Role? = null,
+    val trigger: String? = null,
+    val error: String? = null
+)
+
+/**
  * Result of resolving a trigger to a target role.
  * Pure data -- no side effects.
  */
@@ -65,6 +78,145 @@ class RoleTransitionHandler {
     companion object {
         /** Triggers accepted from external callers. "cascade" is system-internal. */
         val USER_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
+    }
+
+    // -----------------------------------------------------------------------
+    // High-level entry points
+    // -----------------------------------------------------------------------
+
+    /**
+     * Public entry point for transitions initiated by an external caller (agent, user,
+     * orchestrator) through the `advance_item` MCP tool.
+     *
+     * Accepts only [UserTrigger] values — "cascade" is not a valid [UserTrigger] and
+     * therefore cannot reach this path. This is the hook point where item 5
+     * (AdvanceItemTool ownership enforcement) will add a claim-ownership check before
+     * the three-phase workflow runs.
+     *
+     * @param item The current work item.
+     * @param trigger The validated [UserTrigger] from the public API.
+     * @param summary Optional human-readable transition summary.
+     * @param statusLabel Optional display label override (e.g., "cancelled").
+     * @param hasReviewPhase When false and the item is in WORK, start advances to TERMINAL.
+     * @param workItemRepository Repository for persisting item updates.
+     * @param roleTransitionRepository Repository for recording the audit trail.
+     * @param dependencyRepository Repository for validating dependency constraints.
+     * @param actorClaim Optional actor attribution (populated from verified request context).
+     * @param verification Optional verification result attached to the actor claim.
+     */
+    suspend fun userTransition(
+        item: WorkItem,
+        trigger: UserTrigger,
+        summary: String?,
+        statusLabel: String?,
+        hasReviewPhase: Boolean,
+        workItemRepository: WorkItemRepository,
+        roleTransitionRepository: RoleTransitionRepository,
+        dependencyRepository: DependencyRepository,
+        actorClaim: ActorClaim? = null,
+        verification: VerificationResult? = null
+    ): EntryPointTransitionResult {
+        val triggerStr = trigger.triggerString
+        val resolution = resolveTransition(item, triggerStr, hasReviewPhase)
+        if (!resolution.success || resolution.targetRole == null) {
+            return EntryPointTransitionResult(
+                success = false,
+                error = resolution.error ?: "Failed to resolve transition"
+            )
+        }
+        val targetRole = resolution.targetRole
+        val validation = validateTransition(item, targetRole, dependencyRepository, workItemRepository)
+        if (!validation.valid) {
+            return EntryPointTransitionResult(
+                success = false,
+                error = validation.error ?: "Transition validation failed"
+            )
+        }
+        val effectiveLabel = resolution.statusLabel ?: statusLabel
+        val applyResult =
+            applyTransition(
+                item,
+                targetRole,
+                triggerStr,
+                summary,
+                effectiveLabel,
+                workItemRepository,
+                roleTransitionRepository,
+                actorClaim = actorClaim,
+                verification = verification
+            )
+        return if (applyResult.success) {
+            EntryPointTransitionResult(
+                success = true,
+                item = applyResult.item,
+                previousRole = applyResult.previousRole,
+                newRole = applyResult.newRole,
+                trigger = triggerStr
+            )
+        } else {
+            EntryPointTransitionResult(
+                success = false,
+                error = applyResult.error
+            )
+        }
+    }
+
+    /**
+     * Internal entry point for system-initiated cascade transitions.
+     *
+     * This method is intentionally marked [internal] so that it is visible only within
+     * the same Gradle module. The public `advance_item` MCP tool layer, which lives in
+     * the same module but accepts only [UserTrigger] values, cannot invoke this method
+     * via any public-API path — the Kotlin visibility modifier is the enforcement
+     * mechanism, not string parsing.
+     *
+     * Cascade transitions bypass ownership checks: they are initiated by the system
+     * (e.g., completing the last child auto-completes the parent) and no user claim
+     * is involved.
+     *
+     * @param item The parent work item to cascade-transition.
+     * @param targetRole The role that the cascade should advance the item to.
+     * @param reason Human-readable description of why the cascade was triggered.
+     * @param statusLabel Optional display label for the cascaded item (e.g., "done").
+     *   Callers should resolve this from the [io.github.jpicklyk.mcptask.current.application.service.StatusLabelService]
+     *   using the "cascade" key before invoking this method.
+     * @param workItemRepository Repository for persisting item updates.
+     * @param roleTransitionRepository Repository for recording the audit trail.
+     */
+    internal suspend fun cascadeTransition(
+        item: WorkItem,
+        targetRole: Role,
+        reason: String,
+        workItemRepository: WorkItemRepository,
+        roleTransitionRepository: RoleTransitionRepository,
+        statusLabel: String? = null
+    ): EntryPointTransitionResult {
+        val applyResult =
+            applyTransition(
+                item,
+                targetRole,
+                "cascade",
+                reason,
+                statusLabel,
+                workItemRepository,
+                roleTransitionRepository,
+                actorClaim = null,
+                verification = null
+            )
+        return if (applyResult.success) {
+            EntryPointTransitionResult(
+                success = true,
+                item = applyResult.item,
+                previousRole = applyResult.previousRole,
+                newRole = applyResult.newRole,
+                trigger = "cascade"
+            )
+        } else {
+            EntryPointTransitionResult(
+                success = false,
+                error = applyResult.error
+            )
+        }
     }
 
     // -----------------------------------------------------------------------
