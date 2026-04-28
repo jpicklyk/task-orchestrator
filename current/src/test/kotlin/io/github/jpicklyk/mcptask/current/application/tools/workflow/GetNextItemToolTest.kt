@@ -720,4 +720,313 @@ class GetNextItemToolTest {
                 "Item should be blocked when IS_BLOCKED_BY dep is unsatisfied even if BLOCKS dep is satisfied"
             )
         }
+
+    // ──────────────────────────────────────────────
+    // role parameter tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `default role is queue — WORK items not returned without role param`(): Unit =
+        runBlocking {
+            createItem("Queue Item", role = Role.QUEUE)
+            createItem("Work Item", role = Role.WORK)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            assertEquals("queue", recs[0].jsonObject["role"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `role=queue returns QUEUE items`(): Unit =
+        runBlocking {
+            val item = createItem("Queue Only", role = Role.QUEUE)
+            createItem("Work Item", role = Role.WORK)
+
+            val result = tool.execute(params("role" to JsonPrimitive("queue"), "limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(item.id.toString()))
+        }
+
+    @Test
+    fun `role=work returns WORK items only`(): Unit =
+        runBlocking {
+            createItem("Queue Item", role = Role.QUEUE)
+            val workItem = createItem("Work Item", role = Role.WORK)
+
+            val result = tool.execute(params("role" to JsonPrimitive("work"), "limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            assertEquals(workItem.id.toString(), recs[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+            assertEquals("work", recs[0].jsonObject["role"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `role=review returns REVIEW items only`(): Unit =
+        runBlocking {
+            createItem("Queue Item", role = Role.QUEUE)
+            val reviewItem = createItem("Review Item", role = Role.REVIEW)
+
+            val result = tool.execute(params("role" to JsonPrimitive("review"), "limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            assertEquals(reviewItem.id.toString(), recs[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+            assertEquals("review", recs[0].jsonObject["role"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `role=blocked returns BLOCKED items only`(): Unit =
+        runBlocking {
+            createItem("Queue Item", role = Role.QUEUE)
+            val blockedItem = createItem("Blocked Item", role = Role.BLOCKED)
+
+            val result = tool.execute(params("role" to JsonPrimitive("blocked"), "limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            assertEquals(blockedItem.id.toString(), recs[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+            assertEquals("blocked", recs[0].jsonObject["role"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `invalid role value fails validation`() {
+        assertFailsWith<io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException> {
+            tool.validateParams(params("role" to JsonPrimitive("terminal")))
+        }
+    }
+
+    @Test
+    fun `invalid role arbitrary string fails validation`() {
+        assertFailsWith<io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException> {
+            tool.validateParams(params("role" to JsonPrimitive("done")))
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // includeClaimed / claim filtering tests
+    // ──────────────────────────────────────────────
+
+    /**
+     * Create a work item with an active claim (non-expired) directly via the repository.
+     * claimExpiresAt is set 1 hour in the future so it is definitely active.
+     */
+    private suspend fun createClaimedItem(
+        title: String,
+        role: Role = Role.QUEUE
+    ): WorkItem {
+        val item =
+            WorkItem(
+                title = title,
+                role = role,
+                claimedBy = "test-agent",
+                claimedAt =
+                    java.time.Instant
+                        .now()
+                        .minusSeconds(60),
+                claimExpiresAt =
+                    java.time.Instant
+                        .now()
+                        .plusSeconds(3600),
+                originalClaimedAt =
+                    java.time.Instant
+                        .now()
+                        .minusSeconds(60)
+            )
+        val result = context.workItemRepository().create(item)
+        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+    }
+
+    /**
+     * Create a work item with an expired claim (claimExpiresAt in the past).
+     */
+    private suspend fun createExpiredClaimItem(
+        title: String,
+        role: Role = Role.QUEUE
+    ): WorkItem {
+        val item =
+            WorkItem(
+                title = title,
+                role = role,
+                claimedBy = "test-agent",
+                claimedAt =
+                    java.time.Instant
+                        .now()
+                        .minusSeconds(7200),
+                claimExpiresAt =
+                    java.time.Instant
+                        .now()
+                        .minusSeconds(3600),
+                originalClaimedAt =
+                    java.time.Instant
+                        .now()
+                        .minusSeconds(7200)
+            )
+        val result = context.workItemRepository().create(item)
+        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+    }
+
+    @Test
+    fun `actively claimed items are filtered out by default`(): Unit =
+        runBlocking {
+            val unclaimed = createItem("Unclaimed Item", role = Role.QUEUE)
+            createClaimedItem("Claimed Item", role = Role.QUEUE)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(unclaimed.id.toString()), "Unclaimed item should be recommended")
+            assertTrue(recIds.none { id -> id != unclaimed.id.toString() }, "Claimed item should be filtered")
+        }
+
+    @Test
+    fun `expired claimed items are treated as unclaimed and returned`(): Unit =
+        runBlocking {
+            val expiredClaim = createExpiredClaimItem("Expired Claim Item", role = Role.QUEUE)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(expiredClaim.id.toString()), "Item with expired claim should be recommended")
+        }
+
+    @Test
+    fun `includeClaimed=true returns claimed items alongside unclaimed`(): Unit =
+        runBlocking {
+            val unclaimed = createItem("Unclaimed Item", role = Role.QUEUE)
+            val claimed = createClaimedItem("Claimed Item", role = Role.QUEUE)
+
+            val result =
+                tool.execute(
+                    params(
+                        "includeClaimed" to JsonPrimitive(true),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(unclaimed.id.toString()), "Unclaimed item should be included")
+            assertTrue(recIds.contains(claimed.id.toString()), "Claimed item should be included when includeClaimed=true")
+        }
+
+    @Test
+    fun `includeClaimed=true exposes isClaimed boolean for claimed items`(): Unit =
+        runBlocking {
+            val claimed = createClaimedItem("Claimed Item", role = Role.QUEUE)
+
+            val result =
+                tool.execute(
+                    params(
+                        "includeClaimed" to JsonPrimitive(true),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val claimedRec = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == claimed.id.toString() }
+            assertNotNull(claimedRec, "Claimed item should be in recommendations")
+
+            val isClaimed = claimedRec.jsonObject["isClaimed"]
+            assertNotNull(isClaimed, "isClaimed field should be present when includeClaimed=true")
+            assertTrue(isClaimed.jsonPrimitive.boolean, "isClaimed should be true for actively claimed item")
+        }
+
+    @Test
+    fun `includeClaimed=true shows isClaimed=false for unclaimed items`(): Unit =
+        runBlocking {
+            val unclaimed = createItem("Unclaimed Item", role = Role.QUEUE)
+
+            val result =
+                tool.execute(
+                    params(
+                        "includeClaimed" to JsonPrimitive(true),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val unclaimedRec = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == unclaimed.id.toString() }
+            assertNotNull(unclaimedRec)
+            val isClaimed = unclaimedRec.jsonObject["isClaimed"]
+            assertNotNull(isClaimed, "isClaimed field should be present when includeClaimed=true")
+            assertFalse(isClaimed.jsonPrimitive.boolean, "isClaimed should be false for unclaimed item")
+        }
+
+    @Test
+    fun `claimedBy is never disclosed in response even when includeClaimed=true`(): Unit =
+        runBlocking {
+            createClaimedItem("Claimed Item", role = Role.QUEUE)
+
+            val result =
+                tool.execute(
+                    params(
+                        "includeClaimed" to JsonPrimitive(true),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            val rec = recs[0].jsonObject
+            assertNull(rec["claimedBy"], "claimedBy must never be disclosed")
+            assertNull(rec["claimedAt"], "claimedAt must never be disclosed")
+            assertNull(rec["claimExpiresAt"], "claimExpiresAt must never be disclosed")
+            assertNull(rec["originalClaimedAt"], "originalClaimedAt must never be disclosed")
+        }
+
+    @Test
+    fun `isClaimed field is absent when includeClaimed=false (default)`(): Unit =
+        runBlocking {
+            createItem("Queue Item", role = Role.QUEUE)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            assertNull(recs[0].jsonObject["isClaimed"], "isClaimed should not be present when includeClaimed=false")
+        }
+
+    @Test
+    fun `role=work with includeClaimed=false filters out actively claimed WORK items`(): Unit =
+        runBlocking {
+            val unclaimedWork = createItem("Unclaimed Work", role = Role.WORK)
+            createClaimedItem("Claimed Work", role = Role.WORK)
+
+            val result =
+                tool.execute(
+                    params(
+                        "role" to JsonPrimitive("work"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            assertEquals(1, recs.size)
+            assertEquals(unclaimedWork.id.toString(), recs[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+        }
 }

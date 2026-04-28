@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNull
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -537,6 +538,43 @@ class SQLiteWorkItemRepository(
         } catch (e: Exception) {
             logger.error("Failed to release WorkItem $itemId for agent $agentId: ${e.message}", e)
             ReleaseResult.NotFound(itemId)
+        }
+
+    override suspend fun findForNextItem(
+        role: Role,
+        parentId: UUID?,
+        excludeActiveClaims: Boolean,
+        limit: Int
+    ): Result<List<WorkItem>> =
+        databaseManager.suspendedTransaction("Failed to find next items by role") {
+            val conditions = mutableListOf<Op<Boolean>>()
+
+            // Role filter
+            conditions.add(WorkItemsTable.role eq role.name.lowercase())
+
+            // Optional parent scope
+            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+
+            // Claim filter: exclude items with an active (non-expired) claim.
+            // An item is "actively claimed" when claimed_by IS NOT NULL AND claim_expires_at > now.
+            // The complement (items to include) is: claimed_by IS NULL OR claim_expires_at <= now.
+            if (excludeActiveClaims) {
+                val notClaimed = WorkItemsTable.claimedBy.isNull()
+                val claimExpired = WorkItemsTable.claimExpiresAt lessEq Instant.now()
+                // Re-express as: NOT (claimedBy IS NOT NULL AND claimExpiresAt > now)
+                //               = claimedBy IS NULL  OR  claimExpiresAt <= now
+                conditions.add(notClaimed or claimExpired)
+            }
+
+            val combined = conditions.reduce { acc, op -> acc and op }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { combined }
+                    .limit(limit)
+                    .mapNotNull { toWorkItemOrNull(it) }
+
+            Result.Success(items)
         }
 
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
