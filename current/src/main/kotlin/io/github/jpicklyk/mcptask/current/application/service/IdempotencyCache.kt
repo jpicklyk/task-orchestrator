@@ -20,8 +20,10 @@ import kotlin.concurrent.write
  *   removed to bound memory consumption.
  * - **TTL expiry** — entries older than [ttlSeconds] are treated as absent. Expired entries are
  *   cleaned lazily on [get]/[getOrCompute] and eagerly during [put] when the cache is full.
- * - **Thread-safe** — a [ReentrantReadWriteLock] guards all mutations. Concurrent reads do not
- *   block one another; writes are exclusive.
+ * - **Thread-safe** — a [ReentrantReadWriteLock] guards all accesses. Because the underlying
+ *   [java.util.LinkedHashMap] mutates on every read (to maintain LRU order), all operations
+ *   including [get] and [getOrCompute] take the write lock. [size] is the only truly
+ *   read-only operation.
  *
  * @param maxCapacity Maximum number of live (non-expired) entries to retain (default 1000).
  * @param ttlSeconds  Time-to-live per entry in seconds (default 600 = 10 minutes).
@@ -74,12 +76,17 @@ class IdempotencyCache(
     /**
      * Returns the cached value for `(actorId, requestId)` if it exists and has not expired.
      * Returns null otherwise (both "not found" and "expired" map to null).
+     *
+     * Uses a **write lock** because [store] is a `LinkedHashMap(accessOrder = true)` which
+     * mutates its internal linked-list on every [LinkedHashMap.get] call to track LRU order.
+     * Calling [LinkedHashMap.get] under a shared read lock from multiple threads concurrently
+     * would cause a data race and potential [java.util.ConcurrentModificationException].
      */
     fun get(
         actorId: String,
         requestId: UUID
     ): Any? =
-        lock.read {
+        lock.write {
             val key = CacheKey(actorId, requestId)
             val entry = store[key] ?: return null
             if (isExpired(entry)) null else entry.value
@@ -133,21 +140,32 @@ class IdempotencyCache(
         requestId: UUID,
         compute: () -> T
     ): T {
-        // Fast path: check under read lock
-        val cached =
-            lock.read {
-                val key = CacheKey(actorId, requestId)
-                val entry = store[key]
-                if (entry != null && !isExpired(entry)) entry else null
+        // Hold the write lock across the entire check-compute-store cycle to prevent
+        // TOCTOU: without this, concurrent threads on a cache miss would all pass the
+        // "not found" check and each call compute(), defeating the idempotency guarantee.
+        //
+        // The write lock is also required by the LRU LinkedHashMap — see get() comment.
+        //
+        // Note: compute() (the actual tool execution) runs while the write lock is held.
+        // This is intentional: for our use case the MCP tool already serialises through
+        // SQLite's own write lock, so holding the cache write lock for the duration adds
+        // no additional practical contention.
+        return lock.write {
+            val key = CacheKey(actorId, requestId)
+            val entry = store[key]
+            if (entry != null && !isExpired(entry)) {
+                entry.value as T
+            } else {
+                val result = compute()
+                val now = Instant.now()
+                evictExpired(now)
+                if (store.size >= maxCapacity) {
+                    store.remove(store.keys.first())
+                }
+                store[key] = CachedResponse(value = result, storedAt = now)
+                result
             }
-        if (cached != null) {
-            return cached.value as T
         }
-        // Slow path: compute outside all locks to avoid holding locks during potentially
-        // long-running work, then store the result.
-        val result = compute()
-        put(actorId, requestId, result)
-        return result
     }
 
     /**

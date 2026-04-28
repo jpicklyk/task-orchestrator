@@ -365,5 +365,7 @@ class IdempotencyCacheTest {
         // All threads must have received "shared-result"
         assertEquals(threadCount, resultsLock.size)
         assertTrue(resultsLock.all { it == "shared-result" }, "Not all threads received the same result")
+        // compute() must have been called exactly once — this is the idempotency guarantee
+        assertEquals(1, computeCount.get(), "compute() was called ${computeCount.get()} times but should be called exactly once")
     }
 }
