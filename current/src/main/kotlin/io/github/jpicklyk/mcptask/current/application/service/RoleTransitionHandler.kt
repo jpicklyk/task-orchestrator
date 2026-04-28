@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
+import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -64,6 +66,34 @@ data class TransitionApplyResult(
 )
 
 /**
+ * Result of an ownership check for a [UserTrigger]-based transition.
+ *
+ * - [Allowed] — the caller is allowed to transition this item (unclaimed, expired, or caller holds the claim).
+ * - [Rejected] — the caller does not hold the active claim; operation must be refused.
+ * - [PolicyRejected] — the configured [DegradedModePolicy] rejected the actor verification; operation must be refused.
+ */
+sealed class OwnershipCheckResult {
+    /** Caller is allowed to proceed with the transition. */
+    data object Allowed : OwnershipCheckResult()
+
+    /**
+     * The item has an active (non-expired) claim held by a different agent.
+     * [claimedBy] is the current holder (for internal logging only — do not surface to callers).
+     */
+    data class Rejected(
+        val error: String
+    ) : OwnershipCheckResult()
+
+    /**
+     * The [DegradedModePolicy] rejected the actor's verification status; operation must be refused.
+     * [reason] is a human-readable explanation from the policy.
+     */
+    data class PolicyRejected(
+        val reason: String
+    ) : OwnershipCheckResult()
+}
+
+/**
  * Encapsulates all role transition logic for Current (v3).
  *
  * Three-phase workflow:
@@ -85,13 +115,89 @@ class RoleTransitionHandler {
     // -----------------------------------------------------------------------
 
     /**
+     * Check whether [actorClaim] is allowed to transition [item].
+     *
+     * Ownership rule:
+     * - If the item is unclaimed (`claimedBy == null`) or the claim has expired
+     *   (`claimExpiresAt <= now()`), any caller may proceed regardless of actor identity.
+     * - If the item has an active (non-expired) claim, the caller's trusted actor id
+     *   (resolved via [DegradedModePolicy]) must match `item.claimedBy`.
+     * - If no [actorClaim] is provided and the item has an active claim, the operation
+     *   is rejected (the item is owned by another agent).
+     *
+     * Cascade transitions bypass this check entirely — they are initiated by the system,
+     * not by an external caller, and always pass through [cascadeTransition] instead.
+     *
+     * @param item The current work item (freshly read from the DB).
+     * @param actorClaim The actor claim extracted from the request, or null if absent.
+     * @param verification The verification result from [ActorVerifier.verify], or null.
+     * @param degradedModePolicy The deployment's identity degraded-mode policy.
+     * @return [OwnershipCheckResult.Allowed], [OwnershipCheckResult.Rejected], or
+     *         [OwnershipCheckResult.PolicyRejected].
+     */
+    fun checkOwnershipForTransition(
+        item: WorkItem,
+        actorClaim: ActorClaim?,
+        verification: VerificationResult?,
+        degradedModePolicy: DegradedModePolicy
+    ): OwnershipCheckResult {
+        val now = Instant.now()
+
+        // Determine whether the item has an active (non-expired) claim.
+        val hasActiveClaim =
+            item.claimedBy != null &&
+                item.claimExpiresAt != null &&
+                item.claimExpiresAt.isAfter(now)
+
+        if (!hasActiveClaim) {
+            // Item is unclaimed or claim has expired — any caller may proceed.
+            // If an actor was provided, still apply policy check so REJECT policy works.
+            if (actorClaim != null && verification != null) {
+                val policyResult = ActorAware.resolveTrustedActorId(actorClaim, verification, degradedModePolicy)
+                if (policyResult is PolicyResolution.Rejected) {
+                    return OwnershipCheckResult.PolicyRejected(policyResult.reason)
+                }
+            }
+            return OwnershipCheckResult.Allowed
+        }
+
+        // Item has an active claim — check that the caller holds it.
+        if (actorClaim == null || verification == null) {
+            return OwnershipCheckResult.Rejected(
+                "Item is claimed by another agent and cannot be transitioned without providing " +
+                    "actor credentials. Claim expires at ${item.claimExpiresAt}."
+            )
+        }
+
+        // Resolve the trusted actor id via policy.
+        val policyResult = ActorAware.resolveTrustedActorId(actorClaim, verification, degradedModePolicy)
+        if (policyResult is PolicyResolution.Rejected) {
+            return OwnershipCheckResult.PolicyRejected(policyResult.reason)
+        }
+        val trustedId = (policyResult as PolicyResolution.Trusted).trustedId
+
+        // Compare trusted caller id to the current claim holder.
+        return if (trustedId == item.claimedBy) {
+            OwnershipCheckResult.Allowed
+        } else {
+            OwnershipCheckResult.Rejected(
+                "Ownership check failed: this item is claimed by a different agent. " +
+                    "Claim expires at ${item.claimExpiresAt}. " +
+                    "Release the claim or wait for it to expire before transitioning."
+            )
+        }
+    }
+
+    /**
      * Public entry point for transitions initiated by an external caller (agent, user,
      * orchestrator) through the `advance_item` MCP tool.
      *
      * Accepts only [UserTrigger] values — "cascade" is not a valid [UserTrigger] and
-     * therefore cannot reach this path. This is the hook point where item 5
-     * (AdvanceItemTool ownership enforcement) will add a claim-ownership check before
-     * the three-phase workflow runs.
+     * therefore cannot reach this path.
+     *
+     * Enforces claim ownership: if the item has an active (non-expired) claim, the caller's
+     * resolved actor id must match `item.claimedBy`. Unclaimed and expired-claim items
+     * are accessible to any caller. See [checkOwnershipForTransition] for the full rule set.
      *
      * @param item The current work item.
      * @param trigger The validated [UserTrigger] from the public API.
@@ -103,6 +209,7 @@ class RoleTransitionHandler {
      * @param dependencyRepository Repository for validating dependency constraints.
      * @param actorClaim Optional actor attribution (populated from verified request context).
      * @param verification Optional verification result attached to the actor claim.
+     * @param degradedModePolicy The deployment's identity degraded-mode policy.
      */
     suspend fun userTransition(
         item: WorkItem,
@@ -114,8 +221,26 @@ class RoleTransitionHandler {
         roleTransitionRepository: RoleTransitionRepository,
         dependencyRepository: DependencyRepository,
         actorClaim: ActorClaim? = null,
-        verification: VerificationResult? = null
+        verification: VerificationResult? = null,
+        degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
     ): EntryPointTransitionResult {
+        // Ownership check: enforced at this entry point for all UserTrigger values.
+        // Cascade transitions bypass this check via cascadeTransition().
+        val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy)
+        when (ownershipResult) {
+            is OwnershipCheckResult.Allowed -> {} // proceed
+            is OwnershipCheckResult.Rejected ->
+                return EntryPointTransitionResult(
+                    success = false,
+                    error = ownershipResult.error
+                )
+            is OwnershipCheckResult.PolicyRejected ->
+                return EntryPointTransitionResult(
+                    success = false,
+                    error = ownershipResult.reason
+                )
+        }
+
         val triggerStr = trigger.triggerString
         val resolution = resolveTransition(item, triggerStr, hasReviewPhase)
         if (!resolution.success || resolution.targetRole == null) {
