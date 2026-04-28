@@ -6,6 +6,55 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.time.Instant
 import java.util.UUID
 
+/**
+ * Sealed result type for [WorkItemRepository.claim] operations.
+ *
+ * - [Success] — the claim was atomically placed (or refreshed for same agent). [item] reflects DB state after the claim.
+ * - [AlreadyClaimed] — another agent holds a live (non-expired) claim. [retryAfterMs] is a hint for backoff.
+ * - [NotFound] — no work item with the given [id] exists.
+ * - [TerminalItem] — the item's role is TERMINAL; claiming terminal items is not supported.
+ */
+sealed class ClaimResult {
+    data class Success(
+        val item: WorkItem
+    ) : ClaimResult()
+
+    data class AlreadyClaimed(
+        val itemId: UUID,
+        /** Milliseconds until the existing claim expires; null if expiry could not be determined. */
+        val retryAfterMs: Long?
+    ) : ClaimResult()
+
+    data class NotFound(
+        val itemId: UUID
+    ) : ClaimResult()
+
+    data class TerminalItem(
+        val itemId: UUID
+    ) : ClaimResult()
+}
+
+/**
+ * Sealed result type for [WorkItemRepository.release] operations.
+ *
+ * - [Success] — the claim was cleared; [item] reflects DB state after release.
+ * - [NotClaimedByYou] — the item is claimed by a different agent (or is unclaimed).
+ * - [NotFound] — no work item with the given [id] exists.
+ */
+sealed class ReleaseResult {
+    data class Success(
+        val item: WorkItem
+    ) : ReleaseResult()
+
+    data class NotClaimedByYou(
+        val itemId: UUID
+    ) : ReleaseResult()
+
+    data class NotFound(
+        val itemId: UUID
+    ) : ReleaseResult()
+}
+
 interface WorkItemRepository {
     suspend fun getById(id: UUID): Result<WorkItem>
 
@@ -112,6 +161,44 @@ interface WorkItemRepository {
      * Delete multiple items by ID in one query. Returns the number of rows deleted.
      */
     suspend fun deleteAll(ids: Set<UUID>): Result<Int>
+
+    /**
+     * Atomically claim a work item for the given agent, or refresh an existing claim.
+     *
+     * Implements the two-step canonical SQL pattern:
+     * 1. Release all prior claims by [agentId] **except** the item being claimed.
+     * 2. Claim (or refresh) [itemId], but only if it is unclaimed, expired, or already held by [agentId],
+     *    and the item's role is not TERMINAL.
+     *
+     * Both steps execute inside a single SERIALIZABLE transaction. The Kotlin layer does NOT compute
+     * any timestamps — `datetime('now')` is the sole time source.
+     *
+     * @param itemId    UUID of the item to claim.
+     * @param agentId   Opaque agent identifier to record as the claim holder.
+     * @param ttlSeconds Number of seconds until the claim expires (default 900).
+     * @return [ClaimResult.Success] with the updated item, or a failure variant.
+     */
+    suspend fun claim(
+        itemId: UUID,
+        agentId: String,
+        ttlSeconds: Int = 900
+    ): ClaimResult
+
+    /**
+     * Release a claim held by [agentId] on [itemId].
+     *
+     * Clears all four claim fields (`claimed_by`, `claimed_at`, `claim_expires_at`,
+     * `original_claimed_at`) atomically. Only succeeds when the current `claimed_by`
+     * matches [agentId]; returns [ReleaseResult.NotClaimedByYou] otherwise.
+     *
+     * @param itemId  UUID of the item to release.
+     * @param agentId The agent releasing the claim (must be the current holder).
+     * @return [ReleaseResult.Success] with the updated item, or a failure variant.
+     */
+    suspend fun release(
+        itemId: UUID,
+        agentId: String
+    ): ReleaseResult
 
     /**
      * Find work items whose ID starts with the given hex prefix.
