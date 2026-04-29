@@ -22,6 +22,7 @@ import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -692,7 +693,7 @@ class IdempotencyToolsTest {
     private fun buildClaimParams(
         itemId: String,
         agentId: String,
-        requestId: String? = null
+        requestId: String
     ): JsonObject =
         buildJsonObject {
             put(
@@ -707,9 +708,26 @@ class IdempotencyToolsTest {
                 )
             )
             put("actor", actor(agentId))
-            if (requestId != null) {
-                put("requestId", JsonPrimitive(requestId))
-            }
+            put("requestId", JsonPrimitive(requestId))
+        }
+
+    private fun buildClaimParamsNoRequestId(
+        itemId: String,
+        agentId: String
+    ): JsonObject =
+        buildJsonObject {
+            put(
+                "claims",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(itemId))
+                            put("ttlSeconds", JsonPrimitive(900))
+                        }
+                    )
+                )
+            )
+            put("actor", actor(agentId))
         }
 
     private fun claimSuccessItem(
@@ -782,13 +800,14 @@ class IdempotencyToolsTest {
         }
 
     /**
-     * TEST-I10b: claim_item without requestId behaves identically to current (no caching).
+     * TEST-I10b-revised: claim_item without requestId is rejected at validation.
      *
-     * Two calls without requestId both hit the repository — repository.claim() is called
-     * twice and no cache entry is created.
+     * requestId is required for claim_item — fleet-mode idempotency is a hard contract.
+     * A call missing requestId must throw ToolValidationException and must not reach
+     * the repository at all.
      */
     @Test
-    fun `claim_item without requestId behaves identically to current no caching`() =
+    fun `claim_item without requestId is rejected at validation`() =
         runBlocking {
             val mockRepo = MockRepositoryProvider()
             val claimCache = IdempotencyCache()
@@ -799,35 +818,23 @@ class IdempotencyToolsTest {
                 )
 
             val tool = ClaimItemTool()
-            val item1Id = UUID.randomUUID()
-            val item2Id = UUID.randomUUID()
+            val itemId = UUID.randomUUID()
             val agentId = "agent-no-request-id"
 
-            // Set up mock: each item claim returns success
-            coEvery {
-                mockRepo.workItemRepo.claim(item1Id, agentId, 900)
-            } returns
-                ClaimResult.Success(
-                    claimSuccessItem(item1Id, agentId)
-                )
-            coEvery {
-                mockRepo.workItemRepo.claim(item2Id, agentId, 900)
-            } returns
-                ClaimResult.Success(
-                    claimSuccessItem(item2Id, agentId)
-                )
+            val exception =
+                assertThrows<ToolValidationException> {
+                    tool.validateParams(buildClaimParamsNoRequestId(itemId.toString(), agentId))
+                }
 
-            // First call: claim item1 — no requestId
-            tool.execute(buildClaimParams(item1Id.toString(), agentId, requestId = null), claimContext)
+            assertTrue(
+                exception.message!!.contains("requestId is required"),
+                "Exception message must explain that requestId is required, got: ${exception.message}"
+            )
 
-            // Second call: claim item2 — no requestId (should execute fresh, not return cached)
-            tool.execute(buildClaimParams(item2Id.toString(), agentId, requestId = null), claimContext)
+            // Repository must not be called — validation rejected before execution
+            coVerify(exactly = 0) { mockRepo.workItemRepo.claim(any(), any(), any()) }
 
-            // Cache must remain empty — no requestId means no caching
-            assertEquals(0, claimCache.size(), "Cache must remain empty when requestId is omitted")
-
-            // Both calls should have hit the repository (each claim executed)
-            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(item1Id, agentId, 900) }
-            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(item2Id, agentId, 900) }
+            // Cache must be untouched
+            assertEquals(0, claimCache.size(), "Cache must remain empty after validation rejection")
         }
 }

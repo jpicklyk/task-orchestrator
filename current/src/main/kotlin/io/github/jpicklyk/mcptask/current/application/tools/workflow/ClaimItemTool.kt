@@ -35,8 +35,11 @@ import java.util.UUID
  * **Release semantics:**
  * - Only the current claim holder can release; other agents receive `not_claimed_by_you`.
  *
- * Supports `requestId` for idempotency: repeated calls with the same (actor, requestId)
- * within ~10 minutes return the cached response without re-executing the claim/release operations.
+ * Requires `requestId` for idempotency: `claim_item` is a fleet-mode tool by definition.
+ * Single-orchestrator deployments do not use `claim_item`; fleet callers operate in a
+ * multi-agent context where network retries are a real concern, so idempotency is a hard contract.
+ * Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response
+ * without re-executing the claim/release operations.
  */
 class ClaimItemTool :
     BaseToolDefinition(),
@@ -52,7 +55,7 @@ any prior claim held by the same agent.
 - `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900), agentId? (optional string, overridden by verified actor) }`
 - `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
 - `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
-- `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
+- `requestId` (required UUID): Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 At least one of `claims` or `releases` must be non-empty.
 
@@ -148,21 +151,38 @@ At least one of `claims` or `releases` must be non-empty.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Requires a top-level actor parameter to function."
+                                    "Client-generated UUID for idempotency. Required — claim_item is a fleet-mode tool " +
+                                        "and idempotency is a hard contract. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing."
                                 )
                             )
                         }
                     )
                 },
-            required = listOf("actor")
+            required = listOf("actor", "requestId")
         )
 
     override fun validateParams(params: JsonElement) {
         val paramsObj = params as? JsonObject
-        val claims = paramsObj?.get("claims") as? JsonArray
-        val releases = paramsObj?.get("releases") as? JsonArray
+
+        // requestId is required for claim_item — fleet-mode idempotency is a hard contract
+        val requestIdPrim = paramsObj?.get("requestId") as? JsonPrimitive
+        if (requestIdPrim == null || requestIdPrim.content.isBlank()) {
+            throw ToolValidationException(
+                "requestId is required for claim_item. claim_item is a fleet-mode tool — " +
+                    "generate a fresh UUID per call and supply it to enforce idempotency."
+            )
+        }
+        try {
+            UUID.fromString(requestIdPrim.content)
+        } catch (_: IllegalArgumentException) {
+            throw ToolValidationException(
+                "requestId must be a valid UUID, got: '${requestIdPrim.content}'"
+            )
+        }
+
+        val claims = paramsObj.get("claims") as? JsonArray
+        val releases = paramsObj.get("releases") as? JsonArray
         val hasWork = (!claims.isNullOrEmpty()) || (!releases.isNullOrEmpty())
         if (!hasWork) {
             throw ToolValidationException("At least one of 'claims' or 'releases' must be non-empty")
@@ -209,16 +229,8 @@ At least one of `claims` or `releases` must be non-empty.
     ): JsonElement {
         val paramsObj = params as? JsonObject ?: return errorResponse("Parameters must be a JSON object")
 
-        // --- Idempotency: extract requestId before actor resolution so we can return early on cache hit ---
-        val requestIdStr = optionalString(params, "requestId")
-        val requestId =
-            requestIdStr?.let {
-                try {
-                    UUID.fromString(it)
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }
+        // --- Idempotency: requestId is required and already validated as a valid UUID ---
+        val requestId = UUID.fromString(optionalString(params, "requestId")!!)
 
         // --- Actor resolution ---
         val actorObj = paramsObj["actor"] as? JsonObject
@@ -245,10 +257,8 @@ At least one of `claims` or `releases` must be non-empty.
             }
 
         // Check idempotency cache after identity resolution (use trustedAgentId as the key actor)
-        if (requestId != null) {
-            val cached = context.idempotencyCache.get(trustedAgentId, requestId)
-            if (cached != null) return cached as JsonElement
-        }
+        val cached = context.idempotencyCache.get(trustedAgentId, requestId)
+        if (cached != null) return cached as JsonElement
 
         val claimsArray = paramsObj["claims"] as? JsonArray ?: JsonArray(emptyList())
         val releasesArray = paramsObj["releases"] as? JsonArray ?: JsonArray(emptyList())
@@ -424,10 +434,8 @@ At least one of `claims` or `releases` must be non-empty.
 
         val response = successResponse(data)
 
-        // Store result in idempotency cache
-        if (requestId != null) {
-            context.idempotencyCache.put(trustedAgentId, requestId, response)
-        }
+        // Store result in idempotency cache (requestId always present after validation)
+        context.idempotencyCache.put(trustedAgentId, requestId, response)
 
         return response
     }

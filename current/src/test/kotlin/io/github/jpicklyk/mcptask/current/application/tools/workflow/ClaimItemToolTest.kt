@@ -73,11 +73,12 @@ class ClaimItemToolTest {
             put("itemId", itemId.toString())
         }
 
-    /** Build a full tool params object. */
+    /** Build a full tool params object. Always includes requestId (required for claim_item). */
     private fun params(
         claims: List<JsonObject> = emptyList(),
         releases: List<JsonObject> = emptyList(),
-        actorId: String = agentId
+        actorId: String = agentId,
+        requestId: String = UUID.randomUUID().toString()
     ): JsonObject =
         buildJsonObject {
             if (claims.isNotEmpty()) {
@@ -87,6 +88,7 @@ class ClaimItemToolTest {
                 put("releases", buildJsonArray { releases.forEach { add(it) } })
             }
             put("actor", actorJson(actorId))
+            put("requestId", requestId)
         }
 
     private fun makeSuccessItem(
@@ -123,8 +125,36 @@ class ClaimItemToolTest {
     // -----------------------------------------------------------------------
 
     @Test
+    fun `validateParams throws when requestId is absent`() {
+        val p =
+            buildJsonObject {
+                put("claims", buildJsonArray { add(claimEntry(itemId1)) })
+                put("actor", actorJson())
+                // no requestId
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assert(ex.message!!.contains("requestId is required"))
+    }
+
+    @Test
+    fun `validateParams throws when requestId is not a valid UUID`() {
+        val p =
+            buildJsonObject {
+                put("claims", buildJsonArray { add(claimEntry(itemId1)) })
+                put("actor", actorJson())
+                put("requestId", "not-a-uuid")
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assert(ex.message!!.contains("valid UUID"))
+    }
+
+    @Test
     fun `validateParams throws when claims and releases are both absent`() {
-        val p = buildJsonObject { put("actor", actorJson()) }
+        val p =
+            buildJsonObject {
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
         assertFailsWith<ToolValidationException> { tool.validateParams(p) }
     }
 
@@ -135,6 +165,7 @@ class ClaimItemToolTest {
                 put("claims", buildJsonArray {})
                 put("releases", buildJsonArray {})
                 put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
             }
         assertFailsWith<ToolValidationException> { tool.validateParams(p) }
     }
@@ -145,6 +176,7 @@ class ClaimItemToolTest {
             buildJsonObject {
                 put("claims", buildJsonArray { add(buildJsonObject { put("ttlSeconds", 900) }) })
                 put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
             }
         assertFailsWith<ToolValidationException> { tool.validateParams(p) }
     }
@@ -165,6 +197,7 @@ class ClaimItemToolTest {
                     }
                 )
                 put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
             }
         assertFailsWith<ToolValidationException> { tool.validateParams(p) }
     }
@@ -330,6 +363,8 @@ class ClaimItemToolTest {
             val p =
                 buildJsonObject {
                     put("claims", buildJsonArray { add(claimEntry(itemId1)) })
+                    put("requestId", UUID.randomUUID().toString())
+                    // no actor
                 }
 
             val result = tool.execute(p, defaultContext())
