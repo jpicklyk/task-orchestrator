@@ -31,6 +31,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -390,5 +391,72 @@ class ClaimItemToolTest {
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
             assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
+        }
+
+    // -----------------------------------------------------------------------
+    // TEST-C1: already_claimed response includes contendedItemId
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `already_claimed response includes contendedItemId equal to the contested itemId`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
+                ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 30000L)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("already_claimed", first["outcome"]?.jsonPrimitive?.content)
+            val contendedItemId = first["contendedItemId"]?.jsonPrimitive?.content
+            assertNotNull(contendedItemId, "contendedItemId must be present in already_claimed response")
+            assertEquals(
+                itemId1.toString(),
+                contendedItemId,
+                "contendedItemId must equal the contested item's UUID"
+            )
+        }
+
+    // -----------------------------------------------------------------------
+    // TEST-I9: already_claimed response serialized JSON has kind="transient"
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `already_claimed response serialized JSON has kind equal to transient`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
+                ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 45000L)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            val kind = first["kind"]?.jsonPrimitive?.content
+            assertNotNull(kind, "kind must be present in already_claimed response")
+            assertEquals("transient", kind, "kind must be \"transient\" for already_claimed contention errors")
+        }
+
+    // -----------------------------------------------------------------------
+    // TEST-I6: already_claimed full serialized response does not contain "claimedBy" key
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `already_claimed full serialized response does not contain claimedBy JSON key anywhere`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
+                ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 45000L)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            // Serialize the entire response to JSON string and scan for the "claimedBy" key.
+            // This is defense-in-depth: a structural leakage regression (e.g. claimedBy=null or
+            // a renamed field like claimedByAgent) would introduce the JSON key without a value match.
+            // JsonElement.toString() produces valid JSON in kotlinx.serialization.
+            val serialized = result.toString()
+            assertFalse(
+                "\"claimedBy\"" in serialized,
+                "Serialized already_claimed response must not contain \"claimedBy\" JSON key anywhere. " +
+                    "Got: $serialized"
+            )
         }
 }

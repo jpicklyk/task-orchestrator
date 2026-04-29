@@ -8,6 +8,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -274,12 +276,24 @@ At least one of `claims` or `releases` must be non-empty.
 
                 is ClaimResult.AlreadyClaimed -> {
                     claimsFailed++
+                    // Emit ToolError fields (kind, retryAfterMs, contendedItemId) so agents can make
+                    // retry decisions without string-parsing. Tiered disclosure: no competing agent identity.
+                    val alreadyClaimedError =
+                        ToolError(
+                            kind = ErrorKind.TRANSIENT,
+                            code = "already_claimed",
+                            message = "Item ${result.itemId} is already claimed by another agent",
+                            retryAfterMs = result.retryAfterMs,
+                            contendedItemId = result.itemId
+                        )
                     claimResultsList.add(
                         buildJsonObject {
                             put("itemId", JsonPrimitive(result.itemId.toString()))
                             put("outcome", JsonPrimitive("already_claimed"))
+                            put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
+                            put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
                             // Tiered disclosure: retryAfterMs only — no competing agent identity.
-                            result.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                            alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
                         }
                     )
                 }
@@ -402,29 +416,11 @@ At least one of `claims` or `releases` must be non-empty.
         }.ifEmpty { "claim_item: no operations" }
     }
 
-    private fun buildRejectedByPolicyResponse(reason: String): JsonElement {
-        val data =
-            buildJsonObject {
-                put("claimResults", JsonArray(emptyList()))
-                put("releaseResults", JsonArray(emptyList()))
-                put(
-                    "summary",
-                    buildJsonObject {
-                        put("claimsTotal", JsonPrimitive(0))
-                        put("claimsSucceeded", JsonPrimitive(0))
-                        put("claimsFailed", JsonPrimitive(0))
-                        put("releasesTotal", JsonPrimitive(0))
-                        put("releasesSucceeded", JsonPrimitive(0))
-                        put("releasesFailed", JsonPrimitive(0))
-                    }
-                )
-                put("rejectedByPolicy", JsonPrimitive(true))
-                put("policyReason", JsonPrimitive(reason))
-            }
-        return errorResponse(
-            message = "Actor rejected by degradedModePolicy: $reason",
-            code = ErrorCodes.OPERATION_FAILED,
-            additionalData = data
+    private fun buildRejectedByPolicyResponse(reason: String): JsonElement =
+        errorResponse(
+            ToolError.permanent(
+                code = "rejected_by_policy",
+                message = "Actor rejected by degradedModePolicy: $reason"
+            )
         )
-    }
 }
