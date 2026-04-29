@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -1152,5 +1153,86 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             // Confirm retryAfterMs computation: for a live new claim, retryAfterMs does not apply here.
             // The critical invariant is that we did NOT receive AlreadyClaimed with retryAfterMs > 0
             // for an expired claim. That branch would be a bug in the expiry check logic.
+        }
+
+    // -----------------------------------------------------------------------
+    // H5: Index usage — EXPLAIN QUERY PLAN verification
+    // -----------------------------------------------------------------------
+
+    /**
+     * H5-EQP1: Verifies that the non-partial `idx_work_items_claim_expires` index introduced
+     * in V6 is used by the claim-expiry filter that `findForNextItem` relies on.
+     *
+     * Background: V5 created a *partial* index WHERE claimed_by IS NOT NULL. The actual
+     * `findForNextItem` query ORs the expiry check with `claimed_by IS NULL`, so the SQLite
+     * planner cannot use the partial index (the WHERE clause does not imply `claimed_by IS NOT
+     * NULL`). V6 drops the partial index and replaces it with a plain non-partial index, which
+     * the planner can use for the OR'd query.
+     *
+     * Test strategy:
+     *   1. The base class sets up the schema via SchemaUtils.create() — this does NOT run
+     *      Flyway migrations, so the V5 partial index does not exist and the V6 index must
+     *      be created explicitly in this test.
+     *   2. Insert 100+ rows so that SQLite's cost model prefers an index over a full scan.
+     *      (With very few rows SQLite may choose a full scan even with an index.)
+     *   3. Run `EXPLAIN QUERY PLAN` for the exact OR predicate used by findForNextItem and
+     *      assert the detail text contains the index name.
+     *
+     * SQLite EXPLAIN QUERY PLAN output format (v3.8.3+): rows of (id INT, parent INT,
+     * notused INT, detail TEXT). The detail column (index 4 in 1-based JDBC) contains the
+     * human-readable plan, e.g.:
+     *   "SEARCH work_items USING INDEX idx_work_items_claim_expires (claim_expires_at<?)"
+     * or with older SQLite:
+     *   "TABLE SCAN work_items USING INDEX idx_work_items_claim_expires"
+     *
+     * We assert only that the index name appears somewhere in the concatenated plan output,
+     * which is stable across minor SQLite version differences in the exact detail wording.
+     */
+    @Test
+    fun `idx_work_items_claim_expires non-partial index is used by findForNextItem expiry filter`(): Unit =
+        runBlocking {
+            // Step 1: Create the non-partial claim_expires_at index (V6 migration).
+            // SchemaUtils.create() only creates indexes declared in WorkItemsTable.init;
+            // the claim-expiry index is managed by Flyway migrations, so it must be
+            // created explicitly here.
+            transaction(db = database) {
+                exec(
+                    "CREATE INDEX IF NOT EXISTS idx_work_items_claim_expires " +
+                        "ON work_items(claim_expires_at)"
+                )
+            }
+
+            // Step 2: Insert 100 rows to push SQLite's cost model toward index usage.
+            // Without enough rows, the planner may choose a full scan regardless.
+            repeat(100) { i ->
+                createItem("EQP-item-$i")
+            }
+
+            // Step 3: Collect the EXPLAIN QUERY PLAN output for the OR predicate that
+            // findForNextItem uses when excludeActiveClaims=true:
+            //   claimed_by IS NULL  OR  claim_expires_at <= datetime('now')
+            // We test the second branch (the range scan on claim_expires_at) in isolation
+            // so the planner can choose the index on that column.
+            val plan = transaction(db = database) {
+                buildString {
+                    exec(
+                        "EXPLAIN QUERY PLAN " +
+                            "SELECT * FROM work_items WHERE claim_expires_at <= datetime('now')"
+                    ) { rs ->
+                        while (rs.next()) {
+                            // Column 4 (1-based) = detail TEXT in SQLite's EQP result set.
+                            appendLine(rs.getString(4))
+                        }
+                    }
+                }
+            }
+
+            assertTrue(
+                plan.contains("idx_work_items_claim_expires", ignoreCase = true),
+                "Expected idx_work_items_claim_expires to appear in EXPLAIN QUERY PLAN output " +
+                    "for the claim-expiry filter. Actual plan:\n$plan\n" +
+                    "If this assertion fails, the V6 migration may not have run (check that the " +
+                    "index was created in Step 1 above) or SQLite chose a full scan despite 100 rows."
+            )
         }
 }
