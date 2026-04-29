@@ -3045,26 +3045,38 @@ class AdvanceItemToolTest {
         runBlocking {
             val id1 = UUID.randomUUID()
             val id2 = UUID.randomUUID()
-            val params = buildJsonObject {
-                put("transitions", buildJsonArray {
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id1.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("actor", buildJsonObject {
-                            put("id", JsonPrimitive("agent-A"))
-                            put("kind", JsonPrimitive("subagent"))
-                        })
-                    })
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id2.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        // no actor
-                    })
-                })
-            }
-            val ex = assertFailsWith<ToolValidationException> {
-                tool.validateParams(params)
-            }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id1.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-A"))
+                                            put("kind", JsonPrimitive("subagent"))
+                                        }
+                                    )
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id2.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    // no actor
+                                }
+                            )
+                        }
+                    )
+                }
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(params)
+                }
             assertTrue(
                 ex.message!!.contains("mixed actor presence"),
                 "Expected 'mixed actor presence' in message, got: ${ex.message}"
@@ -3076,29 +3088,44 @@ class AdvanceItemToolTest {
         runBlocking {
             val id1 = UUID.randomUUID()
             val id2 = UUID.randomUUID()
-            val params = buildJsonObject {
-                put("transitions", buildJsonArray {
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id1.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("actor", buildJsonObject {
-                            put("id", JsonPrimitive("agent-A"))
-                            put("kind", JsonPrimitive("subagent"))
-                        })
-                    })
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id2.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("actor", buildJsonObject {
-                            put("id", JsonPrimitive("agent-B"))
-                            put("kind", JsonPrimitive("subagent"))
-                        })
-                    })
-                })
-            }
-            val ex = assertFailsWith<ToolValidationException> {
-                tool.validateParams(params)
-            }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id1.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-A"))
+                                            put("kind", JsonPrimitive("subagent"))
+                                        }
+                                    )
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id2.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-B"))
+                                            put("kind", JsonPrimitive("subagent"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(params)
+                }
             assertTrue(
                 ex.message!!.contains("distinct actor.id values"),
                 "Expected 'distinct actor.id values' in message, got: ${ex.message}"
@@ -3110,26 +3137,40 @@ class AdvanceItemToolTest {
         runBlocking {
             val id1 = UUID.randomUUID()
             val id2 = UUID.randomUUID()
-            val params = buildJsonObject {
-                put("transitions", buildJsonArray {
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id1.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("actor", buildJsonObject {
-                            put("id", JsonPrimitive("agent-A"))
-                            put("kind", JsonPrimitive("subagent"))
-                        })
-                    })
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id2.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("actor", buildJsonObject {
-                            put("id", JsonPrimitive("agent-A"))
-                            put("kind", JsonPrimitive("subagent"))
-                        })
-                    })
-                })
-            }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id1.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-A"))
+                                            put("kind", JsonPrimitive("subagent"))
+                                        }
+                                    )
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id2.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-A"))
+                                            put("kind", JsonPrimitive("subagent"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
             // Should not throw
             tool.validateParams(params)
         }
@@ -3139,18 +3180,26 @@ class AdvanceItemToolTest {
         runBlocking {
             val id1 = UUID.randomUUID()
             val id2 = UUID.randomUUID()
-            val params = buildJsonObject {
-                put("transitions", buildJsonArray {
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id1.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                    })
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id2.toString()))
-                        put("trigger", JsonPrimitive("complete"))
-                    })
-                })
-            }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id1.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id2.toString()))
+                                    put("trigger", JsonPrimitive("complete"))
+                                }
+                            )
+                        }
+                    )
+                }
             // Should not throw
             tool.validateParams(params)
         }
@@ -3159,18 +3208,27 @@ class AdvanceItemToolTest {
     fun `validateParams allows single transition with actor`(): Unit =
         runBlocking {
             val id1 = UUID.randomUUID()
-            val params = buildJsonObject {
-                put("transitions", buildJsonArray {
-                    add(buildJsonObject {
-                        put("itemId", JsonPrimitive(id1.toString()))
-                        put("trigger", JsonPrimitive("start"))
-                        put("actor", buildJsonObject {
-                            put("id", JsonPrimitive("agent-A"))
-                            put("kind", JsonPrimitive("subagent"))
-                        })
-                    })
-                })
-            }
+            val params =
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(id1.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("agent-A"))
+                                            put("kind", JsonPrimitive("subagent"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
             // Should not throw
             tool.validateParams(params)
         }

@@ -288,13 +288,13 @@ class WorkItemTest {
 
     // --- Claim-field invariants ---
 
-    private val T = java.time.Instant.parse("2025-01-01T00:00:00Z")
+    private val baseInstant = java.time.Instant.parse("2025-01-01T00:00:00Z")
 
     private fun claimedItem(
         claimedBy: String? = "agent-A",
-        claimedAt: java.time.Instant? = T,
-        claimExpiresAt: java.time.Instant? = T.plusSeconds(900),
-        originalClaimedAt: java.time.Instant? = T,
+        claimedAt: java.time.Instant? = baseInstant,
+        claimExpiresAt: java.time.Instant? = baseInstant.plusSeconds(900),
+        originalClaimedAt: java.time.Instant? = baseInstant,
     ) = WorkItem(
         title = "claimed",
         claimedBy = claimedBy,
@@ -305,69 +305,76 @@ class WorkItemTest {
 
     @Test
     fun `claimedBy empty string throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            claimedItem(claimedBy = "")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                claimedItem(claimedBy = "")
+            }
         assertTrue(ex.message!!.contains("claimedBy must not be blank"))
     }
 
     @Test
     fun `claimedBy whitespace-only throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            claimedItem(claimedBy = "   ")
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                claimedItem(claimedBy = "   ")
+            }
         assertTrue(ex.message!!.contains("claimedBy must not be blank"))
     }
 
     @Test
     fun `claimedBy exceeding 500 chars throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            claimedItem(claimedBy = "x".repeat(501))
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                claimedItem(claimedBy = "x".repeat(501))
+            }
         assertTrue(ex.message!!.contains("claimedBy must not exceed 500 characters"))
     }
 
     @Test
     fun `claimedAt after claimExpiresAt throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            claimedItem(
-                claimedAt = T.plusSeconds(10),
-                claimExpiresAt = T.plusSeconds(5),
-            )
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                claimedItem(
+                    claimedAt = baseInstant.plusSeconds(10),
+                    claimExpiresAt = baseInstant.plusSeconds(5),
+                )
+            }
         assertTrue(ex.message!!.contains("claimedAt must not be after claimExpiresAt"))
     }
 
     @Test
     fun `originalClaimedAt after claimedAt throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            claimedItem(
-                originalClaimedAt = T.plusSeconds(10),
-                claimedAt = T.plusSeconds(5),
-            )
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                claimedItem(
+                    originalClaimedAt = baseInstant.plusSeconds(10),
+                    claimedAt = baseInstant.plusSeconds(5),
+                )
+            }
         assertTrue(ex.message!!.contains("originalClaimedAt must not be after claimedAt"))
     }
 
     @Test
     fun `partial claim state with originalClaimedAt null throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            claimedItem(originalClaimedAt = null)
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                claimedItem(originalClaimedAt = null)
+            }
         assertTrue(ex.message!!.contains("Claim fields"))
     }
 
     @Test
     fun `partial claim state with only claimExpiresAt set throws ValidationException`() {
-        val ex = assertFailsWith<ValidationException> {
-            WorkItem(
-                title = "partial",
-                claimedBy = null,
-                claimedAt = null,
-                claimExpiresAt = T.plusSeconds(900),
-                originalClaimedAt = null,
-            )
-        }
+        val ex =
+            assertFailsWith<ValidationException> {
+                WorkItem(
+                    title = "partial",
+                    claimedBy = null,
+                    claimedAt = null,
+                    claimExpiresAt = baseInstant.plusSeconds(900),
+                    originalClaimedAt = null,
+                )
+            }
         assertTrue(ex.message!!.contains("Claim fields"))
     }
 
@@ -384,19 +391,19 @@ class WorkItemTest {
     fun `all four claim fields non-null with valid ordering is valid`() {
         val item = claimedItem()
         assertEquals("agent-A", item.claimedBy)
-        assertEquals(T, item.claimedAt)
-        assertEquals(T.plusSeconds(900), item.claimExpiresAt)
-        assertEquals(T, item.originalClaimedAt)
+        assertEquals(baseInstant, item.claimedAt)
+        assertEquals(baseInstant.plusSeconds(900), item.claimExpiresAt)
+        assertEquals(baseInstant, item.originalClaimedAt)
     }
 
     @Test
     fun `claimedAt equal to claimExpiresAt is valid`() {
-        claimedItem(claimedAt = T, claimExpiresAt = T)
+        claimedItem(claimedAt = baseInstant, claimExpiresAt = baseInstant)
     }
 
     @Test
     fun `originalClaimedAt equal to claimedAt is valid`() {
-        claimedItem(originalClaimedAt = T, claimedAt = T)
+        claimedItem(originalClaimedAt = baseInstant, claimedAt = baseInstant)
     }
 
     @Test

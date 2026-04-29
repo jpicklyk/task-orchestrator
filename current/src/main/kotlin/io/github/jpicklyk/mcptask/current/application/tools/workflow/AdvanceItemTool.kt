@@ -173,24 +173,30 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         // Two valid cases: all omit actor, or all provide the exact same actor.id.
         if (transitions.size > 1) {
             // Collect (index, actorId-or-null) for each element
-            data class ActorEntry(val index: Int, val actorId: String?)
+            data class ActorEntry(
+                val index: Int,
+                val actorId: String?
+            )
 
-            val actorEntries: List<ActorEntry> = transitions.mapIndexed { idx, element ->
-                val obj = element as JsonObject
-                val actorId = (obj["actor"] as? JsonObject)
-                    ?.get("id")
-                    ?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
-                ActorEntry(idx, actorId)
-            }
+            val actorEntries: List<ActorEntry> =
+                transitions.mapIndexed { idx, element ->
+                    val obj = element as JsonObject
+                    val actorId =
+                        (obj["actor"] as? JsonObject)
+                            ?.get("id")
+                            ?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                    ActorEntry(idx, actorId)
+                }
 
             val withActor = actorEntries.filter { it.actorId != null }
             val withoutActor = actorEntries.filter { it.actorId == null }
 
             if (withActor.isNotEmpty() && withoutActor.isNotEmpty()) {
                 // Mixed presence: some have actor, some don't
-                val mixedIndexes = (withActor + withoutActor)
-                    .sortedBy { it.index }
-                    .map { it.index }
+                val mixedIndexes =
+                    (withActor + withoutActor)
+                        .sortedBy { it.index }
+                        .map { it.index }
                 throw ToolValidationException(
                     "transitions must either all omit actor or all use the same actor.id; " +
                         "found mixed actor presence at indexes $mixedIndexes"
