@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
+import java.util.UUID
 
 /**
  * MCP tool for atomically claiming or releasing work items.
@@ -34,7 +35,8 @@ import kotlinx.serialization.json.*
  * **Release semantics:**
  * - Only the current claim holder can release; other agents receive `not_claimed_by_you`.
  *
- * Future extension point: a `requestId` parameter for idempotency will be added by item 8.
+ * Supports `requestId` for idempotency: repeated calls with the same (actor, requestId)
+ * within ~10 minutes return the cached response without re-executing the claim/release operations.
  */
 class ClaimItemTool :
     BaseToolDefinition(),
@@ -50,6 +52,7 @@ any prior claim held by the same agent.
 - `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900), agentId? (optional string, overridden by verified actor) }`
 - `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
 - `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
+- `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 At least one of `claims` or `releases` must be non-empty.
 
@@ -138,6 +141,20 @@ At least one of `claims` or `releases` must be non-empty.
                             )
                         }
                     )
+                    put(
+                        "requestId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
+                                        "within ~10 minutes return the cached response without re-executing. " +
+                                        "Requires a top-level actor parameter to function."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("actor")
         )
@@ -192,6 +209,17 @@ At least one of `claims` or `releases` must be non-empty.
     ): JsonElement {
         val paramsObj = params as? JsonObject ?: return errorResponse("Parameters must be a JSON object")
 
+        // --- Idempotency: extract requestId before actor resolution so we can return early on cache hit ---
+        val requestIdStr = optionalString(params, "requestId")
+        val requestId =
+            requestIdStr?.let {
+                try {
+                    UUID.fromString(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
+
         // --- Actor resolution ---
         val actorObj = paramsObj["actor"] as? JsonObject
         val actorResult = parseActorClaim(actorObj, context)
@@ -215,6 +243,12 @@ At least one of `claims` or `releases` must be non-empty.
                     return buildRejectedByPolicyResponse(policyResolution.reason)
                 }
             }
+
+        // Check idempotency cache after identity resolution (use trustedAgentId as the key actor)
+        if (requestId != null) {
+            val cached = context.idempotencyCache.get(trustedAgentId, requestId)
+            if (cached != null) return cached as JsonElement
+        }
 
         val claimsArray = paramsObj["claims"] as? JsonArray ?: JsonArray(emptyList())
         val releasesArray = paramsObj["releases"] as? JsonArray ?: JsonArray(emptyList())
@@ -388,7 +422,14 @@ At least one of `claims` or `releases` must be non-empty.
                 )
             }
 
-        return successResponse(data)
+        val response = successResponse(data)
+
+        // Store result in idempotency cache
+        if (requestId != null) {
+            context.idempotencyCache.put(trustedAgentId, requestId, response)
+        }
+
+        return response
     }
 
     override fun userSummary(

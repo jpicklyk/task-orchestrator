@@ -7,16 +7,22 @@ import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDep
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.mockk.coEvery
+import io.mockk.coVerify
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -672,5 +678,156 @@ class IdempotencyToolsTest {
             val items = context.workItemRepository().findRootItems()
             assertTrue(items is Result.Success)
             assertEquals(2, (items as Result.Success).data.size)
+        }
+
+    // ──────────────────────────────────────────────
+    // ClaimItemTool — claim idempotency (TEST-I10a, TEST-I10b)
+    //
+    // NOTE: claim_item's repository.claim() uses SQLite-specific HEX(id) syntax
+    // that is incompatible with H2 in-memory databases. These tests use a mocked
+    // WorkItemRepository (via MockRepositoryProvider) to test the idempotency
+    // wiring directly without hitting DB-level SQL compatibility issues.
+    // ──────────────────────────────────────────────
+
+    private fun buildClaimParams(
+        itemId: String,
+        agentId: String,
+        requestId: String? = null
+    ): JsonObject =
+        buildJsonObject {
+            put(
+                "claims",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(itemId))
+                            put("ttlSeconds", JsonPrimitive(900))
+                        }
+                    )
+                )
+            )
+            put("actor", actor(agentId))
+            if (requestId != null) {
+                put("requestId", JsonPrimitive(requestId))
+            }
+        }
+
+    private fun claimSuccessItem(
+        id: UUID,
+        claimedBy: String
+    ): WorkItem {
+        val now = Instant.now()
+        return WorkItem(
+            id = id,
+            title = "Test Claim Item",
+            claimedBy = claimedBy,
+            claimedAt = now,
+            claimExpiresAt = now.plusSeconds(900),
+            originalClaimedAt = now
+        )
+    }
+
+    /**
+     * TEST-I10a: claim_item with requestId returns cached response on retry, no double-mutation.
+     *
+     * First call mutates state (places the claim). Second call with same (actor, requestId)
+     * returns the cached response without calling repository.claim() again.
+     * Verified via mock invocation count — claim() is only called once.
+     */
+    @Test
+    fun `claim_item with requestId returns cached response on retry, no double-mutation`() =
+        runBlocking {
+            val mockRepo = MockRepositoryProvider()
+            val claimCache = IdempotencyCache()
+            val claimContext =
+                ToolExecutionContext(
+                    repositoryProvider = mockRepo.provider,
+                    idempotencyCache = claimCache
+                )
+
+            val tool = ClaimItemTool()
+            val itemId = UUID.randomUUID()
+            val requestId = UUID.randomUUID().toString()
+            val agentId = "agent-claimer"
+
+            // Set up mock: claim() returns success
+            coEvery {
+                mockRepo.workItemRepo.claim(itemId, agentId, 900)
+            } returns
+                ClaimResult.Success(
+                    claimSuccessItem(itemId, agentId)
+                )
+
+            val claimParams = buildClaimParams(itemId.toString(), agentId, requestId)
+
+            val firstResult = tool.execute(claimParams, claimContext) as JsonObject
+
+            // Verify first call succeeded
+            val firstData = firstResult["data"] as JsonObject
+            val firstClaimResults = firstData["claimResults"] as JsonArray
+            assertEquals(1, firstClaimResults.size)
+            assertEquals("success", firstClaimResults[0].jsonObject["outcome"]!!.jsonPrimitive.content)
+
+            // Second call: same (actor, requestId) — must return cached response
+            val secondResult = tool.execute(claimParams, claimContext) as JsonObject
+
+            // Responses must be identical (cached)
+            assertEquals(firstResult, secondResult)
+
+            // Verify only ONE cache entry exists
+            assertEquals(1, claimCache.size())
+
+            // The repository.claim() must have been called exactly ONCE (cached on retry)
+            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(itemId, agentId, 900) }
+        }
+
+    /**
+     * TEST-I10b: claim_item without requestId behaves identically to current (no caching).
+     *
+     * Two calls without requestId both hit the repository — repository.claim() is called
+     * twice and no cache entry is created.
+     */
+    @Test
+    fun `claim_item without requestId behaves identically to current no caching`() =
+        runBlocking {
+            val mockRepo = MockRepositoryProvider()
+            val claimCache = IdempotencyCache()
+            val claimContext =
+                ToolExecutionContext(
+                    repositoryProvider = mockRepo.provider,
+                    idempotencyCache = claimCache
+                )
+
+            val tool = ClaimItemTool()
+            val item1Id = UUID.randomUUID()
+            val item2Id = UUID.randomUUID()
+            val agentId = "agent-no-request-id"
+
+            // Set up mock: each item claim returns success
+            coEvery {
+                mockRepo.workItemRepo.claim(item1Id, agentId, 900)
+            } returns
+                ClaimResult.Success(
+                    claimSuccessItem(item1Id, agentId)
+                )
+            coEvery {
+                mockRepo.workItemRepo.claim(item2Id, agentId, 900)
+            } returns
+                ClaimResult.Success(
+                    claimSuccessItem(item2Id, agentId)
+                )
+
+            // First call: claim item1 — no requestId
+            tool.execute(buildClaimParams(item1Id.toString(), agentId, requestId = null), claimContext)
+
+            // Second call: claim item2 — no requestId (should execute fresh, not return cached)
+            tool.execute(buildClaimParams(item2Id.toString(), agentId, requestId = null), claimContext)
+
+            // Cache must remain empty — no requestId means no caching
+            assertEquals(0, claimCache.size(), "Cache must remain empty when requestId is omitted")
+
+            // Both calls should have hit the repository (each claim executed)
+            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(item1Id, agentId, 900) }
+            coVerify(exactly = 1) { mockRepo.workItemRepo.claim(item2Id, agentId, 900) }
         }
 }

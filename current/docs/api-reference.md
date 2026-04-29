@@ -1080,6 +1080,7 @@ changing the claim holder.
 | `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
 | `claims` | array | No | Items to claim: `[{ itemId (UUID or hex prefix), ttlSeconds? (default 900), agentId? (deprecated — overridden by verified actor) }]`. At least one of `claims` or `releases` must be non-empty. |
 | `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same (`actor.id`, `requestId`) within ~10 minutes return the cached response without re-executing. |
 
 **Claim semantics:**
 
