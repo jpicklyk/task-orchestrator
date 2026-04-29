@@ -38,6 +38,10 @@ import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTrans
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -47,6 +51,41 @@ class SQLiteWorkItemRepository(
     private val databaseManager: DatabaseManager
 ) : WorkItemRepository {
     private val logger = LoggerFactory.getLogger(SQLiteWorkItemRepository::class.java)
+
+    override suspend fun dbNow(): Instant =
+        databaseManager.suspendedTransaction("Failed to fetch DB-side current time") {
+            // Use CURRENT_TIMESTAMP which is ANSI SQL and supported by both SQLite and H2.
+            // SQLite returns "YYYY-MM-DD HH:MM:SS" (UTC, no timezone). H2 returns a Timestamp object.
+            // We read via getString so both dialects return a string representation.
+            val raw =
+                exec("SELECT CURRENT_TIMESTAMP") { rs ->
+                    if (rs.next()) rs.getString(1) else null
+                }
+            if (raw != null) {
+                try {
+                    // Normalize to ISO-8601: replace space separator with 'T', append 'Z' if no tz info.
+                    val iso = raw.replace(" ", "T").let { s ->
+                        when {
+                            s.endsWith("Z") || s.contains("+") || s.matches(Regex(".*[+-]\\d{2}:\\d{2}$")) -> s
+                            else -> "${s}Z"
+                        }
+                    }
+                    OffsetDateTime.parse(
+                        iso,
+                        DateTimeFormatter.ISO_OFFSET_DATE_TIME
+                    ).toInstant()
+                } catch (_: Exception) {
+                    // Fallback: parse as LocalDateTime in UTC (handles H2's fractional-second format).
+                    LocalDateTime.parse(
+                        raw.replace(" ", "T"),
+                        DateTimeFormatter.ISO_LOCAL_DATE_TIME
+                    ).toInstant(ZoneOffset.UTC)
+                }
+            } else {
+                // Should never happen in a healthy DB connection.
+                Instant.now()
+            }
+        }
 
     override suspend fun getById(id: UUID): Result<WorkItem> =
         databaseManager.suspendedTransaction("Failed to get WorkItem by id") {
@@ -254,6 +293,9 @@ class SQLiteWorkItemRepository(
         claimStatus: String?
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
+            // Fetch DB-side now once so all claim-freshness comparisons in buildFilteredQuery
+            // use the DB clock rather than the JVM clock.
+            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
             val baseQuery =
                 buildFilteredQuery(
                     parentId,
@@ -269,7 +311,8 @@ class SQLiteWorkItemRepository(
                     roleChangedAfter,
                     roleChangedBefore,
                     type,
-                    claimStatus
+                    claimStatus,
+                    nowFromDb
                 )
 
             // Determine sort column and order
@@ -314,6 +357,7 @@ class SQLiteWorkItemRepository(
         claimStatus: String?
     ): Result<Int> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
+            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
             val count =
                 buildFilteredQuery(
                     parentId,
@@ -329,7 +373,8 @@ class SQLiteWorkItemRepository(
                     roleChangedAfter,
                     roleChangedBefore,
                     type,
-                    claimStatus
+                    claimStatus,
+                    nowFromDb
                 ).count()
 
             Result.Success(count.toInt())
@@ -482,11 +527,15 @@ class SQLiteWorkItemRepository(
                                 item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
                                 item.claimedBy == agentId -> ClaimResult.Success(item)
                                 else -> {
-                                    // Claimed by someone else — compute retryAfterMs from their expiry.
+                                    // Claimed by someone else — compute retryAfterMs using the DB clock
+                                    // so the hint reflects DB-side remaining TTL, not JVM-side.
                                     val retryAfterMs =
-                                        item.claimExpiresAt?.let { exp ->
-                                            val remaining = exp.toEpochMilli() - System.currentTimeMillis()
+                                        if (item.claimExpiresAt != null) {
+                                            val dbNowInstant = dbNow()
+                                            val remaining = item.claimExpiresAt.toEpochMilli() - dbNowInstant.toEpochMilli()
                                             if (remaining > 0) remaining else null
+                                        } else {
+                                            null
                                         }
                                     ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
                                 }
@@ -594,9 +643,11 @@ class SQLiteWorkItemRepository(
             // Claim filter: exclude items with an active (non-expired) claim.
             // An item is "actively claimed" when claimed_by IS NOT NULL AND claim_expires_at > now.
             // The complement (items to include) is: claimed_by IS NULL OR claim_expires_at <= now.
+            // Use DB-side now so the freshness decision is made on the DB clock, not the JVM clock.
             if (excludeActiveClaims) {
                 val notClaimed = WorkItemsTable.claimedBy.isNull()
-                val claimExpired = WorkItemsTable.claimExpiresAt lessEq Instant.now()
+                val dbNowInstant = dbNow()
+                val claimExpired = WorkItemsTable.claimExpiresAt lessEq dbNowInstant
                 // Re-express as: NOT (claimedBy IS NOT NULL AND claimExpiresAt > now)
                 //               = claimedBy IS NULL  OR  claimExpiresAt <= now
                 conditions.add(notClaimed or claimExpired)
@@ -615,7 +666,8 @@ class SQLiteWorkItemRepository(
 
     override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
-            val now = Instant.now()
+            // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
+            val now = dbNow()
 
             // Helper to build a base condition list optionally scoped to a parent
             fun baseConditions(): MutableList<Op<Boolean>> {
@@ -740,7 +792,9 @@ class SQLiteWorkItemRepository(
         roleChangedAfter: Instant?,
         roleChangedBefore: Instant?,
         type: String? = null,
-        claimStatus: String? = null
+        claimStatus: String? = null,
+        /** DB-side current time. Callers must obtain this via [dbNow] before calling. */
+        now: Instant = Instant.now()
     ): Query {
         val conditions = mutableListOf<Op<Boolean>>()
 
@@ -764,7 +818,7 @@ class SQLiteWorkItemRepository(
         type?.let { conditions.add(WorkItemsTable.type eq it) }
 
         // Claim-status filter — applied at DB level to avoid loading unclaimed/claimed rows unnecessarily.
-        val now = Instant.now()
+        // `now` was obtained from dbNow() by the caller so freshness is evaluated on the DB clock.
         claimStatus?.let {
             when (it.lowercase()) {
                 "claimed" -> {

@@ -210,6 +210,11 @@ Parameters:
                 emptyMap()
             }
 
+        // Fetch DB-side time once (only needed when includeClaimed=true so isClaimed is accurate).
+        // Using DB clock avoids false positives/negatives when JVM and SQLite clocks skew.
+        val dbNowForClaimed: java.time.Instant? =
+            if (includeClaimed && recommendations.any { it.claimedBy != null }) workItemRepo.dbNow() else null
+
         // Build response
         val data =
             buildJsonObject {
@@ -230,10 +235,12 @@ Parameters:
                                 }
                                 // Tiered claim disclosure: expose only boolean isClaimed, never claimedBy/claimedAt.
                                 // An item is "actively claimed" when claimedBy is set and claimExpiresAt is in the future.
+                                // Use DB-side now so isClaimed reflects the DB clock.
                                 if (includeClaimed) {
+                                    val now = dbNowForClaimed ?: java.time.Instant.now()
                                     val activelyClaimedNow =
                                         item.claimedBy != null &&
-                                            item.claimExpiresAt?.isAfter(java.time.Instant.now()) == true
+                                            item.claimExpiresAt?.isAfter(now) == true
                                     put("isClaimed", JsonPrimitive(activelyClaimedNow))
                                 }
                                 if (includeAncestors) {

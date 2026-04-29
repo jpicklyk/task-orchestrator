@@ -68,6 +68,17 @@ sealed class ReleaseResult {
 }
 
 interface WorkItemRepository {
+    /**
+     * Return the database server's current wall-clock time as an [Instant].
+     *
+     * All claim-freshness comparisons (ownership checks, visibility filters) MUST use this
+     * value instead of [java.time.Instant.now] so that decisions are made against the DB
+     * clock — eliminating skew when the JVM clock and the SQLite clock diverge.
+     *
+     * Implemented as a lightweight `SELECT datetime('now')` (SQLite) or equivalent.
+     */
+    suspend fun dbNow(): Instant
+
     suspend fun getById(id: UUID): Result<WorkItem>
 
     suspend fun create(item: WorkItem): Result<WorkItem>

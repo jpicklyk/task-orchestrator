@@ -245,7 +245,9 @@ Parameters:
                             item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
                             item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
                             item.originalClaimedAt?.let { put("originalClaimedAt", JsonPrimitive(it.toString())) }
-                            val isExpired = item.claimExpiresAt != null && !item.claimExpiresAt.isAfter(Instant.now())
+                            // Use DB-side time so isExpired reflects the DB clock, not the JVM clock.
+                            val dbNowInstant = context.workItemRepository().dbNow()
+                            val isExpired = item.claimExpiresAt != null && !item.claimExpiresAt.isAfter(dbNowInstant)
                             put("isExpired", JsonPrimitive(isExpired))
                         }
                     )

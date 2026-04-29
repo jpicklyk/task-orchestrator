@@ -8,8 +8,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -735,6 +737,12 @@ class RoleTransitionHandlerTest {
         private val depRepo: DependencyRepository = mockk()
         private val workItemRepo: WorkItemRepository = mockk()
         private val roleTransitionRepo: RoleTransitionRepository = mockk()
+
+        @BeforeEach
+        fun setUp() {
+            // dbNow() is called by userTransition for ownership checks; return JVM time as a sensible default.
+            coEvery { workItemRepo.dbNow() } returns Instant.now()
+        }
 
         @Test
         fun `userTransition START moves QUEUE to WORK`() =

@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
@@ -48,6 +49,8 @@ class AdvanceItemToolTest {
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
+        coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         context = ToolExecutionContext(repoProvider)
     }

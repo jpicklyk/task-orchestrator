@@ -63,6 +63,9 @@ class GetContextToolClaimTest {
         every { repoProvider.dependencyRepository() } returns mockk()
 
         context = ToolExecutionContext(repoProvider, NoOpNoteSchemaService)
+        // dbNow() is called to compute isExpired; default to JVM time so tests relying on
+        // the item's own claimExpiresAt field for freshness logic still pass.
+        coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
 
     private fun params(vararg pairs: Pair<String, JsonPrimitive>) = JsonObject(mapOf(*pairs))

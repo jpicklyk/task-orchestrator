@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import java.time.Instant
 
 /**
  * Creates a fully-mocked RepositoryProvider with individual repository mocks accessible.
@@ -37,6 +38,8 @@ class MockRepositoryProvider {
         every { provider.roleTransitionRepository() } returns roleTransitionRepo
         every { provider.database() } returns null
         every { provider.workTreeExecutor() } returns workTreeExecutor
+        // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
+        coEvery { workItemRepo.dbNow() } returns Instant.now()
         // Default: noteRepo returns empty lists for any query
         coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
         coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())

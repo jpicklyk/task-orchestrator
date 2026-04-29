@@ -378,12 +378,15 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // check that userTransition() applies internally — the tool calls it explicitly here so
             // that gate-check errors (which require resolvedTargetRole) can be reported AFTER the
             // ownership error is surfaced with correct priority.
+            // Use DB-side time so freshness is evaluated on the DB clock, not the JVM clock.
+            val dbNowForOwnership = context.workItemRepository().dbNow()
             val ownershipResult =
                 handler.checkOwnershipForTransition(
                     item,
                     actorClaim,
                     verification,
-                    context.degradedModePolicy
+                    context.degradedModePolicy,
+                    dbNowForOwnership
                 )
             when (ownershipResult) {
                 is OwnershipCheckResult.Allowed -> {} // proceed
