@@ -2,7 +2,7 @@
 
 ## Overview
 
-The v3 server exposes 13 MCP tools organized around a single **WorkItem** graph model. Every
+The v3 server exposes 14 MCP tools organized around a single **WorkItem** graph model. Every
 entity — whether a project, feature, or task — is a WorkItem with a `role` (queue, work, review,
 blocked, terminal), optional `parentId`, a `type` field that selects a work-item schema (lifecycle
 mode + required notes), optional `tags` for categorization, and optional `traits` that compose
@@ -26,6 +26,7 @@ link items with typed blocking or relational edges.
 | `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
 | `get_next_item` | Workflow | Read | Priority-ranked recommendation of next actionable item |
 | `get_blocked_items` | Workflow | Read | All items blocked by dependency or explicit block trigger |
+| `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
 
 ---
 
@@ -48,6 +49,7 @@ is computed automatically from the parent; the maximum nesting depth is 3.
 | `parentId` | string (UUID) | No | Shared default parent for all created items; per-item `parentId` overrides this |
 | `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
 | `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Cache is single-instance and in-memory (not persisted). |
 
 **Item object fields (create):**
 
@@ -189,6 +191,7 @@ hierarchical overview.
 | `offset` | integer | No (search) | Skip N items for pagination (default: 0) |
 | `includeAncestors` | boolean | No (get/search) | Include `ancestors` array on each item (default: false) |
 | `includeChildren` | boolean | No (overview global) | Include direct children on each root item (default: false) |
+| `claimStatus` | string | No (search only) | Filter by claim state: `claimed` (active live claim), `unclaimed` (never claimed), or `expired` (claim placed but TTL elapsed). When provided, a boolean `isClaimed` is added to each result. `claimedBy` identity is never exposed here — use `get_context(itemId)` for full claim details. |
 
 **Examples.**
 
@@ -220,6 +223,22 @@ hierarchical overview.
 Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null — they do not appear as JSON null.
 Use `get` for full item JSON including `description`, `summary`, timestamps, and `roleChangedAt`.
 
+When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
+
+```json
+{
+  "items": [
+    { "id": "uuid", "title": "...", "role": "queue", "priority": "high", "depth": 1, "isClaimed": true }
+  ],
+  "total": 5,
+  "returned": 5,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+`isClaimed` is `true` when the item has a live (non-expired) claim at the time of the query. `claimedBy` identity is never included in search results — use `get_context(itemId)` for full claim diagnostics.
+
 **Response (overview — scoped mode, with `itemId`).**
 
 ```json
@@ -236,7 +255,7 @@ Scoped overview returns the full item JSON in `item`, a count per role in `child
 
 **Response (overview — global mode, no `itemId`).**
 
-Global overview returns root items with the same minimal fields as search, plus `childCounts` and optional `traits`. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`.
+Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`.
 
 ```json
 {
@@ -246,6 +265,7 @@ Global overview returns root items with the same minimal fields as search, plus 
       "tags": "backend", "type": "feature-implementation",
       "traits": ["needs-migration-review"],
       "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
+      "claimSummary": { "active": 1, "expired": 0, "unclaimed": 2 },
       "children": [
         {
           "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "work",
@@ -260,6 +280,8 @@ Global overview returns root items with the same minimal fields as search, plus 
 ```
 
 Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true. `total` reflects the count of root items returned (not a total-in-DB count).
+
+`claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 
 ---
 
@@ -280,6 +302,7 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its tag schema (default: false) |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Children are always root.depth + 1, so children can reach depth 3 (when root is at depth 2).
 
@@ -345,6 +368,7 @@ missing, that item fails and its downstream dependents within the set are skippe
 | `rootId` | string (UUID) | Conditionally | Complete all **descendants** of this item. The root item itself is NOT completed — only its descendants are processed. Mutually exclusive with `itemIds`. |
 | `itemIds` | array | Conditionally | Explicit list of item UUIDs to complete. Mutually exclusive with `rootId`. |
 | `trigger` | string | No | `complete` (default) or `cancel`. See gate enforcement note below. |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 Exactly one of `rootId` or `itemIds` must be provided.
 
@@ -395,6 +419,7 @@ delete by IDs, by item, or by item and key.
 | `ids` | array | No (delete) | Array of note UUIDs to delete |
 | `itemId` | string (UUID) | No (delete) | Delete all notes for this WorkItem (or specific note with `key`) |
 | `key` | string | No (delete) | With `itemId`: delete the single note matching this key |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 When both `ids` and `itemId` are provided, the delete is **additive**: notes matched by `ids` are deleted first, then notes matched by `itemId` (optionally scoped by `key`) are deleted. Both deletions contribute to the final `deleted` count. Deleting a non-existent note by `(itemId, key)` is a silent no-op (returns success with that note not counted in `deleted`).
 
@@ -537,6 +562,7 @@ WorkItem with optional role filtering.
 | `fromItemId` | string (UUID) | Cond. (delete) | Source side for delete-by-relationship |
 | `toItemId` | string (UUID) | Cond. (delete) | Target side for delete-by-relationship |
 | `deleteAll` | boolean | No (delete) | Delete ALL deps for `fromItemId` or `toItemId` |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 The `dependencies` array create is atomic: all succeed or all fail (cycle and duplicate detection
 spans the entire batch).
@@ -678,14 +704,15 @@ gate enforcement, cascade detection, and unblock reporting. Supports batch trans
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `transitions` | array | Yes | Array of transition objects: `[{ itemId, trigger, summary? }]` |
+| `transitions` | array | Yes | Array of transition objects: `[{ itemId, trigger, summary?, actor? }]` |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Uses the first transition's `actor.id` as the idempotency key actor. |
 
 **Transition object fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `itemId` | string (UUID) | Yes | Item to transition |
-| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen` |
+| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Only `UserTrigger` values are accepted — `cascade` is system-internal and is rejected at the API boundary. |
 | `summary` | string | No | Optional annotation stored on the transition record |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
 
@@ -696,6 +723,8 @@ Each transition element may include an optional `actor` object:
 - `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
 
 When provided, the response includes `actor` and `verification` objects on each successful transition.
+
+**Ownership enforcement.** When an item has an active (non-expired) claim, `advance_item` enforces ownership on **every** trigger value. The actor (resolved via `degradedModePolicy`) must match the `claimedBy` value on the item. If the item is unclaimed or the claim has expired, any actor can transition it. Cascade transitions (system-generated, parent promotions) are always allowed and bypass ownership checks — they are not reachable via this tool.
 
 **Trigger effects:**
 
@@ -906,7 +935,14 @@ supplied. Use for session startup, work-summary dashboards, and pre-advance gate
   ],
   "gateStatus": { "canAdvance": true, "phase": "queue", "missing": [] },
   "guidancePointer": null,
-  "noteProgress": { "filled": 1, "remaining": 1, "total": 2 }
+  "noteProgress": { "filled": 1, "remaining": 1, "total": 2 },
+  "claimDetail": {
+    "claimedBy": "agent-worker-42",
+    "claimedAt": "2026-01-01T12:00:00Z",
+    "claimExpiresAt": "2026-01-01T12:15:00Z",
+    "originalClaimedAt": "2026-01-01T12:00:00Z",
+    "isExpired": false
+  }
 }
 ```
 
@@ -918,6 +954,20 @@ supplied. Use for session startup, work-summary dashboards, and pre-advance gate
 
 Each entry in the `schema` array includes: `key`, `role`, `required`, `description`, `exists`, `filled`, and optionally `skill` (present only when a skill is configured for that note entry).
 
+`claimDetail` is present only when the item is currently claimed (`claimedBy != null`). This is the **only** tool mode that exposes `claimedBy` identity — use it for operator diagnostics on stalled or contested items.
+
+> **UTC note.** `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` are stored as UTC using SQLite `datetime('now')`. Agents or operators inspecting raw database rows must not assume local timezone; the values are always UTC regardless of the host's system time.
+
+`claimDetail` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `claimedBy` | string | Agent identity (opaque string — may be `did:web`, session ID, container hostname, etc.) |
+| `claimedAt` | ISO 8601 UTC | When the current claim was placed (refreshed on re-claim) |
+| `claimExpiresAt` | ISO 8601 UTC | TTL-based expiry (DB-computed). Passive: the claim is not auto-released; expired claims are filtered at read time. |
+| `originalClaimedAt` | ISO 8601 UTC | First claim timestamp by the current agent. Preserved across re-claims (heartbeats). Reset when a different agent claims the item. |
+| `isExpired` | boolean | `true` when `claimExpiresAt` is in the past at the time of the query |
+
 **Response (health-check mode).**
 
 ```json
@@ -925,26 +975,40 @@ Each entry in the `schema` array includes: `key`, `role`, `required`, `descripti
   "mode": "health-check",
   "activeItems": [{ "id": "uuid", "title": "...", "role": "work", "tags": null }],
   "blockedItems": [{ "id": "uuid", "title": "...", "role": "blocked" }],
-  "stalledItems": [{ "id": "uuid", "title": "...", "role": "work", "missingNotes": ["done-criteria"] }]
+  "stalledItems": [{ "id": "uuid", "title": "...", "role": "work", "missingNotes": ["done-criteria"] }],
+  "claimSummary": { "active": 3, "expired": 1 }
 }
 ```
+
+`claimSummary` in health-check mode: `active` = items with live non-expired claims globally; `expired` = items whose claim TTL has elapsed. Counts only — no identity exposed. Omitted if the claim count query fails.
+
+`unclaimed` is deliberately excluded from the health-check `claimSummary` (too noisy). Use `query_items(operation="overview")` for per-root-item `claimSummary` including `unclaimed`.
 
 ---
 
 ### get_next_item
 
-**Purpose.** Priority-ranked recommendation of the next WorkItem(s) to work on. Finds QUEUE items,
-filters out those with unsatisfied blocking dependencies, and ranks by priority descending then
-complexity ascending (quick wins first).
+**Purpose.** Priority-ranked recommendation of the next WorkItem(s) to work on. Finds items in the
+requested role (default: `queue`), filters out those with unsatisfied blocking dependencies and those
+with active claims (unless `includeClaimed=true`), and ranks by priority descending then complexity
+ascending (quick wins first).
 
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
+| `role` | string | No | Role to query: `queue`, `work`, `review`, or `blocked` (default: `queue`) |
 | `parentId` | string (UUID) | No | Scope recommendations to items under this parent |
 | `limit` | integer (1–20) | No | Number of recommendations (default: 1) |
 | `includeDetails` | boolean | No | Include `summary`, `tags`, and `parentId` in each recommendation (default: false) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each recommendation (default: false) |
+| `includeClaimed` | boolean | No | When `false` (default), items with an active claim are filtered out. When `true`, claimed items are included but only a boolean `isClaimed` field is added — the claiming agent's identity is never exposed. |
+
+**Discovery patterns for multi-role fleets:**
+- Work-group agents: `get_next_item()` (default `role=queue`)
+- Review-group agents: `get_next_item(role="review")`
+- Triage-group agents: `get_next_item(role="blocked")`
+- Fleet health debugging: `get_next_item(includeClaimed=true)` to see claimed items without identity disclosure
 
 **Example.**
 
@@ -952,7 +1016,7 @@ complexity ascending (quick wins first).
 { "parentId": "550e8400-e29b-41d4-a716-446655440000", "limit": 3, "includeDetails": true }
 ```
 
-**Response.**
+**Response (default — unclaimed items only).**
 
 ```json
 {
@@ -971,6 +1035,129 @@ complexity ascending (quick wins first).
   "total": 1
 }
 ```
+
+**Response (with `includeClaimed=true` — adds `isClaimed` boolean per item).**
+
+```json
+{
+  "recommendations": [
+    {
+      "itemId": "uuid",
+      "title": "Design login flow",
+      "role": "queue",
+      "priority": "high",
+      "complexity": 2,
+      "isClaimed": false
+    },
+    {
+      "itemId": "uuid2",
+      "title": "Write unit tests",
+      "role": "queue",
+      "priority": "medium",
+      "complexity": 3,
+      "isClaimed": true
+    }
+  ],
+  "total": 2
+}
+```
+
+`isClaimed` is `true` when the item has a live (non-expired) claim at query time. `claimedBy` identity is never included — tiered disclosure applies here.
+
+---
+
+### claim_item
+
+**Purpose.** Atomically claim or release work items for exclusive ownership. One claim per agent:
+claiming a new item auto-releases any prior claim held by the same agent. Claims are
+time-bounded (TTL, default 900s). Re-claiming an already-held item refreshes the TTL without
+changing the claim holder.
+
+#### Key Parameters
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
+| `claims` | array | No | Items to claim: `[{ itemId (UUID or hex prefix), ttlSeconds? (default 900), agentId? (deprecated — overridden by verified actor) }]`. At least one of `claims` or `releases` must be non-empty. |
+| `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
+
+**Claim semantics:**
+
+- **One claim per agent.** Claiming item B auto-releases the agent's existing claim on item A (if any). No extra parameter needed.
+- **Re-claim as TTL extension.** Calling `claim_item` again on an already-held item refreshes `claimExpiresAt` but preserves `originalClaimedAt`. Use this for heartbeats on long-running work (recommended cadence: TTL/2 = 450s for the default 900s TTL).
+- **Terminal items cannot be claimed.** QUEUE, WORK, REVIEW, and BLOCKED items are all claimable.
+- **Identity resolution.** `actor.id` is used as the claim identity, subject to `degradedModePolicy`. If JWKS verification succeeds, the verified `actor.id` (from the JWT `sub` claim) is used; otherwise the self-reported `actor.id` is used (unless `degradedModePolicy=reject`, in which case the claim fails with `rejected_by_policy`).
+- **Passive expiry.** There is no background reaper. Expired claims are filtered at read time. Crash recovery happens automatically via TTL.
+- **DB-side time.** All timestamps (`claimedAt`, `claimExpiresAt`) are set via SQLite `datetime('now', ...)` — they are UTC.
+
+**Claim outcome codes per item:**
+
+| Outcome | Meaning |
+|---|---|
+| `success` | Claim placed or TTL refreshed. Response includes own claim metadata. |
+| `already_claimed` | Another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity). |
+| `not_found` | No item with that ID. |
+| `terminal_item` | Item is in TERMINAL role; cannot be claimed. |
+| `rejected_by_policy` | Actor verification rejected by `degradedModePolicy=reject`. All claims in the batch fail. |
+
+**Release outcome codes per item:**
+
+| Outcome | Meaning |
+|---|---|
+| `success` | Claim cleared. |
+| `not_claimed_by_you` | Item is not claimed by this agent (or is unclaimed). |
+| `not_found` | No item with that ID. |
+
+**Tiered disclosure rule.** On `already_claimed`, the response includes only `retryAfterMs`. The competing agent's identity is never disclosed — this prevents claim sniping and jealousy patterns.
+
+**Example.**
+
+```json
+{
+  "claims": [{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "ttlSeconds": 900 }],
+  "actor": { "id": "worker-agent-7", "kind": "subagent", "parent": "orchestrator-1" }
+}
+```
+
+**Response (all succeed).**
+
+```json
+{
+  "claimResults": [
+    {
+      "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "outcome": "success",
+      "claimedBy": "worker-agent-7",
+      "claimedAt": "2026-01-01T12:00:00Z",
+      "claimExpiresAt": "2026-01-01T12:15:00Z",
+      "originalClaimedAt": "2026-01-01T12:00:00Z"
+    }
+  ],
+  "releaseResults": [],
+  "summary": {
+    "claimsTotal": 1, "claimsSucceeded": 1, "claimsFailed": 0,
+    "releasesTotal": 0, "releasesSucceeded": 0, "releasesFailed": 0
+  }
+}
+```
+
+**Response (claim contested).**
+
+```json
+{
+  "claimResults": [
+    {
+      "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "outcome": "already_claimed",
+      "retryAfterMs": 420000
+    }
+  ],
+  "releaseResults": [],
+  "summary": { "claimsTotal": 1, "claimsSucceeded": 0, "claimsFailed": 1, ... }
+}
+```
+
+On `already_claimed`, `retryAfterMs` approximates the remaining TTL of the existing claim in milliseconds. Use it to schedule a retry after the current claim expires, or pick a different unclaimed item instead.
 
 ---
 
@@ -1032,6 +1219,76 @@ dependency edges). Terminal items are never included.
 `satisfied` is true when the blocker has reached its `effectiveUnblockRole`.
 
 `blockerCount` reflects only the number of **unsatisfied** blockers (not total blockers). For `"explicit"` items with no dependency blockers, `blockerCount` is 0.
+
+---
+
+## Idempotency
+
+Six mutating tools accept an optional `requestId: UUID` parameter: `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree`.
+
+**How it works.** When `requestId` and `actor.id` are both present, the server checks an in-memory LRU cache keyed on `(actor.id, requestId)`. If a cached result exists, the original response is returned immediately without re-executing the operation. The cache window is approximately 10 minutes.
+
+**Constraints:**
+- Cache is single-instance and in-memory. It is not persisted across server restarts and is not shared across multiple server processes.
+- For `advance_item`, the `actor.id` of the **first** transition in the batch is used as the cache key actor.
+- For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is used. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
+- A non-parseable `requestId` string is silently ignored (no cache lookup or store).
+
+**Usage.** Generate a fresh UUID per logical operation:
+
+```json
+{
+  "transitions": [{ "itemId": "uuid", "trigger": "start", "actor": { "id": "agent-1", "kind": "subagent" } }],
+  "requestId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924"
+}
+```
+
+Replay the same call if the network times out — the server either executes once or returns the cached result.
+
+---
+
+## Error Envelope
+
+All tool failures use a structured `ToolError` shape that classifies retry semantics:
+
+```json
+{
+  "error": {
+    "kind": "transient",
+    "code": "claim_contention",
+    "message": "Item already claimed by another agent",
+    "retryAfterMs": 420000,
+    "contendedItemId": "550e8400-e29b-41d4-a716-446655440001"
+  }
+}
+```
+
+### ErrorKind Values
+
+| Kind | Meaning | Retry behavior |
+|---|---|---|
+| `transient` | Temporary failure; retrying may succeed | Retry with exponential backoff. Typical causes: lock contention, JWKS unavailable, transient DB busy. |
+| `permanent` | Definitive failure; retrying will produce the same result | Do not retry. Typical causes: validation errors, authorization failures, not-found. |
+| `shedding` | Server temporarily over capacity | Retry after `retryAfterMs` milliseconds. Typical causes: writer queue saturated, circuit-breaker open. |
+
+### Error Envelope Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | string | One of: `transient`, `permanent`, `shedding` |
+| `code` | string | Structured error code for programmatic handling |
+| `message` | string | Human-readable failure description |
+| `retryAfterMs` | integer (nullable) | Milliseconds to wait before retrying. Populated for `shedding`; null otherwise (use own backoff). |
+| `contendedItemId` | string UUID (nullable) | UUID of the work item involved in a contention error. Populated for `transient` claim-race or version-conflict failures. Allows agents to distinguish "retry this item" from "pick a different item" without parsing `message`. |
+
+### Retry Decision Guide
+
+```
+kind=transient  → exponential backoff, retry same operation
+  contendedItemId present → option: skip this item, pick another from get_next_item
+kind=permanent  → do not retry; fix the request (validation, permissions, etc.)
+kind=shedding   → wait retryAfterMs, then retry; reduce polling rate if this persists
+```
 
 ---
 
@@ -1130,6 +1387,7 @@ The `auditing` section in `.taskorchestrator/config.yaml` controls actor attribu
 ```yaml
 auditing:
   enabled: true          # Enforce actor claims on write operations
+  degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
   verifier:
     type: jwks           # "noop" (default) | "jwks"
     oidc_discovery: "https://provider.example/.well-known/openid-configuration"
@@ -1141,6 +1399,18 @@ auditing:
     cache_ttl_seconds: 300
     require_sub_match: true
 ```
+
+### `auth.degradedModePolicy`
+
+Controls how the server resolves actor identity when verification cannot produce a `verified` result.
+
+| Value | Behavior | Use case |
+|---|---|---|
+| `accept-cached` | *(default)* When verification status is `unavailable` **and** a stale JWKS cache was used, the verified `actor.id` from the JWT is trusted. All other non-verified outcomes fall back to the self-reported `actor.id`. | Single-org deployments with occasional JWKS outages |
+| `accept-self-reported` | Always trust the caller-supplied `actor.id` regardless of verification outcome. Equivalent to v3.2 implicit behavior. | Local dev without JWKS; explicitly documented opt-out |
+| `reject` | Any operation requiring verified identity fails when verification status is not `verified`. All claim operations return `rejected_by_policy`. | Cross-org `did:web` deployments; maximum identity assurance |
+
+`degradedModePolicy` applies at every ownership-sensitive call: `claim_item` placement, `advance_item` ownership checks. When in `reject` mode and verification is absent or fails, the operation is rejected before any DB access.
 
 ### Verification Behavior
 
