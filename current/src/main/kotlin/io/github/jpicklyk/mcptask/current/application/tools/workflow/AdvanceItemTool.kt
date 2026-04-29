@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -306,12 +307,31 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 is OwnershipCheckResult.Allowed -> {} // proceed
                 is OwnershipCheckResult.Rejected -> {
                     failCount++
-                    resultsList.add(buildErrorResult(itemId, trigger, ownershipResult.error))
+                    resultsList.add(
+                        buildStructuredErrorResult(
+                            itemId,
+                            trigger,
+                            ToolError
+                                .permanent(
+                                    code = "not_claim_holder",
+                                    message = ownershipResult.error
+                                ).copy(contendedItemId = itemId)
+                        )
+                    )
                     continue
                 }
                 is OwnershipCheckResult.PolicyRejected -> {
                     failCount++
-                    resultsList.add(buildErrorResult(itemId, trigger, ownershipResult.reason))
+                    resultsList.add(
+                        buildStructuredErrorResult(
+                            itemId,
+                            trigger,
+                            ToolError.permanent(
+                                code = "rejected_by_policy",
+                                message = ownershipResult.reason
+                            )
+                        )
+                    )
                     continue
                 }
             }
@@ -755,5 +775,26 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             if (missingNotes != null) {
                 put("missingNotes", missingNotes)
             }
+        }
+
+    /**
+     * Builds a per-transition error result with structured [ToolError] fields.
+     *
+     * Adds `kind`, `errorCode`, and `contendedItemId` alongside the legacy `error` string so
+     * agents can make programmatic retry decisions on ownership rejections and policy rejections.
+     */
+    private fun buildStructuredErrorResult(
+        itemId: UUID,
+        trigger: String,
+        toolError: ToolError
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(itemId.toString()))
+            put("trigger", JsonPrimitive(trigger))
+            put("applied", JsonPrimitive(false))
+            put("error", JsonPrimitive(toolError.message))
+            put("errorKind", JsonPrimitive(toolError.kind.toJsonString()))
+            put("errorCode", JsonPrimitive(toolError.code))
+            toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
         }
 }

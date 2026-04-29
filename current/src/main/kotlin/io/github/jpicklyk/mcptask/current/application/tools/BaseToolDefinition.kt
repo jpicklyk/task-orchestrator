@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
@@ -61,6 +62,21 @@ abstract class BaseToolDefinition : ToolDefinition {
     ): JsonObject {
         logger.warn("Tool error: $message")
         return ResponseUtil.createErrorResponse(message, code, details, additionalData)
+    }
+
+    /**
+     * Creates a structured error response from a [ToolError] and logs a warning.
+     *
+     * Emits the full structured envelope with `kind`, `retryAfterMs`, and `contendedItemId`
+     * so agents can make retry decisions without string-parsing the message.
+     * Use this overload for contention errors, policy rejections, and load-shedding.
+     *
+     * @param toolError The structured error descriptor.
+     * @return An error response envelope with structured fields.
+     */
+    protected fun errorResponse(toolError: ToolError): JsonObject {
+        logger.warn("Tool error [${toolError.kind}]: ${toolError.code} — ${toolError.message}")
+        return ResponseUtil.createErrorResponse(toolError)
     }
 
     // ──────────────────────────────────────────────

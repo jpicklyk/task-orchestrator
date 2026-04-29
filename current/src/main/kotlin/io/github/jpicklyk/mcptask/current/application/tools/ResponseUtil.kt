@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import kotlinx.serialization.json.*
 import java.time.Instant
 
@@ -67,6 +68,32 @@ object ResponseUtil {
             if (additionalData != null) {
                 put("data", additionalData)
             }
+            put("metadata", createMetadata())
+        }
+
+    /**
+     * Creates a structured error response envelope from a [ToolError].
+     *
+     * The `error` object includes all legacy fields (`code`, `message`) plus the new
+     * structured fields (`kind`, `retryAfterMs`, `contendedItemId`) for agent-parseable
+     * retry semantics. Fields are omitted from the JSON when null.
+     *
+     * @param toolError The structured error descriptor.
+     * @return A JsonObject with the standard error envelope format including structured fields.
+     */
+    fun createErrorResponse(toolError: ToolError): JsonObject =
+        buildJsonObject {
+            put("success", JsonPrimitive(false))
+            put(
+                "error",
+                buildJsonObject {
+                    put("code", JsonPrimitive(toolError.code))
+                    put("message", JsonPrimitive(toolError.message))
+                    put("kind", JsonPrimitive(toolError.kind.toJsonString()))
+                    toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                    toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
+                }
+            )
             put("metadata", createMetadata())
         }
 
