@@ -4,6 +4,11 @@ This guide is written for operators deploying the MCP Task Orchestrator to produ
 
 For single-agent or local-dev setups, the defaults are appropriate and this guide can be skipped.
 
+**Companion docs:**
+- [API Reference — `claim_item`](api-reference.md#claim_item) — tool spec: parameters, outcome codes, examples
+- [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
+- This guide — operator-side: identity policy, capacity, disclosure, observability
+
 ---
 
 ## Identity Configuration — `auth.degradedModePolicy`
@@ -210,3 +215,79 @@ The audit log via `auditing.enabled` is the only structured per-operation signal
 If your fleet rollout requires real-time dashboards or alerting on these signals, plan to instrument them at the client side (agent telemetry) or proxy level until server-side metrics are added.
 
 Metrics and observability infrastructure are explicitly deferred to a future release (see issue tracker). The audit log is the recommended bridge for compliance and post-incident review until then.
+
+---
+
+## Claims Troubleshooting
+
+Common operator scenarios when running a multi-agent fleet against the claim mechanism.
+
+### Repeated `already_claimed` on the same item
+
+An agent retrying a claim and getting `already_claimed` back-to-back is **expected** behavior — another agent holds the item and retry will not change that until the existing TTL elapses or the holder explicitly releases.
+
+| Symptom | Recommended response |
+|---|---|
+| `retryAfterMs` < ~10s | Pick a different unclaimed item via `get_next_item`. Holder is actively working. |
+| `retryAfterMs` close to full TTL | Holder either just claimed or just heartbeated. Pick a different item. |
+| Same item, repeated retries, never resolves | Use `get_context(itemId)` to read `claimDetail.originalClaimedAt`. If the value is hours old, suspect a crashed holder — see "Stale `originalClaimedAt`" below. |
+
+`already_claimed` never discloses the competing agent's identity by design (see Tiered Claim Disclosure above). Use `get_context(itemId)` for full diagnostics.
+
+### `rejected_by_policy` on `claim_item` or `advance_item`
+
+This outcome means `degradedModePolicy=reject` is configured and the caller's actor proof did not produce a fully-verified identity (the verifier returned `ABSENT`, `REJECTED`, or `UNAVAILABLE`).
+
+**Recovery checklist:**
+
+1. Check the verifier configuration — `oidc_discovery` URL or `jwks_uri` must be reachable from the server.
+2. Inspect the `verification.metadata` object on the failing call's response — `failureKind` (`crypto | claims | policy | network | internal`) tells you which layer rejected.
+3. If `failureKind=network`, the JWKS endpoint is unreachable. Either restore connectivity or temporarily lower `degradedModePolicy` to `accept-cached` so the stale-cache fallback can serve.
+4. If `failureKind=crypto` or `claims`, the JWT itself is invalid — check `iss`, `aud`, and signing key alignment with the verifier's `algorithms` allowlist.
+
+`rejected_by_policy` is a **batch-level** rejection on `claim_item`: if one item in the batch fails policy, none of the claims succeed. Releases in the same call are not attempted.
+
+### Stale `originalClaimedAt` — diagnosing crashed holders
+
+`originalClaimedAt` records when the *current* agent first claimed the item. It is preserved across heartbeat re-claims and reset only when a different agent claims the same item.
+
+| `originalClaimedAt` age | Interpretation |
+|---|---|
+| < TTL (default 900s) | Fresh claim; agent is most likely working. |
+| 1–10× TTL | Heartbeat-renewed long-running work. Inspect `claimExpiresAt` — if in the future, the agent is alive. |
+| Hours/days old, `claimExpiresAt` in the past | Agent crashed mid-work. Claim is passively expired; any agent can now claim it. |
+| Hours/days old, `claimExpiresAt` still being refreshed | Agent is alive but stuck in a long-running operation, or the heartbeat cadence is too aggressive. Investigate the holder's logs. |
+
+There is no background reaper. Expired claims are filtered at read time — `get_next_item()` will surface items whose holders crashed once their TTL has elapsed.
+
+### Heartbeat scheduling — implementation patterns
+
+The recommended cadence is **TTL/2** (450s for the 900s default). This matches the convention used by Consul, etcd, and other lease-based distributed systems.
+
+**Where to put the heartbeat timer:**
+
+- **Inside the agent's main work loop.** Check elapsed time at each natural checkpoint (note write, file change, tool call) and re-claim if past TTL/2.
+- **As a coroutine/task scheduled at TTL/2.** Simpler to reason about, but the agent must guarantee the timer fires while it's actually progressing — a paused or blocked agent that lets the timer fire anyway is silently extending a stale claim.
+- **Avoid** background-only timers that fire regardless of work progress. Tying the heartbeat to forward progress is what gives crash recovery its meaning.
+
+**Cross-restart behavior:** A re-launched agent process does not preserve its prior claim. After restart, call `claim_item` again — if the prior TTL has not elapsed, the re-claim succeeds (refreshing TTL, preserving `originalClaimedAt`); if it has, the item may have been picked up by another agent and you'll receive `already_claimed`.
+
+### Does completing or cancelling release the claim?
+
+**No.** `advance_item(trigger="complete" | "cancel")` transitions the role but does **not** clear `claimedBy`, `claimedAt`, `claimExpiresAt`, or `originalClaimedAt` on the work item. The claim record remains in place until either the TTL elapses or `claim_item(releases=[...])` is called explicitly.
+
+This is harmless in practice: terminal items cannot be claimed by anyone (the `terminal_item` outcome blocks new claims), so a leftover claim record on a completed item is data noise, not a correctness problem. `reopen` triggers go through the same ownership check as any other transition — if the original claim has not expired, only the original holder can reopen.
+
+**Recommendation:** Well-behaved agents call `claim_item(releases=[{itemId}])` after completing work. Required only if you want the audit trail to show explicit release rather than passive expiry.
+
+### Fleet-wide expired-claim sweep
+
+Operators who want to inventory expired claims (e.g., during incident review) can run:
+
+```
+query_items(operation="search", claimStatus="expired")
+```
+
+Results include only `isClaimed: boolean` per item — identity remains hidden. To get holder identity for a specific stuck item, drill in with `get_context(itemId)`, which is the only surface that exposes `claimDetail.claimedBy`.
+
+No cleanup action is required for correctness. The data is informational — it tells you which agents likely crashed and which work items are now available for re-claim.
