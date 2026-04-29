@@ -108,13 +108,20 @@ interface ActorAware {
          * the actor performing an operation matches the claim holder.
          *
          * **Policy behaviour:**
-         * - [DegradedModePolicy.ACCEPT_CACHED]: When the verification status is
-         *   [VerificationStatus.VERIFIED] (including stale-cache verification where
-         *   `metadata["verifiedFromCache"] == "true"`), the verified `actor.id` from the
-         *   JWT (`claim.id` — already validated against `sub` by [JwksActorVerifier]) is
-         *   returned. For all other non-VERIFIED statuses (UNAVAILABLE without cache,
-         *   ABSENT, UNCHECKED, REJECTED), the self-reported `claim.id` is returned as-is,
-         *   preserving the pre-v3.3 implicit fallback.
+         * - [DegradedModePolicy.ACCEPT_CACHED]: Three sub-cases:
+         *   1. [VerificationStatus.VERIFIED] (fresh or stale-cache where
+         *      `metadata["verifiedFromCache"] == "true"`): the JWT-validated `claim.id`
+         *      is returned as trusted. [JwksActorVerifier] enforces `sub == actor.id`
+         *      when `requireSubMatch=true`, so `claim.id` is already the verified identity.
+         *   2. [VerificationStatus.UNAVAILABLE] with `metadata["verifiedFromCache"] == "true"`:
+         *      the JWT was cryptographically verified against a stale key — trust `claim.id`.
+         *      (Reserved for future verifier paths that return UNAVAILABLE instead of VERIFIED
+         *      on stale-cache success; [JwksActorVerifier] currently returns VERIFIED here.)
+         *   3. [VerificationStatus.UNAVAILABLE] without the cache metadata flag: the JWKS
+         *      endpoint is down and no cached key is available. Falls back to the self-reported
+         *      `claim.id` with a WARN log, preserving pre-v3.3 implicit behavior.
+         *   For all other non-VERIFIED statuses (ABSENT, UNCHECKED, REJECTED), the
+         *   self-reported `claim.id` is returned as-is, preserving the pre-v3.3 implicit fallback.
          * - [DegradedModePolicy.ACCEPT_SELF_REPORTED]: Always returns the self-reported
          *   `claim.id`. Logs a deprecation-style warning when a JWKS verifier is active so
          *   operators notice they've opted out of the identity guarantee.
@@ -137,12 +144,33 @@ interface ActorAware {
 
             return when (policy) {
                 DegradedModePolicy.ACCEPT_CACHED -> {
-                    // VERIFIED (live or stale-cache) → trust the JWT-validated actor.id
-                    if (isVerified) {
-                        PolicyResolution.Trusted(claim.id)
-                    } else {
-                        // Non-VERIFIED: fall back to self-reported id (preserves pre-v3.3 behavior)
-                        PolicyResolution.Trusted(claim.id)
+                    when {
+                        // VERIFIED (fresh or stale-cache with verifiedFromCache=true in metadata)
+                        // → trust the JWT-validated actor.id. JwksActorVerifier enforces sub==actor.id
+                        // so claim.id is already the cryptographically verified identity.
+                        isVerified -> PolicyResolution.Trusted(claim.id)
+
+                        // UNAVAILABLE + verifiedFromCache=true: JWT was verified against a stale key.
+                        // Reserved for future verifier paths; JwksActorVerifier returns VERIFIED here.
+                        verification.status == VerificationStatus.UNAVAILABLE &&
+                            verification.metadata["verifiedFromCache"] == "true" ->
+                            PolicyResolution.Trusted(claim.id)
+
+                        // UNAVAILABLE without cache metadata: JWKS is down and no cached key exists.
+                        // Fall back to self-reported id with WARN so operators see the degradation.
+                        verification.status == VerificationStatus.UNAVAILABLE -> {
+                            logger.warn(
+                                "degradedModePolicy=accept-cached: JWKS unavailable with no cached key; " +
+                                    "falling back to self-reported actor.id='{}'. " +
+                                    "Configure a JWKS endpoint with staleOnError=true to avoid this fallback.",
+                                claim.id
+                            )
+                            PolicyResolution.Trusted(claim.id)
+                        }
+
+                        // Other statuses (ABSENT, UNCHECKED, REJECTED): fall back to self-reported id
+                        // preserving pre-v3.3 implicit behavior.
+                        else -> PolicyResolution.Trusted(claim.id)
                     }
                 }
 
