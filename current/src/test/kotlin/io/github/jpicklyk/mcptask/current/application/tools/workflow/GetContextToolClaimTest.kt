@@ -181,6 +181,68 @@ class GetContextToolClaimTest {
             assertNotNull(claimDetail["originalClaimedAt"], "originalClaimedAt should be present in claimDetail")
         }
 
+    @Test
+    fun `item mode claimDetail time fields serialize as UTC ISO-8601 with Z suffix`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val claimedAtInstant = Instant.parse("2025-06-15T10:30:00Z")
+            val claimExpiresAtInstant = Instant.parse("2025-06-15T10:45:00Z")
+            val item =
+                WorkItem(
+                    id = itemId,
+                    title = "UTC round-trip item",
+                    role = Role.WORK,
+                    claimedBy = "agent-utc-check",
+                    claimedAt = claimedAtInstant,
+                    claimExpiresAt = claimExpiresAtInstant,
+                    originalClaimedAt = claimedAtInstant
+                )
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val data = extractData(execute("itemId" to JsonPrimitive(itemId.toString())))
+
+            val claimDetail = data["claimDetail"]?.jsonObject
+            assertNotNull(claimDetail, "claimDetail must be present for a claimed item")
+
+            // claimExpiresAt assertions
+            val expiresAtStr = claimDetail["claimExpiresAt"]?.jsonPrimitive?.content
+            assertNotNull(expiresAtStr, "claimExpiresAt must be present")
+            assertTrue(
+                expiresAtStr.endsWith("Z"),
+                "claimExpiresAt must end with 'Z' (UTC indicator), got: $expiresAtStr"
+            )
+            assertFalse(
+                expiresAtStr.contains("+") || expiresAtStr.matches(Regex(".*[+-]\\d{2}:\\d{2}$")),
+                "claimExpiresAt must not contain a local-tz offset, got: $expiresAtStr"
+            )
+            val parsedExpiresAt = Instant.parse(expiresAtStr) // throws if not valid ISO-8601
+            assertEquals(
+                claimExpiresAtInstant.epochSecond,
+                parsedExpiresAt.epochSecond,
+                "claimExpiresAt round-trip must match original value at seconds precision"
+            )
+
+            // claimedAt assertions
+            val claimedAtStr = claimDetail["claimedAt"]?.jsonPrimitive?.content
+            assertNotNull(claimedAtStr, "claimedAt must be present")
+            assertTrue(
+                claimedAtStr.endsWith("Z"),
+                "claimedAt must end with 'Z' (UTC indicator), got: $claimedAtStr"
+            )
+            assertFalse(
+                claimedAtStr.contains("+") || claimedAtStr.matches(Regex(".*[+-]\\d{2}:\\d{2}$")),
+                "claimedAt must not contain a local-tz offset, got: $claimedAtStr"
+            )
+            val parsedClaimedAt = Instant.parse(claimedAtStr) // throws if not valid ISO-8601
+            assertEquals(
+                claimedAtInstant.epochSecond,
+                parsedClaimedAt.epochSecond,
+                "claimedAt round-trip must match original value at seconds precision"
+            )
+        }
+
     // ──────────────────────────────────────────────
     // Health-check mode — claimSummary (counts only)
     // ──────────────────────────────────────────────

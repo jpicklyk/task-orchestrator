@@ -1080,6 +1080,7 @@ changing the claim holder.
 | `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
 | `claims` | array | No | Items to claim: `[{ itemId (UUID or hex prefix), ttlSeconds? (default 900), agentId? (deprecated — overridden by verified actor) }]`. At least one of `claims` or `releases` must be non-empty. |
 | `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
+| `requestId` | string (UUID) | **Yes** | Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Single-orchestrator deployments do not use `claim_item`; fleet callers are in a multi-agent context where network retries are a real concern. Repeated calls with the same (`actor.id`, `requestId`) within ~10 minutes return the cached response without re-executing. |
 
 **Claim semantics:**
 
@@ -1224,7 +1225,11 @@ dependency edges). Terminal items are never included.
 
 ## Idempotency
 
-Six mutating tools accept an optional `requestId: UUID` parameter: `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree`.
+Seven mutating tools support `requestId: UUID` for idempotency: `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item`.
+
+**`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the cache key uses the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor key used by the claim itself.
+
+**The other 6 mutating tools keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` skips the cache entirely — execution is always fresh.
 
 **How it works.** When `requestId` and `actor.id` are both present, the server checks an in-memory LRU cache keyed on `(actor.id, requestId)`. If a cached result exists, the original response is returned immediately without re-executing the operation. The cache window is approximately 10 minutes.
 
@@ -1232,7 +1237,7 @@ Six mutating tools accept an optional `requestId: UUID` parameter: `manage_items
 - Cache is single-instance and in-memory. It is not persisted across server restarts and is not shared across multiple server processes.
 - For `advance_item`, the `actor.id` of the **first** transition in the batch is used as the cache key actor.
 - For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is used. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- A non-parseable `requestId` string is silently ignored (no cache lookup or store).
+- A non-parseable `requestId` string is silently ignored on the 6 optional tools (no cache lookup or store). For `claim_item`, a non-UUID `requestId` is rejected at validation.
 
 **Usage.** Generate a fresh UUID per logical operation:
 

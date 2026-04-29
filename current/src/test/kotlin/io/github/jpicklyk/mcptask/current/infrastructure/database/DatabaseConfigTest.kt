@@ -64,6 +64,13 @@ class DatabaseConfigTest {
     }
 
     @Test
+    fun `returns default 5000 when env var is whitespace only`() {
+        // NICE-N4: "   ".toLongOrNull() returns null, so whitespace must fall back to the default.
+        val result = DatabaseConfig.resolveBusyTimeoutMs("   ")
+        assertEquals(5000L, result)
+    }
+
+    @Test
     fun `returns default when env var is a decimal float string`() {
         val result = DatabaseConfig.resolveBusyTimeoutMs("5000.5")
         assertEquals(5000L, result)
