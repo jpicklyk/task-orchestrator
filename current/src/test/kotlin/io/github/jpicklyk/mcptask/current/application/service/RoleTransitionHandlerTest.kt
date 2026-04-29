@@ -873,5 +873,74 @@ class RoleTransitionHandlerTest {
                 verify(exactly = 0) { depRepo.findByToItemId(any()) }
                 verify(exactly = 0) { depRepo.findByFromItemId(any()) }
             }
+
+        @Test
+        fun `cascadeTransition with different claimedBy on parent and child preserves cascade response shape`() =
+            runBlocking {
+                // Arrange: parent item claimed by agent-alpha, child item claimed by agent-beta.
+                // The cascade fires on the parent as a result of the child reaching terminal.
+                // Ownership checks are bypassed for cascades — the parent should advance to
+                // TERMINAL regardless of which agent holds the parent claim.
+                val now = java.time.Instant.now()
+                val parentItem =
+                    testItem(role = Role.WORK).copy(
+                        claimedBy = "agent-alpha",
+                        claimExpiresAt = now.plusSeconds(3600)
+                    )
+
+                // Verify the mock wiring captures the exact item update that is persisted
+                val updatedItemSlot = slot<WorkItem>()
+                val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.update(capture(updatedItemSlot)) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+
+                // Act: cascade the parent to TERMINAL with the configured label (e.g., "done")
+                // The child was completed by agent-beta — the caller here is the cascade system,
+                // not the child's claim holder. No actor is involved in cascadeTransition at all.
+                val cascadeStatusLabel = "done"
+                val result =
+                    handler.cascadeTransition(
+                        item = parentItem,
+                        targetRole = Role.TERMINAL,
+                        reason = "Last child reached terminal — auto-cascading parent",
+                        statusLabel = cascadeStatusLabel,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                // Assert: transition succeeds
+                assertTrue(result.success, "cascade on parent with active claim should succeed")
+
+                // Assert: response shape is correct
+                assertEquals("cascade", result.trigger, "trigger must be the internal cascade sentinel")
+                assertEquals(Role.WORK, result.previousRole, "previousRole should be the parent's pre-cascade role")
+                assertEquals(Role.TERMINAL, result.newRole, "newRole should be TERMINAL")
+
+                // Assert: the persisted item carries the cascade status label and is in TERMINAL
+                val persisted = updatedItemSlot.captured
+                assertEquals(Role.TERMINAL, persisted.role)
+                assertEquals(
+                    cascadeStatusLabel,
+                    persisted.statusLabel,
+                    "statusLabel on cascaded item must match the label passed to cascadeTransition"
+                )
+
+                // Assert: the audit trail records trigger="cascade" with null actor
+                // (cascade is system-initiated — no user claim should appear in the trail)
+                val auditEntry = transitionSlot.captured
+                assertEquals("cascade", auditEntry.trigger)
+                assertNull(auditEntry.actorClaim, "cascade audit entry must not carry a user actor claim")
+
+                // Assert: claim fields on the parent are NOT part of the response guard — the
+                // cascade path does not inspect or strip claim fields, so the persisted item
+                // retains whatever claim was set before the transition (ownership is irrelevant
+                // to cascade). This verifies no accidental coupling between claim ownership
+                // and the cascade emission path.
+                assertEquals(
+                    "agent-alpha",
+                    persisted.claimedBy,
+                    "cascade must not strip the parent's existing claim holder"
+                )
+            }
     }
 }
