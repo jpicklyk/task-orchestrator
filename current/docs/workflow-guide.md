@@ -860,6 +860,8 @@ docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.
 
 The claim mechanism prevents race conditions between independent agents competing for the same work items. It is optional: single-orchestrator deployments that serialize work dispatch do not need claims.
 
+> **Operators:** see [Fleet Deployment Guide](./fleet-deployment.md) for `degradedModePolicy`, `DATABASE_BUSY_TIMEOUT_MS`, capacity planning, and a Claims Troubleshooting FAQ. The tool-level `claim_item` reference lives in [API Reference](./api-reference.md#claim_item).
+
 ### When to Use Claims
 
 **Skip claims if:**
@@ -886,7 +888,7 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 
 ### Heartbeat Pattern
 
-For long-running work (longer than the TTL — default 900s), re-call `claim_item` before the TTL expires to refresh it. Recommended cadence: **TTL/2 = 450s** for the 900s default.
+For long-running work (longer than the TTL — default 900s), re-call `claim_item` before the TTL expires to refresh it. Recommended cadence: **TTL/2 = 450s** for the 900s default — the same convention used by Consul, etcd, and other lease-based distributed systems.
 
 Re-claiming an already-held item:
 - Refreshes `claimExpiresAt` (new TTL from now)
@@ -895,6 +897,12 @@ Re-claiming an already-held item:
 Operators can inspect `originalClaimedAt` via `get_context(itemId)` to distinguish freshly-claimed items from long-running renewed work.
 
 **Heartbeat write overhead.** Every re-claim is a row `UPDATE` on `work_items`. At 30 agents with TTL=900s, heartbeats produce approximately 4 writes/minute versus 30–60 writes/minute from real work transitions (~7% overhead). This is acceptable for v1. If writer contention from heartbeat traffic becomes a measured bottleneck, the mitigation is splitting heartbeats into a separate `claim_heartbeats` table (a non-breaking repository-layer change deferred to v1.5+).
+
+### Effect of `complete` and `cancel` on the Claim
+
+`advance_item(trigger="complete" | "cancel")` transitions the role but does **not** clear the claim record. `claimedBy`, `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` remain on the item until either the TTL elapses or `claim_item(releases=[...])` is called.
+
+This is harmless: terminal items reject new claims with the `terminal_item` outcome, so a residual claim on a completed item has no functional effect. `reopen` continues to enforce ownership against the original claim if the TTL has not elapsed. Well-behaved agents call `claim_item(releases=[...])` after finishing work to make the audit trail explicit; it is not required for correctness.
 
 ### Crash Recovery via Passive Expiry
 

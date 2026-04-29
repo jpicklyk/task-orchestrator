@@ -307,6 +307,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
 | **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | All 13 tools — parameters, response shapes, actor attribution |
 | **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
+| **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: identity policy, SQLite tuning, capacity planning, claim disclosure |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |
 | **[Changelog](CHANGELOG.md)** | Release history |
 | **[Contributing](CONTRIBUTING.md)** | Developer setup and contribution process |

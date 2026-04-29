@@ -1073,12 +1073,14 @@ claiming a new item auto-releases any prior claim held by the same agent. Claims
 time-bounded (TTL, default 900s). Re-claiming an already-held item refreshes the TTL without
 changing the claim holder.
 
+> **See also:** [Workflow Guide §10 — Claim Mechanism](./workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) for the agent-side lifecycle, heartbeat pattern, and discovery patterns. [Fleet Deployment Guide](./fleet-deployment.md) for `degradedModePolicy`, capacity planning, tiered disclosure, and Claims Troubleshooting.
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
-| `claims` | array | No | Items to claim: `[{ itemId (UUID or hex prefix), ttlSeconds? (default 900), agentId? (deprecated — overridden by verified actor) }]`. At least one of `claims` or `releases` must be non-empty. |
+| `claims` | array | No | Items to claim: `[{ itemId (UUID or hex prefix), ttlSeconds? (default 900), agentId? (optional — overridden by verified actor when present) }]`. At least one of `claims` or `releases` must be non-empty. |
 | `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
 | `requestId` | string (UUID) | **Yes** | Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Single-orchestrator deployments do not use `claim_item`; fleet callers are in a multi-agent context where network retries are a real concern. Repeated calls with the same (`actor.id`, `requestId`) within ~10 minutes return the cached response without re-executing. |
 
@@ -1089,7 +1091,8 @@ changing the claim holder.
 - **Terminal items cannot be claimed.** QUEUE, WORK, REVIEW, and BLOCKED items are all claimable.
 - **Identity resolution.** `actor.id` is used as the claim identity, subject to `degradedModePolicy`. If JWKS verification succeeds, the verified `actor.id` (from the JWT `sub` claim) is used; otherwise the self-reported `actor.id` is used (unless `degradedModePolicy=reject`, in which case the claim fails with `rejected_by_policy`).
 - **Passive expiry.** There is no background reaper. Expired claims are filtered at read time. Crash recovery happens automatically via TTL.
-- **DB-side time.** All timestamps (`claimedAt`, `claimExpiresAt`) are set via SQLite `datetime('now', ...)` — they are UTC.
+- **DB-side time.** All timestamps (`claimedAt`, `claimExpiresAt`) are set via SQLite `datetime('now', ...)` — they are UTC. Operators inspecting raw rows must not assume host-local time.
+- **Per-entry `agentId` vs verified `actor.id`.** When the configured verifier resolves a trusted identity from `actor.proof`, that verified id becomes the claim holder and any `agentId` on the individual claim entry is ignored. The server logs a warning when the two disagree. Callers without a verifier configured may still supply `agentId`; it has no special status beyond providing a self-reported identity.
 
 **Claim outcome codes per item:**
 

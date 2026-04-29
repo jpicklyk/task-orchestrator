@@ -152,7 +152,7 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 
 - **SQLite database**: Stored on a Docker volume (`mcp-task-data`) or a local file path. Ensure appropriate file permissions on the host mount. The database is not encrypted at rest — use disk-level encryption if required.
 - **Config files**: `.taskorchestrator/config.yaml` is mounted read-only (`:ro`) in Docker. It contains workflow rules and optional JWKS endpoints, not credentials. JWKS URIs point to public key endpoints — no secrets are stored in config.
-- **No secrets in actor claims**: The `actor.proof` field should contain a JWT token, not raw credentials. The `claimedBy` field (when the claim mechanism is implemented) should contain an identifier (session ID, container name, JWT `jti`), not secrets. These values appear in audit trails and diagnostic tool responses.
+- **No secrets in actor claims**: The `actor.proof` field should contain a JWT token, not raw credentials. The `claimedBy` field on a `WorkItem` should contain an identifier (session ID, container name, JWT `jti`, or `did:web` identifier), not secrets. These values appear in audit trails and diagnostic tool responses.
 
 ### Threat Model Summary
 
@@ -164,9 +164,9 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 | Actor impersonation (forged claims) | JWKS verification of JWT signatures | Available, opt-in |
 | Eavesdropping on HTTP transport | TLS via reverse proxy | Operator responsibility |
 | Database file access on host | File permissions on Docker volume mount | Operator responsibility |
-| Rogue agent disrupting workflow | Optimistic locking prevents data corruption; actor audit trail provides forensics | Partial — operational guardrails, not prevention |
+| Rogue agent disrupting workflow | Optimistic locking prevents data corruption; `claim_item` enforces exclusive ownership on `advance_item` for claimed items; actor audit trail provides forensics | Partial — operational guardrails, not prevention |
 
 ### Future Considerations
 
 - **Verification gating (opt-in)**: A future `auditing.require_verified_actor: true` flag could optionally reject write operations when actor verification fails, converting the accountability layer into an access control layer for high-security deployments. This would apply to write operations only (`advance_item`, `manage_notes`, `claim_item`) and would be opt-in to preserve the current low-friction single-team experience. This is not currently planned — the existing design (accountability, not access control) is intentional and sufficient for the database-per-tenant isolation model.
-- **Claim identity and verified actors**: When the claim mechanism (#117) is implemented, `claim_item` should prefer the verified `actor.id` from a JWKS-validated JWT over the self-reported `agentId` parameter. When JWKS is configured and a verified actor is present, the verified identity becomes authoritative for claim ownership. When JWKS is not configured, `agentId` is trusted as-is. This is a targeted integration between the claim and verification layers — not a blanket authentication gate. See #117 for the full identity resolution table.
+- **Claim identity and verified actors**: `claim_item` resolves identity via the same `actor` claim used by `advance_item` and `manage_notes`, subject to the deployment's `auditing.degradedModePolicy`. When JWKS verification succeeds, the JWT `sub` becomes authoritative for claim ownership and overrides any per-entry `agentId` supplied on individual claims. Under `degradedModePolicy=reject`, unverified callers cannot place or transition claims. Under `accept-cached` (default), stale-cache verification continues to work during transient JWKS outages. Under `accept-self-reported`, the self-reported `actor.id` is used — this negates the security benefit of JWKS verification when both are configured, and is documented as an explicit opt-out. See [Fleet Deployment Guide](current/docs/fleet-deployment.md#identity-configuration--authdegradedmodepolicy) for cross-org `did:web` recommendations.

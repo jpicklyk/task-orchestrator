@@ -17,6 +17,9 @@
 - [API Reference](api-reference.md)
 - [Workflow Guide](workflow-guide.md)
 
+**Operations**
+- [Fleet Deployment](fleet-deployment.md)
+
 **Project**
 - [GitHub Repository](https://github.com/jpicklyk/task-orchestrator)
 - [Container Registry](https://github.com/jpicklyk/task-orchestrator/pkgs/container/task-orchestrator)
