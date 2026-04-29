@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
@@ -43,7 +42,6 @@ import kotlin.test.assertTrue
  * 4. **`countByClaimStatus` regression** — after expiry, expired counts reflect DB-side time.
  */
 class DbSideTimeConsistencyTest : SQLiteRepositoryTestBase() {
-
     private lateinit var repository: WorkItemRepository
     private val handler = RoleTransitionHandler()
 
@@ -52,7 +50,10 @@ class DbSideTimeConsistencyTest : SQLiteRepositoryTestBase() {
         repository = repositoryProvider.workItemRepository()
     }
 
-    private suspend fun createItem(title: String = "Test Item", role: Role = Role.QUEUE): WorkItem {
+    private suspend fun createItem(
+        title: String = "Test Item",
+        role: Role = Role.QUEUE
+    ): WorkItem {
         val result = repository.create(WorkItem(title = title, role = role))
         assertIs<Result.Success<WorkItem>>(result)
         return result.data

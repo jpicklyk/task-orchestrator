@@ -180,13 +180,14 @@ class ToolErrorTest {
     @Test
     fun `ToolError JSON roundtrip via ResponseUtil with TRANSIENT kind and all fields populated`() {
         val itemId = UUID.randomUUID()
-        val original = ToolError(
-            kind = ErrorKind.TRANSIENT,
-            code = "db_error",
-            message = "m",
-            retryAfterMs = 1234L,
-            contendedItemId = itemId
-        )
+        val original =
+            ToolError(
+                kind = ErrorKind.TRANSIENT,
+                code = "db_error",
+                message = "m",
+                retryAfterMs = 1234L,
+                contendedItemId = itemId
+            )
 
         val response = ResponseUtil.createErrorResponse(original)
         val errorObj = response["error"]!!.jsonObject
@@ -200,13 +201,14 @@ class ToolErrorTest {
 
     @Test
     fun `ToolError JSON roundtrip with PERMANENT kind`() {
-        val original = ToolError(
-            kind = ErrorKind.PERMANENT,
-            code = "rejected_by_policy",
-            message = "policy rejection",
-            retryAfterMs = null,
-            contendedItemId = null
-        )
+        val original =
+            ToolError(
+                kind = ErrorKind.PERMANENT,
+                code = "rejected_by_policy",
+                message = "policy rejection",
+                retryAfterMs = null,
+                contendedItemId = null
+            )
 
         val response = ResponseUtil.createErrorResponse(original)
         val errorObj = response["error"]!!.jsonObject
@@ -220,13 +222,14 @@ class ToolErrorTest {
 
     @Test
     fun `ToolError JSON roundtrip with SHEDDING kind and retryAfterMs`() {
-        val original = ToolError(
-            kind = ErrorKind.SHEDDING,
-            code = "capacity_exceeded",
-            message = "writer queue saturated",
-            retryAfterMs = 3000L,
-            contendedItemId = null
-        )
+        val original =
+            ToolError(
+                kind = ErrorKind.SHEDDING,
+                code = "capacity_exceeded",
+                message = "writer queue saturated",
+                retryAfterMs = 3000L,
+                contendedItemId = null
+            )
 
         val response = ResponseUtil.createErrorResponse(original)
         val errorObj = response["error"]!!.jsonObject
@@ -240,13 +243,14 @@ class ToolErrorTest {
 
     @Test
     fun `ToolError JSON roundtrip retryAfterMs absent when null`() {
-        val original = ToolError(
-            kind = ErrorKind.TRANSIENT,
-            code = "lock_contention",
-            message = "item locked",
-            retryAfterMs = null,
-            contendedItemId = null
-        )
+        val original =
+            ToolError(
+                kind = ErrorKind.TRANSIENT,
+                code = "lock_contention",
+                message = "item locked",
+                retryAfterMs = null,
+                contendedItemId = null
+            )
 
         val response = ResponseUtil.createErrorResponse(original)
         val errorObj = response["error"]!!.jsonObject
@@ -256,17 +260,21 @@ class ToolErrorTest {
 
     @Test
     fun `ToolError JSON roundtrip contendedItemId absent when null`() {
-        val original = ToolError(
-            kind = ErrorKind.PERMANENT,
-            code = "not_found",
-            message = "item does not exist",
-            retryAfterMs = null,
-            contendedItemId = null
-        )
+        val original =
+            ToolError(
+                kind = ErrorKind.PERMANENT,
+                code = "not_found",
+                message = "item does not exist",
+                retryAfterMs = null,
+                contendedItemId = null
+            )
 
         val response = ResponseUtil.createErrorResponse(original)
         val errorObj = response["error"]!!.jsonObject
 
-        assertNull(errorObj["contendedItemId"], "contendedItemId key must be absent (not null-valued) when ToolError.contendedItemId is null")
+        assertNull(
+            errorObj["contendedItemId"],
+            "contendedItemId key must be absent (not null-valued) when ToolError.contendedItemId is null"
+        )
     }
 }

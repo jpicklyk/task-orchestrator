@@ -38,8 +38,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTrans
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
-import java.time.OffsetDateTime
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -64,22 +64,25 @@ class SQLiteWorkItemRepository(
             if (raw != null) {
                 try {
                     // Normalize to ISO-8601: replace space separator with 'T', append 'Z' if no tz info.
-                    val iso = raw.replace(" ", "T").let { s ->
-                        when {
-                            s.endsWith("Z") || s.contains("+") || s.matches(Regex(".*[+-]\\d{2}:\\d{2}$")) -> s
-                            else -> "${s}Z"
+                    val iso =
+                        raw.replace(" ", "T").let { s ->
+                            when {
+                                s.endsWith("Z") || s.contains("+") || s.matches(Regex(".*[+-]\\d{2}:\\d{2}$")) -> s
+                                else -> "${s}Z"
+                            }
                         }
-                    }
-                    OffsetDateTime.parse(
-                        iso,
-                        DateTimeFormatter.ISO_OFFSET_DATE_TIME
-                    ).toInstant()
+                    OffsetDateTime
+                        .parse(
+                            iso,
+                            DateTimeFormatter.ISO_OFFSET_DATE_TIME
+                        ).toInstant()
                 } catch (_: Exception) {
                     // Fallback: parse as LocalDateTime in UTC (handles H2's fractional-second format).
-                    LocalDateTime.parse(
-                        raw.replace(" ", "T"),
-                        DateTimeFormatter.ISO_LOCAL_DATE_TIME
-                    ).toInstant(ZoneOffset.UTC)
+                    LocalDateTime
+                        .parse(
+                            raw.replace(" ", "T"),
+                            DateTimeFormatter.ISO_LOCAL_DATE_TIME
+                        ).toInstant(ZoneOffset.UTC)
                 }
             } else {
                 // Should never happen in a healthy DB connection.

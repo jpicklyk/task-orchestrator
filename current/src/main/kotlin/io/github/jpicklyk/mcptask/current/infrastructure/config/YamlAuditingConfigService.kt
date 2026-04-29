@@ -77,12 +77,13 @@ class YamlAuditingConfigService(
 
         val yamlResult = loadYamlConfig()
 
-        val finalConfig = if (envPolicy != null) {
-            logger.info("DEGRADED_MODE_POLICY env var overrides YAML: {}", envPolicy.toConfigString())
-            yamlResult.config.copy(degradedModePolicy = envPolicy)
-        } else {
-            yamlResult.config
-        }
+        val finalConfig =
+            if (envPolicy != null) {
+                logger.info("DEGRADED_MODE_POLICY env var overrides YAML: {}", envPolicy.toConfigString())
+                yamlResult.config.copy(degradedModePolicy = envPolicy)
+            } else {
+                yamlResult.config
+            }
 
         return LoadResult(finalConfig, yamlResult.warnings)
     }

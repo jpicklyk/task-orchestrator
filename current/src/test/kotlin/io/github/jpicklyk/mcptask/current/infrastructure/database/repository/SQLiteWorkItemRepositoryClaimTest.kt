@@ -1061,16 +1061,17 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             val startGate = CountDownLatch(1)
 
             // 3 threads each toggle a different item (claim and release)
-            val futures = (0..2).map { idx ->
-                executor.submit {
-                    startGate.await()
-                    runBlocking {
-                        // Each thread toggles a different item to avoid cross-agent contention
-                        repository.release(items[idx].id, "agent-toggle-${idx + 1}")
-                        repository.claim(items[idx + 3].id, "agent-toggle-${idx + 1}", 900)
+            val futures =
+                (0..2).map { idx ->
+                    executor.submit {
+                        startGate.await()
+                        runBlocking {
+                            // Each thread toggles a different item to avoid cross-agent contention
+                            repository.release(items[idx].id, "agent-toggle-${idx + 1}")
+                            repository.claim(items[idx + 3].id, "agent-toggle-${idx + 1}", 900)
+                        }
                     }
                 }
-            }
 
             startGate.countDown()
             futures.forEach { it.get(15, TimeUnit.SECONDS) }
