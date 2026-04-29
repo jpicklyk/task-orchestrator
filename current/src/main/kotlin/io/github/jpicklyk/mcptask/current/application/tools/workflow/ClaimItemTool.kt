@@ -151,6 +151,17 @@ At least one of `claims` or `releases` must be non-empty.
             throw ToolValidationException("At least one of 'claims' or 'releases' must be non-empty")
         }
 
+        // Validate actor.id is a non-blank string — an empty or whitespace-only id would
+        // result in an untrackable claim holder and must be rejected eagerly.
+        val actorObj = paramsObj?.get("actor") as? JsonObject
+        if (actorObj != null) {
+            val actorId =
+                (actorObj["id"] as? JsonPrimitive)?.content
+            if (actorId != null && actorId.isBlank()) {
+                throw ToolValidationException("actor.id must be a non-blank string")
+            }
+        }
+
         claims?.forEachIndexed { index, element ->
             val obj =
                 element as? JsonObject

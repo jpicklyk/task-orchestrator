@@ -1029,4 +1029,34 @@ class GetNextItemToolTest {
             assertEquals(1, recs.size)
             assertEquals(unclaimedWork.id.toString(), recs[0].jsonObject["itemId"]!!.jsonPrimitive.content)
         }
+
+    // NICE-N2: role=review with includeClaimed=true shows isClaimed=true for a claimed REVIEW item.
+    // This verifies that multi-role scope applies claim-disclosure correctly on non-QUEUE roles.
+    @Test
+    fun `role=review with includeClaimed=true shows isClaimed=true for claimed REVIEW item`(): Unit =
+        runBlocking {
+            val claimedReview = createClaimedItem("Claimed Review Item", role = Role.REVIEW)
+
+            val result =
+                tool.execute(
+                    params(
+                        "role" to JsonPrimitive("review"),
+                        "includeClaimed" to JsonPrimitive(true),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val rec = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == claimedReview.id.toString() }
+            assertNotNull(rec, "Claimed REVIEW item should appear when includeClaimed=true")
+
+            val isClaimed = rec.jsonObject["isClaimed"]
+            assertNotNull(isClaimed, "isClaimed field must be present when includeClaimed=true")
+            assertTrue(isClaimed.jsonPrimitive.boolean, "isClaimed should be true for an actively claimed REVIEW item")
+
+            // Tiered disclosure: claimedBy identity must not be leaked
+            assertNull(rec.jsonObject["claimedBy"], "claimedBy must not be disclosed even for REVIEW items")
+        }
 }
