@@ -180,7 +180,7 @@ Two skill systems — do not confuse them:
 
 ## Git Workflow
 
-**PR-per-feature flow** — each feature or logical unit of work gets its own branch pushed to origin and merged via GitHub PR. Local `main` always tracks `origin/main`. See the `/implement` skill for the full step-by-step process.
+**PR-per-feature flow** — the PR boundary is the **parent feature**, not individual child tasks. For a `feature-implementation` parent with N children (Parallel tier), all children commit to a shared feature worktree on a single `feat/<slug>` branch; one PR opens when the parent feature reaches terminal. For Direct/Delegated tier (single items), each item gets its own branch and PR. Local `main` always tracks `origin/main`. See the `/implement` skill (Step 2 worktree setup, Step 6 finalization) and `.claude/skills/implement/WORKTREE.md` (Shared feature worktree) for the full process.
 
 - Follow conventional commits, reference issue numbers
 - All tests must pass before committing
