@@ -431,11 +431,10 @@ class SQLiteWorkItemRepository(
     ): ClaimResult =
         try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                // Sanitize agentId for safe SQL embedding — strip single-quotes to prevent injection.
-                // The UUID is validated by type, so no risk there.
-                val safeAgentId = agentId.replace("'", "''")
                 // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
-                val safeItemHex = itemId.toString().replace("-", "").uppercase()
+                // Both agentId and itemHex are bound as JDBC parameters — no string interpolation.
+                val itemHex = itemId.toString().replace("-", "").uppercase()
+                val agentIdType = VarCharColumnType(500)
 
                 // Step 1: Auto-release all prior claims by this agent EXCEPT the target item.
                 exec(
@@ -446,9 +445,13 @@ class SQLiteWorkItemRepository(
                           claim_expires_at = NULL,
                           original_claimed_at = NULL,
                           version = version + 1
-                      WHERE claimed_by = '$safeAgentId'
-                        AND HEX(id) != '$safeItemHex'
-                    """.trimIndent()
+                      WHERE claimed_by = ?
+                        AND HEX(id) != ?
+                    """.trimIndent(),
+                    args = listOf(
+                        agentIdType to agentId,
+                        VarCharColumnType(32) to itemHex,
+                    )
                 )
 
                 // Step 2: Claim or refresh the target item using only DB-side timestamps.
@@ -457,20 +460,26 @@ class SQLiteWorkItemRepository(
                 exec(
                     """
                     UPDATE work_items
-                      SET claimed_by = '$safeAgentId',
+                      SET claimed_by = ?,
                           claimed_at = datetime('now'),
                           claim_expires_at = datetime('now', '+$ttlSeconds seconds'),
                           original_claimed_at = COALESCE(
-                            CASE WHEN claimed_by = '$safeAgentId' THEN original_claimed_at ELSE NULL END,
+                            CASE WHEN claimed_by = ? THEN original_claimed_at ELSE NULL END,
                             datetime('now')
                           ),
                           version = version + 1
-                      WHERE HEX(id) = '$safeItemHex'
+                      WHERE HEX(id) = ?
                         AND role != 'terminal'
                         AND (claimed_by IS NULL
                              OR claim_expires_at < datetime('now')
-                             OR claimed_by = '$safeAgentId')
-                    """.trimIndent()
+                             OR claimed_by = ?)
+                    """.trimIndent(),
+                    args = listOf(
+                        agentIdType to agentId,
+                        agentIdType to agentId,
+                        VarCharColumnType(32) to itemHex,
+                        agentIdType to agentId,
+                    )
                 )
 
                 // Read back the current state: if claimedBy == agentId, the claim succeeded.
@@ -507,9 +516,10 @@ class SQLiteWorkItemRepository(
     ): ReleaseResult =
         try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                val safeAgentId = agentId.replace("'", "''")
                 // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
-                val safeItemHex = itemId.toString().replace("-", "").uppercase()
+                // agentId and itemHex are bound as JDBC parameters — no string interpolation.
+                val itemHex = itemId.toString().replace("-", "").uppercase()
+                val agentIdType = VarCharColumnType(500)
 
                 // Check existence and current claimant before attempting update.
                 val row =
@@ -530,9 +540,13 @@ class SQLiteWorkItemRepository(
                           claim_expires_at = NULL,
                           original_claimed_at = NULL,
                           version = version + 1
-                      WHERE HEX(id) = '$safeItemHex'
-                        AND claimed_by = '$safeAgentId'
-                    """.trimIndent()
+                      WHERE HEX(id) = ?
+                        AND claimed_by = ?
+                    """.trimIndent(),
+                    args = listOf(
+                        VarCharColumnType(32) to itemHex,
+                        agentIdType to agentId,
+                    )
                 )
 
                 // Read back updated state.

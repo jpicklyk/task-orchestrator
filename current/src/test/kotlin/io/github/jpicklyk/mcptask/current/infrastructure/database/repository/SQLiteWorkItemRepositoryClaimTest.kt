@@ -580,6 +580,134 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
         }
 
     // -----------------------------------------------------------------------
+    // C2: agentId edge-case tests — parameterized SQL robustness
+    // -----------------------------------------------------------------------
+
+    /**
+     * C2-E1: agentId containing only whitespace characters.
+     *
+     * Previously, `agentId.replace("'", "''")` would pass whitespace-only strings through
+     * unchanged, potentially binding blank values to the claimed_by column. With parameterized
+     * SQL the binding is direct; this test verifies the SQL executes without throwing and that
+     * the claim round-trips the whitespace agentId correctly.
+     */
+    @Test
+    fun `agentId with only whitespace — claim and release round-trip`(): Unit =
+        runBlocking {
+            val item = createItem()
+            val whitespaceAgent = "   "
+
+            val result = repository.claim(item.id, whitespaceAgent, 900)
+            assertIs<ClaimResult.Success>(result)
+            assertEquals(whitespaceAgent, result.item.claimedBy, "claimedBy must round-trip whitespace-only agentId")
+
+            // Release should also work
+            val releaseResult = repository.release(item.id, whitespaceAgent)
+            assertIs<ReleaseResult.Success>(releaseResult)
+            assertNull(releaseResult.item.claimedBy)
+        }
+
+    /**
+     * C2-E2: agentId with multibyte UTF-8 characters (emoji and extended Latin).
+     *
+     * String interpolation with `replace("'", "''")` would silently pass multibyte sequences
+     * through; JDBC parameterization must handle them via the driver's character encoding.
+     * This test verifies the full claim → release cycle for a multibyte agentId.
+     */
+    @Test
+    fun `agentId with multibyte UTF-8 characters — claim and release round-trip`(): Unit =
+        runBlocking {
+            val item = createItem()
+            val utf8Agent = "agent-α-🚀"
+
+            val result = repository.claim(item.id, utf8Agent, 900)
+            assertIs<ClaimResult.Success>(result)
+            assertEquals(utf8Agent, result.item.claimedBy, "claimedBy must round-trip multibyte UTF-8 agentId")
+
+            val releaseResult = repository.release(item.id, utf8Agent)
+            assertIs<ReleaseResult.Success>(releaseResult)
+            assertNull(releaseResult.item.claimedBy)
+        }
+
+    /**
+     * C2-E3: agentId at the 500-char length boundary.
+     *
+     * The VarCharColumnType(500) used in the parameterized exec bounds the column type
+     * declaration, but the actual SQLite column (TEXT) accepts any length. This test
+     * verifies a 500-character agentId binds and round-trips correctly.
+     */
+    @Test
+    fun `agentId at 500-char length boundary — claim and release round-trip`(): Unit =
+        runBlocking {
+            val item = createItem()
+            val longAgent = "a".repeat(500)
+
+            val result = repository.claim(item.id, longAgent, 900)
+            assertIs<ClaimResult.Success>(result)
+            assertEquals(longAgent, result.item.claimedBy, "claimedBy must round-trip 500-char agentId")
+
+            val releaseResult = repository.release(item.id, longAgent)
+            assertIs<ReleaseResult.Success>(releaseResult)
+            assertNull(releaseResult.item.claimedBy)
+        }
+
+    /**
+     * C2-E4: agentId with embedded single-quote, double-quote, and backslash characters.
+     *
+     * This is the primary SQL-injection vector that the old `replace("'", "''")` escape was
+     * guarding against. With parameterized SQL, no escaping is needed — the driver binds the
+     * raw string directly. This test verifies the claim SQL does not break and the value
+     * round-trips exactly, including the unescaped quote and backslash.
+     */
+    @Test
+    fun `agentId with single-quote and backslash — claim and release round-trip`(): Unit =
+        runBlocking {
+            val item = createItem()
+            val injectionAgent = """agent's "test"\path"""
+
+            val result = repository.claim(item.id, injectionAgent, 900)
+            assertIs<ClaimResult.Success>(result)
+            assertEquals(
+                injectionAgent,
+                result.item.claimedBy,
+                "claimedBy must round-trip agentId with single-quote and backslash — no escaping needed with parameterized SQL"
+            )
+
+            val releaseResult = repository.release(item.id, injectionAgent)
+            assertIs<ReleaseResult.Success>(releaseResult)
+            assertNull(releaseResult.item.claimedBy)
+        }
+
+    /**
+     * C2-E5: auto-release (Step 1) works correctly when agentId contains special characters.
+     *
+     * Verifies that the Step-1 auto-release UPDATE (`WHERE claimed_by = ?`) uses the
+     * parameterized binding and correctly releases a prior claim by an agent whose ID
+     * contains characters that would have broken the old string-interpolation approach.
+     */
+    @Test
+    fun `auto-release Step 1 works with special-character agentId`(): Unit =
+        runBlocking {
+            val itemA = createItem("Special char agent item A")
+            val itemB = createItem("Special char agent item B")
+            val specialAgent = "agent's \"tricky\" \\agent"
+
+            // Claim A with the special-character agentId
+            val claimA = repository.claim(itemA.id, specialAgent, 900)
+            assertIs<ClaimResult.Success>(claimA)
+            assertEquals(specialAgent, claimA.item.claimedBy)
+
+            // Claim B — this should trigger Step 1 to auto-release itemA
+            val claimB = repository.claim(itemB.id, specialAgent, 900)
+            assertIs<ClaimResult.Success>(claimB)
+
+            // itemA must now be unclaimed (Step 1 auto-release fired)
+            val aResult = repository.getById(itemA.id)
+            assertIs<Result.Success<WorkItem>>(aResult)
+            assertNull(aResult.data.claimedBy, "Item A must be auto-released even when agentId contains special characters")
+        }
+
+    // -----------------------------------------------------------------------
     // UUID / storage encoding regression tests
     // -----------------------------------------------------------------------
 
