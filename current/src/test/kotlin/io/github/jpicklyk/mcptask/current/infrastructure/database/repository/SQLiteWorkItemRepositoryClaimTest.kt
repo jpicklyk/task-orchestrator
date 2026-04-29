@@ -1213,19 +1213,20 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             //   claimed_by IS NULL  OR  claim_expires_at <= datetime('now')
             // We test the second branch (the range scan on claim_expires_at) in isolation
             // so the planner can choose the index on that column.
-            val plan = transaction(db = database) {
-                buildString {
-                    exec(
-                        "EXPLAIN QUERY PLAN " +
-                            "SELECT * FROM work_items WHERE claim_expires_at <= datetime('now')"
-                    ) { rs ->
-                        while (rs.next()) {
-                            // Column 4 (1-based) = detail TEXT in SQLite's EQP result set.
-                            appendLine(rs.getString(4))
+            val plan =
+                transaction(db = database) {
+                    buildString {
+                        exec(
+                            "EXPLAIN QUERY PLAN " +
+                                "SELECT * FROM work_items WHERE claim_expires_at <= datetime('now')"
+                        ) { rs ->
+                            while (rs.next()) {
+                                // Column 4 (1-based) = detail TEXT in SQLite's EQP result set.
+                                appendLine(rs.getString(4))
+                            }
                         }
                     }
                 }
-            }
 
             assertTrue(
                 plan.contains("idx_work_items_claim_expires", ignoreCase = true),
