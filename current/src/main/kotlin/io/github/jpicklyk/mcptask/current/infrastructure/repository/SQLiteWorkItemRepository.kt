@@ -436,28 +436,14 @@ class SQLiteWorkItemRepository(
                 val itemHex = itemId.toString().replace("-", "").uppercase()
                 val agentIdType = VarCharColumnType(500)
 
-                // Step 1: Auto-release all prior claims by this agent EXCEPT the target item.
-                exec(
-                    """
-                    UPDATE work_items
-                      SET claimed_by = NULL,
-                          claimed_at = NULL,
-                          claim_expires_at = NULL,
-                          original_claimed_at = NULL,
-                          version = version + 1
-                      WHERE claimed_by = ?
-                        AND HEX(id) != ?
-                    """.trimIndent(),
-                    args =
-                        listOf(
-                            agentIdType to agentId,
-                            VarCharColumnType(32) to itemHex,
-                        )
-                )
-
-                // Step 2: Claim or refresh the target item using only DB-side timestamps.
+                // Step 1 (acquire target): Claim or refresh the target item using only DB-side timestamps.
                 // Matches rows that are: (a) unclaimed, (b) expired, or (c) already held by this agent.
                 // TERMINAL items are always excluded.
+                //
+                // NOTE: Acquisition runs FIRST so that Step 2 (auto-release of prior claims) only fires
+                // when acquisition succeeds. If Step 2 ran first and Step 1 then matched zero rows (e.g.
+                // target held by another agent, or target is TERMINAL), the agent would lose its prior
+                // claim without gaining the new one — a net loss of both claims.
                 exec(
                     """
                     UPDATE work_items
@@ -484,28 +470,54 @@ class SQLiteWorkItemRepository(
                         )
                 )
 
-                // Read back the current state: if claimedBy == agentId, the claim succeeded.
+                // Read back the current state: if claimedBy == agentId, acquisition succeeded.
                 val row = WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
 
-                when {
-                    row == null -> ClaimResult.NotFound(itemId)
-                    else -> {
-                        val item = toWorkItem(row)
-                        when {
-                            item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
-                            item.claimedBy == agentId -> ClaimResult.Success(item)
-                            else -> {
-                                // Claimed by someone else — compute retryAfterMs from their expiry.
-                                val retryAfterMs =
-                                    item.claimExpiresAt?.let { exp ->
-                                        val remaining = exp.toEpochMilli() - System.currentTimeMillis()
-                                        if (remaining > 0) remaining else null
-                                    }
-                                ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
+                val result =
+                    when {
+                        row == null -> ClaimResult.NotFound(itemId)
+                        else -> {
+                            val item = toWorkItem(row)
+                            when {
+                                item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
+                                item.claimedBy == agentId -> ClaimResult.Success(item)
+                                else -> {
+                                    // Claimed by someone else — compute retryAfterMs from their expiry.
+                                    val retryAfterMs =
+                                        item.claimExpiresAt?.let { exp ->
+                                            val remaining = exp.toEpochMilli() - System.currentTimeMillis()
+                                            if (remaining > 0) remaining else null
+                                        }
+                                    ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
+                                }
                             }
                         }
                     }
+
+                // Step 2 (auto-release prior claims): Only runs when acquisition SUCCEEDED.
+                // Releases all other items held by this agent EXCEPT the newly-acquired target.
+                // Skipped on any failure result to preserve the agent's existing claim.
+                if (result is ClaimResult.Success) {
+                    exec(
+                        """
+                        UPDATE work_items
+                          SET claimed_by = NULL,
+                              claimed_at = NULL,
+                              claim_expires_at = NULL,
+                              original_claimed_at = NULL,
+                              version = version + 1
+                          WHERE claimed_by = ?
+                            AND HEX(id) != ?
+                        """.trimIndent(),
+                        args =
+                            listOf(
+                                agentIdType to agentId,
+                                VarCharColumnType(32) to itemHex,
+                            )
+                    )
                 }
+
+                result
             }
         } catch (e: Exception) {
             logger.error("Failed to claim WorkItem $itemId for agent $agentId: ${e.message}", e)
