@@ -29,7 +29,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -863,22 +862,23 @@ class IdempotencyToolsTest {
             val requestId = UUID.randomUUID().toString()
 
             val results =
-                (1..10).map {
-                    async(Dispatchers.IO) {
-                        tool.execute(
-                            params(
-                                "operation" to JsonPrimitive("create"),
-                                "items" to
-                                    JsonArray(
-                                        listOf(buildJsonObject { put("title", JsonPrimitive("Concurrent Item")) })
-                                    ),
-                                "requestId" to JsonPrimitive(requestId),
-                                "actor" to actor("concurrent-agent")
-                            ),
-                            context
-                        ) as JsonObject
-                    }
-                }.awaitAll()
+                (1..10)
+                    .map {
+                        async(Dispatchers.IO) {
+                            tool.execute(
+                                params(
+                                    "operation" to JsonPrimitive("create"),
+                                    "items" to
+                                        JsonArray(
+                                            listOf(buildJsonObject { put("title", JsonPrimitive("Concurrent Item")) })
+                                        ),
+                                    "requestId" to JsonPrimitive(requestId),
+                                    "actor" to actor("concurrent-agent")
+                                ),
+                                context
+                            ) as JsonObject
+                        }
+                    }.awaitAll()
 
             // All responses should be identical (the same cached result)
             val firstId =
@@ -921,26 +921,27 @@ class IdempotencyToolsTest {
             // Track how many times the actual DB mutation path runs by checking the result
             // (if transition is applied twice, the second would fail with a wrong-state error)
             val results =
-                (1..10).map {
-                    async(Dispatchers.IO) {
-                        tool.execute(
-                            params(
-                                "transitions" to
-                                    JsonArray(
-                                        listOf(
-                                            buildJsonObject {
-                                                put("itemId", JsonPrimitive(itemId))
-                                                put("trigger", JsonPrimitive("start"))
-                                                put("actor", actor("race-agent"))
-                                            }
-                                        )
-                                    ),
-                                "requestId" to JsonPrimitive(requestId)
-                            ),
-                            context
-                        ) as JsonObject
-                    }
-                }.awaitAll()
+                (1..10)
+                    .map {
+                        async(Dispatchers.IO) {
+                            tool.execute(
+                                params(
+                                    "transitions" to
+                                        JsonArray(
+                                            listOf(
+                                                buildJsonObject {
+                                                    put("itemId", JsonPrimitive(itemId))
+                                                    put("trigger", JsonPrimitive("start"))
+                                                    put("actor", actor("race-agent"))
+                                                }
+                                            )
+                                        ),
+                                    "requestId" to JsonPrimitive(requestId)
+                                ),
+                                context
+                            ) as JsonObject
+                        }
+                    }.awaitAll()
 
             // All responses should be identical (cached)
             val firstResponse = results[0]
