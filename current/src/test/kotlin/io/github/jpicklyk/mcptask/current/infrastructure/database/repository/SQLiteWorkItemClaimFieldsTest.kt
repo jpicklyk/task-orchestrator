@@ -68,10 +68,10 @@ class SQLiteWorkItemClaimFieldsTest : BaseRepositoryTest() {
             assertIs<Result.Success<WorkItem>>(result)
             val retrieved = result.data
             assertEquals("agent-abc-123", retrieved.claimedBy)
-            assertNotNull(retrieved.claimedAt)
-            assertNotNull(retrieved.claimExpiresAt)
-            assertNotNull(retrieved.originalClaimedAt)
-            // Timestamps should round-trip without loss beyond millisecond precision
+            // Timestamps must round-trip with exact epoch-millisecond precision (not just non-null).
+            // The !! operator will throw NullPointerException if the field is null, surfacing
+            // a storage bug as clearly as assertNotNull would. Epoch-millis equality is stronger:
+            // it pins the exact value, catching both null regressions and precision loss.
             assertEquals(now.toEpochMilli(), retrieved.claimedAt!!.toEpochMilli())
             assertEquals(expiresAt.toEpochMilli(), retrieved.claimExpiresAt!!.toEpochMilli())
             assertEquals(now.toEpochMilli(), retrieved.originalClaimedAt!!.toEpochMilli())
