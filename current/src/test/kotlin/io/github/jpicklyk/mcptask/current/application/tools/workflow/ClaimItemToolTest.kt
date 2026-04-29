@@ -459,4 +459,58 @@ class ClaimItemToolTest {
                     "Got: $serialized"
             )
         }
+
+    // -----------------------------------------------------------------------
+    // TEST-I11: claim with empty-string or whitespace-only agentId is rejected at validateParams
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `validateParams throws ToolValidationException when actor id is empty string`() {
+        val p =
+            buildJsonObject {
+                put("claims", buildJsonArray { add(claimEntry(itemId1)) })
+                put("actor", actorJson(id = ""))
+            }
+        assertFailsWith<ToolValidationException>(
+            "Empty actor.id must be rejected at validateParams"
+        ) { tool.validateParams(p) }
+    }
+
+    @Test
+    fun `validateParams throws ToolValidationException when actor id is whitespace only`() {
+        val p =
+            buildJsonObject {
+                put("claims", buildJsonArray { add(claimEntry(itemId1)) })
+                put("actor", actorJson(id = "  "))
+            }
+        assertFailsWith<ToolValidationException>(
+            "Whitespace-only actor.id must be rejected at validateParams"
+        ) { tool.validateParams(p) }
+    }
+
+    // -----------------------------------------------------------------------
+    // NICE-N3: large TTL (86400 seconds / 1 day) is accepted without rejection
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `validateParams accepts large ttlSeconds of 86400 without rejection`() {
+        // Verifies that no upper-bound validation rejects legitimately large TTLs.
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 86400)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+            }
+        // Must not throw — large TTLs are valid
+        tool.validateParams(p)
+    }
 }
