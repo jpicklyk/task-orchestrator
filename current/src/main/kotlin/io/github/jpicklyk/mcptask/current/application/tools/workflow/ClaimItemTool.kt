@@ -53,7 +53,7 @@ Atomically claim or release work items. One claim per agent: claiming a new item
 any prior claim held by the same agent.
 
 **Parameters:**
-- `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900), agentId? (optional string, overridden by verified actor) }`
+- `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional string, overridden by verified actor) }`. The TTL must be between 1 and 86400 seconds (24 hours); values outside this range are rejected.
 - `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
 - `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
 - `requestId` (required UUID): Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
@@ -115,7 +115,7 @@ At least one of `claims` or `releases` must be non-empty.
                                 "description",
                                 JsonPrimitive(
                                     "Array of claim requests: { itemId (required UUID or hex prefix), " +
-                                        "ttlSeconds? (optional int, default 900), " +
+                                        "ttlSeconds? (optional int, default 900, min 1, max 86400 — 24 h cap), " +
                                         "agentId? (optional string, overridden by verified actor) }"
                                 )
                             )
@@ -218,6 +218,7 @@ At least one of `claims` or `releases` must be non-empty.
                     ttlPrim.content.toIntOrNull()
                         ?: throw ToolValidationException("claims[$index].ttlSeconds must be a positive integer")
                 if (ttl <= 0) throw ToolValidationException("claims[$index].ttlSeconds must be positive, got $ttl")
+                if (ttl > 86400) throw ToolValidationException("claims[$index].ttlSeconds must not exceed 86400 (24 hours), got $ttl")
             }
         }
 

@@ -553,6 +553,82 @@ class ClaimItemToolTest {
     }
 
     // -----------------------------------------------------------------------
+    // TTL upper bound — 86400 s cap
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `validateParams accepts ttlSeconds of 86400 boundary`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 86400)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        // Exactly at the boundary — must not throw
+        tool.validateParams(p)
+    }
+
+    @Test
+    fun `validateParams throws when ttlSeconds is 86401`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 86401)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("must not exceed 86400 (24 hours), got 86401"),
+            "Error message must mention the cap and the actual value. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams throws when ttlSeconds is 999999`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 999999)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("must not exceed 86400 (24 hours), got 999999"),
+            "Error message must mention the cap and the actual value. Got: ${ex.message}"
+        )
+    }
+
+    // -----------------------------------------------------------------------
     // H1: DBError — unexpected database exception surfaces as db_error ToolError
     // -----------------------------------------------------------------------
 

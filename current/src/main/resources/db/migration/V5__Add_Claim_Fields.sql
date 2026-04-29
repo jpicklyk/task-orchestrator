@@ -2,6 +2,10 @@
 -- These four columns support the agent-claim mechanism (issue #117).
 -- Time values are stored as ISO-8601 text (SQLite TEXT affinity) to match Flyway/JDBC conventions,
 -- consistent with the existing timestamp columns in this table.
+--
+-- Note: SQLite does not support DROP COLUMN; each ALTER TABLE ADD COLUMN is irreversible
+-- without a table recreation. Indexes are reshapeable in subsequent migrations (see V6).
+-- Future migrations should treat these four claim columns as permanent additions.
 
 ALTER TABLE work_items ADD COLUMN claimed_by TEXT DEFAULT NULL;
 ALTER TABLE work_items ADD COLUMN claimed_at TEXT DEFAULT NULL;
