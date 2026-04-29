@@ -240,8 +240,16 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
                 is ClaimResult.AlreadyClaimed -> {
                     // Branch A: boundary-exact = still active. Strict < semantics confirmed.
                     assertEquals(item.id, result.itemId)
-                    // retryAfterMs may be 0 or very small since we're right at the boundary
-                    assertNotNull(result.retryAfterMs)
+                    // Note: retryAfterMs is intentionally NOT asserted here. The SQL
+                    // expiry check uses second-granularity `datetime('now')`, while
+                    // retryAfterMs is computed from ms-granularity
+                    // `System.currentTimeMillis()` and is null when remaining <= 0.
+                    // At the exact-TTL boundary, SQL can say "still active" (because
+                    // `claim_expires_at < datetime('now')` is false at the same second)
+                    // while the ms-clock has advanced just past the expiry instant,
+                    // making retryAfterMs null. Asserting non-null here is racy on
+                    // tight CI clocks. The AlreadyClaimed selection itself is what
+                    // pins the strict-< semantics being tested.
                 }
                 is ClaimResult.Success -> {
                     // Branch B: clock advanced past the 1s boundary; expiry check triggered.
