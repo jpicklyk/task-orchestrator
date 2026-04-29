@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
@@ -926,5 +928,55 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             assertNotNull(result.item.claimedAt)
             assertNotNull(result.item.claimExpiresAt)
             assertNotNull(result.item.originalClaimedAt)
+        }
+
+    // -----------------------------------------------------------------------
+    // H1: DBError — unexpected database exception surfaces as DBError, not NotFound
+    // -----------------------------------------------------------------------
+
+    /**
+     * H1-D1: claim() with an uninitialized database returns ClaimResult.DBError with the
+     * itemId preserved and the cause attached — NOT ClaimResult.NotFound.
+     *
+     * Constructs a DatabaseManager without calling initialize(), so getDatabase() throws
+     * IllegalStateException, simulating a severed database connection.
+     * The repository's catch block must classify this as DBError and attach the cause.
+     */
+    @Test
+    fun `claim on uninitialized database returns DBError with itemId and cause preserved`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+
+            // DatabaseManager with no customDatabase and no initialize() call.
+            // getDatabase() will throw IllegalStateException("Database has not been initialized").
+            val uninitializedManager = DatabaseManager()
+            val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
+
+            val result = faultyRepo.claim(itemId, "agent-h1-test", 900)
+
+            assertIs<ClaimResult.DBError>(result)
+            assertEquals(itemId, result.itemId, "DBError.itemId must equal the requested itemId")
+            assertNotNull(result.cause, "DBError.cause must be non-null")
+        }
+
+    /**
+     * H1-D2: release() with an uninitialized database returns ReleaseResult.DBError with the
+     * itemId preserved and the cause attached — NOT ReleaseResult.NotFound.
+     *
+     * Same strategy as H1-D1 but for the release path.
+     */
+    @Test
+    fun `release on uninitialized database returns DBError with itemId and cause preserved`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+
+            val uninitializedManager = DatabaseManager()
+            val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
+
+            val result = faultyRepo.release(itemId, "agent-h1-test")
+
+            assertIs<ReleaseResult.DBError>(result)
+            assertEquals(itemId, result.itemId, "DBError.itemId must equal the requested itemId")
+            assertNotNull(result.cause, "DBError.cause must be non-null")
         }
 }

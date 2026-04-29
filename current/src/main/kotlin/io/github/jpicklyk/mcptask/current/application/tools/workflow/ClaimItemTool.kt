@@ -384,6 +384,27 @@ At least one of `claims` or `releases` must be non-empty.
                         }
                     )
                 }
+
+                is ClaimResult.DBError -> {
+                    claimsFailed++
+                    val dbError =
+                        ToolError(
+                            kind = ErrorKind.TRANSIENT,
+                            code = "db_error",
+                            message = "Database error during claim operation",
+                            contendedItemId = result.itemId
+                        )
+                    claimResultsList.add(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(result.itemId.toString()))
+                            put("outcome", JsonPrimitive("db_error"))
+                            put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                            put("code", JsonPrimitive(dbError.code))
+                            put("message", JsonPrimitive(dbError.message))
+                            put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                        }
+                    )
+                }
             }
         }
 
@@ -432,6 +453,27 @@ At least one of `claims` or `releases` must be non-empty.
                         buildJsonObject {
                             put("itemId", JsonPrimitive(result.itemId.toString()))
                             put("outcome", JsonPrimitive("not_found"))
+                        }
+                    )
+                }
+
+                is ReleaseResult.DBError -> {
+                    releasesFailed++
+                    val dbError =
+                        ToolError(
+                            kind = ErrorKind.TRANSIENT,
+                            code = "db_error",
+                            message = "Database error during release operation",
+                            contendedItemId = result.itemId
+                        )
+                    releaseResultsList.add(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(result.itemId.toString()))
+                            put("outcome", JsonPrimitive("db_error"))
+                            put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                            put("code", JsonPrimitive(dbError.code))
+                            put("message", JsonPrimitive(dbError.message))
+                            put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
                         }
                     )
                 }

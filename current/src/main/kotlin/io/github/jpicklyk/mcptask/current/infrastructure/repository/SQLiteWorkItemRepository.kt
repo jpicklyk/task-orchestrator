@@ -521,7 +521,7 @@ class SQLiteWorkItemRepository(
             }
         } catch (e: Exception) {
             logger.error("Failed to claim WorkItem $itemId for agent $agentId: ${e.message}", e)
-            ClaimResult.NotFound(itemId) // surface as not-found on unexpected DB error
+            ClaimResult.DBError(itemId, e)
         }
 
     override suspend fun release(
@@ -573,7 +573,7 @@ class SQLiteWorkItemRepository(
             }
         } catch (e: Exception) {
             logger.error("Failed to release WorkItem $itemId for agent $agentId: ${e.message}", e)
-            ReleaseResult.NotFound(itemId)
+            ReleaseResult.DBError(itemId, e)
         }
 
     override suspend fun findForNextItem(

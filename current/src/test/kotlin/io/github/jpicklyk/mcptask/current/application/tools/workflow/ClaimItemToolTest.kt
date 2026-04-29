@@ -27,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.sql.SQLException
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -549,4 +550,94 @@ class ClaimItemToolTest {
         // Must not throw — large TTLs are valid
         tool.validateParams(p)
     }
+
+    // -----------------------------------------------------------------------
+    // H1: DBError — unexpected database exception surfaces as db_error ToolError
+    // -----------------------------------------------------------------------
+
+    /**
+     * H1-T1: claim path — repository returns DBError → tool emits db_error JSON shape.
+     *
+     * Expected JSON shape in claimResults[0]:
+     *   { outcome: "db_error", kind: "transient", code: "db_error", contendedItemId: "<uuid>" }
+     * The exception message must NOT appear in the response (internal detail leak prevention).
+     */
+    @Test
+    fun `claim DBError surfaces as db_error outcome with transient kind and contendedItemId`(): Unit =
+        runBlocking {
+            val cause = SQLException("internal db failure — must not appear in response")
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+
+            assertEquals("db_error", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("transient", first["kind"]?.jsonPrimitive?.content)
+            assertEquals("db_error", first["code"]?.jsonPrimitive?.content)
+            val contendedItemId = first["contendedItemId"]?.jsonPrimitive?.content
+            assertNotNull(contendedItemId, "contendedItemId must be present for db_error")
+            assertEquals(itemId1.toString(), contendedItemId)
+
+            // Exception message must not appear anywhere in the response (internal detail)
+            val serialized = result.toString()
+            assertFalse(
+                "internal db failure" in serialized,
+                "Exception message must not leak into JSON response. Got: $serialized"
+            )
+            // retryAfterMs must be absent (not populated for db_error)
+            assertNull(first["retryAfterMs"], "retryAfterMs must be absent for db_error")
+        }
+
+    /**
+     * H1-T2: release path — repository returns DBError → tool emits db_error JSON shape.
+     *
+     * Expected JSON shape in releaseResults[0]:
+     *   { outcome: "db_error", kind: "transient", code: "db_error", contendedItemId: "<uuid>" }
+     */
+    @Test
+    fun `release DBError surfaces as db_error outcome with transient kind and contendedItemId`(): Unit =
+        runBlocking {
+            val cause = SQLException("release db failure — must not appear in response")
+            coEvery { workItemRepo.release(itemId1, agentId) } returns ReleaseResult.DBError(itemId1, cause)
+
+            val result = tool.execute(params(releases = listOf(releaseEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["releaseResults"] as JsonArray)[0] as JsonObject
+
+            assertEquals("db_error", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("transient", first["kind"]?.jsonPrimitive?.content)
+            assertEquals("db_error", first["code"]?.jsonPrimitive?.content)
+            val contendedItemId = first["contendedItemId"]?.jsonPrimitive?.content
+            assertNotNull(contendedItemId, "contendedItemId must be present for db_error on release")
+            assertEquals(itemId1.toString(), contendedItemId)
+
+            // Exception message must not appear anywhere in the response
+            val serialized = result.toString()
+            assertFalse(
+                "release db failure" in serialized,
+                "Exception message must not leak into JSON response. Got: $serialized"
+            )
+            assertNull(first["retryAfterMs"], "retryAfterMs must be absent for db_error on release")
+        }
+
+    /**
+     * H1-T3: claim DBError increments claimsFailed (not claimsSucceeded) in summary.
+     */
+    @Test
+    fun `claim DBError increments claimsFailed in summary`(): Unit =
+        runBlocking {
+            val cause = SQLException("db error for summary test")
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val summary = data["summary"] as JsonObject
+            assertEquals(1, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
+            assertEquals(0, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
+            assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+        }
 }
