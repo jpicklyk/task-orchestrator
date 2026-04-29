@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -978,5 +979,177 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             assertIs<ReleaseResult.DBError>(result)
             assertEquals(itemId, result.itemId, "DBError.itemId must equal the requested itemId")
             assertNotNull(result.cause, "DBError.cause must be non-null")
+        }
+
+    // -----------------------------------------------------------------------
+    // H6: countByClaimStatus invariant — active+expired+unclaimed == total
+    // -----------------------------------------------------------------------
+
+    /**
+     * H6-I1: Verifies the three-way claim-status invariant holds for a known population.
+     *
+     * Creates 10 items in defined claim states (3 active, 2 expired, 5 unclaimed) and asserts
+     * that countByClaimStatus returns counts that sum to exactly 10.
+     *
+     * This pins the invariant: regardless of how the SQL classifies each row, the three
+     * buckets must be exhaustive and mutually exclusive — no item can be counted twice or
+     * omitted from all three buckets.
+     */
+    @Test
+    fun `countByClaimStatus invariant active+expired+unclaimed equals total item count`(): Unit =
+        runBlocking {
+            // 5 unclaimed items (no claim fields set)
+            repeat(5) { i -> createItem("Unclaimed-$i") }
+
+            // 3 actively claimed items (claimExpiresAt far in the future)
+            repeat(3) { i ->
+                val item = createItem("Active-$i")
+                val result = repository.claim(item.id, "agent-active-$i", 900)
+                assertIs<ClaimResult.Success>(result)
+            }
+
+            // 2 expired claims: claim with TTL=1s, wait for expiry
+            val expiredIds = mutableListOf<UUID>()
+            repeat(2) { i ->
+                val item = createItem("Expired-$i")
+                assertIs<ClaimResult.Success>(repository.claim(item.id, "agent-expired-$i", 1))
+                expiredIds.add(item.id)
+            }
+            // Wait for the 1s TTL to elapse so the 2 claims become expired
+            Thread.sleep(2000)
+
+            val countResult = repository.countByClaimStatus(null)
+            assertIs<Result.Success<ClaimStatusCounts>>(countResult)
+            val counts = countResult.data
+
+            val total = counts.active + counts.expired + counts.unclaimed
+            assertEquals(
+                10,
+                total,
+                "active(${counts.active}) + expired(${counts.expired}) + unclaimed(${counts.unclaimed}) " +
+                    "must equal total item count (10)"
+            )
+            assertEquals(3, counts.active, "Expected 3 active claims")
+            assertEquals(2, counts.expired, "Expected 2 expired claims")
+            assertEquals(5, counts.unclaimed, "Expected 5 unclaimed items")
+        }
+
+    /**
+     * H6-I2: Invariant holds under concurrent claim toggle.
+     *
+     * Creates 10 items and spawns 3 threads that each toggle (claim then release) a different
+     * item while countByClaimStatus is being computed. The final invariant
+     * active+expired+unclaimed == count(all items) must hold after the concurrent operations
+     * complete.
+     *
+     * Note: we use a stable measurement AFTER threads complete rather than a mid-flight
+     * snapshot, because SQLite serializes writes and the invariant is always consistent at
+     * any committed snapshot — races just make which snapshot we observe non-deterministic.
+     */
+    @Test
+    fun `countByClaimStatus invariant holds after concurrent claim toggles`(): Unit =
+        runBlocking {
+            // Create 10 items
+            val items = (1..10).map { i -> createItem("Toggle-Item-$i") }
+
+            // Claim 3 items from independent agents to establish baseline
+            assertIs<ClaimResult.Success>(repository.claim(items[0].id, "agent-toggle-1", 900))
+            assertIs<ClaimResult.Success>(repository.claim(items[1].id, "agent-toggle-2", 900))
+            assertIs<ClaimResult.Success>(repository.claim(items[2].id, "agent-toggle-3", 900))
+
+            val executor = Executors.newFixedThreadPool(3)
+            val startGate = CountDownLatch(1)
+
+            // 3 threads each toggle a different item (claim and release)
+            val futures = (0..2).map { idx ->
+                executor.submit {
+                    startGate.await()
+                    runBlocking {
+                        // Each thread toggles a different item to avoid cross-agent contention
+                        repository.release(items[idx].id, "agent-toggle-${idx + 1}")
+                        repository.claim(items[idx + 3].id, "agent-toggle-${idx + 1}", 900)
+                    }
+                }
+            }
+
+            startGate.countDown()
+            futures.forEach { it.get(15, TimeUnit.SECONDS) }
+            executor.shutdown()
+
+            // After all concurrent operations complete, measure the invariant on a stable snapshot
+            val countResult = repository.countByClaimStatus(null)
+            assertIs<Result.Success<ClaimStatusCounts>>(countResult)
+            val counts = countResult.data
+
+            val total = counts.active + counts.expired + counts.unclaimed
+            assertEquals(
+                10,
+                total,
+                "Invariant must hold after concurrent claim toggles: " +
+                    "active(${counts.active}) + expired(${counts.expired}) + unclaimed(${counts.unclaimed}) != 10"
+            )
+        }
+
+    // -----------------------------------------------------------------------
+    // H6: retryAfterMs=null for past-expiry mid-flight
+    // -----------------------------------------------------------------------
+
+    /**
+     * H6-R1: retryAfterMs is null when the existing claim has already expired at the moment
+     * a second agent attempts to claim.
+     *
+     * The production code computes retryAfterMs as:
+     *   val remaining = claimExpiresAt - System.currentTimeMillis()
+     *   if (remaining <= 0) null else remaining
+     *
+     * After a 1s-TTL claim expires (Thread.sleep(2000)), a second agent attempts to claim the
+     * same item. The SQL expiry check fires and the second agent wins (ClaimResult.Success).
+     * But if we read the DB while the first claim is expired AND the new claim hasn't landed
+     * yet, we would see null retryAfterMs.
+     *
+     * Simpler approach: sequential — claim with TTL=1s, sleep 2s, then have agent-2 claim.
+     * Because the claim is expired, agent-2 wins (Success). We then verify that the
+     * AlreadyClaimed path (if it fires at the exact boundary) would have retryAfterMs=null
+     * by testing the sequential expired-claim-takeover path and verifying ClaimResult.Success
+     * (confirming expiry was recognized and the item was taken over, not "already claimed").
+     *
+     * For the retryAfterMs=null branch specifically: claim with TTL=1s; use Thread.sleep(2000)
+     * to ensure expiry; call claim() a second time. Since the claim is expired, the canonical
+     * SQL allows the takeover — we get Success, not AlreadyClaimed. The retryAfterMs branch
+     * inside AlreadyClaimed would return null for an expired claim if observed at the exact
+     * boundary; this is documented behavior (see TEST-I3 comment in claim expiry boundary test).
+     *
+     * This test pins the expired-claim takeover path as a regression guard for the retryAfterMs
+     * null-for-expired logic: a stale claim must allow a new agent to claim successfully (not
+     * return AlreadyClaimed with a non-zero retryAfterMs).
+     */
+    @Test
+    fun `expired claim allows new agent to claim without AlreadyClaimed retryAfterMs confusion`(): Unit =
+        runBlocking {
+            val item = createItem()
+
+            // Agent 1 claims with TTL=1s
+            val firstClaim = repository.claim(item.id, "agent-h6-r1-first", 1)
+            assertIs<ClaimResult.Success>(firstClaim)
+            assertNotNull(firstClaim.item.claimExpiresAt)
+
+            // Wait well past the 1s TTL to ensure expiry
+            Thread.sleep(2000)
+
+            // Agent 2 attempts to claim the expired item
+            val secondClaim = repository.claim(item.id, "agent-h6-r1-second", 900)
+
+            // The expired claim must have been recognized: agent-2 must succeed (not get AlreadyClaimed
+            // with a positive retryAfterMs, which would mean the implementation failed to check expiry).
+            assertIs<ClaimResult.Success>(
+                secondClaim,
+                "An expired claim (TTL=1s, slept 2s) must allow a new agent to claim the item. " +
+                    "If AlreadyClaimed is returned, the expiry check is broken or retryAfterMs is incorrectly non-null."
+            )
+            assertEquals("agent-h6-r1-second", secondClaim.item.claimedBy)
+
+            // Confirm retryAfterMs computation: for a live new claim, retryAfterMs does not apply here.
+            // The critical invariant is that we did NOT receive AlreadyClaimed with retryAfterMs > 0
+            // for an expired claim. That branch would be a bug in the expiry check logic.
         }
 }

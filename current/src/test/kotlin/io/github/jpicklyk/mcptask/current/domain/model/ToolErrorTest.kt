@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
+import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -161,5 +165,108 @@ class ToolErrorTest {
     fun `ToolError transient factory never sets retryAfterMs`() {
         val err = ToolError.transient("CODE", "msg")
         assertNull(err.retryAfterMs)
+    }
+
+    // -------------------------------------------------------------------------
+    // H6: JSON serialization roundtrip via ResponseUtil.createErrorResponse
+    // -------------------------------------------------------------------------
+
+    /**
+     * H6-T1: Serialize a fully-populated TRANSIENT ToolError via ResponseUtil and parse back.
+     *
+     * ResponseUtil.createErrorResponse(ToolError) places all fields under response["error"].
+     * This test verifies that all 5 fields round-trip correctly through that JSON path.
+     */
+    @Test
+    fun `ToolError JSON roundtrip via ResponseUtil with TRANSIENT kind and all fields populated`() {
+        val itemId = UUID.randomUUID()
+        val original = ToolError(
+            kind = ErrorKind.TRANSIENT,
+            code = "db_error",
+            message = "m",
+            retryAfterMs = 1234L,
+            contendedItemId = itemId
+        )
+
+        val response = ResponseUtil.createErrorResponse(original)
+        val errorObj = response["error"]!!.jsonObject
+
+        assertEquals("transient", errorObj["kind"]!!.jsonPrimitive.content)
+        assertEquals("db_error", errorObj["code"]!!.jsonPrimitive.content)
+        assertEquals("m", errorObj["message"]!!.jsonPrimitive.content)
+        assertEquals(1234L, errorObj["retryAfterMs"]!!.jsonPrimitive.longOrNull)
+        assertEquals(itemId.toString(), errorObj["contendedItemId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `ToolError JSON roundtrip with PERMANENT kind`() {
+        val original = ToolError(
+            kind = ErrorKind.PERMANENT,
+            code = "rejected_by_policy",
+            message = "policy rejection",
+            retryAfterMs = null,
+            contendedItemId = null
+        )
+
+        val response = ResponseUtil.createErrorResponse(original)
+        val errorObj = response["error"]!!.jsonObject
+
+        assertEquals("permanent", errorObj["kind"]!!.jsonPrimitive.content)
+        assertEquals("rejected_by_policy", errorObj["code"]!!.jsonPrimitive.content)
+        assertEquals("policy rejection", errorObj["message"]!!.jsonPrimitive.content)
+        assertNull(errorObj["retryAfterMs"], "retryAfterMs must be absent when null")
+        assertNull(errorObj["contendedItemId"], "contendedItemId must be absent when null")
+    }
+
+    @Test
+    fun `ToolError JSON roundtrip with SHEDDING kind and retryAfterMs`() {
+        val original = ToolError(
+            kind = ErrorKind.SHEDDING,
+            code = "capacity_exceeded",
+            message = "writer queue saturated",
+            retryAfterMs = 3000L,
+            contendedItemId = null
+        )
+
+        val response = ResponseUtil.createErrorResponse(original)
+        val errorObj = response["error"]!!.jsonObject
+
+        assertEquals("shedding", errorObj["kind"]!!.jsonPrimitive.content)
+        assertEquals("capacity_exceeded", errorObj["code"]!!.jsonPrimitive.content)
+        assertEquals("writer queue saturated", errorObj["message"]!!.jsonPrimitive.content)
+        assertEquals(3000L, errorObj["retryAfterMs"]!!.jsonPrimitive.longOrNull)
+        assertNull(errorObj["contendedItemId"], "contendedItemId must be absent when null")
+    }
+
+    @Test
+    fun `ToolError JSON roundtrip retryAfterMs absent when null`() {
+        val original = ToolError(
+            kind = ErrorKind.TRANSIENT,
+            code = "lock_contention",
+            message = "item locked",
+            retryAfterMs = null,
+            contendedItemId = null
+        )
+
+        val response = ResponseUtil.createErrorResponse(original)
+        val errorObj = response["error"]!!.jsonObject
+
+        assertNull(errorObj["retryAfterMs"], "retryAfterMs key must be absent (not null-valued) when ToolError.retryAfterMs is null")
+    }
+
+    @Test
+    fun `ToolError JSON roundtrip contendedItemId absent when null`() {
+        val original = ToolError(
+            kind = ErrorKind.PERMANENT,
+            code = "not_found",
+            message = "item does not exist",
+            retryAfterMs = null,
+            contendedItemId = null
+        )
+
+        val response = ResponseUtil.createErrorResponse(original)
+        val errorObj = response["error"]!!.jsonObject
+
+        assertNull(errorObj["contendedItemId"], "contendedItemId key must be absent (not null-valued) when ToolError.contendedItemId is null")
     }
 }

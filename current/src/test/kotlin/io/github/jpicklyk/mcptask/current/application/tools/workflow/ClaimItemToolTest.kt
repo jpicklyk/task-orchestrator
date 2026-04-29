@@ -35,6 +35,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Unit tests for [ClaimItemTool] — uses mocked repository, not a real DB.
@@ -639,5 +640,77 @@ class ClaimItemToolTest {
             assertEquals(1, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
             assertEquals(0, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
             assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+        }
+
+    // -----------------------------------------------------------------------
+    // H6: rejected_by_policy envelope shape
+    // -----------------------------------------------------------------------
+
+    /**
+     * H6-P1: Explicit assertion of the `rejected_by_policy` envelope shape.
+     *
+     * When `degradedModePolicy=REJECT` and the actor verification returns ABSENT (not VERIFIED),
+     * `buildRejectedByPolicyResponse` is called, which delegates to `errorResponse(ToolError.permanent(...))`.
+     * The resulting JSON must have:
+     *   - response.success == false
+     *   - response.error.kind == "permanent"
+     *   - response.error.code == "rejected_by_policy"
+     *   - response.error.message is non-empty
+     *
+     * This test pins the exact JSON key-path so that a future refactor of the policy-rejection
+     * branch is caught if it changes the envelope shape.
+     */
+    @Test
+    fun `REJECT policy with unverified actor produces permanent rejected_by_policy error envelope`(): Unit =
+        runBlocking {
+            val absentVerifier =
+                object : ActorVerifier {
+                    override suspend fun verify(claim: ActorClaim): VerificationResult =
+                        VerificationResult(status = VerificationStatus.ABSENT, verifier = "test-absent")
+                }
+
+            val context =
+                ToolExecutionContext(
+                    repositoryProvider = mockRepo.provider,
+                    actorVerifier = absentVerifier,
+                    degradedModePolicy = DegradedModePolicy.REJECT
+                )
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), context)
+
+            val resultObj = result as JsonObject
+
+            // Top-level: success must be false
+            assertEquals(
+                false,
+                resultObj["success"]?.jsonPrimitive?.booleanOrNull,
+                "success must be false for a policy-rejected request"
+            )
+
+            // error envelope must be present
+            val errorObj = resultObj["error"] as? JsonObject
+            assertNotNull(errorObj, "error object must be present in the response")
+
+            // kind must be "permanent" (rejected_by_policy is not retryable)
+            assertEquals(
+                "permanent",
+                errorObj["kind"]?.jsonPrimitive?.content,
+                "error.kind must be \"permanent\" for rejected_by_policy"
+            )
+
+            // code must be exactly "rejected_by_policy"
+            assertEquals(
+                "rejected_by_policy",
+                errorObj["code"]?.jsonPrimitive?.content,
+                "error.code must be \"rejected_by_policy\""
+            )
+
+            // message must be non-empty (the policy reason)
+            val message = errorObj["message"]?.jsonPrimitive?.content
+            assertNotNull(message, "error.message must be present")
+            assertTrue(message.isNotBlank(), "error.message must be non-empty for rejected_by_policy")
+
+            // Repository must NOT have been called (policy rejection is a pre-DB guard)
+            coVerify(exactly = 0) { workItemRepo.claim(any(), any(), any()) }
         }
 }
