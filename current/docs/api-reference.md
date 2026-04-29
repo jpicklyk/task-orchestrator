@@ -1420,6 +1420,19 @@ Controls how the server resolves actor identity when verification cannot produce
 
 `degradedModePolicy` applies at every ownership-sensitive call: `claim_item` placement, `advance_item` ownership checks. When in `reject` mode and verification is absent or fails, the operation is rejected before any DB access.
 
+### `DEGRADED_MODE_POLICY` Environment Variable
+
+The `DEGRADED_MODE_POLICY` environment variable overrides the `auditing.degraded_mode_policy` YAML value. It is evaluated at server startup before any requests are processed.
+
+| Aspect | Detail |
+|---|---|
+| Valid values | `accept-cached`, `accept-self-reported`, `reject` (case-insensitive) |
+| Priority | Env var **>** YAML field **>** coded default (`accept-cached`) |
+| Invalid value | Throws `IllegalArgumentException` at startup — server will not start |
+| Unset | Falls through to the YAML value (or the coded default) |
+
+Use `DEGRADED_MODE_POLICY=reject` for cross-org or multi-tenant fleet deployments. See [Fleet Deployment Guide — DEGRADED_MODE_POLICY](fleet-deployment.md#degraded_mode_policy-environment-variable) for Docker examples and security rationale.
+
 ### Verification Behavior
 
 | Verifier type | Behavior |

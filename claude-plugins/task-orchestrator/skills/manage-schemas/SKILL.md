@@ -1,7 +1,7 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
-argument-hint: "[optional: action + schema name, e.g. 'view bug-fix', 'create research-spike', 'validate']"
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also manages the auditing config block: set auditing policy, configure degraded mode, show auditing config, set degradedModePolicy to reject, what's the current degraded mode policy. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+argument-hint: "[optional: action + schema name or 'auditing', e.g. 'view bug-fix', 'create research-spike', 'validate', 'set degradedModePolicy reject']"
 ---
 
 # Manage Schemas — Note Schema Lifecycle
@@ -171,3 +171,39 @@ User says: "I edited the config by hand — check it"
 1. Read and parse config
 2. Run validation checks (syntax, structure, field rules, duplicates)
 3. Report issues or confirm "Config is valid — N schemas, M total notes"
+
+---
+
+## Auditing config
+
+The `.taskorchestrator/config.yaml` file also has an `auditing:` block:
+
+```yaml
+auditing:
+  degraded_mode_policy: accept-cached  # accept-cached | accept-self-reported | reject
+  # ... other auditing settings (enabled, verifier)
+```
+
+When the user wants to view, set, or change `degradedModePolicy`:
+1. Read `.taskorchestrator/config.yaml`
+2. Locate the `auditing:` block (create it if absent)
+3. For **view**: display the current value (default `accept-cached` if key is absent)
+4. For **changes**: update the `degraded_mode_policy:` field (preserving all other auditing keys)
+5. Validate the new value is one of: `accept-cached`, `accept-self-reported`, `reject`
+6. Write back
+
+**Note:** If the `DEGRADED_MODE_POLICY` environment variable is set on the server, it overrides the YAML value. To check whether an override is in effect:
+```bash
+echo $DEGRADED_MODE_POLICY
+```
+Tell the user when the env-var override is active — the YAML change will be shadowed until the env var is unset or the server is restarted without it.
+
+**Recommended:** Use `reject` for cross-org or multi-tenant fleet deployments where agents from different organizations share a single Task Orchestrator instance. See `current/docs/fleet-deployment.md` for the full security rationale.
+
+### `degradedModePolicy` values
+
+| Value | Behavior | When to use |
+|---|---|---|
+| `accept-cached` | *(default)* Trust JWKS-verified identity from stale cache on `UNAVAILABLE`; self-reported otherwise | Single-org; occasional JWKS outages |
+| `accept-self-reported` | Always trust the caller-supplied `actor.id` | Local dev; no JWKS; explicit opt-out |
+| `reject` | Reject any unverified operation (`rejected_by_policy`) | Cross-org `did:web` fleets; maximum assurance |
