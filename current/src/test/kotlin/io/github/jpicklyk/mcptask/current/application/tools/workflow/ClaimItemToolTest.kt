@@ -544,6 +544,7 @@ class ClaimItemToolTest {
                     }
                 )
                 put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
             }
         // Must not throw — large TTLs are valid
         tool.validateParams(p)
