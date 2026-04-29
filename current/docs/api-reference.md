@@ -1225,7 +1225,7 @@ dependency edges). Terminal items are never included.
 
 ## Idempotency
 
-Six mutating tools accept an optional `requestId: UUID` parameter: `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree`.
+Seven mutating tools accept an optional `requestId: UUID` parameter: `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item`. For `claim_item` the cache key uses the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor key used by the claim itself.
 
 **How it works.** When `requestId` and `actor.id` are both present, the server checks an in-memory LRU cache keyed on `(actor.id, requestId)`. If a cached result exists, the original response is returned immediately without re-executing the operation. The cache window is approximately 10 minutes.
 
