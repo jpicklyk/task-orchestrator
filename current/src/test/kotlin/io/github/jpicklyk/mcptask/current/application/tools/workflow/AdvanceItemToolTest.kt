@@ -3035,4 +3035,143 @@ class AdvanceItemToolTest {
                 "Cascade on parent should have applied even though parent is claimed by another agent"
             )
         }
+
+    // ──────────────────────────────────────────────
+    // H7: Mixed-actor batch rejection in validateParams
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `validateParams rejects batch with mixed actor presence`(): Unit =
+        runBlocking {
+            val id1 = UUID.randomUUID()
+            val id2 = UUID.randomUUID()
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id1.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        put("actor", buildJsonObject {
+                            put("id", JsonPrimitive("agent-A"))
+                            put("kind", JsonPrimitive("subagent"))
+                        })
+                    })
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id2.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        // no actor
+                    })
+                })
+            }
+            val ex = assertFailsWith<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(
+                ex.message!!.contains("mixed actor presence"),
+                "Expected 'mixed actor presence' in message, got: ${ex.message}"
+            )
+        }
+
+    @Test
+    fun `validateParams rejects batch with different actor ids`(): Unit =
+        runBlocking {
+            val id1 = UUID.randomUUID()
+            val id2 = UUID.randomUUID()
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id1.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        put("actor", buildJsonObject {
+                            put("id", JsonPrimitive("agent-A"))
+                            put("kind", JsonPrimitive("subagent"))
+                        })
+                    })
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id2.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        put("actor", buildJsonObject {
+                            put("id", JsonPrimitive("agent-B"))
+                            put("kind", JsonPrimitive("subagent"))
+                        })
+                    })
+                })
+            }
+            val ex = assertFailsWith<ToolValidationException> {
+                tool.validateParams(params)
+            }
+            assertTrue(
+                ex.message!!.contains("distinct actor.id values"),
+                "Expected 'distinct actor.id values' in message, got: ${ex.message}"
+            )
+        }
+
+    @Test
+    fun `validateParams allows batch where all transitions share the same actor id`(): Unit =
+        runBlocking {
+            val id1 = UUID.randomUUID()
+            val id2 = UUID.randomUUID()
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id1.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        put("actor", buildJsonObject {
+                            put("id", JsonPrimitive("agent-A"))
+                            put("kind", JsonPrimitive("subagent"))
+                        })
+                    })
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id2.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        put("actor", buildJsonObject {
+                            put("id", JsonPrimitive("agent-A"))
+                            put("kind", JsonPrimitive("subagent"))
+                        })
+                    })
+                })
+            }
+            // Should not throw
+            tool.validateParams(params)
+        }
+
+    @Test
+    fun `validateParams allows batch where all transitions omit actor`(): Unit =
+        runBlocking {
+            val id1 = UUID.randomUUID()
+            val id2 = UUID.randomUUID()
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id1.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                    })
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id2.toString()))
+                        put("trigger", JsonPrimitive("complete"))
+                    })
+                })
+            }
+            // Should not throw
+            tool.validateParams(params)
+        }
+
+    @Test
+    fun `validateParams allows single transition with actor`(): Unit =
+        runBlocking {
+            val id1 = UUID.randomUUID()
+            val params = buildJsonObject {
+                put("transitions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("itemId", JsonPrimitive(id1.toString()))
+                        put("trigger", JsonPrimitive("start"))
+                        put("actor", buildJsonObject {
+                            put("id", JsonPrimitive("agent-A"))
+                            put("kind", JsonPrimitive("subagent"))
+                        })
+                    })
+                })
+            }
+            // Should not throw
+            tool.validateParams(params)
+        }
 }

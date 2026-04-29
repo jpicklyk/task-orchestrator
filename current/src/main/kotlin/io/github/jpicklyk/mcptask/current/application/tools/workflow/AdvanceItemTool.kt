@@ -47,7 +47,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 **Parameters:**
 - `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string), actor? (optional object) }`
 - Valid triggers: start, complete, block, hold, resume, cancel, reopen
-- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor.
+- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor. All transitions in a batch must either all omit actor or all use the same actor.id.
 - `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing. Uses the first transition's actor.id as the idempotency key actor.
 
 **Trigger effects:**
@@ -167,6 +167,45 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     "transitions[$index].trigger '${triggerPrim.content}' is not a valid trigger. " +
                         "Valid triggers: $validTriggers"
                 )
+        }
+
+        // Validate that all transitions share the same actor presence and actor.id.
+        // Two valid cases: all omit actor, or all provide the exact same actor.id.
+        if (transitions.size > 1) {
+            // Collect (index, actorId-or-null) for each element
+            data class ActorEntry(val index: Int, val actorId: String?)
+
+            val actorEntries: List<ActorEntry> = transitions.mapIndexed { idx, element ->
+                val obj = element as JsonObject
+                val actorId = (obj["actor"] as? JsonObject)
+                    ?.get("id")
+                    ?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                ActorEntry(idx, actorId)
+            }
+
+            val withActor = actorEntries.filter { it.actorId != null }
+            val withoutActor = actorEntries.filter { it.actorId == null }
+
+            if (withActor.isNotEmpty() && withoutActor.isNotEmpty()) {
+                // Mixed presence: some have actor, some don't
+                val mixedIndexes = (withActor + withoutActor)
+                    .sortedBy { it.index }
+                    .map { it.index }
+                throw ToolValidationException(
+                    "transitions must either all omit actor or all use the same actor.id; " +
+                        "found mixed actor presence at indexes $mixedIndexes"
+                )
+            }
+
+            if (withActor.isNotEmpty()) {
+                val distinctIds = withActor.map { it.actorId!! }.toSet()
+                if (distinctIds.size > 1) {
+                    throw ToolValidationException(
+                        "transitions must use a single actor.id across the batch; " +
+                            "found ${distinctIds.size} distinct actor.id values: ${distinctIds.sorted()}"
+                    )
+                }
+            }
         }
     }
 
