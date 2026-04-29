@@ -448,10 +448,11 @@ class SQLiteWorkItemRepository(
                       WHERE claimed_by = ?
                         AND HEX(id) != ?
                     """.trimIndent(),
-                    args = listOf(
-                        agentIdType to agentId,
-                        VarCharColumnType(32) to itemHex,
-                    )
+                    args =
+                        listOf(
+                            agentIdType to agentId,
+                            VarCharColumnType(32) to itemHex,
+                        )
                 )
 
                 // Step 2: Claim or refresh the target item using only DB-side timestamps.
@@ -474,12 +475,13 @@ class SQLiteWorkItemRepository(
                              OR claim_expires_at < datetime('now')
                              OR claimed_by = ?)
                     """.trimIndent(),
-                    args = listOf(
-                        agentIdType to agentId,
-                        agentIdType to agentId,
-                        VarCharColumnType(32) to itemHex,
-                        agentIdType to agentId,
-                    )
+                    args =
+                        listOf(
+                            agentIdType to agentId,
+                            agentIdType to agentId,
+                            VarCharColumnType(32) to itemHex,
+                            agentIdType to agentId,
+                        )
                 )
 
                 // Read back the current state: if claimedBy == agentId, the claim succeeded.
@@ -543,10 +545,11 @@ class SQLiteWorkItemRepository(
                       WHERE HEX(id) = ?
                         AND claimed_by = ?
                     """.trimIndent(),
-                    args = listOf(
-                        VarCharColumnType(32) to itemHex,
-                        agentIdType to agentId,
-                    )
+                    args =
+                        listOf(
+                            VarCharColumnType(32) to itemHex,
+                            agentIdType to agentId,
+                        )
                 )
 
                 // Read back updated state.
