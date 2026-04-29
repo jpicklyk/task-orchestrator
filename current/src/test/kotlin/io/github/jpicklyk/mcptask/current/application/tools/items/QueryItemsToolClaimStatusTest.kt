@@ -457,4 +457,33 @@ class QueryItemsToolClaimStatusTest {
                 "claimedBy identity must NEVER appear in overview response"
             )
         }
+
+    // TEST-I5: overview response must not leak the "claimedBy" JSON key at all —
+    // even when an item IS actively claimed internally.
+    @Test
+    fun `TEST-I5 overview response does not leak claimedBy key in serialized output`(): Unit =
+        runBlocking {
+            // Create an item that IS claimed (so claimedBy exists internally on the domain object)
+            val rootId = createItemId("Root")
+            val childId = createItemId("Claimed Child", parentId = rootId)
+            setActiveClaim(childId, "super-secret-holder-agent")
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+
+            // Key scan (stronger than value scan): assert the "claimedBy" JSON key is absent from the
+            // entire serialized overview response. A value scan would only block a specific known value;
+            // a key scan catches any field named "claimedBy" regardless of its value (including null or
+            // a renamed variant like "claimedByAgent" that might also start with "claimedBy").
+            val serialized = result.toString()
+            assertFalse(
+                "\"claimedBy\"" in serialized,
+                "Overview response must NOT contain the \"claimedBy\" JSON key anywhere — " +
+                    "holder identity must never be disclosed via overview (tiered-disclosure contract). " +
+                    "Got: $serialized"
+            )
+        }
 }
