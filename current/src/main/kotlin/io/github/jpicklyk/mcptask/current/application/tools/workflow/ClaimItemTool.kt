@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -267,10 +268,21 @@ At least one of `claims` or `releases` must be non-empty.
                 }
             }
 
-        // Check idempotency cache after identity resolution (use trustedAgentId as the key actor)
-        val cached = context.idempotencyCache.get(trustedAgentId, requestId)
-        if (cached != null) return cached as JsonElement
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // Identity is already resolved above (trustedAgentId) — cache is keyed on the verified identity.
+        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
+        // This is safe because the claim/release logic only accesses DB repositories and never
+        // re-acquires the IdempotencyCache lock.
+        return context.idempotencyCache.getOrCompute(trustedAgentId, requestId) {
+            runBlocking { executeClaimRelease(paramsObj, context, trustedAgentId) }
+        }
+    }
 
+    private suspend fun executeClaimRelease(
+        paramsObj: JsonObject,
+        context: ToolExecutionContext,
+        trustedAgentId: String
+    ): JsonElement {
         val claimsArray = paramsObj["claims"] as? JsonArray ?: JsonArray(emptyList())
         val releasesArray = paramsObj["releases"] as? JsonArray ?: JsonArray(emptyList())
 
@@ -443,12 +455,7 @@ At least one of `claims` or `releases` must be non-empty.
                 )
             }
 
-        val response = successResponse(data)
-
-        // Store result in idempotency cache (requestId always present after validation)
-        context.idempotencyCache.put(trustedAgentId, requestId, response)
-
-        return response
+        return successResponse(data)
     }
 
     override fun userSummary(

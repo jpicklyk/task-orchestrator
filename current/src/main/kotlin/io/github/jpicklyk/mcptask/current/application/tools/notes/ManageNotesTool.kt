@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -171,33 +172,54 @@ Unified write operations for Notes (upsert, delete).
                 }
             }
 
-        // Resolve top-level actor identity for idempotency key
-        val actorId =
-            (params as? JsonObject)
-                ?.get("actor")
-                ?.let { it as? JsonObject }
-                ?.get("id")
-                ?.let { (it as? JsonPrimitive)?.content }
-
-        // Check idempotency cache before executing
-        if (requestId != null && actorId != null) {
-            val cached = context.idempotencyCache.get(actorId, requestId)
-            if (cached != null) return cached as JsonElement
-        }
-
-        val result =
-            when (operation) {
-                "upsert" -> executeUpsert(params, context)
-                "delete" -> executeDelete(params, context)
-                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+        // Resolve trusted actor identity from the top-level actor for the idempotency key.
+        // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
+        // not the self-reported actor.id (bug 3a fix).
+        val actorObj = (params as? JsonObject)?.get("actor") as? JsonObject
+        val trustedActorId: String? =
+            if (actorObj != null) {
+                val actorResult = parseActorClaim(actorObj, context)
+                when (actorResult) {
+                    is ActorParseResult.Success -> {
+                        when (
+                            val r =
+                                ActorAware.resolveTrustedActorId(
+                                    actorResult.claim,
+                                    actorResult.verification,
+                                    context.degradedModePolicy
+                                )
+                        ) {
+                            is PolicyResolution.Trusted -> r.trustedId
+                            is PolicyResolution.Rejected -> null
+                        }
+                    }
+                    else -> null
+                }
+            } else {
+                null
             }
 
-        // Store result in idempotency cache
-        if (requestId != null && actorId != null) {
-            context.idempotencyCache.put(actorId, requestId, result)
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
+        // This is safe because the operation logic only accesses DB repositories and never
+        // re-acquires the IdempotencyCache lock.
+        if (requestId != null && trustedActorId != null) {
+            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
+                runBlocking {
+                    when (operation) {
+                        "upsert" -> executeUpsert(params, context)
+                        "delete" -> executeDelete(params, context)
+                        else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+                    }
+                }
+            }
         }
 
-        return result
+        return when (operation) {
+            "upsert" -> executeUpsert(params, context)
+            "delete" -> executeDelete(params, context)
+            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+        }
     }
 
     override fun userSummary(

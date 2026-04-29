@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -184,22 +185,58 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 }
             }
 
-        // Derive actor identity from the first transition's actor for idempotency key
-        val actorId =
+        // Resolve trusted actor identity from the first transition's actor for the idempotency key.
+        // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
+        // not the self-reported actor.id (bug 3a fix).
+        val firstActorObj =
             transitions
                 .firstOrNull()
                 ?.let { it as? JsonObject }
                 ?.get("actor")
                 ?.let { it as? JsonObject }
-                ?.get("id")
-                ?.let { (it as? JsonPrimitive)?.content }
 
-        // Check idempotency cache before executing
-        if (requestId != null && actorId != null) {
-            val cached = context.idempotencyCache.get(actorId, requestId)
-            if (cached != null) return cached as JsonElement
+        val trustedActorId: String? =
+            if (firstActorObj != null) {
+                val actorResult = parseActorClaim(firstActorObj, context)
+                when (actorResult) {
+                    is ActorParseResult.Success -> {
+                        when (
+                            val r =
+                                ActorAware.resolveTrustedActorId(
+                                    actorResult.claim,
+                                    actorResult.verification,
+                                    context.degradedModePolicy
+                                )
+                        ) {
+                            is PolicyResolution.Trusted -> r.trustedId
+                            is PolicyResolution.Rejected -> null // rejection handled per-transition below
+                        }
+                    }
+                    else -> null
+                }
+            } else {
+                null
+            }
+
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // Cache is only engaged when both requestId and a trusted actor id are available.
+        // The compute lambda is non-suspending (IdempotencyCache uses a JVM write lock, not a
+        // coroutine mutex). kotlinx.coroutines.runBlocking bridges the suspend execution into
+        // the lock-held lambda. This is safe because executeTransitions only accesses DB
+        // repositories and never re-acquires the IdempotencyCache lock.
+        if (requestId != null && trustedActorId != null) {
+            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
+                runBlocking { executeTransitions(transitions, context) }
+            }
         }
 
+        return executeTransitions(transitions, context)
+    }
+
+    private suspend fun executeTransitions(
+        transitions: JsonArray,
+        context: ToolExecutionContext
+    ): JsonElement {
         val handler = RoleTransitionHandler()
         val cascadeDetector = CascadeDetector()
 
@@ -685,14 +722,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 put("allUnblockedItems", JsonArray(allUnblockedItems))
             }
 
-        val response = successResponse(data)
-
-        // Store result in idempotency cache
-        if (requestId != null && actorId != null) {
-            context.idempotencyCache.put(actorId, requestId, response)
-        }
-
-        return response
+        return successResponse(data)
     }
 
     override fun userSummary(

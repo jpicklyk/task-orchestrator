@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -242,19 +243,51 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 }
             }
 
-        // Resolve top-level actor identity for idempotency key
-        val actorId =
-            paramsObj["actor"]
-                ?.let { it as? JsonObject }
-                ?.get("id")
-                ?.let { (it as? JsonPrimitive)?.content }
+        // Resolve trusted actor identity from the top-level actor for the idempotency key.
+        // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
+        // not the self-reported actor.id (bug 3a fix).
+        val actorObj = paramsObj["actor"] as? JsonObject
+        val trustedActorId: String? =
+            if (actorObj != null) {
+                val actorResult = parseActorClaim(actorObj, context)
+                when (actorResult) {
+                    is ActorParseResult.Success -> {
+                        when (
+                            val r =
+                                ActorAware.resolveTrustedActorId(
+                                    actorResult.claim,
+                                    actorResult.verification,
+                                    context.degradedModePolicy
+                                )
+                        ) {
+                            is PolicyResolution.Trusted -> r.trustedId
+                            is PolicyResolution.Rejected -> null
+                        }
+                    }
+                    else -> null
+                }
+            } else {
+                null
+            }
 
-        // Check idempotency cache before executing
-        if (requestId != null && actorId != null) {
-            val cached = context.idempotencyCache.get(actorId, requestId)
-            if (cached != null) return cached as JsonElement
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
+        // This is safe because the tree creation logic only accesses DB repositories and never
+        // re-acquires the IdempotencyCache lock.
+        if (requestId != null && trustedActorId != null) {
+            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
+                runBlocking { executeCreateWorkTree(paramsObj, params, context) }
+            }
         }
 
+        return executeCreateWorkTree(paramsObj, params, context)
+    }
+
+    private suspend fun executeCreateWorkTree(
+        paramsObj: JsonObject,
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         // ── 1. Parse parentId (optional) ──────────────────────────────────────
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
         if (parentIdError != null) return parentIdError
@@ -478,11 +511,6 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             }
 
         val response = successResponse(data)
-
-        // Store result in idempotency cache
-        if (requestId != null && actorId != null) {
-            context.idempotencyCache.put(actorId, requestId, response)
-        }
 
         return response
     }
