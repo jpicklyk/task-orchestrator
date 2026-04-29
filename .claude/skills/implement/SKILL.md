@@ -55,7 +55,7 @@ review cleaner.
 
 ---
 
-## Step 2 — Prepare the Branch
+## Step 2 — Prepare the Branch and Worktree
 
 Sync local main before any implementation begins.
 
@@ -64,25 +64,44 @@ git checkout main
 git pull origin main --tags
 ```
 
-**If NOT using worktree isolation** (orchestrator implements directly or dispatches
-a single non-isolated agent), create a working branch:
+The branching/worktree strategy depends on tier:
+
+**Direct tier** (orchestrator implements 1–2 files inline) — create a working branch on the main directory:
 
 ```bash
 git checkout -b <branch-name>
 ```
 
-This branch will be pushed to origin and merged via GitHub PR after review.
-See Step 6 for the PR workflow.
+**Delegated tier** (single subagent) — same as Direct: orchestrator creates the branch on the main directory, the subagent works against it. No worktree.
 
-**If using worktree isolation**, skip branch creation — each worktree agent gets
-its own isolated branch automatically. See Worktree Isolation below. Worktree
-branches are pushed and merged via PR after review.
+**Parallel tier** (parent feature with multiple children) — create a **single feature worktree** that all child agents share:
+
+```bash
+FEATURE_SLUG=<short-feature-description>          # e.g. issue-117-followup
+FEATURE_BRANCH=feat/$FEATURE_SLUG
+FEATURE_WORKTREE=.claude/worktrees/feat-$FEATURE_SLUG
+
+# Resume detection — if the branch/worktree already exist (orchestrator restart
+# mid-feature), reuse them rather than recreating:
+if git show-ref --verify --quiet "refs/heads/$FEATURE_BRANCH"; then
+  echo "Resuming existing feature branch $FEATURE_BRANCH"
+else
+  git branch "$FEATURE_BRANCH" main
+fi
+if [ ! -d "$FEATURE_WORKTREE" ]; then
+  git worktree add "$FEATURE_WORKTREE" "$FEATURE_BRANCH"
+fi
+```
+
+All child-task agents will be dispatched into this **shared** worktree (Step 4). The feature branch is pushed and PR'd **once**, when the parent feature reaches terminal (Step 6).
+
+**Why one worktree per feature, not per child:** the feature is the natural PR boundary. Per-child PRs created cross-PR test contamination and PR-body staleness during the #117 follow-up (see retro `a7f6024f`). Shared worktree means one commit history, one CI cycle, one PR — and the parent feature's review-checklist gives a coherent point at which to finalize.
 
 **Branch naming:**
-- `feat/<short-description>` — feature-implementation / feature-task items
-- `fix/<short-description>` — bug-fix items
-- `fix/<grouped-description>` — batch of related bug fixes
-- `chore/<short-description>` — tech debt, refactoring, observations
+- `feat/<feature-slug>` — feature-implementation parents (the integration branch)
+- `fix/<short-description>` — bug-fix items (Direct or Delegated tier)
+- `fix/<grouped-description>` — batch of related bug fixes (Delegated tier)
+- `chore/<short-description>` — tech debt, refactoring (Direct tier)
 
 ---
 
@@ -154,11 +173,36 @@ guidance. Follow the delegation model from your output style (model selection, r
 formats, UUID inclusion). The key decisions at this step are:
 
 - **Single item (Delegated):** delegate to one implementation subagent or implement
-  directly.
-- **Multiple child tasks, independent (Parallel):** dispatch parallel subagents with
-  worktree isolation (see Worktree Isolation below).
-- **Multiple child tasks, dependent:** dispatch sequentially — wait for each agent
-  to return before dispatching the next.
+  directly. Subagent works in the main directory on the working branch.
+- **Multiple child tasks, independent (Parallel):** dispatch parallel subagents into the
+  **shared feature worktree** created in Step 2. Each agent receives the worktree path
+  and branch name. Do **not** use `isolation: "worktree"` on the Agent tool — that would
+  spawn a separate worktree per dispatch, which is the deprecated per-child PR pattern.
+- **Multiple child tasks, dependent:** dispatch sequentially into the shared feature
+  worktree. Wait for each agent's commit to land before dispatching the next.
+
+**Parallel dispatch into a shared feature worktree:**
+
+```
+Agent(
+  prompt="""
+  Working directory: <feature-worktree-path>
+  Branch (already checked out): feat/<feature-slug>
+  Scope (modify ONLY these files): <explicit list>
+
+  After making changes, commit them with a descriptive message. Do NOT run
+  gradle (./gradlew test, ktlintCheck) — the orchestrator owns build verification.
+  """,
+  model="sonnet",
+  subagent_type="general-purpose"
+  // NOTE: no isolation parameter — agents share the feature worktree
+)
+```
+
+**File-edit overlap discipline:** Parallel agents in a shared worktree must operate on
+non-overlapping files. The orchestrator scopes each agent's prompt to a specific file list
+(per MEMORY.md §"Parallel File-Edit Delegation"). When inherent overlap exists, dispatch
+sequentially.
 
 **Model selection — always set `model` explicitly on every Agent dispatch:**
 
@@ -173,23 +217,51 @@ opus), wasting tokens on sonnet-eligible implementation work.
 
 **After implementation agents return:**
 
-If agents used worktree isolation, the Agent tool result includes the **worktree
-path** and **branch name**. Capture both — they are needed for review and PR
-creation. Record them alongside the MCP item ID:
+For Parallel-tier features, agents return having committed to `feat/<feature-slug>`
+inside the shared feature worktree. Record each agent's commit SHA range alongside
+the child's MCP item ID — needed for scoping the review agent later:
 
 ```
-| Item UUID | Worktree Path | Branch | Changed Files |
-|-----------|---------------|--------|---------------|
-| <uuid>    | <path>        | <branch> | <file list> |
+| Child UUID | Agent ID | Pre-SHA | Post-SHA | Changed Files |
+|------------|----------|---------|----------|---------------|
+| <uuid>     | <id>     | <sha>   | <sha>    | <file list>   |
 ```
 
-To get the changed files list for a worktree, run:
+Capture pre-commit SHA before dispatch (`git -C <feature-worktree> rev-parse HEAD`)
+and post-commit SHA after the agent returns. The diff between them is exactly that
+child's work:
+
 ```bash
-git -C <worktree-path> diff main --name-only
+git -C <feature-worktree> diff <pre-sha>..<post-sha> --name-only
 ```
 
-**Post-implementation steps** (run in the worktree if isolated, or on the working
-branch if not):
+**Build verification (orchestrator-owned, serialized).** After each parallel-batch
+completes (or between sequential children), run from the feature worktree:
+
+```bash
+git -C <feature-worktree> status                            # confirm clean tree
+./gradlew -p <feature-worktree> :current:test
+./gradlew -p <feature-worktree> :current:ktlintCheck
+```
+
+A failure means a recently-committed child broke something. Dispatch a fix agent
+(same shared worktree) before continuing. Do **not** advance any child to review
+until the build is green — the trend memory has multiple sessions of
+`flaky-test-hides-real-bug` showing why retry-until-green is wrong.
+
+**Why orchestrator owns gradle invocations:** `./gradlew` runs against a single
+Gradle daemon and a single `build/` cache per project directory. Parallel
+`gradlew test` invocations against the shared feature worktree will queue at the
+daemon, corrupt the build cache, or hit Windows file locks. Serializing build
+verification at the orchestrator prevents this without slowing the agents (they're
+not running gradle).
+
+**For Delegated tier** (single subagent), the agent commits to the working branch
+on the main directory. Capture the changed files via
+`git diff main --name-only` and proceed.
+
+**Post-implementation steps** (run in the feature worktree for Parallel tier, or on
+the working branch for Direct/Delegated):
 
 1. Run the `/simplify` skill on the changed code to check for reuse, quality, and
    efficiency — this is a cleanup pass before review, not a review itself
@@ -235,30 +307,34 @@ the overhead exceeds the risk for 1-2 file changes with known fixes.
 **Delegated and Parallel tiers:** Dispatch a **separate** review agent. The agent
 that implemented the code must not review its own work.
 
-**If the implementation used worktree isolation**, the review agent must operate
-in the same worktree so it reads the correct files and runs tests against the
-actual changes. Include in the review agent prompt:
+**If the implementation used the shared feature worktree** (Parallel tier), the
+review agent operates in that worktree, scoped to **just this child's commits**.
+The diff range is `<pre-sha>..<post-sha>` captured during dispatch (see Step 4).
 
-- The **worktree path** (from the implementation agent's return)
-- The **branch name** in the worktree
-- The **changed files list** (from `git -C <worktree-path> diff main --name-only`)
-- Instruction: "Run all commands and read all files from within the worktree at
-  `<worktree-path>`. Do NOT read files from the main working directory."
-
-**Review agent worktree template (copy verbatim, fill placeholders):**
+**Review agent template (copy verbatim, fill placeholders):**
 
 ```
-You are reviewing implementation work in an isolated worktree.
-- Worktree path: <WORKTREE_PATH>
-- Branch: <BRANCH_NAME>
-- Changed files: <OUTPUT OF git -C <WORKTREE_PATH> diff main --name-only>
+You are reviewing one child task within a shared feature worktree.
 
-Run ALL commands from within the worktree at <WORKTREE_PATH>.
+- Feature worktree: <FEATURE_WORKTREE_PATH>
+- Feature branch: <FEATURE_BRANCH>
+- This child's commit range: <PRE_SHA>..<POST_SHA>
+- This child's changed files:
+  <OUTPUT OF git -C <FEATURE_WORKTREE_PATH> diff <PRE_SHA>..<POST_SHA> --name-only>
+- Other children may have committed before/after this one. Do NOT review their work
+  — your scope is the diff range above only.
+
+Run ALL commands from within the feature worktree.
 Read ALL files from that directory. Do NOT read from the main working directory.
+
+Tests have already been verified green by the orchestrator after the most recent
+commit batch. Do NOT re-run gradle — focus on plan alignment, test quality, and
+simplification per the review-quality skill.
 ```
 
-**If NOT using worktree isolation**, the review agent reads from the current
-working branch as normal.
+**If using Direct or Delegated tier** (single working branch on the main directory),
+the review agent reads from the working branch and runs tests itself per the
+existing template — no worktree-specific scoping needed.
 
 The review agent:
 1. Reads the review-quality skill
@@ -281,134 +357,203 @@ from. Automatically retrying hides these signals.
 
 ---
 
-## Step 6 — Commit and Push PR
+## Step 6 — Finalize and PR
 
-After review passes, commit the changes, push the branch, and create a GitHub PR.
-Each feature or logical unit of work gets its own PR — no batching on local `main`.
+The shape of Step 6 depends on tier.
 
-### Commit on the working branch
+### Direct and Delegated tiers — finalize per item
 
-**If using worktree isolation**, commit from the worktree:
-```bash
-git -C <worktree-path> add <specific-files>
-git -C <worktree-path> commit -m "..."
-```
+After review passes:
 
-**If NOT using worktree isolation**, commit on the working branch as normal.
+1. Verify the working branch is committed (orchestrator commits if Direct tier;
+   subagent committed if Delegated). Stage only the files related to the
+   implementation:
+   ```bash
+   git add <specific-files>
+   git commit -m "$(cat <<'EOF'
+   <type>(<scope>): <description>
 
-Stage only the files related to the implementation. Do not stage unrelated changes
-that happen to be in the working tree.
+   <body — what changed and why, referencing the MCP item>
 
-```bash
-git add <specific-files>
-git commit -m "$(cat <<'EOF'
-<type>(<scope>): <description>
+   Co-Authored-By: Claude <noreply@anthropic.com>
+   EOF
+   )"
+   ```
 
-<body — what changed and why, referencing the MCP item>
+   **Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
+   `perf` for performance, `test` for test-only changes, `chore` for maintenance.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-```
+2. Push the working branch:
+   ```bash
+   git push -u origin <branch-name>
+   ```
 
-**Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
-`perf` for performance, `test` for test-only changes, `chore` for maintenance.
+3. Create the PR:
+   ```bash
+   gh pr create --base main --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
+   ## Summary
+   <2-4 bullets>
 
-### Push and create PR
+   ## Test Results
+   <test count, pass/fail, new tests>
 
-Push the branch to origin and create a PR:
+   ## Review
+   <verdict summary>
 
-**If using worktree isolation**, push the worktree branch:
-```bash
-git -C <worktree-path> push -u origin <worktree-branch>
-```
+   ## MCP
+   <item ID>
+   EOF
+   )"
+   ```
 
-**If NOT using worktree isolation**, push the working branch:
-```bash
-git push -u origin <branch-name>
-```
+4. After PR merges:
+   ```bash
+   git checkout main
+   git pull origin main
+   git branch -D <branch-name>
+   ```
 
-Create the PR:
-```bash
-gh pr create \
-  --base main \
-  --title "<type>(<scope>): <short description>" \
-  --body "$(cat <<'EOF'
-## Summary
+5. Advance the item to terminal:
+   ```bash
+   advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
+   ```
 
-<2-4 bullets covering what changed and why>
+Report the PR URL and a summary.
 
-## Test Results
+### Parallel tier — finalize ONCE at parent-feature completion
 
-<test count, pass/fail, new tests added>
+For Parallel-tier features with a shared feature worktree:
 
-## Review
+**For each child task** (after its review passes):
 
-<review verdict summary — plan alignment confirmed, test quality verified>
+1. Confirm the child's `review-checklist` note is filled.
+2. `advance_item(itemId=<child-uuid>, trigger="start")` to move work→review→terminal
+   as the child's schema dictates.
+3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
+   inside the shared worktree; that's the integration point.
 
-## MCP Items
+**When all children reach terminal**, the parent feature is ready to finalize:
 
-<list of MCP item IDs addressed by this PR>
-EOF
-)"
-```
+1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
+   across children — distributed-tracking pattern works as today).
+2. Run final verification from the feature worktree:
+   ```bash
+   ./gradlew -p <feature-worktree-path> :current:test
+   ./gradlew -p <feature-worktree-path> :current:ktlintCheck
+   ```
+3. Advance the parent to review and fill `review-checklist` (orchestrator-authored,
+   summarizing across all children's reviews).
+4. Push the feature branch:
+   ```bash
+   git -C <feature-worktree-path> push -u origin feat/<feature-slug>
+   ```
+5. Create **one** PR for the whole feature:
+   ```bash
+   gh pr create --base main --title "feat(<scope>): <feature description>" --body "$(cat <<'EOF'
+   ## Summary
+   <feature-level summary aggregating all children>
 
-### After the PR is merged
+   ## Children completed
+   - <child-1 title> (<MCP UUID>)
+   - <child-2 title> (<MCP UUID>)
+   ...
 
-Sync local main and clean up:
-```bash
-git checkout main
-git pull origin main
-git branch -D <branch-name>
-```
+   ## Test Results
+   <total test count, new tests added across feature>
+
+   ## Review
+   <feature-level review verdict, references each child's review-checklist>
+
+   ## MCP
+   Parent: <parent UUID>
+   Children: <list of child UUIDs>
+   EOF
+   )"
+   ```
+6. After PR merges:
+   ```bash
+   git checkout main
+   git pull origin main
+   git worktree remove <feature-worktree-path>
+   git branch -D feat/<feature-slug>
+   ```
+7. Advance the parent feature to terminal.
+
+### Why one PR at parent finalization, not per child
+
+- **Coherent review context.** The PR diff shows the whole feature, not N disjoint pieces.
+- **One CI cycle per feature** instead of N. Local verification (orchestrator-owned
+  gradle runs between commits) gives equivalent regression signal during development.
+- **No cross-PR contamination.** Contract changes can't surface on a sibling's merge
+  commit because there are no sibling PRs.
+- **No PR-body staleness.** The PR body is authored once, after the feature is done,
+  describing what actually shipped.
+- **Aggregate retrospective material.** Distributed `session-tracking` notes across
+  children plus parent-level aggregation gives clean retro input (validated by retro
+  `a7f6024f`).
 
 Local `main` always tracks `origin/main` — no divergence, no `reset --hard` needed.
-
-### Advance to terminal
-
-After the PR is created:
-```bash
-advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
-```
-
-Report the PR URL and a summary of what was done.
 
 ---
 
 ## Autonomous Batch Processing
 
-When processing multiple items autonomously:
+When processing a Parallel-tier feature with multiple child tasks autonomously:
 
-1. **Group assessment** — evaluate all items, identify which can be grouped and which
-   need separate branches
-2. **Parallel execution** — use worktree isolation for independent work streams.
-   Sequential execution for items with dependency edges between them.
-3. **Per-item pipeline** — each worktree goes through Steps 4-6 independently:
-   implementation → capture worktree metadata → simplify → review (in worktree) → push and PR
-4. **Track all worktrees** — maintain a table mapping item UUID → worktree path →
-   branch → status (implementing / reviewing / PR created / failed)
-5. **PR each** — after review passes, push each worktree branch to origin and create
-   a GitHub PR. Run the full test suite before pushing to catch integration issues.
-6. **Report at the end** — summarize items completed, any review failures, and PR URLs
+1. **Step 2 — One worktree, one branch.** Orchestrator creates the feature worktree
+   and feature branch (`feat/<slug>`) at planning time. All children share it.
+2. **Step 4 — Dispatch into shared worktree.** Agents dispatched without
+   `isolation: "worktree"`. Independent children dispatch in parallel waves; dependent
+   children dispatch sequentially. Orchestrator scopes each agent's file list to
+   prevent overlap.
+3. **Build verification — orchestrator-owned, serialized.** After each parallel wave
+   (or between sequential children), the orchestrator runs `:current:test` and
+   `:current:ktlintCheck` from the feature worktree. Fix failures before advancing
+   any child to review.
+4. **Step 5 — Review per child, scoped to that child's commit range.** Review agent
+   reads from the shared worktree but scopes its diff to `<pre-sha>..<post-sha>` for
+   the child being reviewed.
+5. **Step 6 — One PR at parent finalization.** Children advance to terminal without
+   pushing or PR'ing. Only when the parent feature itself reaches terminal does the
+   orchestrator push `feat/<slug>` and open the single feature-level PR.
+6. **Track child commits** — maintain a table mapping child UUID → pre-commit SHA →
+   post-commit SHA → status (implementing / reviewing / done / failed). Worktree
+   path is shared across all children.
+7. **Report at the end** — summarize children completed, review failures, and the
+   single PR URL.
 
-If any item in the batch hits a review failure, continue processing other items
-and report all failures together at the end.
+If any child hits a review failure, continue processing siblings (their commits are
+already in the feature branch). Report all failures together at the end. The orchestrator
+decides whether the failed child blocks parent finalization (e.g. fix-and-re-review),
+can be cancelled (descope from the feature), or warrants reverting its commits.
+
+**Bug-fix batches** (multiple unrelated fixes) — these are NOT a Parallel-tier feature.
+Use Delegated tier per item, each with its own branch and PR (the legacy per-item flow).
+The shared-worktree pattern applies only when items share a parent feature item.
 
 ---
 
-## Worktree Isolation
+## Worktree Strategy
 
 For full setup, dispatch patterns, lifecycle, parallel validation, and test baseline
 management, see [WORKTREE.md](WORKTREE.md).
 
-**Quick reference — when to use worktrees:**
-- Parallel dispatch of multiple implementation agents (prevents file conflicts)
-- Any dispatch where changes need to land on an isolated branch
+**Quick reference:**
 
-**When NOT to use:**
-- Tasks with dependency edges between them (dispatch sequentially instead)
+| Tier | Worktree | Branch | PR scope |
+|------|----------|--------|----------|
+| Direct / Delegated (single item) | None — work on main directory | `<type>/<slug>` | One PR per item |
+| Parallel (parent feature with N children) | One **shared feature worktree** | `feat/<feature-slug>` (one branch for all children) | One PR at parent finalization |
+
+**Do NOT use `isolation: "worktree"` on the Agent tool for Parallel-tier child dispatches.**
+That spawns a separate worktree per dispatch — the deprecated per-child PR pattern.
+For Parallel tier, the orchestrator pre-creates one shared worktree in Step 2 and
+dispatches each child agent into it.
+
+**When NOT to create any worktree:**
+- Direct/Delegated tier (single item — work on the main directory)
 - Pure MCP operations with no file modifications
-- Orchestrator implementing directly (already on a working branch)
+- Orchestrator implementing directly
 
 ---
 
