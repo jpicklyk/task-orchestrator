@@ -1,5 +1,13 @@
 name: Sync Docs to Wiki
 
+# Mirrors current/docs/ into the GitHub wiki repo. The wiki is treated as a
+# published artifact; canonical source is current/docs/. Manual edits to the
+# wiki between sync runs will be overwritten.
+#
+# If the default GITHUB_TOKEN is rejected by org policy when pushing to the
+# wiki, replace `secrets.GITHUB_TOKEN` below with a PAT secret (e.g.
+# `secrets.WIKI_SYNC_PAT`) granted `repo` scope.
+
 on:
   push:
     branches:
@@ -12,7 +20,20 @@ permissions:
   contents: write
 
 jobs:
+  test-transform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pytest
+      - name: Run transform unit tests
+        working-directory: .github/scripts
+        run: python -m pytest test_sync_wiki.py -v
+
   sync-wiki:
+    needs: test-transform
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,13 +41,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Clone wiki repository
         run: |
           git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git" wiki-repo
 
-      - name: Copy docs to wiki
-        run: |
-          cp current/docs/*.md wiki-repo/
+      - name: Transform docs into wiki layout
+        run: python .github/scripts/sync_wiki.py current/docs wiki-repo
 
       - name: Configure git identity
         working-directory: wiki-repo
