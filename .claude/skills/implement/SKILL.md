@@ -159,6 +159,36 @@ If `ktlintCheck` fails, run `./gradlew :current:ktlintFormat` to auto-fix
 formatting violations, then verify with `ktlintCheck` again and re-run tests.
 Include both commands in every implementation-agent and review-agent prompt.
 
+**Capturing gradle's real exit code (use this pattern, not `2>&1 | tail -N`).**
+Piping gradle into `tail` discards gradle's exit code — `tail` always exits 0
+on a successful read of the log, so `BUILD FAILED` at the end of the gradle
+output is reported by you as a successful run. Combined with gradle's daemon
+incremental cache, this can hide broken compilation through entire CI cycles
+(retro `568a8584`: 9 silently-failing tests shipped on PR #151 before the
+followup audit caught it).
+
+The reliable pattern, especially when running in `run_in_background`:
+
+```bash
+./gradlew :current:test 2>&1 > /tmp/gradle-out.log; EXIT=$?
+echo "EXIT=$EXIT"
+tail -30 /tmp/gradle-out.log
+```
+
+`EXIT=$?` captures gradle's actual exit code before any pipe consumes it.
+Read the captured exit code AND the tail of the log; never trust the tail
+alone. This applies to every orchestrator-owned gradle invocation throughout
+this step.
+
+**Use `--rerun-tasks` after dependency upgrades or large refactors.** Gradle's
+incremental compile cache retains class files from prior good builds. After a
+`gradle/libs.versions.toml` bump or a refactor that changes public API surfaces
+(removed methods, renamed types, sealed-class arms, generic-parameter shifts),
+incremental compilation can keep the OLD class files alongside source that no
+longer compiles, producing apparent BUILD SUCCESSFUL on stale bytecode. Run
+`./gradlew :current:test --rerun-tasks` once after such changes to force a
+clean run; ordinary incremental builds are safe afterwards.
+
 This step is **tier-conditional**:
 
 **Direct tier:** Implement directly. Edit the files, run the test suite. No subagent
@@ -190,8 +220,16 @@ Agent(
   Branch (already checked out): feat/<feature-slug>
   Scope (modify ONLY these files): <explicit list>
 
-  After making changes, commit them with a descriptive message. Do NOT run
-  gradle (./gradlew test, ktlintCheck) — the orchestrator owns build verification.
+  Compile self-check (REQUIRED before returning):
+    ./gradlew -p <feature-worktree-path> :current:compileKotlin 2>&1 > /tmp/agent-compile.log; EXIT=$?
+  If EXIT != 0, fix the compile error before committing and returning.
+  Do NOT run :current:test or :current:ktlintCheck — orchestrator owns full build
+  verification. The compile self-check is fast (~3s) and catches type-mismatch /
+  signature errors that gradle's incremental cache may otherwise mask in the
+  orchestrator's later test run (retro `568a8584`: H3's `dbNow()` shipped with a
+  Result<T> vs Instant return type mismatch that was hidden for ~6 hours).
+
+  After self-check passes, commit your changes with a descriptive message.
   """,
   model="sonnet",
   subagent_type="general-purpose"
@@ -203,6 +241,31 @@ Agent(
 non-overlapping files. The orchestrator scopes each agent's prompt to a specific file list
 (per MEMORY.md §"Parallel File-Edit Delegation"). When inherent overlap exists, dispatch
 sequentially.
+
+**Contract-change sweep discipline.** When a child task tightens a contract — making a
+parameter required, adding `validate()` invariants, narrowing a sealed-class arm, or
+otherwise rejecting inputs that earlier passed — the orchestrator must sweep the rest
+of the codebase before advancing to review. Two recurrences (retros `a7f6024f` and
+`568a8584`) showed that:
+
+- Pre-existing test fixtures constructed under the old contract will fail under the
+  new one. Example: H2's `WorkItem.validate()` claim-field invariants broke 8+ test
+  fixtures that constructed mixed-state items via separate `Instant.now()` calls
+  (microsecond drift) or partial claim fields.
+- The failure typically surfaces on a *different* PR's merge commit, not the PR that
+  introduced the contract change — the original PR's tests passed because they used
+  the new contract correctly.
+
+For each contract-tightening change in this run:
+1. Identify the affected tool / class / method.
+2. Grep all test files (and other call sites) for usages: `grep -rn "<tool>\|<class>\|<method>"`.
+3. Verify every usage is consistent with the new contract. Update any that are not.
+4. Re-run the full `:current:test` suite (orchestrator-owned, not the agent) to
+   confirm no fixture-vs-contract conflicts surfaced elsewhere.
+
+This sweep is part of the orchestrator's verification step between waves, not the
+implementing agent's responsibility — agents are file-scoped and can't see the full
+fixture surface.
 
 **Model selection — always set `model` explicitly on every Agent dispatch:**
 
