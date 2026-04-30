@@ -204,11 +204,12 @@ class YamlAuditingConfigService(
 
                 // Mutual exclusion: DID-trust and static-JWKS fields cannot coexist
                 if (isDidTrust && isStaticJwks) {
-                    val conflicting = buildList {
-                        if (oidcDiscovery != null) add("oidc_discovery")
-                        if (jwksUri != null) add("jwks_uri")
-                        if (jwksPath != null) add("jwks_path")
-                    }.joinToString(", ")
+                    val conflicting =
+                        buildList {
+                            if (oidcDiscovery != null) add("oidc_discovery")
+                            if (jwksUri != null) add("jwks_uri")
+                            if (jwksPath != null) add("jwks_path")
+                        }.joinToString(", ")
                     throw IllegalArgumentException(
                         "auditing.verifier: DID-trust mode (did_allowlist/did_pattern) is mutually exclusive " +
                             "with static JWKS fields; conflicting fields: $conflicting"
