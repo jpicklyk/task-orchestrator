@@ -16,17 +16,18 @@ import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greater
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNotNull
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNull
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
 import org.jetbrains.exposed.v1.core.vendors.currentDialect
@@ -53,42 +54,68 @@ class SQLiteWorkItemRepository(
     private val logger = LoggerFactory.getLogger(SQLiteWorkItemRepository::class.java)
 
     override suspend fun dbNow(): Instant =
-        databaseManager.suspendedTransaction("Failed to fetch DB-side current time") {
-            // Use CURRENT_TIMESTAMP which is ANSI SQL and supported by both SQLite and H2.
-            // SQLite returns "YYYY-MM-DD HH:MM:SS" (UTC, no timezone). H2 returns a Timestamp object.
-            // We read via getString so both dialects return a string representation.
-            val raw =
+        try {
+            // Read CURRENT_TIMESTAMP as a raw string and parse explicitly as UTC.
+            //
+            // Why string-parse rather than rs.getTimestamp().toInstant():
+            //   - SQLite's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS" with NO timezone suffix
+            //     and the value is in UTC (per SQLite spec).
+            //   - rs.getTimestamp() interprets a no-tz string in the JVM's default zone, then
+            //     toInstant() converts to UTC by adding the local offset — producing an Instant
+            //     that is shifted by the JVM zone offset relative to the actual stored UTC value.
+            //     This causes dbNow() to drift several hours from JVM Instant.now() in any non-UTC
+            //     deployment.
+            //   - Parsing as LocalDateTime + ZoneOffset.UTC explicitly treats the string as UTC,
+            //     which matches the Exposed 1.0.0-beta-5+ timestamp() column behavior (post the
+            //     EXPOSED-731 SQLite timestamp fix).
+            //   - H2's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS.fffffff-HH" (with a non-
+            //     standard offset like "-04" missing the minute portion); we normalize that and
+            //     parse via OffsetDateTime.
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
                 exec("SELECT CURRENT_TIMESTAMP") { rs ->
-                    if (rs.next()) rs.getString(1) else null
+                    if (rs.next()) {
+                        rs.getString(1)?.let { parseDbTimestamp(it) }
+                    } else {
+                        null
+                    }
                 }
-            if (raw != null) {
-                try {
-                    // Normalize to ISO-8601: replace space separator with 'T', append 'Z' if no tz info.
-                    val iso =
-                        raw.replace(" ", "T").let { s ->
-                            when {
-                                s.endsWith("Z") || s.contains("+") || s.matches(Regex(".*[+-]\\d{2}:\\d{2}$")) -> s
-                                else -> "${s}Z"
-                            }
-                        }
-                    OffsetDateTime
-                        .parse(
-                            iso,
-                            DateTimeFormatter.ISO_OFFSET_DATE_TIME
-                        ).toInstant()
-                } catch (_: Exception) {
-                    // Fallback: parse as LocalDateTime in UTC (handles H2's fractional-second format).
-                    LocalDateTime
-                        .parse(
-                            raw.replace(" ", "T"),
-                            DateTimeFormatter.ISO_LOCAL_DATE_TIME
-                        ).toInstant(ZoneOffset.UTC)
-                }
-            } else {
-                // Should never happen in a healthy DB connection.
-                Instant.now()
-            }
+            } ?: Instant.now()
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch DB-side current time, falling back to JVM clock: ${e.message}")
+            Instant.now()
         }
+
+    /**
+     * Parse a CURRENT_TIMESTAMP-style string from either SQLite or H2 into an [Instant] (UTC).
+     *
+     * Accepted forms:
+     *  - "YYYY-MM-DD HH:MM:SS" — SQLite, treat as UTC
+     *  - "YYYY-MM-DD HH:MM:SS.fffffff" — H2 (no offset), treat as UTC
+     *  - "YYYY-MM-DD HH:MM:SS.fffffff-HH" — H2 with non-standard short offset; normalized
+     *  - "YYYY-MM-DD HH:MM:SS-HH:MM" or "...Z" — full ISO offset, parse directly
+     */
+    private fun parseDbTimestamp(raw: String): Instant {
+        val isoCandidate = raw.replace(" ", "T")
+        // Detect whether a timezone suffix is present.
+        val tzPattern = Regex("([+-]\\d{2}(:\\d{2})?|Z)$")
+        val tzMatch = tzPattern.find(isoCandidate)
+        return if (tzMatch != null) {
+            val tz = tzMatch.value
+            // Normalize H2's short "-04" form to "-04:00" so OffsetDateTime accepts it.
+            val normalized =
+                if (tz.startsWith("Z") || tz.contains(":")) {
+                    isoCandidate
+                } else {
+                    isoCandidate.dropLast(tz.length) + tz + ":00"
+                }
+            OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant()
+        } else {
+            // No offset → treat as UTC (SQLite stores CURRENT_TIMESTAMP in UTC).
+            LocalDateTime
+                .parse(isoCandidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                .toInstant(ZoneOffset.UTC)
+        }
+    }
 
     override suspend fun getById(id: UUID): Result<WorkItem> =
         databaseManager.suspendedTransaction("Failed to get WorkItem by id") {
@@ -479,10 +506,12 @@ class SQLiteWorkItemRepository(
     ): ClaimResult =
         try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
-                // Both agentId and itemHex are bound as JDBC parameters — no string interpolation.
-                val itemHex = itemId.toString().replace("-", "").uppercase()
+                // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
+                // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
+                // index directly (the prior HEX(id) = ? form wrapped the column in a function call,
+                // which the SQLite planner cannot push through the PK index, forcing a full scan).
                 val agentIdType = VarCharColumnType(500)
+                val uuidType = UUIDColumnType()
 
                 // Step 1 (acquire target): Claim or refresh the target item using only DB-side timestamps.
                 // Matches rows that are: (a) unclaimed, (b) expired, or (c) already held by this agent.
@@ -503,7 +532,7 @@ class SQLiteWorkItemRepository(
                             datetime('now')
                           ),
                           version = version + 1
-                      WHERE HEX(id) = ?
+                      WHERE id = ?
                         AND role != 'terminal'
                         AND (claimed_by IS NULL
                              OR claim_expires_at < datetime('now')
@@ -513,7 +542,7 @@ class SQLiteWorkItemRepository(
                         listOf(
                             agentIdType to agentId,
                             agentIdType to agentId,
-                            VarCharColumnType(32) to itemHex,
+                            uuidType to itemId,
                             agentIdType to agentId,
                         )
                 )
@@ -559,12 +588,12 @@ class SQLiteWorkItemRepository(
                               original_claimed_at = NULL,
                               version = version + 1
                           WHERE claimed_by = ?
-                            AND HEX(id) != ?
+                            AND id != ?
                         """.trimIndent(),
                         args =
                             listOf(
                                 agentIdType to agentId,
-                                VarCharColumnType(32) to itemHex,
+                                uuidType to itemId,
                             )
                     )
                 }
@@ -582,10 +611,11 @@ class SQLiteWorkItemRepository(
     ): ReleaseResult =
         try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
-                // agentId and itemHex are bound as JDBC parameters — no string interpolation.
-                val itemHex = itemId.toString().replace("-", "").uppercase()
+                // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
+                // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
+                // index directly.
                 val agentIdType = VarCharColumnType(500)
+                val uuidType = UUIDColumnType()
 
                 // Check existence and current claimant before attempting update.
                 val row =
@@ -606,12 +636,12 @@ class SQLiteWorkItemRepository(
                           claim_expires_at = NULL,
                           original_claimed_at = NULL,
                           version = version + 1
-                      WHERE HEX(id) = ?
+                      WHERE id = ?
                         AND claimed_by = ?
                     """.trimIndent(),
                     args =
                         listOf(
-                            VarCharColumnType(32) to itemHex,
+                            uuidType to itemId,
                             agentIdType to agentId,
                         )
                 )

@@ -889,11 +889,15 @@ class RoleTransitionHandlerTest {
                 // The cascade fires on the parent as a result of the child reaching terminal.
                 // Ownership checks are bypassed for cascades — the parent should advance to
                 // TERMINAL regardless of which agent holds the parent claim.
+                // H2 (WorkItem.validate) enforces all-or-nothing claim-field invariants — set all
+                // four fields together so the copy() doesn't fail validation on construction.
                 val now = java.time.Instant.now()
                 val parentItem =
                     testItem(role = Role.WORK).copy(
                         claimedBy = "agent-alpha",
-                        claimExpiresAt = now.plusSeconds(3600)
+                        claimedAt = now,
+                        claimExpiresAt = now.plusSeconds(3600),
+                        originalClaimedAt = now
                     )
 
                 // Verify the mock wiring captures the exact item update that is persisted

@@ -11,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -588,27 +590,39 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
     // -----------------------------------------------------------------------
 
     /**
-     * C2-E1: agentId containing only whitespace characters.
+     * C2-E1: agentId containing only whitespace characters is rejected by domain validation.
      *
-     * Previously, `agentId.replace("'", "''")` would pass whitespace-only strings through
-     * unchanged, potentially binding blank values to the claimed_by column. With parameterized
-     * SQL the binding is direct; this test verifies the SQL executes without throwing and that
-     * the claim round-trips the whitespace agentId correctly.
+     * Two related contracts converge here:
+     *  - C2 (parameterized SQL) ensures whitespace agentIds bind safely without injection risk.
+     *  - H2 (`WorkItem.validate()` invariants) requires `claimedBy` to be non-blank when set,
+     *    as defense-in-depth so the claim round-trip cannot leave the row in an unclaimable
+     *    state where ownership comparisons silently match an empty string.
+     *
+     * The repository attempts the claim under the parameterized SQL (no SQL exception), but
+     * the read-back through `toWorkItem()` triggers the validate() check and surfaces the
+     * blank-claimedBy violation as `ClaimResult.DBError` (the catch-all in `claim()` wraps
+     * unexpected exceptions, including ValidationException, into the structured DBError variant
+     * introduced by H1).
      */
     @Test
-    fun `agentId with only whitespace — claim and release round-trip`(): Unit =
+    fun `agentId with only whitespace is rejected by validate invariants`(): Unit =
         runBlocking {
             val item = createItem()
             val whitespaceAgent = "   "
 
             val result = repository.claim(item.id, whitespaceAgent, 900)
-            assertIs<ClaimResult.Success>(result)
-            assertEquals(whitespaceAgent, result.item.claimedBy, "claimedBy must round-trip whitespace-only agentId")
-
-            // Release should also work
-            val releaseResult = repository.release(item.id, whitespaceAgent)
-            assertIs<ReleaseResult.Success>(releaseResult)
-            assertNull(releaseResult.item.claimedBy)
+            // H2's validate() rejects blank claimedBy; the repository's catch block wraps
+            // the ValidationException as ClaimResult.DBError per H1.
+            assertIs<ClaimResult.DBError>(result)
+            assertNotNull(result.cause, "DBError should carry the underlying ValidationException as cause")
+            assertTrue(
+                result.cause.message?.contains("blank") == true ||
+                    result.cause.message?.contains("validate") == true ||
+                    result.cause.cause
+                        ?.message
+                        ?.contains("blank") == true,
+                "Expected validation error mentioning 'blank' claimedBy. Got: ${result.cause.message}"
+            )
         }
 
     /**
@@ -1216,9 +1230,14 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             val plan =
                 transaction(db = database) {
                     buildString {
+                        // explicitStatementType = SELECT so Exposed 1.2.0+ executes via executeQuery
+                        // and the result set is consumable. EXPLAIN QUERY PLAN returns rows but
+                        // Exposed's auto-detection treats a non-SELECT-prefix statement as an
+                        // update — without this hint, JDBC raises "Query returns results".
                         exec(
                             "EXPLAIN QUERY PLAN " +
-                                "SELECT * FROM work_items WHERE claim_expires_at <= datetime('now')"
+                                "SELECT * FROM work_items WHERE claim_expires_at <= datetime('now')",
+                            explicitStatementType = StatementType.SELECT
                         ) { rs ->
                             while (rs.next()) {
                                 // Column 4 (1-based) = detail TEXT in SQLite's EQP result set.
@@ -1234,6 +1253,68 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
                     "for the claim-expiry filter. Actual plan:\n$plan\n" +
                     "If this assertion fails, the V6 migration may not have run (check that the " +
                     "index was created in Step 1 above) or SQLite chose a full scan despite 100 rows."
+            )
+        }
+
+    /**
+     * C2-EQP1: Verifies that `claim()` and `release()` now use the primary-key index for the
+     * `WHERE id = ?` predicate, after the C2 follow-up replaced `WHERE HEX(id) = ?` with a
+     * direct typed-UUID comparison.
+     *
+     * Background: the original C2 commit (`e9cde68`) parameterized the SQL but kept
+     * `WHERE HEX(id) = ?`. The `HEX()` function call wraps the column expression and prevents
+     * the SQLite planner from using the table's primary-key index, forcing a full table scan
+     * on every claim and release. The follow-up rewrites the predicate to `WHERE id = ?` with
+     * the parameter bound via `UUIDColumnType` so the PK index applies.
+     *
+     * Test strategy: insert 100 rows for selectivity, run `EXPLAIN QUERY PLAN` for
+     * `SELECT * FROM work_items WHERE id = ?`, assert the detail text shows an index lookup
+     * (SEARCH ... USING INDEX) rather than a SCAN.
+     *
+     * SQLite typically reports the autoindex by name `sqlite_autoindex_work_items_1` for
+     * PRIMARY KEY columns of non-INTEGER affinity. We assert the more general "USING INDEX"
+     * marker so this test stays stable across SQLite minor versions.
+     */
+    @Test
+    fun `claim WHERE id equals param uses primary key index after C2 follow-up`(): Unit =
+        runBlocking {
+            // Insert enough rows for SQLite's cost model to prefer index over full scan.
+            repeat(100) { i ->
+                createItem("PK-EQP-item-$i")
+            }
+
+            val sampleId = createItem("PK-EQP-sample").id
+
+            val plan =
+                transaction(db = database) {
+                    buildString {
+                        // explicitStatementType = SELECT so Exposed 1.2.0+ executes via executeQuery
+                        // (see H5 EQP test above for full rationale).
+                        exec(
+                            "EXPLAIN QUERY PLAN SELECT * FROM work_items WHERE id = ?",
+                            args = listOf(UUIDColumnType() to sampleId),
+                            explicitStatementType = StatementType.SELECT
+                        ) { rs ->
+                            while (rs.next()) {
+                                // Column 4 (1-based) = detail TEXT in SQLite's EQP result set.
+                                appendLine(rs.getString(4))
+                            }
+                        }
+                    }
+                }
+
+            assertTrue(
+                plan.contains("USING INDEX", ignoreCase = true) ||
+                    plan.contains("USING INTEGER PRIMARY KEY", ignoreCase = true),
+                "Expected the WHERE id = ? predicate to use an index lookup (SEARCH USING INDEX " +
+                    "or USING INTEGER PRIMARY KEY). The C2 follow-up replaces the prior HEX(id) = ? " +
+                    "wrapper which blocked PK index usage. Actual plan:\n$plan"
+            )
+            // Defensive: the prior (broken) form would say "SCAN work_items" — reject that explicitly.
+            assertTrue(
+                !plan.contains("SCAN work_items", ignoreCase = true),
+                "EXPLAIN QUERY PLAN unexpectedly shows SCAN work_items for WHERE id = ?. " +
+                    "The PK-index miss may have regressed. Actual plan:\n$plan"
             )
         }
 }

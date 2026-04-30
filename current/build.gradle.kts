@@ -114,6 +114,13 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // Force the test JVM to UTC so Exposed's javatime.timestamp column and our DB-side
+    // datetime('now') SQL agree on time-of-day interpretation. Production Docker containers
+    // default to UTC; pinning the test JVM to UTC keeps test behaviour identical to production
+    // and avoids timezone-shift surprises on developer machines in non-UTC zones (see EXPOSED-731
+    // fix in Exposed 1.0.0-beta-5+ for the underlying serialization mechanics).
+    systemProperty("user.timezone", "UTC")
+    jvmArgs("-Duser.timezone=UTC")
 }
 
 kotlin {
