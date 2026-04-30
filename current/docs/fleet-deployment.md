@@ -11,7 +11,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ---
 
-## Scope — What This Guide Covers (and What It Doesn't)
+## Scope
 
 This guide covers **server-side configuration**: identity policy, capacity tuning, observability, and lifecycle. The **agent/client side** — calling `claim_item`, attaching verified `actor.proof` JWTs, sequencing claim/heartbeat/release, retrying on `already_claimed`, integrating with your identity provider and audit infrastructure — is the implementer's responsibility.
 
