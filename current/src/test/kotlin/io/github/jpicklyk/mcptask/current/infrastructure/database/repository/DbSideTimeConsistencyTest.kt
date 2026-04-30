@@ -109,8 +109,9 @@ class DbSideTimeConsistencyTest : SQLiteRepositoryTestBase() {
         runBlocking {
             val item = createItem("Claim-expiry item")
 
-            // Claim with a 1-second TTL so the claim expires almost immediately.
-            val claimResult = repository.claim(item.id, "agent-ttl-test", ttlSeconds = 1)
+            // 2-second TTL with 3.5-second sleep (1.5s safety margin) — see countByClaimStatus
+            // expiry test for rationale; the prior 1s/2.1s margin was flaky on Linux CI.
+            val claimResult = repository.claim(item.id, "agent-ttl-test", ttlSeconds = 2)
             assertIs<ClaimResult.Success>(claimResult)
 
             // Immediately after claiming, the item should be excluded from next-item results.
@@ -122,8 +123,8 @@ class DbSideTimeConsistencyTest : SQLiteRepositoryTestBase() {
                 "Item should be excluded from findForNextItem while claim is active"
             )
 
-            // Wait 2 seconds for the claim to expire in the DB.
-            Thread.sleep(2100)
+            // Wait for the claim to expire in the DB with a comfortable safety margin.
+            Thread.sleep(3500)
 
             // After expiry, the item should reappear (DB-side comparison now sees it as expired).
             val afterExpiry = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true)
@@ -252,8 +253,10 @@ class DbSideTimeConsistencyTest : SQLiteRepositoryTestBase() {
         runBlocking {
             val item = createItem("ClaimStatus count item")
 
-            // Claim with 1-second TTL.
-            repository.claim(item.id, "agent-count-test", ttlSeconds = 1)
+            // Use a 2-second TTL with a 3.5-second sleep (1.5s safety margin) — heavily-loaded
+            // CI runners can stall Thread.sleep by ~1s, which would break a tighter 1s/2.1s
+            // (0.1s margin) timing window. The previous timing was flaky on Linux CI.
+            repository.claim(item.id, "agent-count-test", ttlSeconds = 2)
 
             // Immediately: active=1, expired=0.
             val beforeResult = repository.countByClaimStatus()
@@ -263,8 +266,8 @@ class DbSideTimeConsistencyTest : SQLiteRepositoryTestBase() {
                 "There should be at least 1 active claim right after claiming"
             )
 
-            // Wait for TTL to expire.
-            Thread.sleep(2100)
+            // Wait for TTL to expire with a comfortable safety margin.
+            Thread.sleep(3500)
 
             // After expiry: active should have decreased, expired should have increased.
             val afterResult = repository.countByClaimStatus()
