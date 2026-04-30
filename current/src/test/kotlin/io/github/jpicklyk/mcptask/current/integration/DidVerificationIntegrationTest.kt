@@ -53,7 +53,6 @@ import java.util.Date
  * match the bare-fragment kid the extractor derives from the DID document.
  */
 class DidVerificationIntegrationTest {
-
     companion object {
         @JvmStatic
         @BeforeAll
@@ -117,7 +116,10 @@ class DidVerificationIntegrationTest {
      * AgentLair deployment shape where agents omit kid from the document-embedded JWK.
      * The extractor injects `kid="key-1"` (the bare fragment) automatically.
      */
-    private fun singleKeyDidDocument(key: OctetKeyPair = primaryKey, docId: String = TEST_DID): String {
+    private fun singleKeyDidDocument(
+        key: OctetKeyPair = primaryKey,
+        docId: String = TEST_DID
+    ): String {
         val pub = key.toPublicJWK()
         return """
             {
@@ -136,7 +138,7 @@ class DidVerificationIntegrationTest {
               ],
               "assertionMethod": ["$TEST_DID#key-1"]
             }
-        """.trimIndent()
+            """.trimIndent()
     }
 
     /**
@@ -173,7 +175,7 @@ class DidVerificationIntegrationTest {
               ],
               "assertionMethod": ["$TEST_DID#key-1", "$TEST_DID#key-2"]
             }
-        """.trimIndent()
+            """.trimIndent()
     }
 
     /**
@@ -207,7 +209,7 @@ class DidVerificationIntegrationTest {
                 }
               ]
             }
-        """.trimIndent()
+            """.trimIndent()
     }
 
     // -------------------------------------------------------------------------
@@ -275,16 +277,16 @@ class DidVerificationIntegrationTest {
             )
         val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
         val extractor = DidDocumentJwksExtractor(strictRelationship = config.didStrictRelationship)
-        val provider = DefaultJwksKeySetProvider(
-            config = config,
-            didResolverRegistry = registry,
-            didDocumentJwksExtractor = extractor
-        )
+        val provider =
+            DefaultJwksKeySetProvider(
+                config = config,
+                didResolverRegistry = registry,
+                didDocumentJwksExtractor = extractor
+            )
         return JwksActorVerifier(config = config, keySetProvider = provider, clock = clock)
     }
 
-    private fun actor(proof: String): ActorClaim =
-        ActorClaim(id = TEST_DID, kind = ActorKind.SUBAGENT, proof = proof)
+    private fun actor(proof: String): ActorClaim = ActorClaim(id = TEST_DID, kind = ActorKind.SUBAGENT, proof = proof)
 
     // =========================================================================
     // Test cases
@@ -421,9 +423,15 @@ class DidVerificationIntegrationTest {
                 }
 
             val validJwt = signJwt(kid = "key-1")
-            // Corrupt the last character of the signature (third dot-separated segment)
+            // Corrupt a middle character of the signature (third dot-separated segment).
+            // The LAST char of a base64url segment may only encode a few significant bits,
+            // so swapping it can decode to identical bytes — corrupt a middle char instead
+            // (every interior char encodes a full 6 significant bits of the signature).
             val parts = validJwt.split(".")
-            val corruptedSig = parts[2].dropLast(1) + if (parts[2].last() == 'A') 'B' else 'A'
+            val sig = parts[2]
+            val mid = sig.length / 2
+            val flipped = if (sig[mid] == 'A') 'Z' else 'A'
+            val corruptedSig = sig.substring(0, mid) + flipped + sig.substring(mid + 1)
             val tamperedJwt = "${parts[0]}.${parts[1]}.$corruptedSig"
 
             val verifier = verifierWithMockHttp(engine)
