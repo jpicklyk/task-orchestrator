@@ -12,7 +12,7 @@ ktor = "3.4.2"
 
 # Database
 sqlite = "3.49.1.0"
-exposed = "1.0.0-beta-4"
+exposed = "1.2.0"
 flyway = "11.8.2"
 
 # Logging

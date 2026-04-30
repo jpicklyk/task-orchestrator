@@ -63,6 +63,9 @@ class GetContextToolClaimTest {
         every { repoProvider.dependencyRepository() } returns mockk()
 
         context = ToolExecutionContext(repoProvider, NoOpNoteSchemaService)
+        // dbNow() is called to compute isExpired; default to JVM time so tests relying on
+        // the item's own claimExpiresAt field for freshness logic still pass.
+        coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
 
     private fun params(vararg pairs: Pair<String, JsonPrimitive>) = JsonObject(mapOf(*pairs))
@@ -160,14 +163,15 @@ class GetContextToolClaimTest {
         runBlocking {
             val itemId = UUID.randomUUID()
             val originalTime = Instant.now().minusSeconds(3600) // 1 hour ago — first claim
+            val now = Instant.now()
             val item =
                 WorkItem(
                     id = itemId,
                     title = "Re-claimed item",
                     role = Role.WORK,
                     claimedBy = "persistent-agent",
-                    claimedAt = Instant.now().minusSeconds(300),
-                    claimExpiresAt = Instant.now().plusSeconds(600),
+                    claimedAt = now.minusSeconds(300),
+                    claimExpiresAt = now.plusSeconds(600),
                     originalClaimedAt = originalTime
                 )
 

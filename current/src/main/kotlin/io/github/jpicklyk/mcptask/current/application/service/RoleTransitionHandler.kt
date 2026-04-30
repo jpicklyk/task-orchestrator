@@ -139,10 +139,15 @@ class RoleTransitionHandler {
         item: WorkItem,
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
-        degradedModePolicy: DegradedModePolicy
+        degradedModePolicy: DegradedModePolicy,
+        /**
+         * The reference "now" to use for claim-freshness evaluation. Callers should pass the
+         * DB-side current time (via [WorkItemRepository.dbNow]) so ownership decisions are made
+         * against the DB clock rather than the JVM clock. Defaults to [Instant.now] to preserve
+         * backward compatibility where no DB connection is available (e.g., unit tests).
+         */
+        now: Instant = Instant.now()
     ): OwnershipCheckResult {
-        val now = Instant.now()
-
         // Determine whether the item has an active (non-expired) claim.
         val hasActiveClaim =
             item.claimedBy != null &&
@@ -226,7 +231,9 @@ class RoleTransitionHandler {
     ): EntryPointTransitionResult {
         // Ownership check: enforced at this entry point for all UserTrigger values.
         // Cascade transitions bypass this check via cascadeTransition().
-        val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy)
+        // Fetch DB-side time so the freshness decision matches the DB clock, not the JVM clock.
+        val dbNowInstant = workItemRepository.dbNow()
+        val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, dbNowInstant)
         when (ownershipResult) {
             is OwnershipCheckResult.Allowed -> {} // proceed
             is OwnershipCheckResult.Rejected ->

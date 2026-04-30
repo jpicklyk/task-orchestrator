@@ -9,10 +9,20 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *
  * Values:
  * - [ACCEPT_CACHED] *(default)* — preserves the v3.3.0 stale-cache fallback.
- *   When verification status is [VerificationStatus.UNAVAILABLE] **and** a stale cached key was
- *   used (i.e., `metadata["verifiedFromCache"] == "true"`), the verified `actor.id` from the JWT
- *   is trusted. For all other non-VERIFIED outcomes, the system falls back to the self-reported
- *   `actor.id` supplied by the caller (same as prior implicit behavior).
+ *   When verification status is [VerificationStatus.VERIFIED] (whether fresh OR stale-cache
+ *   success — `JwksActorVerifier` returns VERIFIED with `metadata["verifiedFromCache"] == "true"`
+ *   when a stale cached key successfully validates the JWT during a JWKS fetch failure), the
+ *   verified `actor.id` from the JWT is trusted. When verification status is
+ *   [VerificationStatus.UNAVAILABLE] (JWKS down with no usable cache), falls back to the
+ *   self-reported `actor.id` with a WARN log so operators see the degradation. For other
+ *   non-VERIFIED outcomes (ABSENT, UNCHECKED, REJECTED), falls back silently to the
+ *   self-reported `actor.id` (same as pre-v3.3 implicit behavior).
+ *
+ *   Note: `ActorAware.resolveTrustedActorId` also handles a defensive
+ *   "UNAVAILABLE + verifiedFromCache=true" branch — this is reserved for future verifier
+ *   implementations that might emit UNAVAILABLE for stale-cache success. The current
+ *   `JwksActorVerifier` always returns VERIFIED for that case, so the branch is unreachable
+ *   today but preserved for forward compatibility.
  * - [ACCEPT_SELF_REPORTED] — always trusts the caller-supplied `actor.id` regardless of
  *   verification outcome. This is the v3.2 implicit behavior; explicitly labeled here so operators
  *   understand they are opting out of JWKS identity guarantees.

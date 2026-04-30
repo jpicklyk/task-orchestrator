@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.UUIDTable
+import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.java.javaUUID
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 object NotesTable : UUIDTable("notes") {
-    val itemId = uuid("work_item_id")
+    val itemId = javaUUID("work_item_id")
     val key = varchar("key", 200)
     val role = varchar("role", 20)
     val body = text("body").default("")

@@ -27,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.sql.SQLException
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -34,6 +35,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Unit tests for [ClaimItemTool] — uses mocked repository, not a real DB.
@@ -549,4 +551,242 @@ class ClaimItemToolTest {
         // Must not throw — large TTLs are valid
         tool.validateParams(p)
     }
+
+    // -----------------------------------------------------------------------
+    // TTL upper bound — 86400 s cap
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `validateParams accepts ttlSeconds of 86400 boundary`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 86400)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        // Exactly at the boundary — must not throw
+        tool.validateParams(p)
+    }
+
+    @Test
+    fun `validateParams throws when ttlSeconds is 86401`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 86401)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("must not exceed 86400 (24 hours), got 86401"),
+            "Error message must mention the cap and the actual value. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams throws when ttlSeconds is 999999`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("ttlSeconds", 999999)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("must not exceed 86400 (24 hours), got 999999"),
+            "Error message must mention the cap and the actual value. Got: ${ex.message}"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // H1: DBError — unexpected database exception surfaces as db_error ToolError
+    // -----------------------------------------------------------------------
+
+    /**
+     * H1-T1: claim path — repository returns DBError → tool emits db_error JSON shape.
+     *
+     * Expected JSON shape in claimResults[0]:
+     *   { outcome: "db_error", kind: "transient", code: "db_error", contendedItemId: "<uuid>" }
+     * The exception message must NOT appear in the response (internal detail leak prevention).
+     */
+    @Test
+    fun `claim DBError surfaces as db_error outcome with transient kind and contendedItemId`(): Unit =
+        runBlocking {
+            val cause = SQLException("internal db failure — must not appear in response")
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+
+            assertEquals("db_error", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("transient", first["kind"]?.jsonPrimitive?.content)
+            assertEquals("db_error", first["code"]?.jsonPrimitive?.content)
+            val contendedItemId = first["contendedItemId"]?.jsonPrimitive?.content
+            assertNotNull(contendedItemId, "contendedItemId must be present for db_error")
+            assertEquals(itemId1.toString(), contendedItemId)
+
+            // Exception message must not appear anywhere in the response (internal detail)
+            val serialized = result.toString()
+            assertFalse(
+                "internal db failure" in serialized,
+                "Exception message must not leak into JSON response. Got: $serialized"
+            )
+            // retryAfterMs must be absent (not populated for db_error)
+            assertNull(first["retryAfterMs"], "retryAfterMs must be absent for db_error")
+        }
+
+    /**
+     * H1-T2: release path — repository returns DBError → tool emits db_error JSON shape.
+     *
+     * Expected JSON shape in releaseResults[0]:
+     *   { outcome: "db_error", kind: "transient", code: "db_error", contendedItemId: "<uuid>" }
+     */
+    @Test
+    fun `release DBError surfaces as db_error outcome with transient kind and contendedItemId`(): Unit =
+        runBlocking {
+            val cause = SQLException("release db failure — must not appear in response")
+            coEvery { workItemRepo.release(itemId1, agentId) } returns ReleaseResult.DBError(itemId1, cause)
+
+            val result = tool.execute(params(releases = listOf(releaseEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["releaseResults"] as JsonArray)[0] as JsonObject
+
+            assertEquals("db_error", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("transient", first["kind"]?.jsonPrimitive?.content)
+            assertEquals("db_error", first["code"]?.jsonPrimitive?.content)
+            val contendedItemId = first["contendedItemId"]?.jsonPrimitive?.content
+            assertNotNull(contendedItemId, "contendedItemId must be present for db_error on release")
+            assertEquals(itemId1.toString(), contendedItemId)
+
+            // Exception message must not appear anywhere in the response
+            val serialized = result.toString()
+            assertFalse(
+                "release db failure" in serialized,
+                "Exception message must not leak into JSON response. Got: $serialized"
+            )
+            assertNull(first["retryAfterMs"], "retryAfterMs must be absent for db_error on release")
+        }
+
+    /**
+     * H1-T3: claim DBError increments claimsFailed (not claimsSucceeded) in summary.
+     */
+    @Test
+    fun `claim DBError increments claimsFailed in summary`(): Unit =
+        runBlocking {
+            val cause = SQLException("db error for summary test")
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val summary = data["summary"] as JsonObject
+            assertEquals(1, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
+            assertEquals(0, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
+            assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+        }
+
+    // -----------------------------------------------------------------------
+    // H6: rejected_by_policy envelope shape
+    // -----------------------------------------------------------------------
+
+    /**
+     * H6-P1: Explicit assertion of the `rejected_by_policy` envelope shape.
+     *
+     * When `degradedModePolicy=REJECT` and the actor verification returns ABSENT (not VERIFIED),
+     * `buildRejectedByPolicyResponse` is called, which delegates to `errorResponse(ToolError.permanent(...))`.
+     * The resulting JSON must have:
+     *   - response.success == false
+     *   - response.error.kind == "permanent"
+     *   - response.error.code == "rejected_by_policy"
+     *   - response.error.message is non-empty
+     *
+     * This test pins the exact JSON key-path so that a future refactor of the policy-rejection
+     * branch is caught if it changes the envelope shape.
+     */
+    @Test
+    fun `REJECT policy with unverified actor produces permanent rejected_by_policy error envelope`(): Unit =
+        runBlocking {
+            val absentVerifier =
+                object : ActorVerifier {
+                    override suspend fun verify(claim: ActorClaim): VerificationResult =
+                        VerificationResult(status = VerificationStatus.ABSENT, verifier = "test-absent")
+                }
+
+            val context =
+                ToolExecutionContext(
+                    repositoryProvider = mockRepo.provider,
+                    actorVerifier = absentVerifier,
+                    degradedModePolicy = DegradedModePolicy.REJECT
+                )
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), context)
+
+            val resultObj = result as JsonObject
+
+            // Top-level: success must be false
+            assertEquals(
+                false,
+                resultObj["success"]?.jsonPrimitive?.booleanOrNull,
+                "success must be false for a policy-rejected request"
+            )
+
+            // error envelope must be present
+            val errorObj = resultObj["error"] as? JsonObject
+            assertNotNull(errorObj, "error object must be present in the response")
+
+            // kind must be "permanent" (rejected_by_policy is not retryable)
+            assertEquals(
+                "permanent",
+                errorObj["kind"]?.jsonPrimitive?.content,
+                "error.kind must be \"permanent\" for rejected_by_policy"
+            )
+
+            // code must be exactly "rejected_by_policy"
+            assertEquals(
+                "rejected_by_policy",
+                errorObj["code"]?.jsonPrimitive?.content,
+                "error.code must be \"rejected_by_policy\""
+            )
+
+            // message must be non-empty (the policy reason)
+            val message = errorObj["message"]?.jsonPrimitive?.content
+            assertNotNull(message, "error.message must be present")
+            assertTrue(message.isNotBlank(), "error.message must be non-empty for rejected_by_policy")
+
+            // Repository must NOT have been called (policy rejection is a pre-DB guard)
+            coVerify(exactly = 0) { workItemRepo.claim(any(), any(), any()) }
+        }
 }

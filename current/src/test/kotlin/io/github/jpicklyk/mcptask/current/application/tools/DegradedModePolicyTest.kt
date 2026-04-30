@@ -95,7 +95,9 @@ class DegradedModePolicyTest {
     }
 
     @Test
-    fun `ACCEPT_CACHED — UNAVAILABLE falls back to self-reported actor id`() {
+    fun `ACCEPT_CACHED — UNAVAILABLE without cache metadata falls back to self-reported actor id`() {
+        // Genuine "JWKS down with no cached key" case — no verifiedFromCache flag in metadata.
+        // Should fall back to self-reported id (and log WARN), preserving pre-v3.3 behavior.
         val verification =
             VerificationResult(
                 status = VerificationStatus.UNAVAILABLE,
@@ -105,6 +107,52 @@ class DegradedModePolicyTest {
         val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
         assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         // Falls back to the self-reported claim.id (pre-v3.3 behavior preserved)
+        assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
+    }
+
+    @Test
+    fun `ACCEPT_CACHED — UNAVAILABLE with verifiedFromCache=true trusts verified actor id`() {
+        // Future verifier path: JWKS unavailable but JWT was verified against a stale key.
+        // The cache metadata flag signals that cryptographic verification succeeded.
+        val verification =
+            VerificationResult(
+                status = VerificationStatus.UNAVAILABLE,
+                verifier = "jwks",
+                reason = "JWKS refresh failed",
+                metadata = mapOf("verifiedFromCache" to "true", "cacheAgeSeconds" to "600")
+            )
+        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        assertInstanceOf(PolicyResolution.Trusted::class.java, result)
+        assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
+    }
+
+    @Test
+    fun `ACCEPT_CACHED — UNAVAILABLE with verifiedFromCache=false falls back to self-reported actor id`() {
+        // verifiedFromCache=false explicitly means no stale key available — degrade gracefully.
+        val verification =
+            VerificationResult(
+                status = VerificationStatus.UNAVAILABLE,
+                verifier = "jwks",
+                reason = "JWKS endpoint unreachable",
+                metadata = mapOf("verifiedFromCache" to "false")
+            )
+        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        assertInstanceOf(PolicyResolution.Trusted::class.java, result)
+        assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
+    }
+
+    @Test
+    fun `ACCEPT_CACHED — VERIFIED fresh (no cache metadata) returns trusted actor id without requiring flag`() {
+        // A freshly-verified JWT has no verifiedFromCache metadata — the flag is only present on
+        // stale-cache hits. Fresh VERIFIED results must not require the metadata flag.
+        val verification =
+            VerificationResult(
+                status = VerificationStatus.VERIFIED,
+                verifier = "jwks"
+                // no metadata at all
+            )
+        val result = ActorAware.resolveTrustedActorId(claim, verification, DegradedModePolicy.ACCEPT_CACHED)
+        assertInstanceOf(PolicyResolution.Trusted::class.java, result)
         assertEquals(actorId, (result as PolicyResolution.Trusted).trustedId)
     }
 

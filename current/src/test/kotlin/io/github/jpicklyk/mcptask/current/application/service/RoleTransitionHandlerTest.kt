@@ -8,8 +8,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -736,6 +738,12 @@ class RoleTransitionHandlerTest {
         private val workItemRepo: WorkItemRepository = mockk()
         private val roleTransitionRepo: RoleTransitionRepository = mockk()
 
+        @BeforeEach
+        fun setUp() {
+            // dbNow() is called by userTransition for ownership checks; return JVM time as a sensible default.
+            coEvery { workItemRepo.dbNow() } returns Instant.now()
+        }
+
         @Test
         fun `userTransition START moves QUEUE to WORK`() =
             runBlocking {
@@ -881,11 +889,15 @@ class RoleTransitionHandlerTest {
                 // The cascade fires on the parent as a result of the child reaching terminal.
                 // Ownership checks are bypassed for cascades — the parent should advance to
                 // TERMINAL regardless of which agent holds the parent claim.
+                // H2 (WorkItem.validate) enforces all-or-nothing claim-field invariants — set all
+                // four fields together so the copy() doesn't fail validation on construction.
                 val now = java.time.Instant.now()
                 val parentItem =
                     testItem(role = Role.WORK).copy(
                         claimedBy = "agent-alpha",
-                        claimExpiresAt = now.plusSeconds(3600)
+                        claimedAt = now,
+                        claimExpiresAt = now.plusSeconds(3600),
+                        originalClaimedAt = now
                     )
 
                 // Verify the mock wiring captures the exact item update that is persisted

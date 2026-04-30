@@ -824,23 +824,18 @@ class GetNextItemToolTest {
         title: String,
         role: Role = Role.QUEUE
     ): WorkItem {
+        // Capture Instant.now() ONCE: separate calls drift by microseconds on high-resolution
+        // clocks (Linux CI), causing originalClaimedAt > claimedAt and tripping H2's
+        // `originalClaimedAt <= claimedAt` invariant.
+        val now = java.time.Instant.now()
         val item =
             WorkItem(
                 title = title,
                 role = role,
                 claimedBy = "test-agent",
-                claimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(60),
-                claimExpiresAt =
-                    java.time.Instant
-                        .now()
-                        .plusSeconds(3600),
-                originalClaimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(60)
+                claimedAt = now.minusSeconds(60),
+                claimExpiresAt = now.plusSeconds(3600),
+                originalClaimedAt = now.minusSeconds(60)
             )
         val result = context.workItemRepository().create(item)
         return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
@@ -853,23 +848,16 @@ class GetNextItemToolTest {
         title: String,
         role: Role = Role.QUEUE
     ): WorkItem {
+        // Capture Instant.now() once — same clock-drift rationale as createClaimedItem.
+        val now = java.time.Instant.now()
         val item =
             WorkItem(
                 title = title,
                 role = role,
                 claimedBy = "test-agent",
-                claimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(7200),
-                claimExpiresAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(3600),
-                originalClaimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(7200)
+                claimedAt = now.minusSeconds(7200),
+                claimExpiresAt = now.minusSeconds(3600),
+                originalClaimedAt = now.minusSeconds(7200)
             )
         val result = context.workItemRepository().create(item)
         return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
@@ -1058,5 +1046,56 @@ class GetNextItemToolTest {
 
             // Tiered disclosure: claimedBy identity must not be leaked
             assertNull(rec.jsonObject["claimedBy"], "claimedBy must not be disclosed even for REVIEW items")
+        }
+
+    // ──────────────────────────────────────────────
+    // H6: JSON-key-absence test for claimedBy when includeClaimed=true
+    // ──────────────────────────────────────────────
+
+    /**
+     * H6-G1: Verifies that `claimedBy` is NOT present anywhere in the serialized response JSON
+     * when `includeClaimed=true`, even as a null-valued key.
+     *
+     * This is a JSON-key scan (stronger than a value scan): it asserts that the quoted string
+     * `"claimedBy"` does not appear anywhere in the serialized response, regardless of value.
+     * A structural leakage regression (e.g. a field added as `claimedBy=null`) would be caught
+     * by this scan but missed by a value-based check.
+     *
+     * Additionally verifies that `isClaimed=true` IS present in the response (confirming the
+     * claimed item was included and the boolean signal is working).
+     */
+    @Test
+    fun `includeClaimed=true response does NOT contain claimedBy JSON key anywhere in serialized output`(): Unit =
+        runBlocking {
+            val claimed = createClaimedItem("Claimed Item For Key Scan", role = Role.QUEUE)
+
+            val result =
+                tool.execute(
+                    params(
+                        "includeClaimed" to JsonPrimitive(true),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val claimedRec = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == claimed.id.toString() }
+            assertNotNull(claimedRec, "Claimed item must appear in recommendations when includeClaimed=true")
+
+            // isClaimed boolean SHOULD be present and true
+            val isClaimed = claimedRec.jsonObject["isClaimed"]
+            assertNotNull(isClaimed, "isClaimed field must be present when includeClaimed=true")
+            assertTrue(isClaimed.jsonPrimitive.boolean, "isClaimed should be true for an actively claimed item")
+
+            // JSON-key scan — stronger than a value check.
+            // Assert that "claimedBy" (the quoted key) does NOT appear ANYWHERE in the entire
+            // serialized response. This catches even claimedBy=null or renamed variants.
+            val serialized = result.toString()
+            assertFalse(
+                "\"claimedBy\"" in serialized,
+                "The \"claimedBy\" JSON key must NOT appear anywhere in the response when includeClaimed=true. " +
+                    "Got: $serialized"
+            )
         }
 }

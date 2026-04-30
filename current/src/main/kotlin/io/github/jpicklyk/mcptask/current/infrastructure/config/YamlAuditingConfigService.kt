@@ -38,9 +38,22 @@ import java.nio.file.Path
  *
  * If the config file is missing, the `auditing:` section is absent, or any exception occurs
  * during parsing, [AuditingConfig] defaults are returned (`enabled=true`, [VerifierConfig.Noop]).
+ *
+ * ## `DEGRADED_MODE_POLICY` environment variable
+ *
+ * When the `DEGRADED_MODE_POLICY` environment variable is set it overrides the YAML value:
+ * - Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`
+ * - If set to an invalid value a [IllegalArgumentException] is thrown at construction time so the
+ *   misconfiguration is surfaced immediately rather than silently falling back to a default.
+ * - If unset, the YAML value is used (then the coded default [DegradedModePolicy.ACCEPT_CACHED]).
+ *
+ * @param configPath Path to the `.taskorchestrator/config.yaml` file.
+ * @param envResolver Injectable resolver for environment variables; defaults to [System::getenv].
+ *   Tests inject a fake to avoid mutating the JVM environment.
  */
 class YamlAuditingConfigService(
-    private val configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath()
+    private val configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath(),
+    private val envResolver: (String) -> String? = System::getenv
 ) {
     private val logger = LoggerFactory.getLogger(YamlAuditingConfigService::class.java)
 
@@ -58,10 +71,41 @@ class YamlAuditingConfigService(
     /** Returns warnings collected during config parsing (empty list if none). */
     fun getWarnings(): List<String> = loadResult.warnings
 
-    @Suppress("UNCHECKED_CAST")
     private fun loadConfig(): LoadResult {
-        val warnings = mutableListOf<String>()
+        // --- Env-var override (evaluated eagerly so invalid values fail at startup) ---
+        val envPolicy = resolveEnvDegradedModePolicy()
 
+        val yamlResult = loadYamlConfig()
+
+        val finalConfig =
+            if (envPolicy != null) {
+                logger.info("DEGRADED_MODE_POLICY env var overrides YAML: {}", envPolicy.toConfigString())
+                yamlResult.config.copy(degradedModePolicy = envPolicy)
+            } else {
+                yamlResult.config
+            }
+
+        return LoadResult(finalConfig, yamlResult.warnings)
+    }
+
+    /**
+     * Reads and validates the `DEGRADED_MODE_POLICY` environment variable.
+     *
+     * @return the parsed [DegradedModePolicy] if the env var is set, or `null` if unset.
+     * @throws IllegalArgumentException if the env var is set but not a recognised value.
+     */
+    private fun resolveEnvDegradedModePolicy(): DegradedModePolicy? {
+        val raw = envResolver("DEGRADED_MODE_POLICY") ?: return null
+        return DegradedModePolicy.fromConfigString(raw)
+            ?: throw IllegalArgumentException(
+                "DEGRADED_MODE_POLICY env var must be one of: " +
+                    "accept-cached, accept-self-reported, reject. Got: '$raw'"
+            )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun loadYamlConfig(): LoadResult {
+        val warnings = mutableListOf<String>()
         if (!configPath.toFile().exists()) {
             logger.debug("No config file found at {}; using default auditing config", configPath)
             return LoadResult(AuditingConfig(), warnings)

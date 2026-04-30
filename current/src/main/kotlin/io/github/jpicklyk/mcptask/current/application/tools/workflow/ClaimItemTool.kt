@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -52,7 +53,7 @@ Atomically claim or release work items. One claim per agent: claiming a new item
 any prior claim held by the same agent.
 
 **Parameters:**
-- `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900), agentId? (optional string, overridden by verified actor) }`
+- `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional string, overridden by verified actor) }`. The TTL must be between 1 and 86400 seconds (24 hours); values outside this range are rejected.
 - `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
 - `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
 - `requestId` (required UUID): Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
@@ -114,7 +115,7 @@ At least one of `claims` or `releases` must be non-empty.
                                 "description",
                                 JsonPrimitive(
                                     "Array of claim requests: { itemId (required UUID or hex prefix), " +
-                                        "ttlSeconds? (optional int, default 900), " +
+                                        "ttlSeconds? (optional int, default 900, min 1, max 86400 — 24 h cap), " +
                                         "agentId? (optional string, overridden by verified actor) }"
                                 )
                             )
@@ -217,6 +218,7 @@ At least one of `claims` or `releases` must be non-empty.
                     ttlPrim.content.toIntOrNull()
                         ?: throw ToolValidationException("claims[$index].ttlSeconds must be a positive integer")
                 if (ttl <= 0) throw ToolValidationException("claims[$index].ttlSeconds must be positive, got $ttl")
+                if (ttl > 86400) throw ToolValidationException("claims[$index].ttlSeconds must not exceed 86400 (24 hours), got $ttl")
             }
         }
 
@@ -267,10 +269,21 @@ At least one of `claims` or `releases` must be non-empty.
                 }
             }
 
-        // Check idempotency cache after identity resolution (use trustedAgentId as the key actor)
-        val cached = context.idempotencyCache.get(trustedAgentId, requestId)
-        if (cached != null) return cached as JsonElement
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // Identity is already resolved above (trustedAgentId) — cache is keyed on the verified identity.
+        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
+        // This is safe because the claim/release logic only accesses DB repositories and never
+        // re-acquires the IdempotencyCache lock.
+        return context.idempotencyCache.getOrCompute(trustedAgentId, requestId) {
+            runBlocking { executeClaimRelease(paramsObj, context, trustedAgentId) }
+        }
+    }
 
+    private suspend fun executeClaimRelease(
+        paramsObj: JsonObject,
+        context: ToolExecutionContext,
+        trustedAgentId: String
+    ): JsonElement {
         val claimsArray = paramsObj["claims"] as? JsonArray ?: JsonArray(emptyList())
         val releasesArray = paramsObj["releases"] as? JsonArray ?: JsonArray(emptyList())
 
@@ -372,6 +385,27 @@ At least one of `claims` or `releases` must be non-empty.
                         }
                     )
                 }
+
+                is ClaimResult.DBError -> {
+                    claimsFailed++
+                    val dbError =
+                        ToolError(
+                            kind = ErrorKind.TRANSIENT,
+                            code = "db_error",
+                            message = "Database error during claim operation",
+                            contendedItemId = result.itemId
+                        )
+                    claimResultsList.add(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(result.itemId.toString()))
+                            put("outcome", JsonPrimitive("db_error"))
+                            put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                            put("code", JsonPrimitive(dbError.code))
+                            put("message", JsonPrimitive(dbError.message))
+                            put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                        }
+                    )
+                }
             }
         }
 
@@ -423,6 +457,27 @@ At least one of `claims` or `releases` must be non-empty.
                         }
                     )
                 }
+
+                is ReleaseResult.DBError -> {
+                    releasesFailed++
+                    val dbError =
+                        ToolError(
+                            kind = ErrorKind.TRANSIENT,
+                            code = "db_error",
+                            message = "Database error during release operation",
+                            contendedItemId = result.itemId
+                        )
+                    releaseResultsList.add(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(result.itemId.toString()))
+                            put("outcome", JsonPrimitive("db_error"))
+                            put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                            put("code", JsonPrimitive(dbError.code))
+                            put("message", JsonPrimitive(dbError.message))
+                            put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                        }
+                    )
+                }
             }
         }
 
@@ -443,12 +498,7 @@ At least one of `claims` or `releases` must be non-empty.
                 )
             }
 
-        val response = successResponse(data)
-
-        // Store result in idempotency cache (requestId always present after validation)
-        context.idempotencyCache.put(trustedAgentId, requestId, response)
-
-        return response
+        return successResponse(data)
     }
 
     override fun userSummary(

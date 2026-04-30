@@ -56,6 +56,29 @@ data class WorkItem(
             if (it.isBlank()) throw ValidationException("Description, if provided, must not be blank")
         }
         tags?.let { validateTags(it) }
+
+        // --- Claim-field invariants ---
+        claimedBy?.let {
+            if (it.isBlank()) throw ValidationException("claimedBy must not be blank when set")
+            if (it.length > 500) throw ValidationException("claimedBy must not exceed 500 characters")
+        }
+        if (claimedAt != null && claimExpiresAt != null) {
+            if (claimedAt.isAfter(claimExpiresAt)) {
+                throw ValidationException("claimedAt must not be after claimExpiresAt")
+            }
+        }
+        if (originalClaimedAt != null && claimedAt != null) {
+            if (originalClaimedAt.isAfter(claimedAt)) {
+                throw ValidationException("originalClaimedAt must not be after claimedAt")
+            }
+        }
+        // All-or-nothing coherence: all four claim fields must be null together or non-null together
+        val claimFieldNullCount = listOf(claimedBy, claimedAt, claimExpiresAt, originalClaimedAt).count { it == null }
+        if (claimFieldNullCount != 0 && claimFieldNullCount != 4) {
+            throw ValidationException(
+                "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
+            )
+        }
     }
 
     /**

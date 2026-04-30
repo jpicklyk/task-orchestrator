@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValid
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -226,52 +227,75 @@ Unified write operations for WorkItems (create, update, delete).
                 }
             }
 
-        // Resolve actor identity for idempotency key (use actor.id if provided)
-        val actorId =
-            (params as? JsonObject)
-                ?.get("actor")
-                ?.let { it as? JsonObject }
-                ?.get("id")
-                ?.let { (it as? JsonPrimitive)?.content }
-
-        // Check idempotency cache before executing
-        if (requestId != null && actorId != null) {
-            val cached = context.idempotencyCache.get(actorId, requestId)
-            if (cached != null) return cached as JsonElement
-        }
-
-        val result =
-            when (operation) {
-                "create" -> {
-                    val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
-                    if (parentIdError != null) return parentIdError
-                    createHandler.execute(
-                        requireJsonArray(params, "items"),
-                        parentId,
-                        optionalString(params, "traits"),
-                        context
-                    )
+        // Resolve trusted actor identity for the idempotency key.
+        // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
+        // not the self-reported actor.id (bug 3a fix).
+        val actorObj = (params as? JsonObject)?.get("actor") as? JsonObject
+        val trustedActorId: String? =
+            if (actorObj != null) {
+                val actorResult = parseActorClaim(actorObj, context)
+                when (actorResult) {
+                    is ActorParseResult.Success -> {
+                        when (
+                            val r =
+                                ActorAware.resolveTrustedActorId(
+                                    actorResult.claim,
+                                    actorResult.verification,
+                                    context.degradedModePolicy
+                                )
+                        ) {
+                            is PolicyResolution.Trusted -> r.trustedId
+                            is PolicyResolution.Rejected -> null
+                        }
+                    }
+                    else -> null
                 }
-                "update" ->
-                    updateHandler.execute(
-                        requireJsonArray(params, "items"),
-                        context
-                    )
-                "delete" ->
-                    deleteHandler.execute(
-                        requireJsonArray(params, "ids"),
-                        optionalBoolean(params, "recursive", false),
-                        context
-                    )
-                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            } else {
+                null
             }
 
-        // Store result in idempotency cache
-        if (requestId != null && actorId != null) {
-            context.idempotencyCache.put(actorId, requestId, result)
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
+        // This is safe because the operation logic only accesses DB repositories and never
+        // re-acquires the IdempotencyCache lock.
+        if (requestId != null && trustedActorId != null) {
+            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
+                runBlocking { executeOperation(operation, params, context) }
+            }
         }
 
-        return result
+        return executeOperation(operation, params, context)
+    }
+
+    private suspend fun executeOperation(
+        operation: String,
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
+        return when (operation) {
+            "create" -> {
+                val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
+                if (parentIdError != null) return parentIdError
+                createHandler.execute(
+                    requireJsonArray(params, "items"),
+                    parentId,
+                    optionalString(params, "traits"),
+                    context
+                )
+            }
+            "update" ->
+                updateHandler.execute(
+                    requireJsonArray(params, "items"),
+                    context
+                )
+            "delete" ->
+                deleteHandler.execute(
+                    requireJsonArray(params, "ids"),
+                    optionalBoolean(params, "recursive", false),
+                    context
+                )
+            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+        }
     }
 
     override fun userSummary(

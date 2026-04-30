@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.UUIDTable
+import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.java.javaUUID
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 object RoleTransitionsTable : UUIDTable("role_transitions") {
-    val itemId = uuid("item_id")
+    val itemId = javaUUID("item_id")
     val fromRole = varchar("from_role", 20)
     val toRole = varchar("to_role", 20)
     val fromStatusLabel = text("from_status_label").nullable()

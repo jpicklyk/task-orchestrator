@@ -487,6 +487,121 @@ class YamlAuditingConfigServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // DEGRADED_MODE_POLICY environment variable override
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env unset falls through to YAML default`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: reject
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        // No env var set — YAML value should be used
+        val service = YamlAuditingConfigService(configFile, envResolver = { null })
+        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env var overrides YAML value`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: reject
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        // Env var set to accept-self-reported; YAML says reject
+        val service =
+            YamlAuditingConfigService(
+                configFile,
+                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-self-reported" else null }
+            )
+        assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, service.getConfig().degradedModePolicy)
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env var accept-cached overrides YAML reject`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  degraded_mode_policy: reject
+                  verifier:
+                    type: noop
+                """.trimIndent()
+            )
+        val service =
+            YamlAuditingConfigService(
+                configFile,
+                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-cached" else null }
+            )
+        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env var is case-insensitive — REJECT uppercase`() {
+        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val service =
+            YamlAuditingConfigService(
+                configFile,
+                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "REJECT" else null }
+            )
+        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env var is case-insensitive — mixed case Reject`() {
+        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val service =
+            YamlAuditingConfigService(
+                configFile,
+                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "Reject" else null }
+            )
+        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env var is case-insensitive — lowercase reject`() {
+        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val service =
+            YamlAuditingConfigService(
+                configFile,
+                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "reject" else null }
+            )
+        assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env var invalid value throws IllegalArgumentException`() {
+        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val service =
+            YamlAuditingConfigService(
+                configFile,
+                envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "banana" else null }
+            )
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("accept-cached, accept-self-reported, reject"))
+        assertTrue(ex.message!!.contains("banana"))
+    }
+
+    @Test
+    fun `DEGRADED_MODE_POLICY env unset with no YAML section defaults to ACCEPT_CACHED`() {
+        val configFile = createConfigFile("note_schemas:\n  default: []")
+        val service = YamlAuditingConfigService(configFile, envResolver = { null })
+        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+    }
+
+    // -------------------------------------------------------------------------
     // Malformed YAML
     // -------------------------------------------------------------------------
 

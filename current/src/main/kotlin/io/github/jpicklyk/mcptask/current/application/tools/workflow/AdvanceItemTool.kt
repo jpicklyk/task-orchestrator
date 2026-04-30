@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -46,7 +47,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 **Parameters:**
 - `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string), actor? (optional object) }`
 - Valid triggers: start, complete, block, hold, resume, cancel, reopen
-- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor.
+- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor. All transitions in a batch must either all omit actor or all use the same actor.id.
 - `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing. Uses the first transition's actor.id as the idempotency key actor.
 
 **Trigger effects:**
@@ -167,6 +168,51 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         "Valid triggers: $validTriggers"
                 )
         }
+
+        // Validate that all transitions share the same actor presence and actor.id.
+        // Two valid cases: all omit actor, or all provide the exact same actor.id.
+        if (transitions.size > 1) {
+            // Collect (index, actorId-or-null) for each element
+            data class ActorEntry(
+                val index: Int,
+                val actorId: String?
+            )
+
+            val actorEntries: List<ActorEntry> =
+                transitions.mapIndexed { idx, element ->
+                    val obj = element as JsonObject
+                    val actorId =
+                        (obj["actor"] as? JsonObject)
+                            ?.get("id")
+                            ?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                    ActorEntry(idx, actorId)
+                }
+
+            val withActor = actorEntries.filter { it.actorId != null }
+            val withoutActor = actorEntries.filter { it.actorId == null }
+
+            if (withActor.isNotEmpty() && withoutActor.isNotEmpty()) {
+                // Mixed presence: some have actor, some don't
+                val mixedIndexes =
+                    (withActor + withoutActor)
+                        .sortedBy { it.index }
+                        .map { it.index }
+                throw ToolValidationException(
+                    "transitions must either all omit actor or all use the same actor.id; " +
+                        "found mixed actor presence at indexes $mixedIndexes"
+                )
+            }
+
+            if (withActor.isNotEmpty()) {
+                val distinctIds = withActor.map { it.actorId!! }.toSet()
+                if (distinctIds.size > 1) {
+                    throw ToolValidationException(
+                        "transitions must use a single actor.id across the batch; " +
+                            "found ${distinctIds.size} distinct actor.id values: ${distinctIds.sorted()}"
+                    )
+                }
+            }
+        }
     }
 
     override suspend fun execute(
@@ -184,22 +230,58 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 }
             }
 
-        // Derive actor identity from the first transition's actor for idempotency key
-        val actorId =
+        // Resolve trusted actor identity from the first transition's actor for the idempotency key.
+        // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
+        // not the self-reported actor.id (bug 3a fix).
+        val firstActorObj =
             transitions
                 .firstOrNull()
                 ?.let { it as? JsonObject }
                 ?.get("actor")
                 ?.let { it as? JsonObject }
-                ?.get("id")
-                ?.let { (it as? JsonPrimitive)?.content }
 
-        // Check idempotency cache before executing
-        if (requestId != null && actorId != null) {
-            val cached = context.idempotencyCache.get(actorId, requestId)
-            if (cached != null) return cached as JsonElement
+        val trustedActorId: String? =
+            if (firstActorObj != null) {
+                val actorResult = parseActorClaim(firstActorObj, context)
+                when (actorResult) {
+                    is ActorParseResult.Success -> {
+                        when (
+                            val r =
+                                ActorAware.resolveTrustedActorId(
+                                    actorResult.claim,
+                                    actorResult.verification,
+                                    context.degradedModePolicy
+                                )
+                        ) {
+                            is PolicyResolution.Trusted -> r.trustedId
+                            is PolicyResolution.Rejected -> null // rejection handled per-transition below
+                        }
+                    }
+                    else -> null
+                }
+            } else {
+                null
+            }
+
+        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
+        // Cache is only engaged when both requestId and a trusted actor id are available.
+        // The compute lambda is non-suspending (IdempotencyCache uses a JVM write lock, not a
+        // coroutine mutex). kotlinx.coroutines.runBlocking bridges the suspend execution into
+        // the lock-held lambda. This is safe because executeTransitions only accesses DB
+        // repositories and never re-acquires the IdempotencyCache lock.
+        if (requestId != null && trustedActorId != null) {
+            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
+                runBlocking { executeTransitions(transitions, context) }
+            }
         }
 
+        return executeTransitions(transitions, context)
+    }
+
+    private suspend fun executeTransitions(
+        transitions: JsonArray,
+        context: ToolExecutionContext
+    ): JsonElement {
         val handler = RoleTransitionHandler()
         val cascadeDetector = CascadeDetector()
 
@@ -296,12 +378,15 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // check that userTransition() applies internally — the tool calls it explicitly here so
             // that gate-check errors (which require resolvedTargetRole) can be reported AFTER the
             // ownership error is surfaced with correct priority.
+            // Use DB-side time so freshness is evaluated on the DB clock, not the JVM clock.
+            val dbNowForOwnership = context.workItemRepository().dbNow()
             val ownershipResult =
                 handler.checkOwnershipForTransition(
                     item,
                     actorClaim,
                     verification,
-                    context.degradedModePolicy
+                    context.degradedModePolicy,
+                    dbNowForOwnership
                 )
             when (ownershipResult) {
                 is OwnershipCheckResult.Allowed -> {} // proceed
@@ -685,14 +770,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 put("allUnblockedItems", JsonArray(allUnblockedItems))
             }
 
-        val response = successResponse(data)
-
-        // Store result in idempotency cache
-        if (requestId != null && actorId != null) {
-            context.idempotencyCache.put(actorId, requestId, response)
-        }
-
-        return response
+        return successResponse(data)
     }
 
     override fun userSummary(

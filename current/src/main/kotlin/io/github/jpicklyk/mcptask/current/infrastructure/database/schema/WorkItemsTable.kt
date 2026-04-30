@@ -1,10 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
-import org.jetbrains.exposed.v1.core.dao.id.UUIDTable
+import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.java.javaUUID
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 object WorkItemsTable : UUIDTable("work_items") {
-    val parentId = uuid("parent_id").nullable()
+    val parentId = javaUUID("parent_id").nullable()
     val title = text("title")
     val description = text("description").nullable()
     val summary = text("summary").default("")

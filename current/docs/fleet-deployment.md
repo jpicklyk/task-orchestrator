@@ -29,6 +29,24 @@ auditing:
     require_sub_match: true
 ```
 
+### `DEGRADED_MODE_POLICY` Environment Variable
+
+The `DEGRADED_MODE_POLICY` environment variable overrides the YAML `degraded_mode_policy` value at runtime. It is evaluated at server startup and takes precedence over any value set in the config file.
+
+```bash
+# Docker — set reject policy for fleet deployments
+docker run --rm -i \
+  -v mcp-task-data:/app/data \
+  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -e AGENT_CONFIG_DIR=/project \
+  -e DEGRADED_MODE_POLICY=reject \
+  task-orchestrator:dev
+```
+
+Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`. An invalid value causes an immediate startup failure with a descriptive error message. If unset, the YAML value applies; if neither is set, the server defaults to `accept-cached`.
+
+**Recommended for cross-org fleet deployments:** `DEGRADED_MODE_POLICY=reject` — ensures that agents without a valid JWT in `actor.proof` cannot claim items or advance claimed items, regardless of what the YAML config contains.
+
 ### Policy Values
 
 | Policy | Identity used | Recommended for |

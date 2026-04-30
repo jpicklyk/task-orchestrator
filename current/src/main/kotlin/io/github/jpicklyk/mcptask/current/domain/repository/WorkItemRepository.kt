@@ -11,8 +11,9 @@ import java.util.UUID
  *
  * - [Success] — the claim was atomically placed (or refreshed for same agent). [item] reflects DB state after the claim.
  * - [AlreadyClaimed] — another agent holds a live (non-expired) claim. [retryAfterMs] is a hint for backoff.
- * - [NotFound] — no work item with the given [id] exists.
+ * - [NotFound] — no work item with the given [id] exists (row absent).
  * - [TerminalItem] — the item's role is TERMINAL; claiming terminal items is not supported.
+ * - [DBError] — an unexpected database exception occurred; the operation did not complete.
  */
 sealed class ClaimResult {
     data class Success(
@@ -32,6 +33,11 @@ sealed class ClaimResult {
     data class TerminalItem(
         val itemId: UUID
     ) : ClaimResult()
+
+    data class DBError(
+        val itemId: UUID,
+        val cause: Exception
+    ) : ClaimResult()
 }
 
 /**
@@ -39,7 +45,8 @@ sealed class ClaimResult {
  *
  * - [Success] — the claim was cleared; [item] reflects DB state after release.
  * - [NotClaimedByYou] — the item is claimed by a different agent (or is unclaimed).
- * - [NotFound] — no work item with the given [id] exists.
+ * - [NotFound] — no work item with the given [id] exists (row absent).
+ * - [DBError] — an unexpected database exception occurred; the operation did not complete.
  */
 sealed class ReleaseResult {
     data class Success(
@@ -53,9 +60,25 @@ sealed class ReleaseResult {
     data class NotFound(
         val itemId: UUID
     ) : ReleaseResult()
+
+    data class DBError(
+        val itemId: UUID,
+        val cause: Exception
+    ) : ReleaseResult()
 }
 
 interface WorkItemRepository {
+    /**
+     * Return the database server's current wall-clock time as an [Instant].
+     *
+     * All claim-freshness comparisons (ownership checks, visibility filters) MUST use this
+     * value instead of [java.time.Instant.now] so that decisions are made against the DB
+     * clock — eliminating skew when the JVM clock and the SQLite clock diverge.
+     *
+     * Implemented as a lightweight `SELECT datetime('now')` (SQLite) or equivalent.
+     */
+    suspend fun dbNow(): Instant
+
     suspend fun getById(id: UUID): Result<WorkItem>
 
     suspend fun create(item: WorkItem): Result<WorkItem>

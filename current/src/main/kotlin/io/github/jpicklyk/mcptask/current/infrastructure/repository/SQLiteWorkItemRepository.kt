@@ -16,17 +16,18 @@ import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greater
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.greaterEq
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.inList
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNotNull
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.isNull
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.lessEq
-import org.jetbrains.exposed.v1.core.SqlExpressionBuilder.like
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
 import org.jetbrains.exposed.v1.core.vendors.currentDialect
@@ -38,6 +39,10 @@ import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTrans
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -47,6 +52,70 @@ class SQLiteWorkItemRepository(
     private val databaseManager: DatabaseManager
 ) : WorkItemRepository {
     private val logger = LoggerFactory.getLogger(SQLiteWorkItemRepository::class.java)
+
+    override suspend fun dbNow(): Instant =
+        try {
+            // Read CURRENT_TIMESTAMP as a raw string and parse explicitly as UTC.
+            //
+            // Why string-parse rather than rs.getTimestamp().toInstant():
+            //   - SQLite's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS" with NO timezone suffix
+            //     and the value is in UTC (per SQLite spec).
+            //   - rs.getTimestamp() interprets a no-tz string in the JVM's default zone, then
+            //     toInstant() converts to UTC by adding the local offset — producing an Instant
+            //     that is shifted by the JVM zone offset relative to the actual stored UTC value.
+            //     This causes dbNow() to drift several hours from JVM Instant.now() in any non-UTC
+            //     deployment.
+            //   - Parsing as LocalDateTime + ZoneOffset.UTC explicitly treats the string as UTC,
+            //     which matches the Exposed 1.0.0-beta-5+ timestamp() column behavior (post the
+            //     EXPOSED-731 SQLite timestamp fix).
+            //   - H2's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS.fffffff-HH" (with a non-
+            //     standard offset like "-04" missing the minute portion); we normalize that and
+            //     parse via OffsetDateTime.
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                exec("SELECT CURRENT_TIMESTAMP") { rs ->
+                    if (rs.next()) {
+                        rs.getString(1)?.let { parseDbTimestamp(it) }
+                    } else {
+                        null
+                    }
+                }
+            } ?: Instant.now()
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch DB-side current time, falling back to JVM clock: ${e.message}")
+            Instant.now()
+        }
+
+    /**
+     * Parse a CURRENT_TIMESTAMP-style string from either SQLite or H2 into an [Instant] (UTC).
+     *
+     * Accepted forms:
+     *  - "YYYY-MM-DD HH:MM:SS" — SQLite, treat as UTC
+     *  - "YYYY-MM-DD HH:MM:SS.fffffff" — H2 (no offset), treat as UTC
+     *  - "YYYY-MM-DD HH:MM:SS.fffffff-HH" — H2 with non-standard short offset; normalized
+     *  - "YYYY-MM-DD HH:MM:SS-HH:MM" or "...Z" — full ISO offset, parse directly
+     */
+    private fun parseDbTimestamp(raw: String): Instant {
+        val isoCandidate = raw.replace(" ", "T")
+        // Detect whether a timezone suffix is present.
+        val tzPattern = Regex("([+-]\\d{2}(:\\d{2})?|Z)$")
+        val tzMatch = tzPattern.find(isoCandidate)
+        return if (tzMatch != null) {
+            val tz = tzMatch.value
+            // Normalize H2's short "-04" form to "-04:00" so OffsetDateTime accepts it.
+            val normalized =
+                if (tz.startsWith("Z") || tz.contains(":")) {
+                    isoCandidate
+                } else {
+                    isoCandidate.dropLast(tz.length) + tz + ":00"
+                }
+            OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant()
+        } else {
+            // No offset → treat as UTC (SQLite stores CURRENT_TIMESTAMP in UTC).
+            LocalDateTime
+                .parse(isoCandidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                .toInstant(ZoneOffset.UTC)
+        }
+    }
 
     override suspend fun getById(id: UUID): Result<WorkItem> =
         databaseManager.suspendedTransaction("Failed to get WorkItem by id") {
@@ -254,6 +323,9 @@ class SQLiteWorkItemRepository(
         claimStatus: String?
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
+            // Fetch DB-side now once so all claim-freshness comparisons in buildFilteredQuery
+            // use the DB clock rather than the JVM clock.
+            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
             val baseQuery =
                 buildFilteredQuery(
                     parentId,
@@ -269,7 +341,8 @@ class SQLiteWorkItemRepository(
                     roleChangedAfter,
                     roleChangedBefore,
                     type,
-                    claimStatus
+                    claimStatus,
+                    nowFromDb
                 )
 
             // Determine sort column and order
@@ -314,6 +387,7 @@ class SQLiteWorkItemRepository(
         claimStatus: String?
     ): Result<Int> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
+            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
             val count =
                 buildFilteredQuery(
                     parentId,
@@ -329,7 +403,8 @@ class SQLiteWorkItemRepository(
                     roleChangedAfter,
                     roleChangedBefore,
                     type,
-                    claimStatus
+                    claimStatus,
+                    nowFromDb
                 ).count()
 
             Result.Success(count.toInt())
@@ -431,74 +506,103 @@ class SQLiteWorkItemRepository(
     ): ClaimResult =
         try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                // Sanitize agentId for safe SQL embedding — strip single-quotes to prevent injection.
-                // The UUID is validated by type, so no risk there.
-                val safeAgentId = agentId.replace("'", "''")
-                // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
-                val safeItemHex = itemId.toString().replace("-", "").uppercase()
+                // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
+                // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
+                // index directly (the prior HEX(id) = ? form wrapped the column in a function call,
+                // which the SQLite planner cannot push through the PK index, forcing a full scan).
+                val agentIdType = VarCharColumnType(500)
+                val uuidType = UUIDColumnType()
 
-                // Step 1: Auto-release all prior claims by this agent EXCEPT the target item.
-                exec(
-                    """
-                    UPDATE work_items
-                      SET claimed_by = NULL,
-                          claimed_at = NULL,
-                          claim_expires_at = NULL,
-                          original_claimed_at = NULL,
-                          version = version + 1
-                      WHERE claimed_by = '$safeAgentId'
-                        AND HEX(id) != '$safeItemHex'
-                    """.trimIndent()
-                )
-
-                // Step 2: Claim or refresh the target item using only DB-side timestamps.
+                // Step 1 (acquire target): Claim or refresh the target item using only DB-side timestamps.
                 // Matches rows that are: (a) unclaimed, (b) expired, or (c) already held by this agent.
                 // TERMINAL items are always excluded.
+                //
+                // NOTE: Acquisition runs FIRST so that Step 2 (auto-release of prior claims) only fires
+                // when acquisition succeeds. If Step 2 ran first and Step 1 then matched zero rows (e.g.
+                // target held by another agent, or target is TERMINAL), the agent would lose its prior
+                // claim without gaining the new one — a net loss of both claims.
                 exec(
                     """
                     UPDATE work_items
-                      SET claimed_by = '$safeAgentId',
+                      SET claimed_by = ?,
                           claimed_at = datetime('now'),
                           claim_expires_at = datetime('now', '+$ttlSeconds seconds'),
                           original_claimed_at = COALESCE(
-                            CASE WHEN claimed_by = '$safeAgentId' THEN original_claimed_at ELSE NULL END,
+                            CASE WHEN claimed_by = ? THEN original_claimed_at ELSE NULL END,
                             datetime('now')
                           ),
                           version = version + 1
-                      WHERE HEX(id) = '$safeItemHex'
+                      WHERE id = ?
                         AND role != 'terminal'
                         AND (claimed_by IS NULL
                              OR claim_expires_at < datetime('now')
-                             OR claimed_by = '$safeAgentId')
-                    """.trimIndent()
+                             OR claimed_by = ?)
+                    """.trimIndent(),
+                    args =
+                        listOf(
+                            agentIdType to agentId,
+                            agentIdType to agentId,
+                            uuidType to itemId,
+                            agentIdType to agentId,
+                        )
                 )
 
-                // Read back the current state: if claimedBy == agentId, the claim succeeded.
+                // Read back the current state: if claimedBy == agentId, acquisition succeeded.
                 val row = WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
 
-                when {
-                    row == null -> ClaimResult.NotFound(itemId)
-                    else -> {
-                        val item = toWorkItem(row)
-                        when {
-                            item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
-                            item.claimedBy == agentId -> ClaimResult.Success(item)
-                            else -> {
-                                // Claimed by someone else — compute retryAfterMs from their expiry.
-                                val retryAfterMs =
-                                    item.claimExpiresAt?.let { exp ->
-                                        val remaining = exp.toEpochMilli() - System.currentTimeMillis()
-                                        if (remaining > 0) remaining else null
-                                    }
-                                ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
+                val result =
+                    when {
+                        row == null -> ClaimResult.NotFound(itemId)
+                        else -> {
+                            val item = toWorkItem(row)
+                            when {
+                                item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
+                                item.claimedBy == agentId -> ClaimResult.Success(item)
+                                else -> {
+                                    // Claimed by someone else — compute retryAfterMs using the DB clock
+                                    // so the hint reflects DB-side remaining TTL, not JVM-side.
+                                    val retryAfterMs =
+                                        if (item.claimExpiresAt != null) {
+                                            val dbNowInstant = dbNow()
+                                            val remaining = item.claimExpiresAt.toEpochMilli() - dbNowInstant.toEpochMilli()
+                                            if (remaining > 0) remaining else null
+                                        } else {
+                                            null
+                                        }
+                                    ClaimResult.AlreadyClaimed(itemId, retryAfterMs)
+                                }
                             }
                         }
                     }
+
+                // Step 2 (auto-release prior claims): Only runs when acquisition SUCCEEDED.
+                // Releases all other items held by this agent EXCEPT the newly-acquired target.
+                // Skipped on any failure result to preserve the agent's existing claim.
+                if (result is ClaimResult.Success) {
+                    exec(
+                        """
+                        UPDATE work_items
+                          SET claimed_by = NULL,
+                              claimed_at = NULL,
+                              claim_expires_at = NULL,
+                              original_claimed_at = NULL,
+                              version = version + 1
+                          WHERE claimed_by = ?
+                            AND id != ?
+                        """.trimIndent(),
+                        args =
+                            listOf(
+                                agentIdType to agentId,
+                                uuidType to itemId,
+                            )
+                    )
                 }
+
+                result
             }
         } catch (e: Exception) {
             logger.error("Failed to claim WorkItem $itemId for agent $agentId: ${e.message}", e)
-            ClaimResult.NotFound(itemId) // surface as not-found on unexpected DB error
+            ClaimResult.DBError(itemId, e)
         }
 
     override suspend fun release(
@@ -507,9 +611,11 @@ class SQLiteWorkItemRepository(
     ): ReleaseResult =
         try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                val safeAgentId = agentId.replace("'", "''")
-                // UUID stored as BINARY(16) in SQLite; compare via HEX() to avoid BLOB vs TEXT mismatch.
-                val safeItemHex = itemId.toString().replace("-", "").uppercase()
+                // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
+                // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
+                // index directly.
+                val agentIdType = VarCharColumnType(500)
+                val uuidType = UUIDColumnType()
 
                 // Check existence and current claimant before attempting update.
                 val row =
@@ -530,9 +636,14 @@ class SQLiteWorkItemRepository(
                           claim_expires_at = NULL,
                           original_claimed_at = NULL,
                           version = version + 1
-                      WHERE HEX(id) = '$safeItemHex'
-                        AND claimed_by = '$safeAgentId'
-                    """.trimIndent()
+                      WHERE id = ?
+                        AND claimed_by = ?
+                    """.trimIndent(),
+                    args =
+                        listOf(
+                            uuidType to itemId,
+                            agentIdType to agentId,
+                        )
                 )
 
                 // Read back updated state.
@@ -544,7 +655,7 @@ class SQLiteWorkItemRepository(
             }
         } catch (e: Exception) {
             logger.error("Failed to release WorkItem $itemId for agent $agentId: ${e.message}", e)
-            ReleaseResult.NotFound(itemId)
+            ReleaseResult.DBError(itemId, e)
         }
 
     override suspend fun findForNextItem(
@@ -565,9 +676,11 @@ class SQLiteWorkItemRepository(
             // Claim filter: exclude items with an active (non-expired) claim.
             // An item is "actively claimed" when claimed_by IS NOT NULL AND claim_expires_at > now.
             // The complement (items to include) is: claimed_by IS NULL OR claim_expires_at <= now.
+            // Use DB-side now so the freshness decision is made on the DB clock, not the JVM clock.
             if (excludeActiveClaims) {
                 val notClaimed = WorkItemsTable.claimedBy.isNull()
-                val claimExpired = WorkItemsTable.claimExpiresAt lessEq Instant.now()
+                val dbNowInstant = dbNow()
+                val claimExpired = WorkItemsTable.claimExpiresAt lessEq dbNowInstant
                 // Re-express as: NOT (claimedBy IS NOT NULL AND claimExpiresAt > now)
                 //               = claimedBy IS NULL  OR  claimExpiresAt <= now
                 conditions.add(notClaimed or claimExpired)
@@ -586,7 +699,8 @@ class SQLiteWorkItemRepository(
 
     override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> =
         databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
-            val now = Instant.now()
+            // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
+            val now = dbNow()
 
             // Helper to build a base condition list optionally scoped to a parent
             fun baseConditions(): MutableList<Op<Boolean>> {
@@ -711,7 +825,9 @@ class SQLiteWorkItemRepository(
         roleChangedAfter: Instant?,
         roleChangedBefore: Instant?,
         type: String? = null,
-        claimStatus: String? = null
+        claimStatus: String? = null,
+        /** DB-side current time. Callers must obtain this via [dbNow] before calling. */
+        now: Instant = Instant.now()
     ): Query {
         val conditions = mutableListOf<Op<Boolean>>()
 
@@ -735,7 +851,7 @@ class SQLiteWorkItemRepository(
         type?.let { conditions.add(WorkItemsTable.type eq it) }
 
         // Claim-status filter — applied at DB level to avoid loading unclaimed/claimed rows unnecessarily.
-        val now = Instant.now()
+        // `now` was obtained from dbNow() by the caller so freshness is evaluated on the DB clock.
         claimStatus?.let {
             when (it.lowercase()) {
                 "claimed" -> {
