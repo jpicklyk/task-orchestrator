@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-04-29 (Plugin v3.1.2)
+
+### Added
+- Added `claim_item` tool — explicit work-item claiming with TTL, atomic SQL claim/release, and self-reclaim semantics for fleet coordination (#117)
+- Added `requestId` parameter to all mutating tools (`claim_item`, `advance_item`, `manage_items`, `manage_notes`, `manage_dependencies`) — replays of the same request return the cached response without re-applying writes (#117)
+- Added `claimStatus` filter and tiered claim disclosure to `query_items` — filter the backlog by who holds what, with the level of detail scaled to the requesting actor (#117)
+- Added `role` parameter to `get_next_item` — pull the next item scoped to a workflow phase, with claim-aware skipping of items held by other actors (#117)
+- Added `DATABASE_BUSY_TIMEOUT_MS` environment variable — tune SQLite `busy_timeout` for fleet deployments where concurrent writers compete for the database lock (#117)
+- Added `DEGRADED_MODE_POLICY` config flag (`accept-cached` / `accept-self-reported` / `reject`) — control how the server behaves when actor identity cannot be freshly verified (#117)
+- Added standardized `ToolError` response envelope across all tools — consistent error shape with `code`, `field`, and `message`, plus a structured `metadata` bag (#117)
+- Added `IdempotencyCache` service backing the `requestId` mechanism — bounded cache with TTL, validation, and self-reported-actor handling (#117)
+- Added `UserTrigger` enum — separates user-initiated triggers from internal cascade triggers, preventing external callers from forging cascade transitions (#117)
+- Added fleet deployment guide and claim mechanism reference in `current/docs/` — covers single-tenant, multi-actor, and shared-database fleet topologies (#117)
+
+### Changed
+- `advance_item` now enforces claim ownership across all user triggers — when an item is claimed, only the holder can transition it; unclaimed items advance as before (#117)
+- `claim_item` errors return the new `ToolError` envelope with disclosure-tightened messages — never leaks claimant identity beyond what `query_items` already exposes (#117)
+- Bumped plugin version to 3.1.2 — `subagent-start` hook context refinements, `manage-schemas` and `pre-plan-workflow` skill content updates
+
+### Fixed
+- Fixed `originalClaimedAt` invariant on claim renewals — preserves the original-claim timestamp across self-renewals while resetting cleanly on release (#117)
+- Fixed UTC consistency in claim time fields — pinned test JVM to UTC and aligned DB-side timestamp handling so claim TTLs behave identically across developer machines and Linux CI (#117)
+- Fixed blank `actor.id` validation — empty or whitespace-only IDs now fail validation cleanly rather than passing through (#117)
+
+### Documentation
+- Added claim mechanism reference, fleet deployment guide, and expanded workflow guide (#138, #150)
+- Removed broken Integration Guides wiki link from README (#140)
+
+---
+
 ## [3.3.0] - 2026-04-24 (Plugin v3.1.1)
 
 ### Changed
