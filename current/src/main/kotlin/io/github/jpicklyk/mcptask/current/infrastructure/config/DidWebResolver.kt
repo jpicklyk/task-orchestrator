@@ -33,7 +33,6 @@ import org.slf4j.LoggerFactory
 class DidWebResolver(
     engine: HttpClientEngine? = null
 ) : DidResolver {
-
     override val method: String = "web"
 
     private val logger = LoggerFactory.getLogger(DidWebResolver::class.java)
@@ -57,11 +56,12 @@ class DidWebResolver(
         val url = buildUrl(identifier)
         logger.debug("Resolving {} → {}", did, url)
 
-        val responseBody: String = try {
-            httpClient.get(url).bodyAsText()
-        } catch (e: Exception) {
-            throw DidResolutionException("network error resolving $did: ${e.message}", e)
-        }
+        val responseBody: String =
+            try {
+                httpClient.get(url).bodyAsText()
+            } catch (e: Exception) {
+                throw DidResolutionException("network error resolving $did: ${e.message}", e)
+            }
 
         val document = parseDidDocument(responseBody, did)
 
@@ -100,15 +100,20 @@ class DidWebResolver(
     // JSON parsing
     // -------------------------------------------------------------------------
 
-    private fun parseDidDocument(json: String, requestedDid: String): DidDocument {
-        val root: JsonObject = try {
-            this.json.parseToJsonElement(json).jsonObject
-        } catch (e: Exception) {
-            throw DidResolutionException("invalid JSON in DID document for $requestedDid: ${e.message}", e)
-        }
+    private fun parseDidDocument(
+        json: String,
+        requestedDid: String
+    ): DidDocument {
+        val root: JsonObject =
+            try {
+                this.json.parseToJsonElement(json).jsonObject
+            } catch (e: Exception) {
+                throw DidResolutionException("invalid JSON in DID document for $requestedDid: ${e.message}", e)
+            }
 
-        val id = root["id"]?.jsonPrimitive?.content
-            ?: throw DidResolutionException("DID document missing 'id' field for $requestedDid")
+        val id =
+            root["id"]?.jsonPrimitive?.content
+                ?: throw DidResolutionException("DID document missing 'id' field for $requestedDid")
 
         val verificationMethods = parseVerificationMethods(root)
         val assertionMethod = parseReferences(root, "assertionMethod")
@@ -123,9 +128,10 @@ class DidWebResolver(
     }
 
     private fun parseVerificationMethods(root: JsonObject): List<VerificationMethod> {
-        val vmArray = root["verificationMethod"]?.let {
-            runCatching { it.jsonArray }.getOrNull()
-        } ?: return emptyList()
+        val vmArray =
+            root["verificationMethod"]?.let {
+                runCatching { it.jsonArray }.getOrNull()
+            } ?: return emptyList()
 
         return vmArray.mapNotNull { element ->
             runCatching {
@@ -151,10 +157,14 @@ class DidWebResolver(
      * Each entry may be a string reference or an embedded verification method object —
      * we only extract string references here.
      */
-    private fun parseReferences(root: JsonObject, key: String): List<String> {
-        val array = root[key]?.let {
-            runCatching { it.jsonArray }.getOrNull()
-        } ?: return emptyList()
+    private fun parseReferences(
+        root: JsonObject,
+        key: String
+    ): List<String> {
+        val array =
+            root[key]?.let {
+                runCatching { it.jsonArray }.getOrNull()
+            } ?: return emptyList()
 
         return array.mapNotNull { element ->
             when (element) {
@@ -165,19 +175,20 @@ class DidWebResolver(
         }
     }
 
-    private fun parseJsonObjectAsMap(obj: JsonObject): Map<String, Any> {
-        return obj.entries.associate { (k, v) ->
-            k to when (v) {
-                is JsonPrimitive -> when {
-                    v.isString -> v.content
-                    else -> runCatching { v.content.toLong() }.getOrElse { v.content }
+    private fun parseJsonObjectAsMap(obj: JsonObject): Map<String, Any> =
+        obj.entries.associate { (k, v) ->
+            k to
+                when (v) {
+                    is JsonPrimitive ->
+                        when {
+                            v.isString -> v.content
+                            else -> runCatching { v.content.toLong() }.getOrElse { v.content }
+                        }
+                    is JsonObject -> parseJsonObjectAsMap(v)
+                    is JsonArray -> v.map { it.toString() }
+                    else -> v.toString()
                 }
-                is JsonObject -> parseJsonObjectAsMap(v)
-                is JsonArray -> v.map { it.toString() }
-                else -> v.toString()
-            }
         }
-    }
 
     /** Releases the underlying HTTP client if it was initialized. */
     fun close() {

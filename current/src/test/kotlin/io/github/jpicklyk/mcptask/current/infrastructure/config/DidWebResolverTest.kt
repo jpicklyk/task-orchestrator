@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
 class DidWebResolverTest {
-
     // -------------------------------------------------------------------------
     // URL construction tests (via internal buildUrl)
     // -------------------------------------------------------------------------
@@ -61,7 +60,8 @@ class DidWebResolverTest {
     fun `resolve returns document for well-known DID`() =
         runTest {
             val did = "did:web:example.com"
-            val didDocument = """
+            val didDocument =
+                """
                 {
                   "id": "did:web:example.com",
                   "verificationMethod": [
@@ -80,15 +80,16 @@ class DidWebResolverTest {
                   "assertionMethod": ["did:web:example.com#key-1"],
                   "authentication": ["did:web:example.com#key-1"]
                 }
-            """.trimIndent()
+                """.trimIndent()
 
-            val engine = MockEngine { _ ->
-                respond(
-                    content = didDocument,
-                    status = HttpStatusCode.OK,
-                    headers = headersOf("Content-Type", "application/json")
-                )
-            }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
             val doc = resolver.resolve(did)
@@ -110,22 +111,24 @@ class DidWebResolverTest {
     fun `resolve returns document for path-based DID`() =
         runTest {
             val did = "did:web:example.com:agents:abc"
-            val didDocument = """
+            val didDocument =
+                """
                 {
                   "id": "did:web:example.com:agents:abc",
                   "verificationMethod": []
                 }
-            """.trimIndent()
+                """.trimIndent()
 
             var capturedUrl: String? = null
-            val engine = MockEngine { request ->
-                capturedUrl = request.url.toString()
-                respond(
-                    content = didDocument,
-                    status = HttpStatusCode.OK,
-                    headers = headersOf("Content-Type", "application/json")
-                )
-            }
+            val engine =
+                MockEngine { request ->
+                    capturedUrl = request.url.toString()
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
             val doc = resolver.resolve(did)
@@ -142,25 +145,28 @@ class DidWebResolverTest {
     fun `resolve throws DidResolutionException when document id does not match requested DID`() =
         runTest {
             val requestedDid = "did:web:example.com"
-            val didDocument = """
+            val didDocument =
+                """
                 {
                   "id": "did:web:attacker.com",
                   "verificationMethod": []
                 }
-            """.trimIndent()
+                """.trimIndent()
 
-            val engine = MockEngine { _ ->
-                respond(
-                    content = didDocument,
-                    status = HttpStatusCode.OK,
-                    headers = headersOf("Content-Type", "application/json")
-                )
-            }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
-            val ex = assertThrows<DidResolutionException> {
-                kotlinx.coroutines.runBlocking { resolver.resolve(requestedDid) }
-            }
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve(requestedDid) }
+                }
 
             assertTrue(
                 ex.message!!.contains("did:web:example.com"),
@@ -180,9 +186,10 @@ class DidWebResolverTest {
     fun `resolve throws DidResolutionException for empty identifier`() =
         runTest {
             val resolver = DidWebResolver()
-            val ex = assertThrows<DidResolutionException> {
-                kotlinx.coroutines.runBlocking { resolver.resolve("did:web:") }
-            }
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:") }
+                }
             assertNotNull(ex.message)
             assertTrue(ex.message!!.contains("empty identifier"), "Error should mention empty identifier")
         }
@@ -195,9 +202,10 @@ class DidWebResolverTest {
     fun `resolve throws DidResolutionException for non-did-web input`() =
         runTest {
             val resolver = DidWebResolver()
-            val ex = assertThrows<DidResolutionException> {
-                kotlinx.coroutines.runBlocking { resolver.resolve("did:key:z6MkhaXg") }
-            }
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:key:z6MkhaXg") }
+                }
             assertNotNull(ex.message)
         }
 
@@ -217,36 +225,40 @@ class DidWebResolverTest {
     @Test
     fun `resolve wraps network 404 in DidResolutionException`() =
         runTest {
-            val engine = MockEngine { _ ->
-                respond(
-                    content = "Not Found",
-                    status = HttpStatusCode.NotFound
-                )
-            }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = "Not Found",
+                        status = HttpStatusCode.NotFound
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
             // A 404 response still returns a body — the JSON parsing will fail,
             // which should be wrapped in DidResolutionException.
-            val ex = assertThrows<DidResolutionException> {
-                kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
-            }
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
             assertNotNull(ex.message)
         }
 
     @Test
     fun `resolve wraps network 500 in DidResolutionException`() =
         runTest {
-            val engine = MockEngine { _ ->
-                respond(
-                    content = "Internal Server Error",
-                    status = HttpStatusCode.InternalServerError
-                )
-            }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = "Internal Server Error",
+                        status = HttpStatusCode.InternalServerError
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
-            val ex = assertThrows<DidResolutionException> {
-                kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
-            }
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
             assertNotNull(ex.message)
         }
 
@@ -257,11 +269,16 @@ class DidWebResolverTest {
             val engine = MockEngine { _ -> throw networkCause }
 
             val resolver = DidWebResolver(engine)
-            val ex = assertThrows<DidResolutionException> {
-                kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
-            }
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
             assertNotNull(ex.message)
-            assertEquals(networkCause, ex.cause)
+            // Ktor's HttpClient pipeline may rewrap engine-thrown exceptions — verify the
+            // cause chain transitively includes the original by message, not by identity.
+            assertNotNull(ex.cause)
+            val causeChain = generateSequence(ex.cause) { it.cause }
+            assertEquals(true, causeChain.any { it.message?.contains("connection refused") == true })
         }
 
     // -------------------------------------------------------------------------
@@ -272,7 +289,8 @@ class DidWebResolverTest {
     fun `resolve handles multi-key document and returns assertionMethod subset`() =
         runTest {
             val did = "did:web:example.com"
-            val didDocument = """
+            val didDocument =
+                """
                 {
                   "id": "did:web:example.com",
                   "verificationMethod": [
@@ -292,15 +310,16 @@ class DidWebResolverTest {
                   "assertionMethod": ["did:web:example.com#key-1"],
                   "authentication": ["did:web:example.com#key-1", "did:web:example.com#key-2"]
                 }
-            """.trimIndent()
+                """.trimIndent()
 
-            val engine = MockEngine { _ ->
-                respond(
-                    content = didDocument,
-                    status = HttpStatusCode.OK,
-                    headers = headersOf("Content-Type", "application/json")
-                )
-            }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
             val doc = resolver.resolve(did)
@@ -332,19 +351,21 @@ class DidWebResolverTest {
     fun `resolve tolerates document with no verificationMethod or assertionMethod`() =
         runTest {
             val did = "did:web:minimal.example"
-            val didDocument = """
+            val didDocument =
+                """
                 {
                   "id": "did:web:minimal.example"
                 }
-            """.trimIndent()
+                """.trimIndent()
 
-            val engine = MockEngine { _ ->
-                respond(
-                    content = didDocument,
-                    status = HttpStatusCode.OK,
-                    headers = headersOf("Content-Type", "application/json")
-                )
-            }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
 
             val resolver = DidWebResolver(engine)
             val doc = resolver.resolve(did)

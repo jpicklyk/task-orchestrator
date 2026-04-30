@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.JWKSet
-import com.nimbusds.jose.util.JSONObjectUtils
 import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
 import kotlinx.serialization.json.JsonArray
@@ -126,27 +125,30 @@ class DidDocumentJwksExtractor(
         }
 
         // Build a lookup map from both fully-qualified id and bare-fragment id.
-        val byId: Map<String, VerificationMethod> = buildMap {
-            for (vm in doc.verificationMethods) {
-                put(vm.id, vm)
-                // Also index by bare fragment so references like "#key-1" resolve.
-                put(bareFragment(vm.id), vm)
-            }
-        }
-
-        return doc.assertionMethod.mapNotNull { ref ->
-            val resolved = byId[ref]
-                ?: byId[bareFragment(ref)]
-                ?: run {
-                    logger.warn(
-                        "assertionMethod reference '{}' did not resolve to any verification method in document '{}'",
-                        ref,
-                        doc.id,
-                    )
-                    null
+        val byId: Map<String, VerificationMethod> =
+            buildMap {
+                for (vm in doc.verificationMethods) {
+                    put(vm.id, vm)
+                    // Also index by bare fragment so references like "#key-1" resolve.
+                    put(bareFragment(vm.id), vm)
                 }
-            resolved
-        }.distinctBy { it.id }
+            }
+
+        return doc.assertionMethod
+            .mapNotNull { ref ->
+                val resolved =
+                    byId[ref]
+                        ?: byId[bareFragment(ref)]
+                        ?: run {
+                            logger.warn(
+                                "assertionMethod reference '{}' did not resolve to any verification method in document '{}'",
+                                ref,
+                                doc.id,
+                            )
+                            null
+                        }
+                resolved
+            }.distinctBy { it.id }
     }
 
     /**
@@ -181,6 +183,5 @@ class DidDocumentJwksExtractor(
             else -> JsonPrimitive(value.toString())
         }
 
-    private fun toJsonObject(map: Map<String, Any?>): JsonObject =
-        JsonObject(map.mapValues { (_, v) -> toJsonElement(v) })
+    private fun toJsonObject(map: Map<String, Any?>): JsonObject = JsonObject(map.mapValues { (_, v) -> toJsonElement(v) })
 }
