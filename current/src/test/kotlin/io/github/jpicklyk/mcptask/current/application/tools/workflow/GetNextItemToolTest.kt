@@ -824,23 +824,18 @@ class GetNextItemToolTest {
         title: String,
         role: Role = Role.QUEUE
     ): WorkItem {
+        // Capture Instant.now() ONCE: separate calls drift by microseconds on high-resolution
+        // clocks (Linux CI), causing originalClaimedAt > claimedAt and tripping H2's
+        // `originalClaimedAt <= claimedAt` invariant.
+        val now = java.time.Instant.now()
         val item =
             WorkItem(
                 title = title,
                 role = role,
                 claimedBy = "test-agent",
-                claimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(60),
-                claimExpiresAt =
-                    java.time.Instant
-                        .now()
-                        .plusSeconds(3600),
-                originalClaimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(60)
+                claimedAt = now.minusSeconds(60),
+                claimExpiresAt = now.plusSeconds(3600),
+                originalClaimedAt = now.minusSeconds(60)
             )
         val result = context.workItemRepository().create(item)
         return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
@@ -853,23 +848,16 @@ class GetNextItemToolTest {
         title: String,
         role: Role = Role.QUEUE
     ): WorkItem {
+        // Capture Instant.now() once — same clock-drift rationale as createClaimedItem.
+        val now = java.time.Instant.now()
         val item =
             WorkItem(
                 title = title,
                 role = role,
                 claimedBy = "test-agent",
-                claimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(7200),
-                claimExpiresAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(3600),
-                originalClaimedAt =
-                    java.time.Instant
-                        .now()
-                        .minusSeconds(7200)
+                claimedAt = now.minusSeconds(7200),
+                claimExpiresAt = now.minusSeconds(3600),
+                originalClaimedAt = now.minusSeconds(7200)
             )
         val result = context.workItemRepository().create(item)
         return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
