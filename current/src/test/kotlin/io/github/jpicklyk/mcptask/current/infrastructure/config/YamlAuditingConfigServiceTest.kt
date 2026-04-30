@@ -124,7 +124,8 @@ class YamlAuditingConfigServiceTest {
         assertEquals(listOf("RS256", "ES256"), verifier.algorithms)
         assertEquals(600L, verifier.cacheTtlSeconds)
         assertFalse(verifier.requireSubMatch)
-        assertTrue(service.getWarnings().isEmpty())
+        // Multiple static-JWKS sources produce a warning (exactly-one-source enforcement)
+        assertTrue(service.getWarnings().any { it.contains("exactly one") })
     }
 
     // -------------------------------------------------------------------------
@@ -599,6 +600,247 @@ class YamlAuditingConfigServiceTest {
         val configFile = createConfigFile("note_schemas:\n  default: []")
         val service = YamlAuditingConfigService(configFile, envResolver = { null })
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
+    }
+
+    // -------------------------------------------------------------------------
+    // DID-trust mode — parsing
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `did_allowlist only activates DID-trust mode with all defaults`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                      - "did:web:trusted.org"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier
+        assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
+        verifier as VerifierConfig.Jwks
+        assertEquals(listOf("did:web:example.com", "did:web:trusted.org"), verifier.didAllowlist)
+        assertNull(verifier.didPattern)
+        assertTrue(verifier.didStrictRelationship)
+        assertTrue(verifier.didLooseKidMatch)
+        assertNull(verifier.oidcDiscovery)
+        assertNull(verifier.jwksUri)
+        assertNull(verifier.jwksPath)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `did_pattern only activates DID-trust mode with all defaults`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_pattern: "did:web:*.example.com"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertEquals(emptyList<String>(), verifier.didAllowlist)
+        assertEquals("did:web:*.example.com", verifier.didPattern)
+        assertTrue(verifier.didStrictRelationship)
+        assertTrue(verifier.didLooseKidMatch)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `did_allowlist and did_pattern together both parsed correctly`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:explicit.example.com"
+                    did_pattern: "did:web:*.trusted.org"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertEquals(listOf("did:web:explicit.example.com"), verifier.didAllowlist)
+        assertEquals("did:web:*.trusted.org", verifier.didPattern)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `did_strict_relationship false is parsed correctly`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                    did_strict_relationship: false
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertFalse(verifier.didStrictRelationship)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    @Test
+    fun `did_loose_kid_match false is parsed correctly`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                    did_loose_kid_match: false
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertFalse(verifier.didLooseKidMatch)
+        assertTrue(service.getWarnings().isEmpty())
+    }
+
+    // -------------------------------------------------------------------------
+    // DID-trust mode — mutual exclusion enforcement
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `did_allowlist with jwks_uri throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("jwks_uri"), "Expected 'jwks_uri' in: ${ex.message}")
+    }
+
+    @Test
+    fun `did_allowlist with jwks_path throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                    jwks_path: "/etc/keys/jwks.json"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("jwks_path"), "Expected 'jwks_path' in: ${ex.message}")
+    }
+
+    @Test
+    fun `did_allowlist with oidc_discovery throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                    oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("oidc_discovery"), "Expected 'oidc_discovery' in: ${ex.message}")
+    }
+
+    @Test
+    fun `did_pattern with jwks_uri throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_pattern: "did:web:*.example.com"
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("jwks_uri"), "Expected 'jwks_uri' in: ${ex.message}")
+    }
+
+    @Test
+    fun `no source configured at all produces warning and falls back to Noop`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    issuer: "https://accounts.example.com"
+                    audience: "mcp-task-orchestrator"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
+        assertTrue(service.getWarnings().isNotEmpty())
+        assertTrue(service.getWarnings().any { it.contains("oidc_discovery") && it.contains("jwks_uri") })
+    }
+
+    // -------------------------------------------------------------------------
+    // Static JWKS regression guard (DID fields default to empty/null/true/true)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `static jwks_uri config has DID fields at defaults`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertEquals(emptyList<String>(), verifier.didAllowlist)
+        assertNull(verifier.didPattern)
+        assertTrue(verifier.didStrictRelationship)
+        assertTrue(verifier.didLooseKidMatch)
+        assertTrue(service.getWarnings().isEmpty())
     }
 
     // -------------------------------------------------------------------------
