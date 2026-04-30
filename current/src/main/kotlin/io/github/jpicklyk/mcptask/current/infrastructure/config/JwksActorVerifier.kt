@@ -92,8 +92,9 @@ class JwksActorVerifier(
         val jwkSet =
             try {
                 if (isDidTrust) {
-                    val iss = signedJWT.jwtClaimsSet.issuer
-                        ?: return rejected("missing iss claim under DID trust", "claims")
+                    val iss =
+                        signedJWT.jwtClaimsSet.issuer
+                            ?: return rejected("missing iss claim under DID trust", "claims")
                     keySetProvider.getKeySetForIssuer(iss)
                 } else {
                     keySetProvider.getKeySet()
@@ -108,18 +109,19 @@ class JwksActorVerifier(
         val kid = signedJWT.header.keyID
         val matcher = JWKMatcher.Builder().keyID(kid).build()
         val matchingKeys = JWKSelector(matcher).select(jwkSet)
-        val jwk = when {
-            matchingKeys.isNotEmpty() -> matchingKeys.first()
-            isDidTrust && config.didLooseKidMatch && jwkSet.keys.size == 1 -> {
-                logger.debug(
-                    "JWT kid '{}' not found in DID-resolved JWKS for issuer '{}'; using sole eligible key (loose-kid match)",
-                    kid,
-                    signedJWT.jwtClaimsSet.issuer
-                )
-                jwkSet.keys.first()
+        val jwk =
+            when {
+                matchingKeys.isNotEmpty() -> matchingKeys.first()
+                isDidTrust && config.didLooseKidMatch && jwkSet.keys.size == 1 -> {
+                    logger.debug(
+                        "JWT kid '{}' not found in DID-resolved JWKS for issuer '{}'; using sole eligible key (loose-kid match)",
+                        kid,
+                        signedJWT.jwtClaimsSet.issuer
+                    )
+                    jwkSet.keys.first()
+                }
+                else -> return rejected("no matching key for kid: $kid", "crypto")
             }
-            else -> return rejected("no matching key for kid: $kid", "crypto")
-        }
 
         // Step 6 — build a JWS verifier from the first matching key and verify the signature.
         val jwsVerifier =

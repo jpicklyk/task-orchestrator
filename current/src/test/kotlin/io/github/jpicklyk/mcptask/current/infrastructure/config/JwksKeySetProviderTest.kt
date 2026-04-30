@@ -456,7 +456,6 @@ class JwksKeySetProviderTest {
 
     @Nested
     inner class DidTrustPath {
-
         // Helper: build a synthetic DidDocument with one Ed25519 public key.
         private fun buildDidDocument(
             did: String,
@@ -468,35 +467,38 @@ class JwksKeySetProviderTest {
             val pub = pair.public as Ed25519PublicKeyParameters
             val priv = pair.private as Ed25519PrivateKeyParameters
 
-            val edKey = OctetKeyPair
-                .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
-                .d(Base64URL.encode(priv.encoded))
-                .keyID(kid)
-                .build()
+            val edKey =
+                OctetKeyPair
+                    .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
+                    .d(Base64URL.encode(priv.encoded))
+                    .keyID(kid)
+                    .build()
 
-            val publicKeyJwk: Map<String, Any> = mapOf(
-                "kty" to "OKP",
-                "crv" to "Ed25519",
-                "x" to edKey.x.toString(),
-                "kid" to kid
-            )
+            val publicKeyJwk: Map<String, Any> =
+                mapOf(
+                    "kty" to "OKP",
+                    "crv" to "Ed25519",
+                    "x" to edKey.x.toString(),
+                    "kid" to kid
+                )
 
-            val vm = VerificationMethod(
-                id = "$did#$kid",
-                type = "JsonWebKey2020",
-                controller = did,
-                publicKeyJwk = publicKeyJwk
-            )
-            val doc = DidDocument(
-                id = did,
-                verificationMethods = listOf(vm),
-                assertionMethod = listOf("$did#$kid")
-            )
+            val vm =
+                VerificationMethod(
+                    id = "$did#$kid",
+                    type = "JsonWebKey2020",
+                    controller = did,
+                    publicKeyJwk = publicKeyJwk
+                )
+            val doc =
+                DidDocument(
+                    id = did,
+                    verificationMethods = listOf(vm),
+                    assertionMethod = listOf("$did#$kid")
+                )
             return Pair(doc, edKey)
         }
 
-        private fun makeFixedClock(base: Instant = Instant.parse("2024-01-01T00:00:00Z")): Clock =
-            Clock.fixed(base, ZoneOffset.UTC)
+        private fun makeFixedClock(base: Instant = Instant.parse("2024-01-01T00:00:00Z")): Clock = Clock.fixed(base, ZoneOffset.UTC)
 
         // DID-T1: allowlist match returns extracted JWKSet
         @Test
@@ -507,15 +509,17 @@ class JwksKeySetProviderTest {
                 val mockRegistry = mockk<DidResolverRegistry>()
                 coEvery { mockRegistry.resolve(did) } returns doc
 
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = listOf(did),
-                    cacheTtlSeconds = 300
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = makeFixedClock(),
-                    didResolverRegistry = mockRegistry
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
 
                 val jwks = provider.getKeySetForIssuer(did)
                 assertNotNull(jwks)
@@ -533,15 +537,17 @@ class JwksKeySetProviderTest {
                 val mockRegistry = mockk<DidResolverRegistry>()
                 coEvery { mockRegistry.resolve(did) } returns doc
 
-                val config = VerifierConfig.Jwks(
-                    didPattern = pattern,
-                    cacheTtlSeconds = 300
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = makeFixedClock(),
-                    didResolverRegistry = mockRegistry
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didPattern = pattern,
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
 
                 val jwks = provider.getKeySetForIssuer(did)
                 assertNotNull(jwks)
@@ -552,10 +558,11 @@ class JwksKeySetProviderTest {
         @Test
         fun `getKeySetForIssuer with no trust match throws IssuerNotTrustedException`() =
             runTest {
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = listOf("did:web:trusted.example.com"),
-                    cacheTtlSeconds = 300
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf("did:web:trusted.example.com"),
+                        cacheTtlSeconds = 300
+                    )
                 val provider = DefaultJwksKeySetProvider(config)
 
                 assertThrows<IssuerNotTrustedException> {
@@ -572,15 +579,17 @@ class JwksKeySetProviderTest {
                 val mockRegistry = mockk<DidResolverRegistry>()
                 coEvery { mockRegistry.resolve(did) } returns doc
 
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = listOf(did),
-                    cacheTtlSeconds = 300
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = makeFixedClock(),
-                    didResolverRegistry = mockRegistry
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
 
                 val first = provider.getKeySetForIssuer(did)
                 val second = provider.getKeySetForIssuer(did)
@@ -602,21 +611,26 @@ class JwksKeySetProviderTest {
 
                 val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
                 var currentInstant = baseInstant
-                val advancingClock = object : Clock() {
-                    override fun getZone(): ZoneOffset = ZoneOffset.UTC
-                    override fun withZone(zone: java.time.ZoneId): Clock = this
-                    override fun instant(): Instant = currentInstant
-                }
+                val advancingClock =
+                    object : Clock() {
+                        override fun getZone(): ZoneOffset = ZoneOffset.UTC
 
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = listOf(did),
-                    cacheTtlSeconds = 60
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = advancingClock,
-                    didResolverRegistry = mockRegistry
-                )
+                        override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                        override fun instant(): Instant = currentInstant
+                    }
+
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 60
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = advancingClock,
+                        didResolverRegistry = mockRegistry
+                    )
 
                 val first = provider.getKeySetForIssuer(did)
 
@@ -642,29 +656,37 @@ class JwksKeySetProviderTest {
 
                 val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
                 var currentInstant = baseInstant
-                val advancingClock = object : Clock() {
-                    override fun getZone(): ZoneOffset = ZoneOffset.UTC
-                    override fun withZone(zone: java.time.ZoneId): Clock = this
-                    override fun instant(): Instant = currentInstant
-                }
+                val advancingClock =
+                    object : Clock() {
+                        override fun getZone(): ZoneOffset = ZoneOffset.UTC
+
+                        override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                        override fun instant(): Instant = currentInstant
+                    }
 
                 var resolveCount = 0
                 coEvery { mockRegistry.resolve(did) } answers {
                     resolveCount++
-                    if (resolveCount == 1) doc
-                    else throw DidResolutionException("network failure")
+                    if (resolveCount == 1) {
+                        doc
+                    } else {
+                        throw DidResolutionException("network failure")
+                    }
                 }
 
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = listOf(did),
-                    cacheTtlSeconds = 60,
-                    staleOnError = true
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = advancingClock,
-                    didResolverRegistry = mockRegistry
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 60,
+                        staleOnError = true
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = advancingClock,
+                        didResolverRegistry = mockRegistry
+                    )
 
                 // First successful fetch
                 val first = provider.getKeySetForIssuer(did)
@@ -701,15 +723,17 @@ class JwksKeySetProviderTest {
                 }
 
                 val allowlist = dids.toList()
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = allowlist,
-                    cacheTtlSeconds = 3600
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = fixedClock,
-                    didResolverRegistry = mockRegistry
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = allowlist,
+                        cacheTtlSeconds = 3600
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = fixedClock,
+                        didResolverRegistry = mockRegistry
+                    )
 
                 // Populate cache with all 257 issuers
                 dids.forEach { did ->
@@ -761,16 +785,18 @@ class JwksKeySetProviderTest {
                 coEvery { mockRegistry.resolve(did) } returns doc
 
                 // Both allowlist and pattern would match; allowlist takes priority
-                val config = VerifierConfig.Jwks(
-                    didAllowlist = listOf(did),
-                    didPattern = "did:web:special.*",
-                    cacheTtlSeconds = 300
-                )
-                val provider = DefaultJwksKeySetProvider(
-                    config,
-                    clock = makeFixedClock(),
-                    didResolverRegistry = mockRegistry
-                )
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        didPattern = "did:web:special.*",
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
 
                 // Should resolve without exception (trusted via allowlist)
                 val jwks = provider.getKeySetForIssuer(did)
@@ -781,16 +807,18 @@ class JwksKeySetProviderTest {
                 val (patternDoc, _) = buildDidDocument(patternDid)
                 coEvery { mockRegistry.resolve(patternDid) } returns patternDoc
 
-                val config2 = VerifierConfig.Jwks(
-                    didAllowlist = listOf(did),
-                    didPattern = "did:web:special.*",
-                    cacheTtlSeconds = 300
-                )
-                val provider2 = DefaultJwksKeySetProvider(
-                    config2,
-                    clock = makeFixedClock(),
-                    didResolverRegistry = mockRegistry
-                )
+                val config2 =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        didPattern = "did:web:special.*",
+                        cacheTtlSeconds = 300
+                    )
+                val provider2 =
+                    DefaultJwksKeySetProvider(
+                        config2,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
                 val jwks2 = provider2.getKeySetForIssuer(patternDid)
                 assertNotNull(jwks2)
             }

@@ -33,7 +33,9 @@ data class CacheState(
  * Thrown by [JwksKeySetProvider.getKeySetForIssuer] when the given issuer DID does not
  * match the configured [VerifierConfig.Jwks.didAllowlist] or [VerifierConfig.Jwks.didPattern].
  */
-class IssuerNotTrustedException(issuer: String) : Exception("issuer not in DID trust policy: $issuer")
+class IssuerNotTrustedException(
+    issuer: String
+) : Exception("issuer not in DID trust policy: $issuer")
 
 /**
  * Provides a [JWKSet] for JWT signature verification.
@@ -121,18 +123,19 @@ class DefaultJwksKeySetProvider(
     private val httpClient: HttpClient by httpClientDelegate
 
     /** Per-issuer DID cache with LRU eviction at [MAX_DID_CACHE_ENTRIES] entries. */
-    private val didCache = object : LinkedHashMap<String, Pair<JWKSet, Instant>>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: Map.Entry<String, Pair<JWKSet, Instant>>?): Boolean {
-            val shouldEvict = size > MAX_DID_CACHE_ENTRIES
-            if (shouldEvict) {
-                logger.warn(
-                    "DID cache LRU eviction at capacity {} — fleet churn or cache size too small",
-                    MAX_DID_CACHE_ENTRIES
-                )
+    private val didCache =
+        object : LinkedHashMap<String, Pair<JWKSet, Instant>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: Map.Entry<String, Pair<JWKSet, Instant>>?): Boolean {
+                val shouldEvict = size > MAX_DID_CACHE_ENTRIES
+                if (shouldEvict) {
+                    logger.warn(
+                        "DID cache LRU eviction at capacity {} — fleet churn or cache size too small",
+                        MAX_DID_CACHE_ENTRIES
+                    )
+                }
+                return shouldEvict
             }
-            return shouldEvict
         }
-    }
     private val didCacheLock = Mutex()
 
     override suspend fun getKeySet(): JWKSet {
@@ -246,11 +249,15 @@ class DefaultJwksKeySetProvider(
 
     // Glob match: "*" matches any sequence (including empty), no other special chars.
     // Compile pattern to regex once per call (acceptable; patterns are typically short).
-    internal fun matchesGlob(value: String, pattern: String): Boolean {
-        val regex = pattern
-            .split("*")
-            .joinToString(".*") { Regex.escape(it) }
-            .let { Regex("^$it$") }
+    internal fun matchesGlob(
+        value: String,
+        pattern: String
+    ): Boolean {
+        val regex =
+            pattern
+                .split("*")
+                .joinToString(".*") { Regex.escape(it) }
+                .let { Regex("^$it$") }
         return regex.matches(value)
     }
 
