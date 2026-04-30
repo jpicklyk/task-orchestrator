@@ -76,6 +76,85 @@ Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim item
 
 ---
 
+## Rolling Out Claim Mode
+
+Claim mode is opt-in. New deployments can start in any policy; existing deployments should ramp up policy strictness in stages so client-side actor wiring can catch up to server-side enforcement.
+
+### Stages
+
+The four stages below correspond to increasing identity-enforcement strictness. At any stage you can hold position indefinitely; advance only when clients are ready for the next stage.
+
+| Stage | Config | Server behavior |
+|---|---|---|
+| **0 — Default orchestration** | `auditing.enabled: false` (or absent) | `claim_item` works but is optional. `advance_item` does not enforce ownership. No actor required. |
+| **1 — Auditing on, self-reported identity** | `auditing.enabled: true`, `degraded_mode_policy: accept-self-reported`, no `verifier` | Actor required on writes (when paired with an actor-attribution enforcement layer). `claim_item` enforces ownership on subsequent `advance_item` calls. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
+| **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. Other non-verified outcomes fall back to self-reported `actor.id` with a WARN log. |
+| **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
+
+### Recommended Sequence
+
+1. **Stage 0 → Stage 1.** Enable auditing in the config. Roll out `actor` plumbing on clients first, then flip `auditing.enabled: true`. Clients that don't pass `actor` will fail writes once attribution enforcement is active.
+2. **Stage 1 → Stage 2.** Configure the JWKS source and have clients begin attaching `actor.proof` JWTs. Stage 2 is forgiving — clients without `actor.proof` continue to work via self-reported fallback. Use this stage to confirm verification metadata in responses (`verification.status: VERIFIED` for upgraded clients).
+3. **Stage 2 → Stage 3.** Once telemetry confirms all client traffic is producing `VERIFIED` outcomes, flip `degraded_mode_policy: reject`. Any remaining unverified clients will start receiving `rejected_by_policy` on `claim_item` and on `advance_item` for claimed items.
+
+### Rolling Back
+
+Each stage is reversible. Loosening `degraded_mode_policy` (e.g., `reject` → `accept-cached`) immediately allows previously-rejected operations to succeed. Disabling auditing entirely reverts to default-mode semantics — claims still work, but `advance_item` no longer enforces ownership.
+
+Existing claim records persist across policy changes. If a claim was placed under Stage 2 and the policy is loosened to Stage 1, the claim remains valid; ownership comparison still uses whatever identity scheme was in effect when the claim was placed.
+
+---
+
+## JWT Contract
+
+When `verifier.type: jwks` is configured, TO reads a narrow subset of claims from each `actor.proof` JWT. This section documents that contract — not how to operate a JWT issuer.
+
+### Claims TO Reads
+
+| Claim | Required | Used for |
+|---|---|---|
+| `iss` | Yes | Compared against the configured `issuer` |
+| `aud` | Yes (if `audience` configured) | Compared against the configured `audience` |
+| `sub` | Yes | Becomes the trusted `claimedBy` value when `require_sub_match: true` and the caller's self-reported `actor.id` matches |
+| `exp` | Yes | Standard JWT expiry — past-`exp` tokens are rejected at the `crypto` layer |
+| `nbf` | Optional | If present, before-`nbf` tokens are rejected |
+| `iat` | Optional | Logged for audit; not enforced |
+
+Other claims in the JWT are ignored. TO does not require `jti`, custom scopes, or org/tenant claims — those are deployment concerns outside the TO contract.
+
+### `require_sub_match`
+
+When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, only the JWT signature and standard claims are checked; `actor.id` is replaced by `sub` after verification.
+
+### Algorithm Allowlist
+
+Only algorithms in the configured `algorithms` list are accepted. JWTs signed with other algorithms are rejected at the `crypto` layer regardless of signature validity. Default recommendation: `["EdDSA", "RS256"]`. `none` and symmetric algorithms (`HS256` etc.) are not supported.
+
+### `cache_ttl_seconds` and Degraded Mode Interaction
+
+JWKS responses are cached for `cache_ttl_seconds` (default: 300). The cache interacts with `degraded_mode_policy` as follows:
+
+| Cache state | `accept-cached` | `accept-self-reported` | `reject` |
+|---|---|---|---|
+| Fresh hit | JWT verified, identity = `sub` | Same | Same |
+| Expired entry, JWKS reachable | Re-fetched, JWT verified, identity = `sub` | Same | Same |
+| Expired entry, JWKS unreachable | Stale cache used, identity = `sub` (JWKS source was offline) | Self-reported `actor.id` used | Operation rejected |
+| Never cached, JWKS unreachable | Self-reported `actor.id` used (WARN logged) | Self-reported `actor.id` used | Operation rejected |
+
+### JWT `exp` vs Claim TTL
+
+JWT lifetime and claim TTL are independent. A JWT whose `exp` passes mid-claim does not invalidate the claim record itself, but it does affect subsequent operations that re-verify identity (`claim_item` heartbeat, `advance_item` on the claimed item).
+
+When a presented JWT is past `exp`, the verifier returns a non-`VERIFIED` status. The resolution chain then applies:
+- Under `accept-cached`: identity falls back to the self-reported `actor.id`. If that value matches the claim's existing `claimedBy`, the operation succeeds. Holders that consistently pass the same self-reported `actor.id` they used at claim time will continue to operate even after their JWT expires.
+- Under `reject`: the operation is rejected with `rejected_by_policy`.
+
+For long-running work under `reject`, size JWT lifetime to comfortably exceed the heartbeat cadence so the holder always presents a fresh token. Under `accept-cached`, JWT expiry is non-fatal as long as the holder's `actor.id` is stable.
+
+The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime — it caches the verifier's public key material, not the JWTs themselves.
+
+---
+
 ## SQLite Tuning — `DATABASE_BUSY_TIMEOUT_MS`
 
 SQLite is a single-writer database. Under concurrent fleet load, write operations may queue and return `SQLITE_BUSY` if the writer lock is held too long. The `DATABASE_BUSY_TIMEOUT_MS` environment variable controls how long SQLite waits for the lock before returning an error.
@@ -177,6 +256,18 @@ The identity resolution chain:
 3. `actor.proof` missing/invalid, `degradedModePolicy=accept-self-reported` → use self-reported `actor.id`
 4. `actor.proof` missing/invalid, `degradedModePolicy=reject` → reject the operation (`rejected_by_policy`)
 
+### `claimedBy` and PII
+
+`claimedBy` is whatever value the identity resolution chain produces — typically the JWT `sub` claim under verified mode, or the self-reported `actor.id` under fallback. If your issuer puts an email address, employee ID, or other personal identifier in `sub`, that value persists in the database on every claim and in audit log entries on every write.
+
+| Surface | What gets persisted |
+|---|---|
+| `work_items.claimed_by` | Current claim holder identity |
+| Audit notes (when `auditing.enabled`) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
+| `query_notes` body content | Audit notes are readable via standard note queries |
+
+Operators are responsible for choosing a `sub` value with appropriate sensitivity for their compliance regime. Pseudonymous identifiers (UUIDs, `did:web` identifiers, opaque session tokens) avoid PII concerns entirely. Email-as-`sub` is supported but creates compliance obligations downstream.
+
 ---
 
 ## Tiered Claim Disclosure
@@ -233,6 +324,41 @@ The audit log via `auditing.enabled` is the only structured per-operation signal
 If your fleet rollout requires real-time dashboards or alerting on these signals, plan to instrument them at the client side (agent telemetry) or proxy level until server-side metrics are added.
 
 Metrics and observability infrastructure are explicitly deferred to a future release (see issue tracker). The audit log is the recommended bridge for compliance and post-incident review until then.
+
+---
+
+## Operating a Live Fleet
+
+Lifecycle and edge-case behaviors that operators encounter once a claim-mode fleet is running.
+
+### Graceful Drain
+
+There is no built-in drain command. The intended sequence to stop a TO instance with active claims:
+
+1. Stop dispatching new work to agents talking to this instance (orchestration-side, outside TO).
+2. Let in-flight claims complete naturally. Agents call `claim_item(releases=[...])` after `advance_item(trigger="complete")`, or skip the release and let TTL elapse.
+3. Monitor `get_context()` → `claimSummary.active` until it reaches zero, or until residual claims age past their TTL into `claimSummary.expired`.
+4. Stop the server.
+
+If you stop the server while claims are active, no data is lost — claim records persist in the database. On the next startup, expired claims are filtered at read time as usual; non-expired claims will reach their TTL and become reclaimable.
+
+### Upgrade Behavior
+
+Schema migrations (Flyway) run at server startup before any tool calls are accepted. Existing claim columns are preserved across migrations unless a migration explicitly modifies them — V6 reshaped the `claim_expires_at` index but claim row data was untouched. Future migrations that touch the four claim columns will be flagged in the release notes.
+
+A migration that runs while no client is connected has no claim-state implications. A migration that runs immediately after a restart, with claim records already in place, applies normally — claim records survive because they are row data, not schema.
+
+### Cross-Partition Scoping
+
+Claims are per-instance. Agents do not cross-claim across partitioned TO instances (different SQLite databases). An agent talking to two instances holds two independent claims, one in each.
+
+### `actor.parent` in Fleet Mode
+
+When an external dispatcher (not a TO subagent) spawns workers, set `actor.parent` to a stable identifier that ties workers back to their dispatcher. The audit log preserves the value verbatim and it is queryable via `query_notes` body content. TO does not interpret the value — it is a string for downstream correlation.
+
+### Reopen and Claim TTL
+
+If a terminal item is reopened (`advance_item(trigger="reopen")`) while the original claim TTL is still alive, the original holder retains ownership. Other agents see `already_claimed` until the TTL elapses or the holder explicitly releases. To reopen and reassign in one motion, call `claim_item(releases=[...])` first, then `advance_item(trigger="reopen")`, then have the new holder claim.
 
 ---
 
