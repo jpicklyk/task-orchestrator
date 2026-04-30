@@ -102,6 +102,9 @@ dependencies {
     testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.engine)
 
+    // Ktor mock engine for hermetic HTTP tests
+    testImplementation(libs.ktor.client.mock)
+
     // Coroutines test support
     testImplementation(libs.kotlinx.coroutines.test)
 
