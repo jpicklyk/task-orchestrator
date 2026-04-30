@@ -11,6 +11,32 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ---
 
+## Scope — What This Guide Covers (and What It Doesn't)
+
+This guide covers **server-side configuration**: identity policy, capacity tuning, observability, and lifecycle. The **agent/client side** — calling `claim_item`, attaching verified `actor.proof` JWTs, sequencing claim/heartbeat/release, retrying on `already_claimed`, integrating with your identity provider and audit infrastructure — is the implementer's responsibility.
+
+### The Bundled Claude Code Plugin Is Not a Fleet Driver
+
+The plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills and hooks teach the agent-owned phase-entry pattern (`advance_item` called directly by each agent) — not the claim-then-advance coordination required by fleet deployments. Do not rely on it as a fleet driver:
+
+- The bundled output style and skills do not reference `claim_item` and assume unclaimed items
+- The bundled `enforce-actor-attribution` hook checks for an `actor` field on writes but does not enforce claim ownership precedence
+- Subagent dispatch templates do not include claim acquisition steps
+
+Treat the bundled plugin's behavior in claim mode as undefined. Build your own claim-aware skills, hooks, or middleware tailored to your fleet's identity scheme, contention policy, and audit integration.
+
+### The Public Contract
+
+TO publishes the following as the integration seam — the surface fleet implementers build against:
+
+- **MCP tools** — `claim_item` (acquire/heartbeat/release), `advance_item` (with ownership enforcement on claimed items), `get_context(itemId)` (operator diagnostic with full claim detail), `query_items(claimStatus=...)` (filtered discovery, identity-redacted), `get_next_item(includeClaimed=...)` (work discovery)
+- **Configuration** — `.taskorchestrator/config.yaml` `auditing` block (server policy)
+- **Audit log** — actor claims persisted on every write when `auditing.enabled: true`, queryable via `query_notes`
+
+Anything else (specific skill instructions, hook behavior, output-style conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
+
+---
+
 ## Identity Configuration — `auth.degradedModePolicy`
 
 The `degradedModePolicy` field under `auditing:` in `.taskorchestrator/config.yaml` controls how the server resolves actor identity when JWKS verification cannot produce a fully verified result.
