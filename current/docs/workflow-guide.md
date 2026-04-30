@@ -862,6 +862,8 @@ The claim mechanism prevents race conditions between independent agents competin
 
 > **Operators:** see [Fleet Deployment Guide](./fleet-deployment.md) for `degradedModePolicy`, `DATABASE_BUSY_TIMEOUT_MS`, capacity planning, and a Claims Troubleshooting FAQ. The tool-level `claim_item` reference lives in [API Reference](./api-reference.md#claim_item).
 
+> **Agent implementers:** the bundled Claude Code plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills, hooks, and output style assume the agent-owned phase-entry pattern (`advance_item` called directly) — they do not reference `claim_item` or coordinate claim-then-advance sequencing. If you are building agents for a claim-based fleet, treat the bundled plugin's behavior as undefined and build claim-aware skills/hooks against the MCP tool surface directly (`claim_item`, `advance_item`, `get_next_item`, `query_items`, `get_context`). See the [Fleet Deployment Guide — Scope](./fleet-deployment.md#scope) for the public contract.
+
 ### When to Use Claims
 
 **Skip claims if:**
