@@ -31,6 +31,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.security.SecureRandom
 import java.security.Security
@@ -493,4 +494,258 @@ class JwksActorVerifierTest {
             assertEquals("internal", result.metadata["failureKind"])
             assertNotNull(result.reason)
         }
+
+    // =========================================================================
+    // DID-trust path tests
+    // =========================================================================
+
+    @Nested
+    inner class DidTrustPath {
+
+        private val didIssuer = "did:web:test.example.com"
+
+        // Build a separate Ed25519 keypair for DID-trust tests so they don't share
+        // the companion-object's "ed-test-key" kid.
+        private val didEdKey: OctetKeyPair = run {
+            val gen = Ed25519KeyPairGenerator()
+            gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
+            val pair = gen.generateKeyPair()
+            val priv = pair.private as Ed25519PrivateKeyParameters
+            val pub = pair.public as Ed25519PublicKeyParameters
+            OctetKeyPair
+                .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
+                .d(Base64URL.encode(priv.encoded))
+                .keyID("did-ed-key")
+                .build()
+        }
+
+        private fun signDidEd(
+            claims: JWTClaimsSet,
+            kid: String = "did-ed-key"
+        ): String {
+            val jwt = SignedJWT(
+                JWSHeader.Builder(JWSAlgorithm.Ed25519).keyID(kid).build(),
+                claims
+            )
+            jwt.sign(Ed25519Signer(didEdKey))
+            return jwt.serialize()
+        }
+
+        private fun didConfig(
+            didAllowlist: List<String> = listOf(didIssuer),
+            didPattern: String? = null,
+            didLooseKidMatch: Boolean = true,
+            issuer: String? = null,
+            audience: String? = null,
+            requireSubMatch: Boolean = false
+        ) = VerifierConfig.Jwks(
+            didAllowlist = didAllowlist,
+            didPattern = didPattern,
+            didLooseKidMatch = didLooseKidMatch,
+            issuer = issuer,
+            audience = audience,
+            requireSubMatch = requireSubMatch
+        )
+
+        /** Mock provider for DID trust mode — getKeySetForIssuer returns the supplied JWKSet. */
+        private fun didMockProvider(
+            issuerToJwks: Map<String, JWKSet>,
+            cacheState: CacheState = CacheState(fromStaleCache = false, ageSeconds = null)
+        ): JwksKeySetProvider {
+            val provider = mockk<JwksKeySetProvider>()
+            issuerToJwks.forEach { (iss, jwks) ->
+                coEvery { provider.getKeySetForIssuer(iss) } returns jwks
+            }
+            every { provider.getResolvedIssuer() } returns null
+            every { provider.getCacheState() } returns cacheState
+            every { provider.close() } just Runs
+            return provider
+        }
+
+        // DID-V1: DID-trust happy path — kid matches, VERIFIED
+        @Test
+        fun `DID-trust happy path with matching kid returns VERIFIED`() =
+            runTest {
+                val claims = JWTClaimsSet.Builder()
+                    .subject("agent-1")
+                    .issuer(didIssuer)
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    .build()
+                val jwt = signDidEd(claims)
+                val jwks = JWKSet(listOf(didEdKey.toPublicJWK()))
+                val provider = didMockProvider(mapOf(didIssuer to jwks))
+
+                val result = JwksActorVerifier(
+                    config = didConfig(requireSubMatch = false),
+                    keySetProvider = provider
+                ).verify(actor(id = "agent-1", proof = jwt))
+
+                assertEquals(VerificationStatus.VERIFIED, result.status)
+                assertEquals("jwks", result.verifier)
+            }
+
+        // DID-V2: missing iss claim under DID trust → REJECTED failureKind=claims
+        @Test
+        fun `missing iss claim under DID trust returns REJECTED with failureKind=claims`() =
+            runTest {
+                val claims = JWTClaimsSet.Builder()
+                    .subject("agent-1")
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    // no issuer
+                    .build()
+                val jwt = signDidEd(claims)
+                val provider = mockk<JwksKeySetProvider>()
+                every { provider.close() } just Runs
+
+                val result = JwksActorVerifier(
+                    config = didConfig(),
+                    keySetProvider = provider
+                ).verify(actor(id = "agent-1", proof = jwt))
+
+                assertEquals(VerificationStatus.REJECTED, result.status)
+                assertEquals("claims", result.metadata["failureKind"])
+                assertTrue(result.reason?.contains("iss") == true, "reason: ${result.reason}")
+            }
+
+        // DID-V3: IssuerNotTrustedException from provider → REJECTED failureKind=policy
+        @Test
+        fun `IssuerNotTrustedException returns REJECTED with failureKind=policy`() =
+            runTest {
+                val untrustedIss = "did:web:untrusted.example.com"
+                val claims = JWTClaimsSet.Builder()
+                    .subject("agent-1")
+                    .issuer(untrustedIss)
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    .build()
+                val jwt = signDidEd(claims)
+
+                val provider = mockk<JwksKeySetProvider>()
+                coEvery { provider.getKeySetForIssuer(untrustedIss) } throws IssuerNotTrustedException(untrustedIss)
+                every { provider.getResolvedIssuer() } returns null
+                every { provider.getCacheState() } returns CacheState(fromStaleCache = false, ageSeconds = null)
+                every { provider.close() } just Runs
+
+                val result = JwksActorVerifier(
+                    config = didConfig(),
+                    keySetProvider = provider
+                ).verify(actor(id = "agent-1", proof = jwt))
+
+                assertEquals(VerificationStatus.REJECTED, result.status)
+                assertEquals("policy", result.metadata["failureKind"])
+            }
+
+        // DID-V4: loose-kid match — single key, kid mismatch, didLooseKidMatch=true → VERIFIED
+        @Test
+        fun `loose-kid match with single key and mismatched kid returns VERIFIED`() =
+            runTest {
+                // JWT kid is "different-kid" but the JWKSet has "did-ed-key"
+                val claims = JWTClaimsSet.Builder()
+                    .subject("agent-1")
+                    .issuer(didIssuer)
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    .build()
+                val jwt = signDidEd(claims, kid = "different-kid")
+                // JWKSet has only one key with kid="did-ed-key" — loose match will use it
+                val jwks = JWKSet(listOf(didEdKey.toPublicJWK()))
+                val provider = didMockProvider(mapOf(didIssuer to jwks))
+
+                val result = JwksActorVerifier(
+                    config = didConfig(didLooseKidMatch = true, requireSubMatch = false),
+                    keySetProvider = provider
+                ).verify(actor(id = "agent-1", proof = jwt))
+
+                assertEquals(VerificationStatus.VERIFIED, result.status)
+            }
+
+        // DID-V5: loose-kid disabled — single key, kid mismatch, didLooseKidMatch=false → REJECTED
+        @Test
+        fun `loose-kid disabled with single key and mismatched kid returns REJECTED`() =
+            runTest {
+                val claims = JWTClaimsSet.Builder()
+                    .subject("agent-1")
+                    .issuer(didIssuer)
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    .build()
+                val jwt = signDidEd(claims, kid = "different-kid")
+                val jwks = JWKSet(listOf(didEdKey.toPublicJWK()))
+                val provider = didMockProvider(mapOf(didIssuer to jwks))
+
+                val result = JwksActorVerifier(
+                    config = didConfig(didLooseKidMatch = false, requireSubMatch = false),
+                    keySetProvider = provider
+                ).verify(actor(id = "agent-1", proof = jwt))
+
+                assertEquals(VerificationStatus.REJECTED, result.status)
+                assertEquals("crypto", result.metadata["failureKind"])
+                assertTrue(result.reason?.contains("no matching key") == true, "reason: ${result.reason}")
+            }
+
+        // DID-V6: multi-key kid mismatch — even with didLooseKidMatch=true → REJECTED (single-key guard)
+        @Test
+        fun `loose-kid does not apply to multi-key DID JWKS`() =
+            runTest {
+                val claims = JWTClaimsSet.Builder()
+                    .subject("agent-1")
+                    .issuer(didIssuer)
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    .build()
+                // JWT kid is "different-kid", neither key has that id
+                val jwt = signDidEd(claims, kid = "different-kid")
+
+                // Build a second Ed key
+                val gen = Ed25519KeyPairGenerator()
+                gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
+                val pair2 = gen.generateKeyPair()
+                val pub2 = pair2.public as Ed25519PublicKeyParameters
+                val secondKey = OctetKeyPair
+                    .Builder(Curve.Ed25519, Base64URL.encode(pub2.encoded))
+                    .keyID("second-did-key")
+                    .build()
+
+                // Two keys — single-key guard prevents loose match
+                val jwks = JWKSet(listOf(didEdKey.toPublicJWK(), secondKey.toPublicJWK()))
+                val provider = didMockProvider(mapOf(didIssuer to jwks))
+
+                val result = JwksActorVerifier(
+                    config = didConfig(didLooseKidMatch = true, requireSubMatch = false),
+                    keySetProvider = provider
+                ).verify(actor(id = "agent-1", proof = jwt))
+
+                assertEquals(VerificationStatus.REJECTED, result.status)
+                assertEquals("crypto", result.metadata["failureKind"])
+            }
+
+        // DID-V7: static-JWKS path (isDidTrust=false) preserves strict kid matching
+        @Test
+        fun `static-JWKS path keeps strict kid matching even when single key in set`() =
+            runTest {
+                // isDidTrust=false: no didAllowlist, no didPattern
+                // JWT kid does not match the Ed key in the JWKSet
+                val claims = buildClaims(issuer = "https://static-issuer.example")
+                val jwt = SignedJWT(
+                    JWSHeader.Builder(JWSAlgorithm.Ed25519).keyID("wrong-kid").build(),
+                    claims
+                )
+                jwt.sign(Ed25519Signer(edKey))
+                val jwtStr = jwt.serialize()
+
+                val provider = edMockProvider() // returns single key with kid="ed-test-key"
+                val config = VerifierConfig.Jwks(
+                    jwksPath = "/unused",
+                    issuer = "https://static-issuer.example",
+                    audience = "task-orchestrator",
+                    requireSubMatch = false,
+                    // DID fields all at default (empty/null) → isDidTrust=false
+                    didLooseKidMatch = true // even if set true, should not apply in static path
+                )
+
+                val result = JwksActorVerifier(config = config, keySetProvider = provider)
+                    .verify(actor(id = "agent-1", proof = jwtStr))
+
+                // Must be REJECTED — loose-kid only applies under isDidTrust=true
+                assertEquals(VerificationStatus.REJECTED, result.status)
+                assertEquals("crypto", result.metadata["failureKind"])
+                assertTrue(result.reason?.contains("no matching key") == true, "reason: ${result.reason}")
+            }
+    }
 }

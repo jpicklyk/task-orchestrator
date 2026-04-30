@@ -85,10 +85,21 @@ class JwksActorVerifier(
             return rejected("algorithm not allowed: ${alg.name}", "policy")
         }
 
-        // Step 4 — fetch JWKS.
+        // Determine trust mode once — used in both the JWKS fetch branch and kid-lookup branch.
+        val isDidTrust = config.didAllowlist.isNotEmpty() || config.didPattern != null
+
+        // Step 4 — fetch JWKS (branched on DID-trust mode).
         val jwkSet =
             try {
-                keySetProvider.getKeySet()
+                if (isDidTrust) {
+                    val iss = signedJWT.jwtClaimsSet.issuer
+                        ?: return rejected("missing iss claim under DID trust", "claims")
+                    keySetProvider.getKeySetForIssuer(iss)
+                } else {
+                    keySetProvider.getKeySet()
+                }
+            } catch (e: IssuerNotTrustedException) {
+                return rejected(e.message ?: "issuer not in DID trust policy", "policy")
             } catch (e: Exception) {
                 return unavailable("failed to fetch JWKS: ${e.message}")
             }
@@ -97,12 +108,20 @@ class JwksActorVerifier(
         val kid = signedJWT.header.keyID
         val matcher = JWKMatcher.Builder().keyID(kid).build()
         val matchingKeys = JWKSelector(matcher).select(jwkSet)
-        if (matchingKeys.isEmpty()) {
-            return rejected("no matching key for kid: $kid", "crypto")
+        val jwk = when {
+            matchingKeys.isNotEmpty() -> matchingKeys.first()
+            isDidTrust && config.didLooseKidMatch && jwkSet.keys.size == 1 -> {
+                logger.debug(
+                    "JWT kid '{}' not found in DID-resolved JWKS for issuer '{}'; using sole eligible key (loose-kid match)",
+                    kid,
+                    signedJWT.jwtClaimsSet.issuer
+                )
+                jwkSet.keys.first()
+            }
+            else -> return rejected("no matching key for kid: $kid", "crypto")
         }
 
         // Step 6 — build a JWS verifier from the first matching key and verify the signature.
-        val jwk = matchingKeys.first()
         val jwsVerifier =
             try {
                 when (jwk) {

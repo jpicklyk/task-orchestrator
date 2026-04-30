@@ -30,6 +30,12 @@ data class CacheState(
 )
 
 /**
+ * Thrown by [JwksKeySetProvider.getKeySetForIssuer] when the given issuer DID does not
+ * match the configured [VerifierConfig.Jwks.didAllowlist] or [VerifierConfig.Jwks.didPattern].
+ */
+class IssuerNotTrustedException(issuer: String) : Exception("issuer not in DID trust policy: $issuer")
+
+/**
  * Provides a [JWKSet] for JWT signature verification.
  *
  * Implementations are responsible for loading keys from a configured source (remote URI,
@@ -59,6 +65,17 @@ interface JwksKeySetProvider {
      * Releases any underlying resources (e.g., HTTP client connections).
      */
     fun close()
+
+    /**
+     * Returns the JWKSet for a specific issuer DID. Used under DID-rooted trust.
+     * Resolves the issuer via the configured DidResolverRegistry, projects the resulting
+     * DID document into a JWKSet via DidDocumentJwksExtractor, and caches the result
+     * per-issuer with TTL semantics matching getKeySet().
+     *
+     * @throws IssuerNotTrustedException if the issuer does not match the configured
+     *   didAllowlist or didPattern.
+     */
+    suspend fun getKeySetForIssuer(issuer: String): JWKSet
 }
 
 /**
@@ -75,7 +92,10 @@ interface JwksKeySetProvider {
  */
 class DefaultJwksKeySetProvider(
     private val config: VerifierConfig.Jwks,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val didResolverRegistry: DidResolverRegistry = DidResolverRegistry(listOf(DidWebResolver())),
+    private val didDocumentJwksExtractor: DidDocumentJwksExtractor =
+        DidDocumentJwksExtractor(strictRelationship = config.didStrictRelationship)
 ) : JwksKeySetProvider {
     private val logger = LoggerFactory.getLogger(DefaultJwksKeySetProvider::class.java)
 
@@ -99,6 +119,21 @@ class DefaultJwksKeySetProvider(
     /** Thread-safe lazy HTTP client — created only when a remote fetch is needed. */
     private val httpClientDelegate = lazy { HttpClient(CIO) }
     private val httpClient: HttpClient by httpClientDelegate
+
+    /** Per-issuer DID cache with LRU eviction at [MAX_DID_CACHE_ENTRIES] entries. */
+    private val didCache = object : LinkedHashMap<String, Pair<JWKSet, Instant>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<String, Pair<JWKSet, Instant>>?): Boolean {
+            val shouldEvict = size > MAX_DID_CACHE_ENTRIES
+            if (shouldEvict) {
+                logger.warn(
+                    "DID cache LRU eviction at capacity {} — fleet churn or cache size too small",
+                    MAX_DID_CACHE_ENTRIES
+                )
+            }
+            return shouldEvict
+        }
+    }
+    private val didCacheLock = Mutex()
 
     override suspend fun getKeySet(): JWKSet {
         val now = clock.instant()
@@ -146,6 +181,77 @@ class DefaultJwksKeySetProvider(
                 }
             }
         }
+    }
+
+    override suspend fun getKeySetForIssuer(issuer: String): JWKSet {
+        if (!isIssuerTrusted(issuer)) {
+            throw IssuerNotTrustedException(issuer)
+        }
+        val now = clock.instant()
+
+        // Fast path: return cached value if still valid.
+        didCacheLock.withLock {
+            didCache[issuer]?.let { (set, fetchedAt) ->
+                if (now.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                    lastCacheState = FRESH_CACHE
+                    return set
+                }
+            }
+        }
+
+        // Slow path: resolve, extract, cache.
+        return didCacheLock.withLock {
+            val nowInLock = clock.instant()
+            // Double-check inside lock.
+            didCache[issuer]?.let { (set, fetchedAt) ->
+                if (nowInLock.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                    lastCacheState = FRESH_CACHE
+                    return@withLock set
+                }
+            }
+
+            val previousCached = didCache[issuer]
+            try {
+                val doc = didResolverRegistry.resolve(issuer)
+                val jwks = didDocumentJwksExtractor.extract(doc)
+                didCache[issuer] = Pair(jwks, nowInLock)
+                lastCacheState = FRESH_CACHE
+                jwks
+            } catch (e: Exception) {
+                if (config.staleOnError && previousCached != null) {
+                    val (staleSet, fetchedAt) = previousCached
+                    val ageSeconds = nowInLock.epochSecond - fetchedAt.epochSecond
+                    logger.warn(
+                        "DID resolution failed for {} ({}); serving stale cache (age={}s)",
+                        issuer,
+                        e.message,
+                        ageSeconds
+                    )
+                    lastCacheState = CacheState(fromStaleCache = true, ageSeconds = ageSeconds)
+                    staleSet
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+
+    private fun isIssuerTrusted(issuer: String): Boolean {
+        if (config.didAllowlist.contains(issuer)) return true
+        config.didPattern?.let { pattern ->
+            if (matchesGlob(issuer, pattern)) return true
+        }
+        return false
+    }
+
+    // Glob match: "*" matches any sequence (including empty), no other special chars.
+    // Compile pattern to regex once per call (acceptable; patterns are typically short).
+    internal fun matchesGlob(value: String, pattern: String): Boolean {
+        val regex = pattern
+            .split("*")
+            .joinToString(".*") { Regex.escape(it) }
+            .let { Regex("^$it$") }
+        return regex.matches(value)
     }
 
     override fun getResolvedIssuer(): String? = resolvedIssuer
@@ -232,5 +338,6 @@ class DefaultJwksKeySetProvider(
 
     companion object {
         private val FRESH_CACHE = CacheState(fromStaleCache = false, ageSeconds = null)
+        private const val MAX_DID_CACHE_ENTRIES = 256
     }
 }

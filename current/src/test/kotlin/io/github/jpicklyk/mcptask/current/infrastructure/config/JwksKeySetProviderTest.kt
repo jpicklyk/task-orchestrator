@@ -1,20 +1,34 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.JWKSet
+import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
+import com.nimbusds.jose.util.Base64URL
+import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
+import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import java.security.SecureRandom
 import java.security.Security
 import java.time.Clock
 import java.time.Instant
@@ -435,4 +449,350 @@ class JwksKeySetProviderTest {
                 System.setProperty("user.dir", prevUserDir)
             }
         }
+
+    // =========================================================================
+    // DID-trust path tests
+    // =========================================================================
+
+    @Nested
+    inner class DidTrustPath {
+
+        // Helper: build a synthetic DidDocument with one Ed25519 public key.
+        private fun buildDidDocument(
+            did: String,
+            kid: String = "key-1"
+        ): Pair<DidDocument, OctetKeyPair> {
+            val gen = Ed25519KeyPairGenerator()
+            gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
+            val pair = gen.generateKeyPair()
+            val pub = pair.public as Ed25519PublicKeyParameters
+            val priv = pair.private as Ed25519PrivateKeyParameters
+
+            val edKey = OctetKeyPair
+                .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
+                .d(Base64URL.encode(priv.encoded))
+                .keyID(kid)
+                .build()
+
+            val publicKeyJwk: Map<String, Any> = mapOf(
+                "kty" to "OKP",
+                "crv" to "Ed25519",
+                "x" to edKey.x.toString(),
+                "kid" to kid
+            )
+
+            val vm = VerificationMethod(
+                id = "$did#$kid",
+                type = "JsonWebKey2020",
+                controller = did,
+                publicKeyJwk = publicKeyJwk
+            )
+            val doc = DidDocument(
+                id = did,
+                verificationMethods = listOf(vm),
+                assertionMethod = listOf("$did#$kid")
+            )
+            return Pair(doc, edKey)
+        }
+
+        private fun makeFixedClock(base: Instant = Instant.parse("2024-01-01T00:00:00Z")): Clock =
+            Clock.fixed(base, ZoneOffset.UTC)
+
+        // DID-T1: allowlist match returns extracted JWKSet
+        @Test
+        fun `getKeySetForIssuer with allowlist match returns JWKSet`() =
+            runTest {
+                val did = "did:web:trusted.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 300
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = makeFixedClock(),
+                    didResolverRegistry = mockRegistry
+                )
+
+                val jwks = provider.getKeySetForIssuer(did)
+                assertNotNull(jwks)
+                assertEquals(1, jwks.keys.size)
+                assertEquals("key-1", jwks.keys.first().keyID)
+            }
+
+        // DID-T2: pattern match returns JWKSet
+        @Test
+        fun `getKeySetForIssuer with pattern match returns JWKSet`() =
+            runTest {
+                val pattern = "did:web:example.com:agents:*"
+                val did = "did:web:example.com:agents:abc"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val config = VerifierConfig.Jwks(
+                    didPattern = pattern,
+                    cacheTtlSeconds = 300
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = makeFixedClock(),
+                    didResolverRegistry = mockRegistry
+                )
+
+                val jwks = provider.getKeySetForIssuer(did)
+                assertNotNull(jwks)
+                assertEquals(1, jwks.keys.size)
+            }
+
+        // DID-T3: untrusted issuer throws IssuerNotTrustedException
+        @Test
+        fun `getKeySetForIssuer with no trust match throws IssuerNotTrustedException`() =
+            runTest {
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = listOf("did:web:trusted.example.com"),
+                    cacheTtlSeconds = 300
+                )
+                val provider = DefaultJwksKeySetProvider(config)
+
+                assertThrows<IssuerNotTrustedException> {
+                    provider.getKeySetForIssuer("did:web:untrusted.example.com")
+                }
+            }
+
+        // DID-T4: per-issuer cache hit — second call within TTL does not re-resolve
+        @Test
+        fun `getKeySetForIssuer cache hit within TTL does not re-resolve`() =
+            runTest {
+                val did = "did:web:cached.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 300
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = makeFixedClock(),
+                    didResolverRegistry = mockRegistry
+                )
+
+                val first = provider.getKeySetForIssuer(did)
+                val second = provider.getKeySetForIssuer(did)
+
+                // Same cached instance
+                assert(first === second) { "Expected cache hit to return same JWKSet instance" }
+                // Registry should only be called once
+                coVerify(exactly = 1) { mockRegistry.resolve(did) }
+            }
+
+        // DID-T5: per-issuer cache expiry triggers re-resolve
+        @Test
+        fun `getKeySetForIssuer cache expires and re-resolves after TTL`() =
+            runTest {
+                val did = "did:web:expiry.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+                var currentInstant = baseInstant
+                val advancingClock = object : Clock() {
+                    override fun getZone(): ZoneOffset = ZoneOffset.UTC
+                    override fun withZone(zone: java.time.ZoneId): Clock = this
+                    override fun instant(): Instant = currentInstant
+                }
+
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 60
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = advancingClock,
+                    didResolverRegistry = mockRegistry
+                )
+
+                val first = provider.getKeySetForIssuer(did)
+
+                // Advance clock past TTL
+                currentInstant = baseInstant.plusSeconds(120)
+
+                val second = provider.getKeySetForIssuer(did)
+
+                // Should have fetched twice (initial + after expiry)
+                coVerify(exactly = 2) { mockRegistry.resolve(did) }
+                assertNotNull(second)
+                // New parse, different instance
+                assert(first !== second) { "Expected a new JWKSet instance after cache expiry" }
+            }
+
+        // DID-T6: stale-on-error for DID cache
+        @Test
+        fun `getKeySetForIssuer returns stale cache when resolver fails and staleOnError is true`() =
+            runTest {
+                val did = "did:web:stale.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+
+                val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+                var currentInstant = baseInstant
+                val advancingClock = object : Clock() {
+                    override fun getZone(): ZoneOffset = ZoneOffset.UTC
+                    override fun withZone(zone: java.time.ZoneId): Clock = this
+                    override fun instant(): Instant = currentInstant
+                }
+
+                var resolveCount = 0
+                coEvery { mockRegistry.resolve(did) } answers {
+                    resolveCount++
+                    if (resolveCount == 1) doc
+                    else throw DidResolutionException("network failure")
+                }
+
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 60,
+                    staleOnError = true
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = advancingClock,
+                    didResolverRegistry = mockRegistry
+                )
+
+                // First successful fetch
+                val first = provider.getKeySetForIssuer(did)
+                assertNotNull(first)
+
+                // Advance past TTL so cache expires
+                currentInstant = baseInstant.plusSeconds(120)
+
+                // Second call — resolver fails, should serve stale
+                val stale = provider.getKeySetForIssuer(did)
+                assertNotNull(stale)
+                assertEquals(first.keys.size, stale.keys.size)
+
+                val state = provider.getCacheState()
+                assertTrue(state.fromStaleCache, "Expected fromStaleCache=true")
+                assertTrue(state.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${state.ageSeconds}")
+            }
+
+        // DID-T7: LRU eviction at 257 distinct issuers
+        @Test
+        fun `LRU eviction keeps cache at MAX_DID_CACHE_ENTRIES`() =
+            runTest {
+                val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+                val fixedClock = Clock.fixed(baseInstant, ZoneOffset.UTC)
+
+                // Build 257 distinct DIDs
+                val numDids = 257
+                val mockRegistry = mockk<DidResolverRegistry>()
+                val dids = (1..numDids).map { i -> "did:web:host-$i.example.com" }
+
+                dids.forEach { did ->
+                    val (doc, _) = buildDidDocument(did)
+                    coEvery { mockRegistry.resolve(did) } returns doc
+                }
+
+                val allowlist = dids.toList()
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = allowlist,
+                    cacheTtlSeconds = 3600
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = fixedClock,
+                    didResolverRegistry = mockRegistry
+                )
+
+                // Populate cache with all 257 issuers
+                dids.forEach { did ->
+                    provider.getKeySetForIssuer(did)
+                }
+
+                // The first DID was evicted — requesting it again should trigger re-resolution
+                val firstDid = dids.first()
+                provider.getKeySetForIssuer(firstDid)
+
+                // Registry should have been called at least 258 times (257 initial + 1 re-resolve after eviction)
+                coVerify(atLeast = 258) { mockRegistry.resolve(any()) }
+            }
+
+        // DID-T8: matchesGlob unit tests
+        @Test
+        fun `matchesGlob handles wildcard and anchoring correctly`() {
+            val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(didAllowlist = listOf("x")))
+
+            // Exact match (no wildcard)
+            assertTrue(provider.matchesGlob("did:web:example.com", "did:web:example.com"))
+
+            // Simple trailing wildcard
+            assertTrue(provider.matchesGlob("did:web:example.com:agents:abc", "did:web:example.com:agents:*"))
+
+            // Non-match with trailing wildcard
+            assertTrue(!provider.matchesGlob("did:web:other.com:agents:abc", "did:web:example.com:agents:*"))
+
+            // Multiple wildcards
+            assertTrue(provider.matchesGlob("did:web:foo.example.com:bar:baz", "did:web:*:bar:*"))
+
+            // Empty string at end matched by *
+            assertTrue(provider.matchesGlob("did:web:example.com:agents:", "did:web:example.com:agents:*"))
+
+            // Pattern is exactly "*" — matches anything
+            assertTrue(provider.matchesGlob("did:web:anything.com", "*"))
+
+            // Anchored — prefix-only glob should NOT match if suffix doesn't match
+            assertTrue(!provider.matchesGlob("did:web:example.com:agents:abc:extra", "did:web:example.com:agents:abc"))
+        }
+
+        // DID-T9: allowlist precedence over pattern
+        @Test
+        fun `allowlist takes precedence over pattern for trust decision`() =
+            runTest {
+                val did = "did:web:special.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                // Both allowlist and pattern would match; allowlist takes priority
+                val config = VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    didPattern = "did:web:special.*",
+                    cacheTtlSeconds = 300
+                )
+                val provider = DefaultJwksKeySetProvider(
+                    config,
+                    clock = makeFixedClock(),
+                    didResolverRegistry = mockRegistry
+                )
+
+                // Should resolve without exception (trusted via allowlist)
+                val jwks = provider.getKeySetForIssuer(did)
+                assertNotNull(jwks)
+
+                // A DID not in allowlist but matching pattern is also trusted
+                val patternDid = "did:web:special.other.example.com"
+                val (patternDoc, _) = buildDidDocument(patternDid)
+                coEvery { mockRegistry.resolve(patternDid) } returns patternDoc
+
+                val config2 = VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    didPattern = "did:web:special.*",
+                    cacheTtlSeconds = 300
+                )
+                val provider2 = DefaultJwksKeySetProvider(
+                    config2,
+                    clock = makeFixedClock(),
+                    didResolverRegistry = mockRegistry
+                )
+                val jwks2 = provider2.getKeySetForIssuer(patternDid)
+                assertNotNull(jwks2)
+            }
+    }
 }
