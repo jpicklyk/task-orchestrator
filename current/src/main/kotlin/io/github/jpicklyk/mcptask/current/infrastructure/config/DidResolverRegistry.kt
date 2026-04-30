@@ -2,7 +2,9 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
 
-class DidResolverRegistry(resolvers: List<DidResolver>) {
+class DidResolverRegistry(
+    resolvers: List<DidResolver>
+) {
     private val byMethod: Map<String, DidResolver> = resolvers.associateBy { it.method }
 
     suspend fun resolve(did: String): DidDocument {

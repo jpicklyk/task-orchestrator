@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class DidResolverRegistryTest {
-
     // -------------------------------------------------------------------------
     // parseMethod tests
     // -------------------------------------------------------------------------
@@ -53,65 +52,76 @@ class DidResolverRegistryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `resolve dispatches to the correct resolver by method`() = runTest {
-        val expectedDoc = DidDocument(
-            id = "did:web:example.com",
-            verificationMethods = emptyList()
-        )
-        val webResolver = mockk<DidResolver>().apply {
-            every { method } returns "web"
-            coEvery { resolve("did:web:example.com") } returns expectedDoc
+    fun `resolve dispatches to the correct resolver by method`() =
+        runTest {
+            val expectedDoc =
+                DidDocument(
+                    id = "did:web:example.com",
+                    verificationMethods = emptyList()
+                )
+            val webResolver =
+                mockk<DidResolver>().apply {
+                    every { method } returns "web"
+                    coEvery { resolve("did:web:example.com") } returns expectedDoc
+                }
+
+            val registry = DidResolverRegistry(listOf(webResolver))
+            val result = registry.resolve("did:web:example.com")
+
+            assertEquals(expectedDoc, result)
         }
-
-        val registry = DidResolverRegistry(listOf(webResolver))
-        val result = registry.resolve("did:web:example.com")
-
-        assertEquals(expectedDoc, result)
-    }
 
     @Test
-    fun `resolve dispatches to the right resolver when multiple resolvers are registered`() = runTest {
-        val webDoc = DidDocument(id = "did:web:example.com", verificationMethods = emptyList())
-        val keyDoc = DidDocument(id = "did:key:z6Mk...", verificationMethods = emptyList())
+    fun `resolve dispatches to the right resolver when multiple resolvers are registered`() =
+        runTest {
+            val webDoc = DidDocument(id = "did:web:example.com", verificationMethods = emptyList())
+            val keyDoc = DidDocument(id = "did:key:z6Mk...", verificationMethods = emptyList())
 
-        val webResolver = mockk<DidResolver>().apply {
-            every { method } returns "web"
-            coEvery { resolve("did:web:example.com") } returns webDoc
+            val webResolver =
+                mockk<DidResolver>().apply {
+                    every { method } returns "web"
+                    coEvery { resolve("did:web:example.com") } returns webDoc
+                }
+            val keyResolver =
+                mockk<DidResolver>().apply {
+                    every { method } returns "key"
+                    coEvery { resolve("did:key:z6Mk...") } returns keyDoc
+                }
+
+            val registry = DidResolverRegistry(listOf(webResolver, keyResolver))
+
+            assertEquals(webDoc, registry.resolve("did:web:example.com"))
+            assertEquals(keyDoc, registry.resolve("did:key:z6Mk..."))
         }
-        val keyResolver = mockk<DidResolver>().apply {
-            every { method } returns "key"
-            coEvery { resolve("did:key:z6Mk...") } returns keyDoc
-        }
-
-        val registry = DidResolverRegistry(listOf(webResolver, keyResolver))
-
-        assertEquals(webDoc, registry.resolve("did:web:example.com"))
-        assertEquals(keyDoc, registry.resolve("did:key:z6Mk..."))
-    }
 
     @Test
-    fun `resolve throws DidResolutionException for unknown method`() = runTest {
-        val webResolver = mockk<DidResolver>().apply {
-            every { method } returns "web"
-        }
-        val registry = DidResolverRegistry(listOf(webResolver))
+    fun `resolve throws DidResolutionException for unknown method`() =
+        runTest {
+            val webResolver =
+                mockk<DidResolver>().apply {
+                    every { method } returns "web"
+                }
+            val registry = DidResolverRegistry(listOf(webResolver))
 
-        val ex = assertThrows(DidResolutionException::class.java) {
-            kotlinx.coroutines.runBlocking { registry.resolve("did:peer:1zQmYtqd2") }
+            val ex =
+                assertThrows(DidResolutionException::class.java) {
+                    kotlinx.coroutines.runBlocking { registry.resolve("did:peer:1zQmYtqd2") }
+                }
+            assertNotNull(ex.message)
+            assert(ex.message!!.contains("peer")) { "Expected error to mention the unknown method 'peer'" }
         }
-        assertNotNull(ex.message)
-        assert(ex.message!!.contains("peer")) { "Expected error to mention the unknown method 'peer'" }
-    }
 
     @Test
-    fun `resolve throws DidResolutionException for non-DID input`() = runTest {
-        val registry = DidResolverRegistry(emptyList())
+    fun `resolve throws DidResolutionException for non-DID input`() =
+        runTest {
+            val registry = DidResolverRegistry(emptyList())
 
-        val ex = assertThrows(DidResolutionException::class.java) {
-            kotlinx.coroutines.runBlocking { registry.resolve("https://example.com") }
+            val ex =
+                assertThrows(DidResolutionException::class.java) {
+                    kotlinx.coroutines.runBlocking { registry.resolve("https://example.com") }
+                }
+            assertNotNull(ex.message)
         }
-        assertNotNull(ex.message)
-    }
 
     // -------------------------------------------------------------------------
     // DidResolutionException cause-chaining

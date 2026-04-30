@@ -10,4 +10,7 @@ interface DidResolver {
     suspend fun resolve(did: String): DidDocument
 }
 
-class DidResolutionException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class DidResolutionException(
+    message: String,
+    cause: Throwable? = null
+) : Exception(message, cause)
