@@ -113,33 +113,44 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 
 | Claim | Required | Used for |
 |---|---|---|
-| `iss` | Yes | Compared against the configured `issuer` |
-| `aud` | Yes (if `audience` configured) | Compared against the configured `audience` |
-| `sub` | Yes | Becomes the trusted `claimedBy` value when `require_sub_match: true` and the caller's self-reported `actor.id` matches |
-| `exp` | Yes | Standard JWT expiry — past-`exp` tokens are rejected at the `crypto` layer |
-| `nbf` | Optional | If present, before-`nbf` tokens are rejected |
-| `iat` | Optional | Logged for audit; not enforced |
+| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery) | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims` |
+| `aud` | Only if `audience` is configured | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
+| `sub` | Only when `require_sub_match: true` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false`, `sub` is not read. |
+| `exp` | Optional | If present, enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is accepted (no expiry check). |
+| `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
 
-Other claims in the JWT are ignored. TO does not require `jti`, custom scopes, or org/tenant claims — those are deployment concerns outside the TO contract.
+TO does not read `iat`, `jti`, or any custom claims. Those are deployment concerns outside the TO contract.
 
 ### `require_sub_match`
 
-When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, only the JWT signature and standard claims are checked; `actor.id` is replaced by `sub` after verification.
+When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked.
 
 ### Algorithm Allowlist
 
-Only algorithms in the configured `algorithms` list are accepted. JWTs signed with other algorithms are rejected at the `crypto` layer regardless of signature validity. Default recommendation: `["EdDSA", "RS256"]`. `none` and symmetric algorithms (`HS256` etc.) are not supported.
+When `algorithms` is configured (non-empty), only listed algorithms are accepted. JWTs signed with other algorithms are rejected with `failureKind: policy`. When `algorithms` is empty or omitted, no algorithm filtering is applied — any algorithm Nimbus supports for the matching key type will be accepted. Default recommendation: `["EdDSA", "RS256"]`. `none` and symmetric algorithms (`HS256` etc.) are not supported.
 
-### `cache_ttl_seconds` and Degraded Mode Interaction
+### JWKS Sources
 
-JWKS responses are cached for `cache_ttl_seconds` (default: 300). The cache interacts with `degraded_mode_policy` as follows:
+The provider supports three sources, merged when multiple are configured:
 
-| Cache state | `accept-cached` | `accept-self-reported` | `reject` |
+- `oidc_discovery` — fetches the discovery document, extracts `jwks_uri` (and `issuer`, unless explicitly configured)
+- `jwks_uri` — fetched directly; explicit value overrides any OIDC-discovered URI
+- `jwks_path` — local file, resolved relative to `AGENT_CONFIG_DIR` or `user.dir`
+
+Keys from URI and path sources are merged into a single key set used for signature verification.
+
+### `cache_ttl_seconds`, `stale_on_error`, and Degraded Mode
+
+JWKS key material is cached for `cache_ttl_seconds` (default: 300). When a cached entry expires and a refresh fails, the `stale_on_error` flag (default: `true`) controls whether the prior cache is served. The interaction with `degraded_mode_policy`:
+
+| Cache + refresh state | `accept-cached` | `accept-self-reported` | `reject` |
 |---|---|---|---|
-| Fresh hit | JWT verified, identity = `sub` | Same | Same |
-| Expired entry, JWKS reachable | Re-fetched, JWT verified, identity = `sub` | Same | Same |
-| Expired entry, JWKS unreachable | Stale cache used, identity = `sub` (JWKS source was offline) | Self-reported `actor.id` used | Operation rejected |
-| Never cached, JWKS unreachable | Self-reported `actor.id` used (WARN logged) | Self-reported `actor.id` used | Operation rejected |
+| Fresh hit (within TTL) | JWT verified, identity = `sub` | Same | Same |
+| Expired, refresh succeeds | JWT verified against fresh JWKS, identity = `sub` | Same | Same |
+| Expired, refresh fails, `stale_on_error: true`, prior fetch exists | Stale cache served, JWT verified, status = `VERIFIED` with `verifiedFromCache: true` metadata, identity = `sub` | Same | Same (verification still succeeds; stale-cache is invisible to the policy gate) |
+| Expired, refresh fails, `stale_on_error: false` or no prior fetch | Status = `UNAVAILABLE`; identity = self-reported `actor.id` | Identity = self-reported `actor.id` | Operation rejected with `rejected_by_policy` |
+
+Stale-cache success is reported as `VERIFIED` (with `verifiedFromCache: true` and `cacheAgeSeconds: N` in `verification.metadata`) — operators can scrape that metadata to alert on prolonged JWKS outages.
 
 ### JWT `exp` vs Claim TTL
 
