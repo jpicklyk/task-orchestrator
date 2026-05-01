@@ -15,7 +15,6 @@ import io.ktor.http.contentType
 import io.ktor.utils.io.readRemaining
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -128,13 +127,19 @@ class DidWebResolver(
 
         // Percent-decode the host segment (e.g. "example.com%3A8080" → "example.com:8080").
         val host = java.net.URLDecoder.decode(parts[0], "UTF-8")
+        if (host.isEmpty()) throw DidResolutionException("empty host segment in did:web DID")
 
         return if (parts.size == 1) {
             // No path segments — use .well-known
             "https://$host/.well-known/did.json"
         } else {
-            // Path segments replace ':' separators with '/'
-            val path = parts.drop(1).joinToString("/")
+            // Path segments replace ':' separators with '/'.
+            // Per W3C did:web spec, each segment must be individually percent-decoded.
+            val path =
+                parts
+                    .drop(1)
+                    .map { java.net.URLDecoder.decode(it, "UTF-8") }
+                    .joinToString("/")
             "https://$host/$path/did.json"
         }
     }
@@ -173,25 +178,50 @@ class DidWebResolver(
     private fun parseVerificationMethods(root: JsonObject): List<VerificationMethod> {
         val vmArray =
             root["verificationMethod"]?.let {
-                runCatching { it.jsonArray }.getOrNull()
+                runCatching { it.jsonArray }.getOrElse { e ->
+                    logger.warn("verificationMethod field is not a JSON array — skipping: {}", e.message)
+                    null
+                }
             } ?: return emptyList()
 
-        return vmArray.mapNotNull { element ->
-            runCatching {
-                val obj = element.jsonObject
-                val vmId = obj["id"]?.jsonPrimitive?.content ?: return@runCatching null
-                val type = obj["type"]?.jsonPrimitive?.content ?: return@runCatching null
-                val controller = obj["controller"]?.jsonPrimitive?.content ?: return@runCatching null
-                val publicKeyJwk = obj["publicKeyJwk"]?.let { parseJsonObjectAsMap(it.jsonObject) }
-                val publicKeyMultibase = obj["publicKeyMultibase"]?.jsonPrimitive?.content
-                VerificationMethod(
-                    id = vmId,
-                    type = type,
-                    controller = controller,
-                    publicKeyJwk = publicKeyJwk,
-                    publicKeyMultibase = publicKeyMultibase
-                )
-            }.getOrNull()
+        return vmArray.mapIndexedNotNull { index, element ->
+            val obj =
+                (element as? JsonObject)
+                    ?: run {
+                        logger.warn("Skipping verificationMethod[{}]: not a JSON object", index)
+                        return@mapIndexedNotNull null
+                    }
+            val vmId =
+                obj["id"]?.jsonPrimitive?.content
+                    ?: run {
+                        logger.warn("Skipping verificationMethod[{}]: missing 'id' field", index)
+                        return@mapIndexedNotNull null
+                    }
+            val type =
+                obj["type"]?.jsonPrimitive?.content
+                    ?: run {
+                        logger.warn("Skipping verificationMethod[{}] '{}': missing 'type' field", index, vmId)
+                        return@mapIndexedNotNull null
+                    }
+            val controller =
+                obj["controller"]?.jsonPrimitive?.content
+                    ?: run {
+                        logger.warn(
+                            "Skipping verificationMethod[{}] '{}': missing 'controller' field",
+                            index,
+                            vmId
+                        )
+                        return@mapIndexedNotNull null
+                    }
+            val publicKeyJwk = obj["publicKeyJwk"]?.jsonObject
+            val publicKeyMultibase = obj["publicKeyMultibase"]?.jsonPrimitive?.content
+            VerificationMethod(
+                id = vmId,
+                type = type,
+                controller = controller,
+                publicKeyJwk = publicKeyJwk,
+                publicKeyMultibase = publicKeyMultibase
+            )
         }
     }
 
@@ -217,21 +247,6 @@ class DidWebResolver(
             }
         }
     }
-
-    private fun parseJsonObjectAsMap(obj: JsonObject): Map<String, Any> =
-        obj.entries.associate { (k, v) ->
-            k to
-                when (v) {
-                    is JsonPrimitive ->
-                        when {
-                            v.isString -> v.content
-                            else -> runCatching { v.content.toLong() }.getOrElse { v.content }
-                        }
-                    is JsonObject -> parseJsonObjectAsMap(v)
-                    is JsonArray -> v.map { it.toString() }
-                    else -> v.toString()
-                }
-        }
 
     /** Returns true if the given ContentType is an acceptable DID document media type. */
     private fun isAcceptableDidContentType(contentType: ContentType): Boolean =

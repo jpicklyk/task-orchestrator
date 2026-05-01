@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -10,6 +14,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.slf4j.LoggerFactory
 
 class DidWebResolverTest {
     // -------------------------------------------------------------------------
@@ -563,6 +568,109 @@ class DidWebResolverTest {
                 ex.message!!.contains("size") || ex.message!!.contains("exceeds"),
                 "Error should mention body size: ${ex.message}"
             )
+        }
+
+    // -------------------------------------------------------------------------
+    // Percent-decode path segments (W3C did:web spec compliance)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `buildUrl decodes percent-encoded space in path segment`() {
+        val resolver = DidWebResolver()
+        assertEquals(
+            "https://host/agents/abc def/did.json",
+            resolver.buildUrl("host:agents:abc%20def"),
+        )
+    }
+
+    @Test
+    fun `buildUrl decodes percent-encoded port in host and plain path segment`() {
+        val resolver = DidWebResolver()
+        assertEquals(
+            "https://host:8080/agents/alice/did.json",
+            resolver.buildUrl("host%3A8080:agents:alice"),
+        )
+    }
+
+    @Test
+    fun `buildUrl throws DidResolutionException for empty host segment`() {
+        val resolver = DidWebResolver()
+        val ex =
+            org.junit.jupiter.api.Assertions.assertThrows(DidResolutionException::class.java) {
+                resolver.buildUrl(":")
+            }
+        assertTrue(
+            ex.message!!.contains("empty host"),
+            "Error should mention empty host: ${ex.message}",
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Warning log — malformed verificationMethod entries are logged, not silently dropped
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `parseVerificationMethods logs WARN for entry missing controller and returns only valid entry`() =
+        runTest {
+            val did = "did:web:example.com"
+            val didDocument =
+                """
+                {
+                  "id": "$did",
+                  "verificationMethod": [
+                    {
+                      "id": "$did#key-valid",
+                      "type": "JsonWebKey2020",
+                      "controller": "$did",
+                      "publicKeyJwk": { "kty": "EC", "crv": "P-256", "x": "a", "y": "b" }
+                    },
+                    {
+                      "id": "$did#key-no-controller",
+                      "type": "JsonWebKey2020"
+                    }
+                  ]
+                }
+                """.trimIndent()
+
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json"),
+                    )
+                }
+
+            // Attach a Logback ListAppender to capture WARN messages from DidWebResolver.
+            val loggerName = DidWebResolver::class.java.name
+            val logbackLogger = LoggerFactory.getLogger(loggerName) as Logger
+            val listAppender =
+                ListAppender<ILoggingEvent>().also {
+                    it.start()
+                    logbackLogger.addAppender(it)
+                }
+            val savedLevel = logbackLogger.level
+            logbackLogger.level = Level.WARN
+
+            try {
+                val resolver = DidWebResolver(engine)
+                val doc = resolver.resolve(did)
+
+                // Only the valid entry should appear in the result.
+                assertEquals(1, doc.verificationMethods.size, "Malformed VM must be excluded from result")
+                assertEquals("$did#key-valid", doc.verificationMethods.first().id)
+
+                // Exactly one WARN must have been emitted for the missing 'controller' field.
+                val warnMessages = listAppender.list.filter { it.level == Level.WARN }
+                assertEquals(1, warnMessages.size, "Expected exactly 1 WARN for the malformed VM")
+                assertTrue(
+                    warnMessages.first().formattedMessage.contains("controller"),
+                    "WARN should mention missing 'controller' field: ${warnMessages.first().formattedMessage}",
+                )
+            } finally {
+                logbackLogger.detachAppender(listAppender)
+                logbackLogger.level = savedLevel
+            }
         }
 
     // -------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
+import kotlinx.serialization.json.JsonObject
+
 data class DidDocument(
     val id: String,
     val verificationMethods: List<VerificationMethod>,
@@ -11,6 +13,6 @@ data class VerificationMethod(
     val id: String,
     val type: String,
     val controller: String,
-    val publicKeyJwk: Map<String, Any>? = null,
+    val publicKeyJwk: JsonObject? = null,
     val publicKeyMultibase: String? = null
 )

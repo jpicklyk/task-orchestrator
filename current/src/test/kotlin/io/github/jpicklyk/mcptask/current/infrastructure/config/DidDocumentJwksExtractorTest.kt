@@ -1,13 +1,23 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
+import com.nimbusds.jose.jwk.KeyOperation
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
 
 class DidDocumentJwksExtractorTest {
     // -------------------------------------------------------------------------
@@ -17,12 +27,14 @@ class DidDocumentJwksExtractorTest {
     companion object {
         private const val DOC_ID = "did:web:example.com"
 
-        /** EC P-256 key used to build publicKeyJwk maps in tests. */
+        /** EC P-256 key used to build publicKeyJwk JsonObjects in tests. */
         private val ecKey1: ECKey = ECKeyGenerator(Curve.P_256).keyID("key-1").generate()
         private val ecKey2: ECKey = ECKeyGenerator(Curve.P_256).keyID("key-2").generate()
 
-        /** Convert an ECKey's public portion to the Map<String, Any> form DidDocument uses. */
-        private fun ECKey.toJwkMap(): Map<String, Any> = toPublicJWK().toJSONObject().mapValues { (_, v) -> v as Any }
+        private val jsonParser = Json { ignoreUnknownKeys = true }
+
+        /** Convert an ECKey's public portion to the JsonObject form DidDocument uses. */
+        private fun ECKey.toJwkMap(): JsonObject = jsonParser.parseToJsonElement(toPublicJWK().toJSONString()).jsonObject
     }
 
     private val extractor = DidDocumentJwksExtractor()
@@ -342,5 +354,125 @@ class DidDocumentJwksExtractorTest {
         val result = extractor.extract(doc)
 
         assertEquals(1, result.keys.size, "Duplicate references should not produce duplicate JWK entries")
+    }
+
+    // -------------------------------------------------------------------------
+    // JsonObject round-trip regression — arrays and booleans must survive intact
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `key_ops array survives the JsonObject round-trip without re-quoting elements`() {
+        // Regression test for the old Map<String, Any> path.
+        // The old code called `v.map { it.toString() }` on JsonArray elements, which
+        // re-serialized each string element with surrounding quotes:
+        //   ["verify"] became ["\"verify\""] in the JSON fed to JWK.parse().
+        // Nimbus would then reject the JWK or store the wrong key_ops value.
+        //
+        // With the new JsonObject path (no Map round-trip), the array serialises cleanly
+        // and Nimbus correctly parses "verify" as the KeyOperation.
+        val rawJwkJson =
+            """
+            {
+              "kty": "EC",
+              "crv": "P-256",
+              "x": "${ecKey1.toPublicJWK().x}",
+              "y": "${ecKey1.toPublicJWK().y}",
+              "key_ops": ["verify"]
+            }
+            """.trimIndent()
+        val jwkJsonObject = jsonParser.parseToJsonElement(rawJwkJson).jsonObject
+
+        val doc =
+            DidDocument(
+                id = DOC_ID,
+                verificationMethods =
+                    listOf(
+                        VerificationMethod(
+                            id = "$DOC_ID#key-ops-test",
+                            type = "JsonWebKey2020",
+                            controller = DOC_ID,
+                            publicKeyJwk = jwkJsonObject,
+                        ),
+                    ),
+                assertionMethod = listOf("$DOC_ID#key-ops-test"),
+            )
+
+        val result = lenientExtractor.extract(doc)
+        assertEquals(1, result.keys.size, "Should produce exactly one JWK")
+
+        val jwk = result.keys.first()
+
+        // key_ops must be preserved as a proper KeyOperation set, not mangled strings.
+        // Nimbus parses key_ops as Set<KeyOperation>; if the elements were double-quoted
+        // (old bug: "\"verify\"") Nimbus would return null or an unrecognised op.
+        val keyOperations = jwk.keyOperations
+        assertNotNull(keyOperations, "key_ops should be preserved through round-trip")
+        assertEquals(1, keyOperations!!.size, "Expected exactly one key operation")
+        assertEquals(
+            KeyOperation.VERIFY,
+            keyOperations.first(),
+            "key_ops element must be the VERIFY operation, not a mangled double-quoted string",
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Warning log test — malformed verification method logs a WARN
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `extractor via resolver - resolver warns and drops VM missing controller field`() {
+        // Use a Logback ListAppender to capture WARN messages from DidDocumentJwksExtractor.
+        // This verifies that operator-visible logging is emitted when a required field is absent.
+        val loggerName = DidDocumentJwksExtractor::class.java.name
+        val logbackLogger = LoggerFactory.getLogger(loggerName) as Logger
+        val listAppender =
+            ListAppender<ILoggingEvent>().also {
+                it.start()
+                logbackLogger.addAppender(it)
+            }
+        val savedLevel = logbackLogger.level
+        logbackLogger.level = Level.WARN
+
+        try {
+            val doc =
+                DidDocument(
+                    id = DOC_ID,
+                    verificationMethods =
+                        listOf(
+                            // Valid method — controller matches document id.
+                            VerificationMethod(
+                                id = "$DOC_ID#key-good",
+                                type = "JsonWebKey2020",
+                                controller = DOC_ID,
+                                publicKeyJwk = ecKey1.toJwkMap(),
+                            ),
+                            // Cross-controller method — controller mismatch triggers a WARN.
+                            VerificationMethod(
+                                id = "$DOC_ID#key-foreign",
+                                type = "JsonWebKey2020",
+                                controller = "did:web:foreign.example.com",
+                                publicKeyJwk = ecKey2.toJwkMap(),
+                            ),
+                        ),
+                    assertionMethod = listOf("$DOC_ID#key-good", "$DOC_ID#key-foreign"),
+                )
+
+            val result = extractor.extract(doc)
+
+            // Only the valid key should survive.
+            assertEquals(1, result.keys.size, "Cross-controller key must be excluded from JWKSet")
+            assertEquals("key-good", result.keys.first().keyID)
+
+            // Extractor must have logged exactly one WARN about the controller mismatch.
+            val warnMessages = listAppender.list.filter { it.level == Level.WARN }
+            assertEquals(1, warnMessages.size, "Expected exactly one WARN log for the controller mismatch")
+            assertTrue(
+                warnMessages.first().formattedMessage.contains("controller"),
+                "WARN message should mention 'controller': ${warnMessages.first().formattedMessage}"
+            )
+        } finally {
+            logbackLogger.detachAppender(listAppender)
+            logbackLogger.level = savedLevel
+        }
     }
 }

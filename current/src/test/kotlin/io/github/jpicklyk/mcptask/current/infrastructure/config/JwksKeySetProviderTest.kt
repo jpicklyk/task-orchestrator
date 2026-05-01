@@ -18,6 +18,8 @@ import io.mockk.mockk
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
@@ -495,12 +497,14 @@ class JwksKeySetProviderTest {
                     .keyID(kid)
                     .build()
 
-            val publicKeyJwk: Map<String, Any> =
-                mapOf(
-                    "kty" to "OKP",
-                    "crv" to "Ed25519",
-                    "x" to edKey.x.toString(),
-                    "kid" to kid
+            val publicKeyJwk =
+                JsonObject(
+                    mapOf(
+                        "kty" to JsonPrimitive("OKP"),
+                        "crv" to JsonPrimitive("Ed25519"),
+                        "x" to JsonPrimitive(edKey.x.toString()),
+                        "kid" to JsonPrimitive(kid)
+                    )
                 )
 
             val vm =

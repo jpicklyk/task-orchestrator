@@ -4,8 +4,6 @@ import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.JWKSet
 import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.slf4j.LoggerFactory
@@ -72,11 +70,12 @@ class DidDocumentJwksExtractor(
             if (jwkJson != null) {
                 try {
                     val kid = bareFragment(vm.id)
-                    // Merge the kid into the map before serialising so the JWK carries the
-                    // bare-fragment form expected by the downstream verifier (t6).
-                    val mapWithKid = jwkJson.toMutableMap().apply { put("kid", kid) }
-                    val jsonString = mapToJsonString(mapWithKid)
-                    jwks += JWK.parse(jsonString)
+                    // Merge the kid into the JsonObject before serialising so the JWK carries
+                    // the bare-fragment form expected by the downstream verifier (t6).
+                    // Using JsonObject(map + pair) avoids the lossy Map<String,Any> round-trip
+                    // that mangled arrays (key_ops, x5c) and booleans (ext) in earlier code.
+                    val jwkWithKid = JsonObject(jwkJson + ("kid" to JsonPrimitive(kid)))
+                    jwks += JWK.parse(jwkWithKid.toString())
                 } catch (e: Exception) {
                     logger.warn(
                         "Failed to parse publicKeyJwk for verification method '{}': {}",
@@ -102,7 +101,7 @@ class DidDocumentJwksExtractor(
     }
 
     // -------------------------------------------------------------------------
-    // Internal helpers
+    // Private helpers
     // -------------------------------------------------------------------------
 
     /**
@@ -162,26 +161,4 @@ class DidDocumentJwksExtractor(
         val hashIndex = id.indexOf('#')
         return if (hashIndex >= 0) id.substring(hashIndex + 1) else id
     }
-
-    /**
-     * Converts a [Map]<[String], [Any]> to a JSON string suitable for [JWK.parse].
-     *
-     * Uses [kotlinx.serialization.json] to build a [JsonObject] from the map entries,
-     * handling nested maps, lists, booleans, numbers, and strings.
-     */
-    private fun mapToJsonString(map: Map<String, Any?>): String = toJsonObject(map).toString()
-
-    @Suppress("UNCHECKED_CAST")
-    private fun toJsonElement(value: Any?): kotlinx.serialization.json.JsonElement =
-        when (value) {
-            null -> JsonNull
-            is Boolean -> JsonPrimitive(value)
-            is Number -> JsonPrimitive(value)
-            is String -> JsonPrimitive(value)
-            is Map<*, *> -> toJsonObject(value as Map<String, Any?>)
-            is List<*> -> JsonArray(value.map { toJsonElement(it) })
-            else -> JsonPrimitive(value.toString())
-        }
-
-    private fun toJsonObject(map: Map<String, Any?>): JsonObject = JsonObject(map.mapValues { (_, v) -> toJsonElement(v) })
 }

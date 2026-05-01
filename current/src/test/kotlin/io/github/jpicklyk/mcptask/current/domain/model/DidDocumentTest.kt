@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -11,7 +13,15 @@ class DidDocumentTest {
             id = "did:web:example.com#key-1",
             type = "JsonWebKey2020",
             controller = "did:web:example.com",
-            publicKeyJwk = mapOf("kty" to "EC", "crv" to "P-256", "x" to "abc", "y" to "def")
+            publicKeyJwk =
+                JsonObject(
+                    mapOf(
+                        "kty" to JsonPrimitive("EC"),
+                        "crv" to JsonPrimitive("P-256"),
+                        "x" to JsonPrimitive("abc"),
+                        "y" to JsonPrimitive("def")
+                    )
+                )
         )
 
     private val didDocument =
@@ -88,11 +98,13 @@ class DidDocumentTest {
 
     @Test
     fun `VerificationMethod publicKeyJwk accepts arbitrary JWK shapes`() {
-        val rsaJwk: Map<String, Any> =
-            mapOf(
-                "kty" to "RSA",
-                "n" to "modulus",
-                "e" to "AQAB"
+        val rsaJwk =
+            JsonObject(
+                mapOf(
+                    "kty" to JsonPrimitive("RSA"),
+                    "n" to JsonPrimitive("modulus"),
+                    "e" to JsonPrimitive("AQAB")
+                )
             )
         val method = verificationMethod.copy(publicKeyJwk = rsaJwk)
         assertEquals(rsaJwk, method.publicKeyJwk)
