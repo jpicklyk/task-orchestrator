@@ -5,11 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.0] - 2026-05-01 (Plugin v3.1.3)
 
 ### Breaking Changes
+- **Config section renamed**: `auditing:` → `actor_authentication:`. The section configures actor-claim authentication policy (JWT verifier, JWKS sources, DID trust, degraded-mode policy), which the prior name did not describe. Migration: `sed -i 's/^auditing:/actor_authentication:/' .taskorchestrator/config.yaml`. The MCP server emits a clear startup error pointing to the new key when legacy `auditing:` is encountered. Inner `verifier:` block name is unchanged. (#160)
 
-- **Config section renamed**: `auditing:` → `actor_authentication:`. The section configures actor-claim authentication policy (JWT verifier, JWKS sources, DID trust, degraded-mode policy), which the prior name did not describe. Migration: `sed -i 's/^auditing:/actor_authentication:/' .taskorchestrator/config.yaml`. The MCP server emits a clear startup error pointing to the new key when legacy `auditing:` is encountered. Inner `verifier:` block name is unchanged.
+### Added
+- Added native `did:web` actor authentication — resolve DID documents directly via `did_allowlist` / `did_pattern` config, with per-issuer caching and segment-bounded glob matching (#159)
+- Added HTTP hardening for DID document resolution — strict timeouts (5s request, 3s connect, 5s socket), redirect rejection, content-type validation, and 1 MiB body cap (#159)
+- Added per-issuer JWKS fetch coalescing — concurrent first-misses for the same issuer share one underlying resolve, eliminating the global serialization point under fleet-restart load (#159)
+
+### Changed
+- `algorithms` is now required under `type: jwks` verifier — empty/omitted list fails at config load (was previously implicit) (#159)
+- `did_pattern '*'` now matches a single DID segment instead of multiple — sub-path hijacks like `did:web:host:agents:alice:fake` matching `...:agents:*` are rejected. Use `did_allowlist` for multi-segment matches (#159)
+- Multiple static-JWKS sources (`oidc_discovery` + `jwks_uri` + `jwks_path`) now produces a startup error instead of a warning (#159)
+- DID document `id` mismatch and missing-id-field cases are now classified as REJECTED+policy (was UNAVAILABLE) — substitution attacks no longer leak as transient errors (#159)
+- Bumped plugin version to 3.1.3 — `enforce-actor-attribution` hook updated for the config rename; `manage-schemas` skill references updated for `actor_authentication` block and DID-trust fields
+
+### Documentation
+- Restructured Tier 6 self-improving workflow guide around three nested feedback loops (per-turn, per-detection, per-session) (#162)
+- Added fleet-deployment sections: claim-mode rollout stages, JWT contract, claim/PII surfaces, live-fleet operation (#157)
+- Added DID-rooted trust subsection to SECURITY.md (#159)
+- Public wiki now correctly renders internal Markdown links and integration-guides subdirectory pages (#158)
+
+---
 
 ## [3.4.0] - 2026-04-29 (Plugin v3.1.2)
 
