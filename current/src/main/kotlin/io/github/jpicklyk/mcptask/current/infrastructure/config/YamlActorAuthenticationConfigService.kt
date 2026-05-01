@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.AuditingConfig
+import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
@@ -9,14 +9,14 @@ import java.io.FileReader
 import java.nio.file.Path
 
 /**
- * YAML-backed loader for the `auditing:` section of `.taskorchestrator/config.yaml`.
+ * YAML-backed loader for the `actor_authentication:` section of `.taskorchestrator/config.yaml`.
  *
  * The config path is resolved using the same `AGENT_CONFIG_DIR` environment-variable
  * pattern as [YamlNoteSchemaService].
  *
  * Expected YAML structure:
  * ```yaml
- * auditing:
+ * actor_authentication:
  *   enabled: true
  *   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
  *   verifier:
@@ -36,8 +36,8 @@ import java.nio.file.Path
  * For the `jwks` type, exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path` should be
  * provided. If none is present, a warning is added and the verifier falls back to [VerifierConfig.Noop].
  *
- * If the config file is missing, the `auditing:` section is absent, or any exception occurs
- * during parsing, [AuditingConfig] defaults are returned (`enabled=true`, [VerifierConfig.Noop]).
+ * If the config file is missing, the `actor_authentication:` section is absent, or any exception occurs
+ * during parsing, [ActorAuthenticationConfig] defaults are returned (`enabled=true`, [VerifierConfig.Noop]).
  *
  * ## `DEGRADED_MODE_POLICY` environment variable
  *
@@ -51,22 +51,22 @@ import java.nio.file.Path
  * @param envResolver Injectable resolver for environment variables; defaults to [System::getenv].
  *   Tests inject a fake to avoid mutating the JVM environment.
  */
-class YamlAuditingConfigService(
+class YamlActorAuthenticationConfigService(
     private val configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath(),
     private val envResolver: (String) -> String? = System::getenv
 ) {
-    private val logger = LoggerFactory.getLogger(YamlAuditingConfigService::class.java)
+    private val logger = LoggerFactory.getLogger(YamlActorAuthenticationConfigService::class.java)
 
     private data class LoadResult(
-        val config: AuditingConfig,
+        val config: ActorAuthenticationConfig,
         val warnings: List<String>
     )
 
     /** Lazily loaded result containing the parsed config and any parse warnings. */
     private val loadResult: LoadResult by lazy { loadConfig() }
 
-    /** Returns the parsed [AuditingConfig]; defaults are returned on any error. */
-    fun getConfig(): AuditingConfig = loadResult.config
+    /** Returns the parsed [ActorAuthenticationConfig]; defaults are returned on any error. */
+    fun getConfig(): ActorAuthenticationConfig = loadResult.config
 
     /** Returns warnings collected during config parsing (empty list if none). */
     fun getWarnings(): List<String> = loadResult.warnings
@@ -107,8 +107,8 @@ class YamlAuditingConfigService(
     private fun loadYamlConfig(): LoadResult {
         val warnings = mutableListOf<String>()
         if (!configPath.toFile().exists()) {
-            logger.debug("No config file found at {}; using default auditing config", configPath)
-            return LoadResult(AuditingConfig(), warnings)
+            logger.debug("No config file found at {}; using default actor_authentication config", configPath)
+            return LoadResult(ActorAuthenticationConfig(), warnings)
         }
 
         return try {
@@ -116,18 +116,26 @@ class YamlAuditingConfigService(
             FileReader(configPath.toFile()).use { reader ->
                 val root =
                     yaml.load<Map<String, Any>>(reader)
-                        ?: return@use LoadResult(AuditingConfig(), warnings)
+                        ?: return@use LoadResult(ActorAuthenticationConfig(), warnings)
 
-                val auditingSection =
-                    root["auditing"] as? Map<String, Any>
+                // Hard cut: legacy auditing: key produces a clear migration error
+                if (root.containsKey("auditing")) {
+                    throw IllegalArgumentException(
+                        "Unknown top-level config key 'auditing:'. " +
+                            "Did you mean 'actor_authentication:'? See CHANGELOG for migration."
+                    )
+                }
+
+                val actorAuthSection =
+                    root["actor_authentication"] as? Map<String, Any>
                         ?: run {
-                            logger.debug("No 'auditing' section in config; using defaults")
-                            return@use LoadResult(AuditingConfig(), warnings)
+                            logger.debug("No 'actor_authentication' section in config; using defaults")
+                            return@use LoadResult(ActorAuthenticationConfig(), warnings)
                         }
 
-                val enabled = (auditingSection["enabled"] as? Boolean) ?: true
+                val enabled = (actorAuthSection["enabled"] as? Boolean) ?: true
 
-                val verifierSection = auditingSection["verifier"] as? Map<String, Any>
+                val verifierSection = actorAuthSection["verifier"] as? Map<String, Any>
                 val verifier =
                     if (verifierSection != null) {
                         parseVerifier(verifierSection, warnings)
@@ -135,10 +143,10 @@ class YamlAuditingConfigService(
                         VerifierConfig.Noop
                     }
 
-                val degradedModePolicy = parseDegradedModePolicy(auditingSection, warnings)
+                val degradedModePolicy = parseDegradedModePolicy(actorAuthSection, warnings)
 
                 LoadResult(
-                    AuditingConfig(
+                    ActorAuthenticationConfig(
                         enabled = enabled,
                         verifier = verifier,
                         degradedModePolicy = degradedModePolicy
@@ -147,25 +155,25 @@ class YamlAuditingConfigService(
                 )
             }
         } catch (e: IllegalArgumentException) {
-            // Config constraint violations (e.g. mutual-exclusion) are surfaced immediately
+            // Config constraint violations (e.g. mutual-exclusion, legacy key) are surfaced immediately
             throw e
         } catch (e: Exception) {
-            val msg = "Failed to load auditing config from '$configPath': ${e.message}"
+            val msg = "Failed to load actor_authentication config from '$configPath': ${e.message}"
             warnings.add(msg)
             logger.warn(msg)
-            LoadResult(AuditingConfig(), warnings)
+            LoadResult(ActorAuthenticationConfig(), warnings)
         }
     }
 
     private fun parseDegradedModePolicy(
-        auditingSection: Map<String, Any>,
+        actorAuthSection: Map<String, Any>,
         warnings: MutableList<String>
     ): DegradedModePolicy {
-        val raw = auditingSection["degraded_mode_policy"] as? String ?: return DegradedModePolicy.ACCEPT_CACHED
+        val raw = actorAuthSection["degraded_mode_policy"] as? String ?: return DegradedModePolicy.ACCEPT_CACHED
         val parsed = DegradedModePolicy.fromConfigString(raw)
         if (parsed == null) {
             val msg =
-                "Unknown auditing.degraded_mode_policy '$raw'; " +
+                "Unknown actor_authentication.degraded_mode_policy '$raw'; " +
                     "valid values: accept-cached, accept-self-reported, reject. Defaulting to accept-cached."
             warnings.add(msg)
             logger.warn(msg)
@@ -211,7 +219,7 @@ class YamlAuditingConfigService(
                             if (jwksPath != null) add("jwks_path")
                         }.joinToString(", ")
                     throw IllegalArgumentException(
-                        "auditing.verifier: DID-trust mode (did_allowlist/did_pattern) is mutually exclusive " +
+                        "actor_authentication.verifier: DID-trust mode (did_allowlist/did_pattern) is mutually exclusive " +
                             "with static JWKS fields; conflicting fields: $conflicting"
                     )
                 }
@@ -219,7 +227,7 @@ class YamlAuditingConfigService(
                 // Neither DID trust nor static JWKS configured — no key source available
                 if (!isDidTrust && !isStaticJwks) {
                     val msg =
-                        "auditing.verifier type 'jwks' requires one of: " +
+                        "actor_authentication.verifier type 'jwks' requires one of: " +
                             "oidc_discovery, jwks_uri, jwks_path (static JWKS mode), " +
                             "or did_allowlist/did_pattern (DID-trust mode); falling back to Noop"
                     warnings.add(msg)
@@ -238,7 +246,7 @@ class YamlAuditingConfigService(
                                 if (jwksPath != null) add("jwks_path")
                             }.joinToString(", ")
                         throw IllegalArgumentException(
-                            "auditing.verifier type 'jwks' requires exactly one of oidc_discovery, " +
+                            "actor_authentication.verifier type 'jwks' requires exactly one of oidc_discovery, " +
                                 "jwks_uri, or jwks_path; multiple were provided: $provided"
                         )
                     }
@@ -257,7 +265,7 @@ class YamlAuditingConfigService(
                 // algorithms is required under type: jwks — no implicit default list
                 if (algorithms.isEmpty()) {
                     throw IllegalArgumentException(
-                        "auditing.verifier type 'jwks' requires a non-empty 'algorithms' allowlist; " +
+                        "actor_authentication.verifier type 'jwks' requires a non-empty 'algorithms' allowlist; " +
                             "supported values include EdDSA, ES256, ES384, ES512, RS256, RS384, RS512"
                     )
                 }
@@ -292,7 +300,7 @@ class YamlAuditingConfigService(
             }
 
             else -> {
-                val msg = "Unknown auditing.verifier type '$type'; falling back to Noop"
+                val msg = "Unknown actor_authentication.verifier type '$type'; falling back to Noop"
                 warnings.add(msg)
                 logger.warn(msg)
                 VerifierConfig.Noop

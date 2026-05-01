@@ -82,18 +82,18 @@ Actor attribution has two layers — **presence enforcement** (is an actor claim
 
 | Concern | Mechanism | Where | Enforcement |
 |---------|-----------|-------|-------------|
-| **Presence** | `auditing.enabled: true` in config | Claude Code plugin hook (client-side) | Blocks tool calls missing `actor` objects |
-| **Authenticity** | `auditing.verifier.type: jwks` in config | MCP server (server-side) | Advisory — recorded in audit trail, does not block operations |
+| **Presence** | `actor_authentication.enabled: true` in config | Claude Code plugin hook (client-side) | Blocks tool calls missing `actor` objects |
+| **Authenticity** | `actor_authentication.verifier.type: jwks` in config | MCP server (server-side) | Advisory — recorded in audit trail, does not block operations |
 
 #### Layer 1: Presence enforcement (plugin hook)
 
-When `auditing.enabled: true` is set in `.taskorchestrator/config.yaml`, the Claude Code plugin hook (`enforce-actor-attribution.mjs`) intercepts `advance_item` and `manage_notes(upsert)` calls **before they reach the server**. If any transition or note element is missing an `actor` object, the call is blocked with an error message.
+When `actor_authentication.enabled: true` is set in `.taskorchestrator/config.yaml`, the Claude Code plugin hook (`enforce-actor-attribution.mjs`) intercepts `advance_item` and `manage_notes(upsert)` calls **before they reach the server**. If any transition or note element is missing an `actor` object, the call is blocked with an error message.
 
 **Important:** This enforcement only applies to Claude Code clients with the task-orchestrator plugin installed. Raw MCP clients connecting directly to the HTTP endpoint bypass the hook entirely. The server itself does not enforce actor presence — tools accept calls without `actor` claims and proceed with `actorClaim = null`.
 
 #### Layer 2: Authenticity verification (server-side JWKS)
 
-When `auditing.verifier.type: jwks` is configured, the server validates the `actor.proof` JWT against the configured JWKS endpoint:
+When `actor_authentication.verifier.type: jwks` is configured, the server validates the `actor.proof` JWT against the configured JWKS endpoint:
 
 1. Two tools (`advance_item` and `manage_notes`) accept an optional `actor` claim:
    ```json
@@ -110,7 +110,7 @@ Configure JWKS when you need a cryptographically verifiable audit trail — e.g.
 **Default configuration:**
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true        # Plugin hook enforces actor presence on write operations
   verifier:
     type: noop         # Default: no JWT verification. Claims accepted at face value.
@@ -119,7 +119,7 @@ auditing:
 To enable JWKS verification:
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
   verifier:
     type: jwks
@@ -138,7 +138,7 @@ the verifier resolves the agent's DID document on-demand and extracts the signin
 **Configuration:**
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
   degraded_mode_policy: reject       # recommended for cross-org did:web fleets
   verifier:
@@ -201,7 +201,7 @@ per-issuer — a JWKS refresh failure falls back to the cached key set when `sta
 
 #### Enforcement summary
 
-| Client type | `auditing.enabled: true` | `verifier.type: jwks` |
+| Client type | `actor_authentication.enabled: true` | `verifier.type: jwks` |
 |-------------|------------------------|-----------------------|
 | Claude Code with plugin | Actor presence enforced (hook blocks calls) | JWT verified, result in audit trail |
 | Claude Code without plugin | No enforcement | JWT verified, result in audit trail |
@@ -238,5 +238,5 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 
 ### Future Considerations
 
-- **Verification gating (opt-in)**: A future `auditing.require_verified_actor: true` flag could optionally reject write operations when actor verification fails, converting the accountability layer into an access control layer for high-security deployments. This would apply to write operations only (`advance_item`, `manage_notes`, `claim_item`) and would be opt-in to preserve the current low-friction single-team experience. This is not currently planned — the existing design (accountability, not access control) is intentional and sufficient for the database-per-tenant isolation model.
-- **Claim identity and verified actors**: `claim_item` resolves identity via the same `actor` claim used by `advance_item` and `manage_notes`, subject to the deployment's `auditing.degradedModePolicy`. When JWKS verification succeeds, the JWT `sub` becomes authoritative for claim ownership and overrides any per-entry `agentId` supplied on individual claims. Under `degradedModePolicy=reject`, unverified callers cannot place or transition claims. Under `accept-cached` (default), stale-cache verification continues to work during transient JWKS outages. Under `accept-self-reported`, the self-reported `actor.id` is used — this negates the security benefit of JWKS verification when both are configured, and is documented as an explicit opt-out. See [Fleet Deployment Guide](current/docs/fleet-deployment.md#identity-configuration--authdegradedmodepolicy) for cross-org `did:web` recommendations.
+- **Verification gating (opt-in)**: A future `actor_authentication.require_verified_actor: true` flag could optionally reject write operations when actor verification fails, converting the accountability layer into an access control layer for high-security deployments. This would apply to write operations only (`advance_item`, `manage_notes`, `claim_item`) and would be opt-in to preserve the current low-friction single-team experience. This is not currently planned — the existing design (accountability, not access control) is intentional and sufficient for the database-per-tenant isolation model.
+- **Claim identity and verified actors**: `claim_item` resolves identity via the same `actor` claim used by `advance_item` and `manage_notes`, subject to the deployment's `actor_authentication.degradedModePolicy`. When JWKS verification succeeds, the JWT `sub` becomes authoritative for claim ownership and overrides any per-entry `agentId` supplied on individual claims. Under `degradedModePolicy=reject`, unverified callers cannot place or transition claims. Under `accept-cached` (default), stale-cache verification continues to work during transient JWKS outages. Under `accept-self-reported`, the self-reported `actor.id` is used — this negates the security benefit of JWKS verification when both are configured, and is documented as an explicit opt-out. See [Fleet Deployment Guide](current/docs/fleet-deployment.md#identity-configuration--authdegradedmodepolicy) for cross-org `did:web` recommendations.

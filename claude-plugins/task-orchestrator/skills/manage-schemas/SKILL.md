@@ -1,7 +1,7 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also manages the auditing config block: set auditing policy, configure degraded mode, show auditing config, set degradedModePolicy to reject, what's the current degraded mode policy. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
-argument-hint: "[optional: action + schema name or 'auditing', e.g. 'view bug-fix', 'create research-spike', 'validate', 'set degradedModePolicy reject']"
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also manages the actor_authentication config block: set actor authentication policy, configure degraded mode, show actor_authentication config, set degradedModePolicy to reject, what's the current degraded mode policy. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+argument-hint: "[optional: action + schema name or 'actor_authentication', e.g. 'view bug-fix', 'create research-spike', 'validate', 'set degradedModePolicy reject']"
 ---
 
 # Manage Schemas — Note Schema Lifecycle
@@ -77,19 +77,25 @@ If the config has a `traits:` section, show a separate traits summary table:
 | needs-migration-review | migration-assessment (queue, req) | migration-review |
 ```
 
-If the config has an `auditing:` section, display the auditing status including verifier type when present:
+If the config has an `actor_authentication:` section, display the actor authentication status including verifier type when present:
 
 ```
-◆ Auditing: enabled, verifier: noop
+◆ Actor authentication: enabled, verifier: noop
 ```
 
 Or with a JWKS verifier and its source:
 
 ```
-◆ Auditing: enabled, verifier: jwks (uri: https://provider.example/.well-known/jwks.json)
+◆ Actor authentication: enabled, verifier: jwks (uri: https://provider.example/.well-known/jwks.json)
 ```
 
-Or `◆ Auditing: disabled` (or omit if the section is absent). When `verifier` is absent, default to `verifier: noop`.
+Or with DID-trust mode:
+
+```
+◆ Actor authentication: enabled, verifier: jwks (DID trust: did:web:agent.example.com, did:web:lair.dev)
+```
+
+Or `◆ Actor authentication: disabled` (or omit if the section is absent). When `verifier` is absent, default to `verifier: noop`. When `did_allowlist` or `did_pattern` is set, show the DID trust variant.
 
 ### EDIT — Modify an Existing Schema
 
@@ -174,21 +180,21 @@ User says: "I edited the config by hand — check it"
 
 ---
 
-## Auditing config
+## Actor authentication config
 
-The `.taskorchestrator/config.yaml` file also has an `auditing:` block:
+The `.taskorchestrator/config.yaml` file also has an `actor_authentication:` block:
 
 ```yaml
-auditing:
+actor_authentication:
   degraded_mode_policy: accept-cached  # accept-cached | accept-self-reported | reject
-  # ... other auditing settings (enabled, verifier)
+  # ... other actor_authentication settings (enabled, verifier)
 ```
 
 When the user wants to view, set, or change `degradedModePolicy`:
 1. Read `.taskorchestrator/config.yaml`
-2. Locate the `auditing:` block (create it if absent)
+2. Locate the `actor_authentication:` block (create it if absent)
 3. For **view**: display the current value (default `accept-cached` if key is absent)
-4. For **changes**: update the `degraded_mode_policy:` field (preserving all other auditing keys)
+4. For **changes**: update the `degraded_mode_policy:` field (preserving all other actor_authentication keys)
 5. Validate the new value is one of: `accept-cached`, `accept-self-reported`, `reject`
 6. Write back
 

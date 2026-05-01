@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.AuditingConfig
+import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.junit.jupiter.api.Assertions.*
@@ -9,7 +9,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Path
 
-class YamlAuditingConfigServiceTest {
+class YamlActorAuthenticationConfigServiceTest {
     @TempDir
     lateinit var tempDir: Path
 
@@ -18,27 +18,27 @@ class YamlAuditingConfigServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `missing config file returns AuditingConfig defaults`() {
+    fun `missing config file returns ActorAuthenticationConfig defaults`() {
         val nonExistentPath = tempDir.resolve("does-not-exist/config.yaml")
-        val service = YamlAuditingConfigService(nonExistentPath)
+        val service = YamlActorAuthenticationConfigService(nonExistentPath)
 
         val config = service.getConfig()
-        assertEquals(AuditingConfig(), config)
+        assertEquals(ActorAuthenticationConfig(), config)
         assertTrue(config.enabled)
         assertEquals(VerifierConfig.Noop, config.verifier)
         assertTrue(service.getWarnings().isEmpty())
     }
 
     @Test
-    fun `config with auditing enabled but no verifier section returns Noop`() {
+    fun `config with actor_authentication enabled but no verifier section returns Noop`() {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val config = service.getConfig()
         assertTrue(config.enabled)
@@ -47,7 +47,7 @@ class YamlAuditingConfigServiceTest {
     }
 
     @Test
-    fun `config with no auditing section returns defaults`() {
+    fun `config with no actor_authentication section returns defaults`() {
         val configFile =
             createConfigFile(
                 """
@@ -58,11 +58,65 @@ class YamlAuditingConfigServiceTest {
                       required: false
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val config = service.getConfig()
-        assertEquals(AuditingConfig(), config)
+        assertEquals(ActorAuthenticationConfig(), config)
         assertTrue(service.getWarnings().isEmpty())
+    }
+
+    // -------------------------------------------------------------------------
+    // Legacy auditing: key hard cut
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `legacy auditing key produces clear migration error`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                """.trimIndent()
+            )
+        val service = YamlActorAuthenticationConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(
+            ex.message?.contains("Unknown top-level config key 'auditing:'") == true,
+            "Expected legacy-key error message, got: ${ex.message}"
+        )
+        assertTrue(
+            ex.message?.contains("Did you mean 'actor_authentication:'") == true,
+            "Expected migration suggestion, got: ${ex.message}"
+        )
+        assertTrue(
+            ex.message?.contains("CHANGELOG") == true,
+            "Expected CHANGELOG reference, got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `legacy auditing key with actor_authentication also present produces clear migration error`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                actor_authentication:
+                  enabled: true
+                """.trimIndent()
+            )
+        val service = YamlActorAuthenticationConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(
+            ex.message?.contains("Unknown top-level config key 'auditing:'") == true,
+            "Expected legacy-key error message, got: ${ex.message}"
+        )
+        assertTrue(
+            ex.message?.contains("Did you mean 'actor_authentication:'") == true,
+            "Expected migration suggestion, got: ${ex.message}"
+        )
     }
 
     // -------------------------------------------------------------------------
@@ -74,13 +128,13 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
         assertTrue(service.getWarnings().isEmpty())
@@ -95,7 +149,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   verifier:
                     type: jwks
@@ -111,7 +165,7 @@ class YamlAuditingConfigServiceTest {
                     require_sub_match: false
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("exactly one"), "Expected 'exactly one' in: ${ex.message}")
@@ -123,7 +177,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   verifier:
                     type: jwks
@@ -137,7 +191,7 @@ class YamlAuditingConfigServiceTest {
                     require_sub_match: false
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier
         assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
@@ -162,7 +216,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_path: "/etc/keys/jwks.json"
@@ -170,7 +224,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier
         assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
@@ -186,7 +240,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
@@ -194,7 +248,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier
         assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
@@ -210,7 +264,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -218,7 +272,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier
         assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
@@ -238,13 +292,13 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     issuer: "https://accounts.example.com"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
         assertTrue(service.getWarnings().isNotEmpty())
@@ -256,12 +310,12 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: magic-unicorn
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
         assertTrue(service.getWarnings().isNotEmpty())
@@ -277,7 +331,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -287,7 +341,7 @@ class YamlAuditingConfigServiceTest {
                       - PS256
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertEquals(listOf("RS256", "ES384", "PS256"), verifier.algorithms)
@@ -298,7 +352,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -306,7 +360,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertTrue(verifier.requireSubMatch)
@@ -317,7 +371,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -325,7 +379,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertEquals(300L, verifier.cacheTtlSeconds)
@@ -336,13 +390,13 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
@@ -353,14 +407,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms: []
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
@@ -371,7 +425,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -379,7 +433,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertTrue(verifier.staleOnError)
@@ -390,7 +444,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -399,7 +453,7 @@ class YamlAuditingConfigServiceTest {
                     stale_on_error: false
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertFalse(verifier.staleOnError)
@@ -410,7 +464,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -419,24 +473,24 @@ class YamlAuditingConfigServiceTest {
                     stale_on_error: true
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertTrue(verifier.staleOnError)
     }
 
     @Test
-    fun `auditing enabled flag false is respected`() {
+    fun `actor_authentication enabled flag false is respected`() {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: false
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         assertFalse(service.getConfig().enabled)
     }
@@ -450,13 +504,13 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -466,14 +520,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: accept-cached
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -483,14 +537,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: accept-self-reported
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
         assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, service.getConfig().degradedModePolicy)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -500,14 +554,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: reject
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
         assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -517,21 +571,21 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: banana
                   verifier:
                     type: noop
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
         assertTrue(service.getWarnings().isNotEmpty())
         assertTrue(service.getWarnings().any { it.contains("banana") })
     }
 
     @Test
-    fun `AuditingConfig default has degraded_mode_policy ACCEPT_CACHED`() {
+    fun `ActorAuthenticationConfig default has degraded_mode_policy ACCEPT_CACHED`() {
         val configFile =
             createConfigFile(
                 """
@@ -542,7 +596,7 @@ class YamlAuditingConfigServiceTest {
                       required: false
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
     }
 
@@ -555,7 +609,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: reject
                   verifier:
@@ -563,7 +617,7 @@ class YamlAuditingConfigServiceTest {
                 """.trimIndent()
             )
         // No env var set — YAML value should be used
-        val service = YamlAuditingConfigService(configFile, envResolver = { null })
+        val service = YamlActorAuthenticationConfigService(configFile, envResolver = { null })
         assertEquals(DegradedModePolicy.REJECT, service.getConfig().degradedModePolicy)
     }
 
@@ -572,7 +626,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: reject
                   verifier:
@@ -581,7 +635,7 @@ class YamlAuditingConfigServiceTest {
             )
         // Env var set to accept-self-reported; YAML says reject
         val service =
-            YamlAuditingConfigService(
+            YamlActorAuthenticationConfigService(
                 configFile,
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-self-reported" else null }
             )
@@ -593,7 +647,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   enabled: true
                   degraded_mode_policy: reject
                   verifier:
@@ -601,7 +655,7 @@ class YamlAuditingConfigServiceTest {
                 """.trimIndent()
             )
         val service =
-            YamlAuditingConfigService(
+            YamlActorAuthenticationConfigService(
                 configFile,
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-cached" else null }
             )
@@ -610,9 +664,9 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `DEGRADED_MODE_POLICY env var is case-insensitive — REJECT uppercase`() {
-        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
         val service =
-            YamlAuditingConfigService(
+            YamlActorAuthenticationConfigService(
                 configFile,
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "REJECT" else null }
             )
@@ -621,9 +675,9 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `DEGRADED_MODE_POLICY env var is case-insensitive — mixed case Reject`() {
-        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
         val service =
-            YamlAuditingConfigService(
+            YamlActorAuthenticationConfigService(
                 configFile,
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "Reject" else null }
             )
@@ -632,9 +686,9 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `DEGRADED_MODE_POLICY env var is case-insensitive — lowercase reject`() {
-        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
         val service =
-            YamlAuditingConfigService(
+            YamlActorAuthenticationConfigService(
                 configFile,
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "reject" else null }
             )
@@ -643,9 +697,9 @@ class YamlAuditingConfigServiceTest {
 
     @Test
     fun `DEGRADED_MODE_POLICY env var invalid value throws IllegalArgumentException`() {
-        val configFile = createConfigFile("auditing:\n  enabled: true")
+        val configFile = createConfigFile("actor_authentication:\n  enabled: true")
         val service =
-            YamlAuditingConfigService(
+            YamlActorAuthenticationConfigService(
                 configFile,
                 envResolver = { name -> if (name == "DEGRADED_MODE_POLICY") "banana" else null }
             )
@@ -657,7 +711,7 @@ class YamlAuditingConfigServiceTest {
     @Test
     fun `DEGRADED_MODE_POLICY env unset with no YAML section defaults to ACCEPT_CACHED`() {
         val configFile = createConfigFile("note_schemas:\n  default: []")
-        val service = YamlAuditingConfigService(configFile, envResolver = { null })
+        val service = YamlActorAuthenticationConfigService(configFile, envResolver = { null })
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
     }
 
@@ -670,7 +724,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -680,7 +734,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier
         assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
@@ -700,7 +754,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_pattern: "did:web:*.example.com"
@@ -708,7 +762,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertEquals(emptyList<String>(), verifier.didAllowlist)
@@ -723,7 +777,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -733,7 +787,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertEquals(listOf("did:web:explicit.example.com"), verifier.didAllowlist)
@@ -746,7 +800,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -756,7 +810,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertFalse(verifier.didStrictRelationship)
@@ -768,7 +822,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -778,7 +832,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertFalse(verifier.didLooseKidMatch)
@@ -794,7 +848,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -802,7 +856,7 @@ class YamlAuditingConfigServiceTest {
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
@@ -814,7 +868,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -822,7 +876,7 @@ class YamlAuditingConfigServiceTest {
                     jwks_path: "/etc/keys/jwks.json"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
@@ -834,7 +888,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
@@ -842,7 +896,7 @@ class YamlAuditingConfigServiceTest {
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
@@ -854,14 +908,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_pattern: "did:web:*.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("mutually exclusive"), "Expected 'mutually exclusive' in: ${ex.message}")
@@ -873,14 +927,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     issuer: "https://accounts.example.com"
                     audience: "mcp-task-orchestrator"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
         assertTrue(service.getWarnings().isNotEmpty())
@@ -896,7 +950,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -904,7 +958,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val verifier = service.getConfig().verifier as VerifierConfig.Jwks
         assertEquals(emptyList<String>(), verifier.didAllowlist)
@@ -923,7 +977,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
@@ -932,7 +986,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("multiple were provided"), "Expected 'multiple were provided' in: ${ex.message}")
@@ -945,7 +999,7 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
@@ -954,7 +1008,7 @@ class YamlAuditingConfigServiceTest {
                       - EdDSA
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("multiple were provided"), "Expected 'multiple were provided' in: ${ex.message}")
@@ -971,14 +1025,14 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_allowlist:
                       - "did:web:example.com"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
@@ -989,13 +1043,13 @@ class YamlAuditingConfigServiceTest {
         val configFile =
             createConfigFile(
                 """
-                auditing:
+                actor_authentication:
                   verifier:
                     type: jwks
                     did_pattern: "did:web:*.example.com"
                 """.trimIndent()
             )
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
         assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
@@ -1009,10 +1063,10 @@ class YamlAuditingConfigServiceTest {
     fun `malformed YAML falls back to defaults gracefully`() {
         val configFile =
             createConfigFile("{{{{invalid yaml!!!")
-        val service = YamlAuditingConfigService(configFile)
+        val service = YamlActorAuthenticationConfigService(configFile)
 
         val config = service.getConfig()
-        assertEquals(AuditingConfig(), config)
+        assertEquals(ActorAuthenticationConfig(), config)
         assertTrue(service.getWarnings().isNotEmpty())
     }
 

@@ -1356,16 +1356,16 @@ This is a documentation convention, not enforced by the server. Stage 1 trusts s
 
 ### Enforcing Actor Attribution
 
-Actor claims are **optional by default** — users who don't need auditing pay no extra token cost. To require actor claims on all write operations, enable auditing in `.taskorchestrator/config.yaml`:
+Actor claims are **optional by default** — users who don't need actor authentication pay no extra token cost. To require actor claims on all write operations, enable actor authentication in `.taskorchestrator/config.yaml`:
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
 ```
 
 When enabled, the plugin's `PreToolUse` hook blocks any `advance_item` or `manage_notes(upsert)` call where one or more elements are missing an `actor` object. The call never reaches the server — the agent must retry with actor claims included.
 
-When `enabled` is `false` or the `auditing` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
+When `enabled` is `false` or the `actor_authentication` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
 > **Note:** Config changes require an MCP reconnect (`/mcp`) or session restart to take effect.
 
@@ -1377,7 +1377,7 @@ Actor claims are self-reported by convention — the server does not inject them
 - **Instructed subagents** include actor claims only when the delegation prompt tells them to
 - The enforcement hook applies to all callers in the session, including subagents, providing a safety net regardless of prompt quality
 
-For reliable attribution, combine auditing enforcement with explicit delegation instructions:
+For reliable attribution, combine actor authentication enforcement with explicit delegation instructions:
 
 ```
 Include an "actor" object on every advance_item and manage_notes call:
@@ -1386,14 +1386,14 @@ Include an "actor" object on every advance_item and manage_notes call:
 
 ---
 
-## Auditing & Actor Verification
+## Actor Authentication & Verification
 
 ### Verifier Configuration
 
-The `auditing` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag and the `verifier` block are independent — enforcement checks actor presence, while the verifier checks proof validity.
+The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag and the `verifier` block are independent — enforcement checks actor presence, while the verifier checks proof validity.
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true          # Enforce actor claims on write operations
   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
   verifier:
@@ -1422,7 +1422,7 @@ Controls how the server resolves actor identity when verification cannot produce
 
 ### `DEGRADED_MODE_POLICY` Environment Variable
 
-The `DEGRADED_MODE_POLICY` environment variable overrides the `auditing.degraded_mode_policy` YAML value. It is evaluated at server startup before any requests are processed.
+The `DEGRADED_MODE_POLICY` environment variable overrides the `actor_authentication.degraded_mode_policy` YAML value. It is evaluated at server startup before any requests are processed.
 
 | Aspect | Detail |
 |---|---|

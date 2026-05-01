@@ -21,7 +21,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStat
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlAuditingConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
@@ -170,8 +170,8 @@ class CurrentMcpServer(
      * Returns a [Pair] of (verifier, policy) so both can be wired into [ToolExecutionContext].
      */
     private fun createActorVerifierAndPolicy(): Pair<ActorVerifier, DegradedModePolicy> {
-        val configService = YamlAuditingConfigService()
-        configService.getWarnings().forEach { logger.warn("Auditing config: {}", it) }
+        val configService = YamlActorAuthenticationConfigService()
+        configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
         val config = configService.getConfig()
         logger.info("Degraded mode policy: {}", config.degradedModePolicy.toConfigString())
         val verifier =

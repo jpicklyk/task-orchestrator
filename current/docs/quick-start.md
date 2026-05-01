@@ -122,7 +122,7 @@ Hooks run automatically — no invocation required:
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
-**Optional:** Enable auditing to require agents to identify themselves on every write operation — add an `auditing` section with `enabled: true` to `.taskorchestrator/config.yaml`. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to `.taskorchestrator/config.yaml`. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
 
 ### Output style
 
@@ -325,7 +325,7 @@ After adding or editing this file, reconnect the MCP server:
 > ```json
 > "-v", "${workspaceFolder}/.agentlair:/project/.agentlair:ro",
 > ```
-> Add this line alongside the `.taskorchestrator` mount. The `.agentlair/` mount is only needed when `verifier.jwks_path` is configured. See [Auditing & Actor Verification](./api-reference.md#auditing--actor-verification) in the API reference for details including Docker network access options.
+> Add this line alongside the `.taskorchestrator` mount. The `.agentlair/` mount is only needed when `verifier.jwks_path` is configured. See [Actor Authentication & Verification](./api-reference.md#actor-authentication--verification) in the API reference for details including Docker network access options.
 
 ---
 
